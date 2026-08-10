@@ -157,6 +157,15 @@ impl TestActor {
                     outgoing_sc.unbounded_send(OutgoingMessage::NetworkRequests(request)).unwrap();
                 }
             }),
+            request_with_permit_sender: Sender::from_fn({
+                let outgoing_sc = outgoing_sc.clone();
+                move |message: near_network::types::NetworkRequestWithPermit| {
+                    // ignore the permit in tests
+                    outgoing_sc
+                        .unbounded_send(OutgoingMessage::NetworkRequests(message.request))
+                        .unwrap();
+                }
+            }),
         };
         let data_distributor_adapter = SpiceDataDistributorAdapter {
             receipts: Sender::from_fn({
@@ -178,6 +187,7 @@ impl TestActor {
         let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
+            validator_signer.clone(),
             core_reader(&chain),
             noop().into_sender(),
             noop().into_sender(),

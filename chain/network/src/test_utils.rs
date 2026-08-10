@@ -180,6 +180,12 @@ impl CanSend<Tier3Request> for MockPeerManagerAdapter {
     fn send(&self, _msg: Tier3Request) {}
 }
 
+impl CanSend<crate::types::NetworkRequestWithPermit> for MockPeerManagerAdapter {
+    fn send(&self, _msg: crate::types::NetworkRequestWithPermit) {
+        unimplemented!()
+    }
+}
+
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().pop_front()

@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.14"
+    "version": "1.2.15"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2369,6 +2369,35 @@
               "DelegateActionInvalidNonceIndex"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined size of the resolved promise inputs (the `DataReceipt`s\nreferenced by the receipt's `input_data_ids`) exceeded the limit.",
+            "properties": {
+              "TotalPromiseInputSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "size": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "size",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalPromiseInputSizeExceeded"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -3991,6 +4020,18 @@
             "default": false,
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
+          },
+          "catch_up_throttle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 100000000,
+              "secs": 1
+            },
+            "description": "Delay between consecutive batches while the writer is catching up, pacing\nhow fast it uploads to the storage backend."
           },
           "polling_interval": {
             "allOf": [
@@ -11616,6 +11657,12 @@
           },
           "max_receipt_size": {
             "description": "Max receipt size",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_receipt_total_input_size": {
+            "description": "Max combined size (in bytes) of the resolved promise inputs a single\nreceipt may consume.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"

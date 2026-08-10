@@ -2,6 +2,7 @@ use crate::client::{
     ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
     StateRequestHeader, StateRequestPart,
 };
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{self, T2MessageBody};
@@ -12,7 +13,7 @@ use crate::network_protocol::{
 use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::peer_manager::network_state::{
-    NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, WhitelistNode,
+    NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, STATE_SYNC_RESPONSE_BYTES, WhitelistNode,
 };
 use crate::peer_manager::network_transport::{NetworkTransport, PeerTransportStats};
 use crate::peer_manager::peer_store;
@@ -834,7 +835,11 @@ impl PeerManagerActor {
         );
     }
 
-    fn handle_msg_network_requests(&self, msg: NetworkRequests) -> NetworkResponses {
+    fn handle_msg_network_requests(
+        &self,
+        msg: NetworkRequests,
+        permit: Option<OutgoingPermit>,
+    ) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
@@ -1329,15 +1334,15 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::EpochSyncResponse { peer_id, proof } => {
-                if self.transport.send_message(
-                    tcp::Tier::T2,
-                    peer_id,
-                    PeerMessage::EpochSyncResponse(proof).into(),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
+                // Use the pre-acquired permit if the caller supplied one.
+                let msg: Arc<PeerMessage> = PeerMessage::EpochSyncResponse(proof).into();
+                let sent = match permit {
+                    Some(p) => {
+                        self.transport.send_message_with_permit(tcp::Tier::T2, peer_id, msg, p)
+                    }
+                    None => self.transport.send_message(tcp::Tier::T2, peer_id, msg),
+                };
+                if sent { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
             }
             NetworkRequests::ChunkContractAccesses(validators, accesses) => {
                 for validator in validators {
@@ -1458,7 +1463,9 @@ impl PeerManagerActor {
     ) -> PeerManagerMessageResponse {
         match msg {
             PeerManagerMessageRequest::NetworkRequests(msg) => {
-                PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(msg))
+                PeerManagerMessageResponse::NetworkResponses(
+                    self.handle_msg_network_requests(msg, None),
+                )
             }
             PeerManagerMessageRequest::AdvertiseTier1Proxies => {
                 let state = self.state.clone();
@@ -1542,6 +1549,13 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
     }
 }
 
+impl messaging::Handler<crate::types::NetworkRequestWithPermit> for PeerManagerActor {
+    fn handle(&mut self, msg: crate::types::NetworkRequestWithPermit) {
+        let crate::types::NetworkRequestWithPermit { request, permit } = msg;
+        let _ = self.handle_msg_network_requests(request, Some(permit));
+    }
+}
+
 impl messaging::Handler<Tier3Request> for PeerManagerActor {
     fn handle(&mut self, request: Tier3Request) {
         let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
@@ -1553,22 +1567,34 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
         let transport = self.transport.clone();
         self.handle.spawn("handle tier3 request",
             async move {
+                // Get a memory permit for the response before generating it.
+                let response_permit = state
+                    .outgoing_queue_limiter
+                    .try_acquire(STATE_SYNC_RESPONSE_BYTES);
+
                 // Process the request.
                 // Unconditionally produce an ack to be sent back over tier2.
                 // Optionally produce a response to be sent over tier3.
                 let (tier2_ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
-                            Ok(Some(client_response)) => {
-                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
-                            }
-                            Ok(None) => {
-                                tracing::debug!(target: "network", ?request, "client declined to respond");
-                                (StateRequestAckBody::Busy, None)
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?request, ?err, "client failed to respond");
-                                (StateRequestAckBody::Error, None)
+                        let (ack, response) = if response_permit.is_none() {
+                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
+                            metrics::MessageDropped::OutgoingQueueLimitExceeded
+                                .inc_msg_type("VersionedStateResponse");
+                            (StateRequestAckBody::Busy, None)
+                        } else {
+                            match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                                Ok(Some(client_response)) => {
+                                    (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
+                                }
+                                Ok(None) => {
+                                    tracing::debug!(target: "network", ?request, "client declined to respond");
+                                    (StateRequestAckBody::Busy, None)
+                                }
+                                Err(err) => {
+                                    tracing::error!(target: "network", ?request, ?err, "client failed to respond");
+                                    (StateRequestAckBody::Error, None)
+                                }
                             }
                         };
 
@@ -1583,17 +1609,24 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                         )
                     }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
-                            Ok(Some(client_response)) => {
-                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
-                            }
-                            Ok(None) => {
-                                tracing::debug!(target: "network", ?request, "client declined to respond");
-                                (StateRequestAckBody::Busy, None)
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?err, ?request, "client failed to respond");
-                                (StateRequestAckBody::Error, None)
+                        let (ack, response) = if response_permit.is_none() {
+                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
+                            metrics::MessageDropped::OutgoingQueueLimitExceeded
+                                .inc_msg_type("VersionedStateResponse");
+                            (StateRequestAckBody::Busy, None)
+                        } else {
+                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                                Ok(Some(client_response)) => {
+                                    (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
+                                }
+                                Ok(None) => {
+                                    tracing::debug!(target: "network", ?request, "client declined to respond");
+                                    (StateRequestAckBody::Busy, None)
+                                }
+                                Err(err) => {
+                                    tracing::error!(target: "network", ?err, ?request, "client failed to respond");
+                                    (StateRequestAckBody::Error, None)
+                                }
                             }
                         };
 
@@ -1627,6 +1660,9 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let Some(tier3_response) = maybe_tier3_response else {
                     return;
                 };
+                // Safe to unwrap: maybe_tier3_response is only Some when we
+                // had a permit (the Busy branch above clears it).
+                let response_permit = response_permit.expect("permit set when response present");
 
                 // Establish a tier3 connection if we don't have one already.
                 let already_connected_t3 =
@@ -1640,7 +1676,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     }
                 }
 
-                transport.send_message(tcp::Tier::T3, sender, Arc::new(tier3_response));
+                transport.send_message_with_permit(
+                    tcp::Tier::T3,
+                    sender,
+                    Arc::new(tier3_response),
+                    response_permit,
+                );
             }
         );
     }

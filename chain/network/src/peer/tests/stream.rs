@@ -1,4 +1,5 @@
 use crate::auto_stop::AutoStopActor;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::testonly as data;
 use crate::peer::stream::{self, IncomingFrame};
 use crate::peer_manager::network_state::INCOMING_SEMAPHORE_PERMITS;
@@ -20,11 +21,11 @@ struct Actor {
 impl messaging::Actor for Actor {}
 
 #[derive(Debug)]
-struct SendFrame(stream::Frame);
+struct SendFrame(Vec<u8>);
 
 impl messaging::Handler<SendFrame> for Actor {
-    fn handle(&mut self, SendFrame(frame): SendFrame) {
-        self.stream.send(frame);
+    fn handle(&mut self, SendFrame(bytes): SendFrame) {
+        self.stream.send(stream::Frame::with_permit(bytes, OutgoingPermit::fake_for_test()));
     }
 }
 
@@ -74,12 +75,12 @@ async fn send_recv() {
 
     for _ in 0..5 {
         let n = rng.gen_range(1..10);
-        let msgs: Vec<_> = (0..n)
+        let msgs: Vec<Vec<u8>> = (0..n)
             .map(|_| {
                 let size = rng.gen_range(0..10000);
                 let mut msg = vec![0; size];
                 rng.fill(&mut msg[..]);
-                stream::Frame(msg)
+                msg
             })
             .collect();
         for msg in &msgs {
@@ -87,7 +88,7 @@ async fn send_recv() {
         }
         for want in &msgs {
             let got = a2.queue_recv.recv().await.unwrap();
-            assert_eq!(got.data, want.0);
+            assert_eq!(&got.data, want);
         }
     }
 }
