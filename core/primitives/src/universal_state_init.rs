@@ -46,6 +46,7 @@ use std::io;
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[borsh(use_discriminant = true)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum UniversalStateInit {
     V1(UniversalStateInitV1) = 0,
@@ -66,12 +67,15 @@ pub enum UniversalStateInit {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct UniversalStateInitV1 {
     /// Contract code, or `None` for a key-only (EOA) account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<GlobalContractIdentifier>,
     /// Initial storage; empty unless seeded. Sorted keys give a canonical encoding.
     #[serde_as(as = "BTreeMap<Base64, Base64>")]
     #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub data: BTreeMap<Vec<u8>, Vec<u8>>,
     /// Full-access keys as compact on-trie handles. Sorted for a canonical encoding.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub access_keys: BTreeSet<PublicKeyHandle>,
 }
 
@@ -184,6 +188,24 @@ mod tests {
         let raw_json = serde_json::to_string(&raw).unwrap();
         assert!(raw_json.starts_with('"') && raw_json.ends_with('"'));
         assert_eq!(serde_json::from_str::<RawStateInit>(&raw_json).unwrap(), raw);
+    }
+
+    #[test]
+    fn serde_json_shape() {
+        // Externally tagged with a lowercase tag, and empty fields are omitted.
+        let empty = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: BTreeSet::new(),
+        });
+        assert_eq!(serde_json::to_string(&empty).unwrap(), r#"{"v1":{}}"#);
+        assert_eq!(serde_json::from_str::<UniversalStateInit>(r#"{"v1":{}}"#).unwrap(), empty);
+
+        // Populated fields still round-trip through the omit-on-default wiring.
+        let si = key_only_init();
+        let json = serde_json::to_string(&si).unwrap();
+        assert!(json.starts_with(r#"{"v1":{"access_keys":"#), "unexpected shape: {json}");
+        assert_eq!(serde_json::from_str::<UniversalStateInit>(&json).unwrap(), si);
     }
 
     #[test]
