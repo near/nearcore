@@ -4442,6 +4442,7 @@ name = "near-fork-network"
 version = "2.13.3"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "clap",
  "hex",
@@ -4450,6 +4451,7 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-epoch-manager",
+ "near-jsonrpc",
  "near-mirror",
  "near-o11y",
  "near-parameters",

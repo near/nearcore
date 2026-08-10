@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
 chrono.workspace = true
 clap.workspace = true
 hex.workspace = true
@@ -21,7 +22,10 @@ rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
-tokio.workspace = true
+# `time` is required by `enable_all()` and by axum's accept-error backoff, which sleeps.
+# It is enabled transitively today via nearcore, but this crate depends on it directly and
+# the profiles set panic = 'abort', so losing it would abort a running fork rather than warn.
+tokio = { workspace = true, features = ["net", "rt", "time"] }
 tracing.workspace = true
 
 near-async.workspace = true
@@ -29,6 +33,7 @@ near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-jsonrpc.workspace = true
 near-mirror.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -41,6 +46,7 @@ nightly = [
     "near-chain-configs/nightly",
     "near-chain/nightly",
     "near-epoch-manager/nightly",
+    "near-jsonrpc/nightly",
     "near-mirror/nightly",
     "near-o11y/nightly",
     "near-parameters/nightly",

@@ -1,4 +1,5 @@
 use crate::delayed_receipts::DelayedReceiptTracker;
+use crate::metrics::{self, Phase, SCAN_PROGRESS_INTERVAL, ShardMetrics, ShardPhase};
 use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -53,6 +54,13 @@ use strum::IntoEnumIterator;
 ///
 /// If something goes wrong, use the sub-command reset and start over.
 pub struct ForkNetworkCommand {
+    /// `host:port` to serve fork-network Prometheus metrics on. `/metrics` is the only route.
+    /// Defaults to the port `neard run` serves metrics on, which existing scrapers already
+    /// target, so a forked-state build needs no scraper change. Pass an empty string to
+    /// disable. Failing to bind is logged and does not fail the command.
+    #[arg(long, global = true, default_value = "0.0.0.0:3030")]
+    prometheus_addr: String,
+
     #[clap(subcommand)]
     command: SubCommand,
 }
@@ -251,6 +259,14 @@ impl ForkNetworkCommand {
         .await
         .global();
 
+        // Start serving metrics before doing any work: the whole point is watching a run that
+        // may get stuck, and an endpoint that appears after the stage that hangs is useless.
+        metrics::init();
+        crate::metrics_server::spawn(&self.prometheus_addr);
+
+        // fork-network runs with state snapshots disabled: a pending snapshot locks
+        // flat-storage head updates, which would interfere with the state rewriting
+        // done here.
         near_config.config.store.disable_state_snapshot();
 
         match &self.command {
@@ -299,6 +315,7 @@ impl ForkNetworkCommand {
                 self.reset(near_config, home_dir)?;
             }
         };
+        metrics::set_phase(Phase::Done);
         Ok(())
     }
 
@@ -319,6 +336,7 @@ impl ForkNetworkCommand {
             Ok(false)
         } else {
             tracing::info!(destination = ?fork_snapshot_path, "creating snapshot of original DB");
+            metrics::set_phase(Phase::Snapshot);
             // checkpointing only hot storage, because cold storage will not be changed
             checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
             Ok(true)
@@ -338,6 +356,7 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
         assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        metrics::set_phase(Phase::WriteForkInfo);
 
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
@@ -434,6 +453,7 @@ impl ForkNetworkCommand {
                 unwanted_cols.push(col);
             }
         }
+        metrics::set_phase(Phase::ClearColumns);
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
@@ -471,9 +491,12 @@ impl ForkNetworkCommand {
         let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
 
+        // Snapshots are already disabled on the store config above, so the plain
+        // constructor is what this branch needs.
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
+        metrics::set_phase(Phase::LoadMemtries);
         runtime.get_tries().load_memtries_for_enabled_shards(&all_shard_uids, None, true)?;
 
         let shard_tries = runtime.get_tries();
@@ -885,6 +908,7 @@ impl ForkNetworkCommand {
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
+        metrics::set_phase(Phase::Reset);
         tracing::info!("removing all current data");
         for entry in std::fs::read_dir(&store_path)? {
             let entry = entry?;
@@ -976,15 +1000,38 @@ impl ForkNetworkCommand {
         let mut receipts_tracker =
             DelayedReceiptTracker::new(shard_uid, target_shard_layout.shard_ids().count());
 
+        let shard_metrics = ShardMetrics::new(shard_uid);
+        shard_metrics.set_phase(ShardPhase::Pass1);
+        let scan = shard_metrics.pass1();
+
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut ref_keys_retrieved = 0;
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
+        let mut keys_scanned: u64 = 0;
 
         for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            keys_scanned += 1;
+            scan.key_scanned();
+            if keys_scanned.is_multiple_of(SCAN_PROGRESS_INTERVAL) {
+                let position = scan.report_position(keys_scanned, &key);
+                tracing::info!(
+                    ?shard_uid,
+                    keys_scanned,
+                    position,
+                    // Which trie column the scan is in. `position` alone is misleading here:
+                    // ContractData dwarfs every other column, so pass 1 sits around 0.4 for
+                    // hours and reads as stuck. The column moving is the honest progress.
+                    column = key.first().copied().unwrap_or_default(),
+                    ref_keys_retrieved,
+                    records_parsed,
+                    "pass 1 scanning"
+                );
+            }
             let (key, value) = match flat_value {
                 FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
+                    shard_metrics.ref_value_retrieved();
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
                 FlatStateValue::Inlined(value) => (key, value),
@@ -1087,8 +1134,10 @@ impl ForkNetworkCommand {
                     }
                 }
                 records_parsed += 1;
+                shard_metrics.record_parsed();
             } else {
                 records_not_parsed += 1;
+                shard_metrics.record_not_parsed();
             }
             if storage_mutator.should_commit(batch_size) {
                 tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
@@ -1104,8 +1153,10 @@ impl ForkNetworkCommand {
             storage_mutator = make_storage_mutator(update_state.clone())?;
         }
 
+        scan.report_complete();
         tracing::info!(
             ?shard_uid,
+            keys_scanned,
             ref_keys_retrieved,
             records_parsed,
             records_not_parsed,
@@ -1117,10 +1168,29 @@ impl ForkNetworkCommand {
         // Remember that we kept track of accounts with full access keys in `has_full_key`.
         // Iterating over the whole flat state is very fast compared to writing all the updates.
         // TODO: Just remember what accounts we saw in the above iteration
+        // Pass 1 rewrote flat state as it went, so its key count is close to, but not exactly,
+        // what pass 2 will scan. It is still a far better denominator than a keyspace estimate.
+        shard_metrics.set_keys_expected(keys_scanned);
+        shard_metrics.set_phase(ShardPhase::Pass2);
+        let scan = shard_metrics.pass2(keys_scanned);
         let mut num_added = 0;
         let mut num_accounts = 0;
+        let mut keys_scanned: u64 = 0;
         for (key, _) in store.flat_store().iter(shard_uid) {
-            if key[0] == col::ACCOUNT {
+            keys_scanned += 1;
+            scan.key_scanned();
+            if keys_scanned.is_multiple_of(SCAN_PROGRESS_INTERVAL) {
+                let position = scan.report_position(keys_scanned, &key);
+                tracing::info!(
+                    ?shard_uid,
+                    keys_scanned,
+                    position,
+                    num_accounts,
+                    num_added,
+                    "pass 2 scanning"
+                );
+            }
+            if key.first() == Some(&col::ACCOUNT) {
                 num_accounts += 1;
                 let account_id = match parse_account_id_from_account_key(&key) {
                     Ok(account_id) => account_id,
@@ -1155,14 +1225,24 @@ impl ForkNetworkCommand {
                     AccessKey::full_access(),
                 )?;
                 num_added += 1;
+                shard_metrics.access_key_added();
                 if storage_mutator.should_commit(batch_size) {
+                    tracing::info!(
+                        ?shard_uid,
+                        keys_scanned,
+                        num_accounts,
+                        num_added,
+                        "pass 2 commit"
+                    );
                     storage_mutator.commit()?;
                     storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }
-        tracing::info!(?shard_uid, num_accounts, num_added, "pass 2 done");
+        scan.report_complete();
+        tracing::info!(?shard_uid, keys_scanned, num_accounts, num_added, "pass 2 done");
         storage_mutator.commit()?;
+        shard_metrics.set_phase(ShardPhase::Done);
         Ok(receipts_tracker)
     }
 
@@ -1205,6 +1285,8 @@ impl ForkNetworkCommand {
             &source_state_roots,
         )?;
 
+        metrics::init_shards(&shard_uids);
+        metrics::set_phase(Phase::PrepareState);
         // the try_fold().try_reduce() will give a Vec<> of the return values and return early if one fails
         let receipt_trackers = shard_uids
             .into_par_iter()
@@ -1238,6 +1320,7 @@ impl ForkNetworkCommand {
             &update_state,
         );
         let shard_tries = runtime.get_tries();
+        metrics::set_phase(Phase::BandwidthScheduler);
         crate::storage_mutator::write_bandwidth_scheduler_state(
             &shard_tries,
             &source_shard_layout,
@@ -1252,6 +1335,7 @@ impl ForkNetworkCommand {
             &target_shard_layout,
             &update_state,
         );
+        metrics::set_phase(Phase::DelayedReceipts);
         crate::delayed_receipts::write_delayed_receipts(
             &shard_tries,
             &update_state,
@@ -1260,6 +1344,7 @@ impl ForkNetworkCommand {
             &target_shard_layout,
             &default_key,
         )?;
+        metrics::set_phase(Phase::FinalizeState);
         crate::storage_mutator::finalize_state(
             &shard_tries,
             &source_shard_layout,
