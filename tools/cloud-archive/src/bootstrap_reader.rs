@@ -46,6 +46,14 @@ impl BootstrapReaderCmd {
             .cloud_storage_context()
             .context("cloud_archival not configured in config.json")?;
 
+        // Constructing the GCS client and every retrieval below run on tokio, and this
+        // command is not itself async, so hold a runtime for the rest of the function.
+        let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        let _runtime_guard = tokio_runtime.enter();
+
         let storage = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
