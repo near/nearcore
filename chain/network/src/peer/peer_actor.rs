@@ -1,6 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::AnnounceAccountRequest;
 use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, OwnedAccount, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo,
@@ -348,6 +349,7 @@ impl PeerActor {
             stream,
             stats.clone(),
             network_state.incoming_message_semaphore.clone(),
+            network_state.config.max_write_buffer_capacity_bytes,
         );
         let actor = Self {
             closing_reason: None,
@@ -396,6 +398,10 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
+        self.send_message_inner(msg, None);
+    }
+
+    fn send_message_inner(&self, msg: &PeerMessage, reserved_permit: Option<OutgoingPermit>) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
@@ -424,10 +430,35 @@ impl PeerActor {
         };
 
         let bytes = msg.serialize();
-        self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
+        // Reserve capacity in the global outgoing-queue limiter. Pre-acquired reservations are
+        // shrunk to the actual serialized size; everything else acquires now and drops the message
+        // if there is no headroom.
+        let permit = match reserved_permit {
+            Some(mut p) => {
+                p.shrink_to(bytes_len);
+                p
+            }
+            None => match self.network_state.outgoing_queue_limiter.try_acquire(bytes_len) {
+                Some(p) => p,
+                None => {
+                    metrics::MessageDropped::OutgoingQueueLimitExceeded
+                        .inc_msg_type(msg.msg_variant());
+                    tracing::warn!(
+                        target: "network",
+                        msg_type = msg.msg_variant(),
+                        bytes_len,
+                        peer = %self.peer_info,
+                        "dropping outgoing message: global outgoing-queue limit reached",
+                    );
+                    return;
+                }
+            },
+        };
+        self.tracker.lock().increment_sent(&self.clock, bytes_len as u64);
         tracing::trace!(target: "network", msg_len = bytes_len);
-        self.framed.send(stream::Frame(bytes));
+        let frame = stream::Frame::with_permit(bytes, permit);
+        self.framed.send(frame);
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         let msg_type = msg.msg_variant();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
@@ -1691,7 +1722,7 @@ impl messaging::Handler<SpanWrapped<SendMessage>> for PeerActor {
     fn handle(&mut self, msg: SpanWrapped<SendMessage>) {
         self.delay_if_registering(move |this| {
             let msg = msg.span_unwrap();
-            this.send_message(&msg.message);
+            this.send_message_inner(&msg.message, msg.reserved_permit);
         });
     }
 }

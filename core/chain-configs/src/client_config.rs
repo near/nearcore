@@ -24,6 +24,11 @@ pub enum LogSummaryStyle {
     Colored,
 }
 
+/// How far above the head a block can be and still be of interest. The client applies this
+/// bound when deciding whether to accept an incoming block while syncing, and the blocks delay
+/// tracker applies it when deciding whether to record one.
+pub const BLOCK_HORIZON: BlockHeightDelta = 500;
+
 /// Minimum number of epochs for which we keep store data
 pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
@@ -186,6 +191,14 @@ pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
+pub fn default_archival_writer_catch_up_throttle() -> Duration {
+    // GCS allows about one mutation per second on a single object, and the writer
+    // rewrites the cloud heads once per batch.
+    // TODO(cloud_archival): consider a faster catch-up, rewriting the heads less
+    // often, or waiting per head object against its own last write.
+    Duration::milliseconds(1100)
+}
+
 pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
@@ -206,6 +219,13 @@ pub struct CloudArchivalWriterConfig {
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
 
+    /// Delay between consecutive batches while the writer is catching up, pacing
+    /// how fast it uploads to the storage backend.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_writer_catch_up_throttle")]
+    pub catch_up_throttle: Duration,
+
     /// Cadence of state snapshots, in epochs. Higher values reduce bucket cost at
     /// the expense of potentially longer delta replay during reader bootstrap.
     #[serde(default = "default_snapshot_every_n_epochs")]
@@ -217,6 +237,7 @@ impl Default for CloudArchivalWriterConfig {
         Self {
             archive_block_data: false,
             polling_interval: default_archival_writer_polling_interval(),
+            catch_up_throttle: default_archival_writer_catch_up_throttle(),
             snapshot_every_n_epochs: default_snapshot_every_n_epochs(),
         }
     }
@@ -477,7 +498,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_external_timeout() -> Duration {
+pub fn default_block_request_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -673,7 +694,7 @@ pub struct ClientConfig {
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,

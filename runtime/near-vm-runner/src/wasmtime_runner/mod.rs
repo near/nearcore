@@ -1203,7 +1203,6 @@ mod tests {
         assert_eq!(concurrency.release_tables(1), 2);
         assert_eq!(concurrency.release_tables(1), 1);
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] = array::from_fn(|_| {
                 scope.spawn(|| concurrency.try_acquire(MAX_TABLES / MAX_CONCURRENCY))
@@ -1234,7 +1233,6 @@ mod tests {
             assert!(acquired);
         });
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] =
                 array::from_fn(|_| scope.spawn(|| concurrency.try_acquire(0)));

@@ -399,6 +399,12 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
+    /// For spice, the block that certified a chunk's execution result. Written
+    /// once, when the certifying block becomes final.
+    /// - *Rows*: SpiceChunkId (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::hash::CryptoHash] (certifying block hash)
+    #[cfg(feature = "protocol_feature_spice")]
+    ChunkCertifyingBlock,
     /// Pre-computed chunk producer for the chunk anchored at the given block (its
     /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
     /// Populated during header sync and block processing, gated behind `EarlyKickout`
@@ -495,7 +501,8 @@ impl DBCol {
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults
-            | DBCol::SpiceEndorsementStats => true,
+            | DBCol::SpiceEndorsementStats
+            | DBCol::ChunkCertifyingBlock => true,
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
             _ => false,
@@ -601,6 +608,8 @@ impl DBCol {
             | DBCol::SpiceEndorsementStats => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ContractAccesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ChunkCertifyingBlock => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -709,6 +718,7 @@ impl DBCol {
             | DBCol::TrieChanges => GcPolicy::Delete,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes
+            | DBCol::ChunkCertifyingBlock
             | DBCol::ContractAccesses
             | DBCol::Endorsements
             | DBCol::ExecutionResults
@@ -864,6 +874,8 @@ impl DBCol {
             DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ChunkCertifyingBlock => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
@@ -928,6 +940,13 @@ impl DBCol {
     pub fn contract_accesses() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ContractAccesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn chunk_certifying_block() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ChunkCertifyingBlock;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

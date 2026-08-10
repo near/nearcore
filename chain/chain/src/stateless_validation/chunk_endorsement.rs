@@ -152,6 +152,37 @@ pub fn validate_chunk_endorsements_in_block(
     Ok(())
 }
 
+/// With spice, chunk endorsements are not included in blocks, so the bitmap in the
+/// [`BlockHeader`] must contain an empty bitmap for each shard.
+/// TODO(spice): Remove the chunk_endorsements field from the header after spice is released.
+pub fn validate_spice_chunk_endorsements_in_header(header: &BlockHeader) -> Result<(), Error> {
+    let Some(chunk_endorsements) = header.chunk_endorsements() else {
+        return Err(Error::InvalidChunkEndorsementBitmap(format!(
+            "expected chunk endorsements bitmap but found none at height {}",
+            header.height()
+        )));
+    };
+    let num_shards = header.chunk_mask().len();
+    if chunk_endorsements.num_shards() != num_shards {
+        return Err(Error::InvalidChunkEndorsementBitmap(format!(
+            "number of shards in bitmap and in chunk mask do not match: shards in bitmap={}, shards in chunk mask={}",
+            chunk_endorsements.num_shards(),
+            num_shards,
+        )));
+    }
+    for shard_index in 0..num_shards {
+        let len =
+            chunk_endorsements.len(shard_index).expect("shard_index < num_shards checked above");
+        if len != 0 {
+            return Err(Error::InvalidChunkEndorsementBitmap(format!(
+                "bitmap must be empty for every shard with spice, but has length {} for shard index {}",
+                len, shard_index,
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
 pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
