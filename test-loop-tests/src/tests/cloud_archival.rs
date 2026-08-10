@@ -515,7 +515,7 @@ fn test_cloud_archival_catch_up_throttle_limits_batch_rate() {
     h.pause_writer();
     let lag_batches = expected_batches + 5;
     h.run_until(paused_at + lag_batches * batch_size);
-    h.resume_writer();
+    h.restart_writer();
 
     // The first batch after initializing is archived immediately, the delay only
     // separating later ones. Let it land before measuring, half a delay being too
