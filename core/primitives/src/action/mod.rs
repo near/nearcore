@@ -224,7 +224,6 @@ pub struct DeterministicStateInitAction {
 /// Create a `0u` universal account from its state init. The receiver id must
 /// equal `derive_universal_account_id(state_init)`; the attached `deposit`
 /// covers the new account's storage staking.
-#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
