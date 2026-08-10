@@ -2,6 +2,7 @@ use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::BlockHeight;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 
@@ -14,11 +15,12 @@ const MAX_ACTIVE_HEADER_VERIFICATIONS: usize = 4;
 pub(crate) struct BlockApprovalVerificationScheduler<T> {
     active: usize,
     queued: VecDeque<T>,
+    deferred_by_peer: HashMap<PeerId, (BlockHeight, T)>,
 }
 
 impl<T> Default for BlockApprovalVerificationScheduler<T> {
     fn default() -> Self {
-        Self { active: 0, queued: VecDeque::new() }
+        Self { active: 0, queued: VecDeque::new(), deferred_by_peer: HashMap::new() }
     }
 }
 
@@ -42,6 +44,37 @@ impl<T> BlockApprovalVerificationScheduler<T> {
         self.active = self.active.saturating_sub(1);
         None
     }
+
+    /// Retains only the newest verification received while a peer already has admitted work.
+    pub(crate) fn defer(&mut self, peer_id: PeerId, height: BlockHeight, job: T) {
+        match self.deferred_by_peer.entry(peer_id) {
+            Entry::Occupied(mut entry) if entry.get().0 < height => {
+                entry.insert((height, job));
+            }
+            Entry::Vacant(entry) => {
+                entry.insert((height, job));
+            }
+            Entry::Occupied(_) => {}
+        }
+    }
+
+    pub(crate) fn deferred_height(&self, peer_id: &PeerId) -> Option<BlockHeight> {
+        self.deferred_by_peer.get(peer_id).map(|(height, _)| *height)
+    }
+
+    pub(crate) fn take_deferred(&mut self, peer_id: &PeerId) -> Option<T> {
+        self.deferred_by_peer.remove(peer_id).map(|(_, job)| job)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum VerificationRegistration {
+    /// The caller must prepare and enqueue a new verification job.
+    Enqueue,
+    /// The peer already has admitted work, so the caller must retain this newer header for later.
+    Defer,
+    /// The relay was satisfied by verified, cached, or shared pending state.
+    Handled,
 }
 
 struct PendingHeaderVerification {
@@ -78,39 +111,48 @@ impl Default for VerifiedPeerHeights {
 }
 
 impl VerifiedPeerHeights {
-    /// Registers interest in a header and returns whether the caller should enqueue verification.
+    /// Registers interest in a header and tells the caller whether to enqueue, defer, or drop it.
     /// Repeated relays share one pending job. Cached valid results update the peer immediately,
-    /// while cached invalid results are ignored.
+    /// while cached invalid results are ignored. A strictly newer header is deferred when this
+    /// peer already has admitted work.
     pub fn register_verification(
         &mut self,
         peer_id: &PeerId,
         header_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> bool {
+    ) -> VerificationRegistration {
         if self.get(peer_id).is_some_and(|verified| verified >= height) {
-            return false;
+            return VerificationRegistration::Handled;
         }
         if let Some(is_valid) = self.header_verification_results.get(header_hash).copied() {
             if is_valid {
                 self.record_height(peer_id.clone(), height);
             }
-            return false;
+            return VerificationRegistration::Handled;
         }
-        if self.pending_header_by_peer.contains_key(peer_id) {
-            return false;
+        if let Some(pending_hash) = self.pending_header_by_peer.get(peer_id) {
+            let pending = self
+                .pending_header_verifications
+                .get(pending_hash)
+                .expect("pending header by peer must reference pending verification");
+            return if height > pending.height {
+                VerificationRegistration::Defer
+            } else {
+                VerificationRegistration::Handled
+            };
         }
         if let Some(pending) = self.pending_header_verifications.get_mut(header_hash) {
             debug_assert_eq!(pending.height, height);
             pending.peers.insert(peer_id.clone());
             self.pending_header_by_peer.insert(peer_id.clone(), *header_hash);
-            return false;
+            return VerificationRegistration::Handled;
         }
         self.pending_header_verifications.insert(
             *header_hash,
             PendingHeaderVerification { height, peers: HashSet::from([peer_id.clone()]) },
         );
         self.pending_header_by_peer.insert(peer_id.clone(), *header_hash);
-        true
+        VerificationRegistration::Enqueue
     }
 
     /// Completes a pending verification. A result at or below the current head is discarded
@@ -120,24 +162,28 @@ impl VerifiedPeerHeights {
         header_hash: &CryptoHash,
         is_valid: bool,
         head_height: BlockHeight,
-    ) {
+    ) -> Vec<PeerId> {
         let Some(pending) = self.take_pending_verification(header_hash) else {
-            return;
+            return Vec::new();
         };
+        let peer_ids = pending.peers.into_iter().collect::<Vec<_>>();
         self.header_verification_results.put(*header_hash, is_valid);
         if !is_valid || pending.height <= head_height {
-            return;
+            return peer_ids;
         }
-        for peer_id in pending.peers {
-            self.record_height(peer_id, pending.height);
+        for peer_id in &peer_ids {
+            self.record_height(peer_id.clone(), pending.height);
         }
+        peer_ids
     }
 
     /// Drops an in-flight entry when the immutable verification inputs are not currently
     /// available. Unlike a failed cryptographic check, this is not cached because epoch data can
     /// become available later.
-    pub fn cancel_verification(&mut self, header_hash: &CryptoHash) {
-        self.take_pending_verification(header_hash);
+    pub fn cancel_verification(&mut self, header_hash: &CryptoHash) -> Vec<PeerId> {
+        self.take_pending_verification(header_hash)
+            .map(|pending| pending.peers.into_iter().collect())
+            .unwrap_or_default()
     }
 
     pub fn get(&self, peer_id: &PeerId) -> Option<BlockHeight> {
@@ -187,10 +233,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let h10 = header_hash(b"h10");
-        assert!(heights.register_verification(&p, &h10, 10));
+        assert_eq!(heights.register_verification(&p, &h10, 10), VerificationRegistration::Enqueue);
         heights.finish_verification(&h10, true, 0);
         let h5 = header_hash(b"h5");
-        assert!(!heights.register_verification(&p, &h5, 5));
+        assert_eq!(heights.register_verification(&p, &h5, 5), VerificationRegistration::Handled);
         assert_eq!(heights.get(&p), Some(10));
     }
 
@@ -199,10 +245,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.register_verification(&p, &hash, 10));
+        assert_eq!(heights.register_verification(&p, &hash, 10), VerificationRegistration::Enqueue);
         heights.finish_verification(&hash, false, 0);
         assert_eq!(heights.get(&p), None);
-        assert!(!heights.register_verification(&p, &hash, 10));
+        assert_eq!(heights.register_verification(&p, &hash, 10), VerificationRegistration::Handled);
     }
 
     #[test]
@@ -210,8 +256,14 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let hash = header_hash(b"h10");
-        assert!(heights.register_verification(&p1, &hash, 10));
-        assert!(!heights.register_verification(&p2, &hash, 10));
+        assert_eq!(
+            heights.register_verification(&p1, &hash, 10),
+            VerificationRegistration::Enqueue
+        );
+        assert_eq!(
+            heights.register_verification(&p2, &hash, 10),
+            VerificationRegistration::Handled
+        );
         heights.finish_verification(&hash, true, 0);
         assert_eq!(heights.get(&p1), Some(10));
         assert_eq!(heights.get(&p2), Some(10));
@@ -222,9 +274,15 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let hash = header_hash(b"h10");
-        assert!(heights.register_verification(&p1, &hash, 10));
+        assert_eq!(
+            heights.register_verification(&p1, &hash, 10),
+            VerificationRegistration::Enqueue
+        );
         heights.finish_verification(&hash, true, 0);
-        assert!(!heights.register_verification(&p2, &hash, 10));
+        assert_eq!(
+            heights.register_verification(&p2, &hash, 10),
+            VerificationRegistration::Handled
+        );
         assert_eq!(heights.get(&p2), Some(10));
     }
 
@@ -233,21 +291,22 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.register_verification(&p, &hash, 10));
+        assert_eq!(heights.register_verification(&p, &hash, 10), VerificationRegistration::Enqueue);
         heights.finish_verification(&hash, true, 10);
         assert_eq!(heights.get(&p), None);
     }
 
     #[test]
-    fn out_of_order_results_keep_highest_height() {
+    fn newer_height_is_deferred_until_the_current_verification_finishes() {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let h10 = header_hash(b"h10");
         let h20 = header_hash(b"h20");
-        assert!(heights.register_verification(&p, &h10, 10));
-        assert!(heights.register_verification(&p, &h20, 20));
+        assert_eq!(heights.register_verification(&p, &h10, 10), VerificationRegistration::Enqueue);
+        assert_eq!(heights.register_verification(&p, &h20, 20), VerificationRegistration::Defer);
+        assert_eq!(heights.finish_verification(&h10, false, 0), vec![p.clone()]);
+        assert_eq!(heights.register_verification(&p, &h20, 20), VerificationRegistration::Enqueue);
         heights.finish_verification(&h20, true, 0);
-        heights.finish_verification(&h10, true, 0);
         assert_eq!(heights.get(&p), Some(20));
     }
 
@@ -256,9 +315,9 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let hash = header_hash(b"h10");
-        assert!(heights.register_verification(&p, &hash, 10));
+        assert_eq!(heights.register_verification(&p, &hash, 10), VerificationRegistration::Enqueue);
         heights.cancel_verification(&hash);
-        assert!(heights.register_verification(&p, &hash, 10));
+        assert_eq!(heights.register_verification(&p, &hash, 10), VerificationRegistration::Enqueue);
     }
 
     #[test]
@@ -266,10 +325,10 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let (p1, p2) = (peer("a"), peer("b"));
         let h10 = header_hash(b"h10");
-        assert!(heights.register_verification(&p1, &h10, 10));
+        assert_eq!(heights.register_verification(&p1, &h10, 10), VerificationRegistration::Enqueue);
         heights.finish_verification(&h10, true, 0);
         let h20 = header_hash(b"h20");
-        assert!(heights.register_verification(&p2, &h20, 20));
+        assert_eq!(heights.register_verification(&p2, &h20, 20), VerificationRegistration::Enqueue);
         heights.finish_verification(&h20, true, 0);
         heights.prune_at_or_below(10);
         assert_eq!(heights.get(&p1), None);
@@ -281,23 +340,31 @@ mod tests {
         let mut heights = VerifiedPeerHeights::default();
         let p = peer("a");
         let first = header_hash(b"first");
-        assert!(heights.register_verification(&p, &first, 10));
-        assert!(!heights.register_verification(&p, &header_hash(b"second"), 11));
+        assert_eq!(
+            heights.register_verification(&p, &first, 10),
+            VerificationRegistration::Enqueue
+        );
+        assert_eq!(
+            heights.register_verification(&p, &header_hash(b"second"), 11),
+            VerificationRegistration::Defer
+        );
         assert_eq!(heights.pending_header_verifications.len(), 1);
 
         heights.finish_verification(&first, false, 0);
-        assert!(heights.register_verification(&p, &header_hash(b"third"), 12));
+        assert_eq!(
+            heights.register_verification(&p, &header_hash(b"third"), 12),
+            VerificationRegistration::Enqueue
+        );
     }
 
     #[test]
     fn distinct_peers_are_retained_beyond_the_result_cache_size() {
         let mut heights = VerifiedPeerHeights::default();
         for i in 0..=HEADER_VERIFICATION_CACHE_SIZE {
-            assert!(heights.register_verification(
-                &peer(&i.to_string()),
-                &header_hash(&[i as u8]),
-                10
-            ));
+            assert_eq!(
+                heights.register_verification(&peer(&i.to_string()), &header_hash(&[i as u8]), 10),
+                VerificationRegistration::Enqueue
+            );
         }
 
         let overflow_peer = peer(&HEADER_VERIFICATION_CACHE_SIZE.to_string());
@@ -315,6 +382,20 @@ mod tests {
 
         assert_eq!(scheduler.enqueue(MAX_ACTIVE_HEADER_VERIFICATIONS), None);
         assert_eq!(scheduler.complete(), Some(MAX_ACTIVE_HEADER_VERIFICATIONS));
+    }
+
+    #[test]
+    fn scheduler_retains_only_the_newest_deferred_height_per_peer() {
+        let mut scheduler = BlockApprovalVerificationScheduler::default();
+        let p = peer("a");
+
+        scheduler.defer(p.clone(), 11, "h11");
+        scheduler.defer(p.clone(), 13, "h13");
+        scheduler.defer(p.clone(), 12, "h12");
+
+        assert_eq!(scheduler.deferred_height(&p), Some(13));
+        assert_eq!(scheduler.take_deferred(&p), Some("h13"));
+        assert_eq!(scheduler.take_deferred(&p), None);
     }
 
     #[test]

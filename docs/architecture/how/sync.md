@@ -26,8 +26,10 @@ periodically in the client actor — if the node is behind by more than
 While the local head is fresh, peer heights are accepted as sync targets only after the peer has
 relayed a block whose producer signature and approvals verify against a known epoch. Signature
 verification runs with four active background computation slots and a FIFO waiting queue. Each peer
-can occupy at most one pending verification, so one peer cannot monopolize the queue while distinct
-peers' sync signals survive bursts larger than the result cache. Relays of the same header share one
+can occupy at most one pending verification. If that peer relays newer headers before its pending
+verification completes, only its newest header is retained and promoted next. This prevents one
+peer from monopolizing the queue while preserving its latest sync signal and distinct peers' sync
+signals during bursts larger than the result cache. Relays of the same header share one
 verification, and the result is applied only if the block is still ahead of the local head when the
 worker completes. Once the local head is stale, the node falls back to advertised peer heights so a
 node outside its known epochs can bootstrap.

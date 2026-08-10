@@ -20,7 +20,9 @@ use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
-use crate::verified_peer_heights::{BlockApprovalVerificationScheduler, VerifiedPeerHeights};
+use crate::verified_peer_heights::{
+    BlockApprovalVerificationScheduler, VerificationRegistration, VerifiedPeerHeights,
+};
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::RayonAsyncComputationSpawner;
@@ -199,7 +201,9 @@ pub struct Client {
 }
 
 struct BlockApprovalVerificationJob {
+    peer_id: PeerId,
     header_hash: CryptoHash,
+    height: BlockHeight,
     verification: BlockHeaderApprovalVerification,
 }
 
@@ -1233,17 +1237,69 @@ impl Client {
             return;
         }
         let header_hash = *block.hash();
-        if !self.verified_peer_heights.register_verification(peer_id, &header_hash, height) {
+        let registration =
+            self.verified_peer_heights.register_verification(peer_id, &header_hash, height);
+        if registration == VerificationRegistration::Handled {
+            return;
+        }
+        if registration == VerificationRegistration::Defer
+            && self
+                .block_approval_verification_scheduler
+                .deferred_height(peer_id)
+                .is_some_and(|deferred_height| deferred_height >= height)
+        {
             return;
         }
         let Ok(verification) = self.chain.prepare_header_approval_verification(block.header())
         else {
-            self.verified_peer_heights.cancel_verification(&header_hash);
+            if registration == VerificationRegistration::Enqueue {
+                let released = self.verified_peer_heights.cancel_verification(&header_hash);
+                self.promote_deferred_block_approval_verifications(released);
+            }
             return;
         };
-        let job = BlockApprovalVerificationJob { header_hash, verification };
+        let job = BlockApprovalVerificationJob {
+            peer_id: peer_id.clone(),
+            header_hash,
+            height,
+            verification,
+        };
+        if registration == VerificationRegistration::Defer {
+            self.block_approval_verification_scheduler.defer(peer_id.clone(), height, job);
+            return;
+        }
+        self.enqueue_block_approval_verification(job);
+    }
+
+    fn enqueue_block_approval_verification(&mut self, job: BlockApprovalVerificationJob) {
         if let Some(job) = self.block_approval_verification_scheduler.enqueue(job) {
             self.spawn_block_approval_verification(job);
+        }
+    }
+
+    fn promote_deferred_block_approval_verifications(&mut self, peer_ids: Vec<PeerId>) {
+        for peer_id in peer_ids {
+            let Some(job) = self.block_approval_verification_scheduler.take_deferred(&peer_id)
+            else {
+                continue;
+            };
+            match self.verified_peer_heights.register_verification(
+                &job.peer_id,
+                &job.header_hash,
+                job.height,
+            ) {
+                VerificationRegistration::Enqueue => {
+                    self.enqueue_block_approval_verification(job);
+                }
+                VerificationRegistration::Defer => {
+                    self.block_approval_verification_scheduler.defer(
+                        job.peer_id.clone(),
+                        job.height,
+                        job,
+                    );
+                }
+                VerificationRegistration::Handled => {}
+            }
         }
     }
 
@@ -1261,17 +1317,18 @@ impl Client {
         &mut self,
         result: BlockApprovalVerificationResult,
     ) {
-        match self.chain.head() {
+        let released = match self.chain.head() {
             Ok(head) => self.verified_peer_heights.finish_verification(
                 &result.header_hash,
                 result.is_valid,
                 head.height,
             ),
             Err(_) => self.verified_peer_heights.cancel_verification(&result.header_hash),
-        }
+        };
         if let Some(job) = self.block_approval_verification_scheduler.complete() {
             self.spawn_block_approval_verification(job);
         }
+        self.promote_deferred_block_approval_verifications(released);
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
