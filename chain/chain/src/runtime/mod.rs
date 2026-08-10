@@ -50,7 +50,7 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
-use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
+use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
@@ -523,6 +523,11 @@ impl NightshadeRuntime {
         );
         let partial_state = match trie_nodes {
             Ok(partial_state) => partial_state,
+            // Expected while a snapshot is being created; the caller retries.
+            Err(err) if err == SnapshotError::LockWouldBlock.into() => {
+                tracing::debug!(target: "runtime", %shard_id, part_id.idx, part_id.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
+                return Err(err.into());
+            }
             Err(err) => {
                 tracing::error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
                 return Err(err.into());
