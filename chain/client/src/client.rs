@@ -43,7 +43,9 @@ use near_chain::{
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
     Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
+use near_chain_configs::{
+    BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
@@ -86,9 +88,6 @@ use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
