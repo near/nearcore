@@ -15,6 +15,7 @@
 * Transaction-status timeouts (`tx`, `EXPERIMENTAL_tx_status`, and `send_tx`/`broadcast_tx_commit` with `wait_until`) now carry a `cause` in the `TIMEOUT_ERROR`'s `info` payload explaining how far the transaction got: `NOT_OBSERVED`, `PENDING` (with the last-known status), `DOES_NOT_TRACK_SHARD`, or `ERROR` (with `debug_info`). The `info` payload is absent on responses from older nodes, so clients should treat it as optional. Previously the timeout gave no detail.
 * Added three Prometheus metrics for the blocks delay tracker: `near_blocks_delay_tracker_entries` (gauge, labelled by map), `near_blocks_delay_tracker_refused_blocks_total` (labelled by reason), and `near_blocks_delay_tracker_missing_entries_total` (labelled by mark). The tracker now records a block only while its height is within `[head - 50, head + 500)` and only up to 8 blocks per height, so `/debug/api/chain_processing_status` no longer lists blocks far from the head. Its `blocks_delay_tracker` error logs about a block that "was not marked received" are now a counter and a debug log, since a missing entry is expected once tracking is bounded.
 * Raised the minimum supported Rust version to 1.94.0. Building `nearcore` from source now requires a Rust 1.94.0 toolchain.
+* `tools/debug-ui` now builds with Vite instead of the unmaintained Create React App (`react-scripts`). Build output layout and the port 3000 dev server are unchanged, so deployment needs no change. Building now requires Node `^20.19.0 || >=22.12.0`. ([#16175](https://github.com/near/nearcore/pull/16175))
 
 ## [2.13.0]
 
