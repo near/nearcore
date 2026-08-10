@@ -26,6 +26,10 @@ pub enum VMRunnerError {
     ExternalError(AnyError),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
+    /// The VM could not complete contract compilation, for example because a
+    /// compiler worker crashed or ran out of resources.
+    #[error("unknown error during contract compilation: {debug_message}")]
+    WasmCompilationUnknownError { debug_message: String },
     #[error("account has no associated contract code")]
     ContractCodeNotPresent,
 }

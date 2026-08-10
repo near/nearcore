@@ -1,3 +1,4 @@
+use crate::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::{External, VMContext, VMOutcome};
@@ -58,10 +59,29 @@ pub fn prepare(
     gas_counter: crate::logic::GasCounter,
     method: &str,
 ) -> Box<dyn crate::PreparedContract> {
+    prepare_with_priority(
+        contract,
+        wasm_config,
+        cache,
+        gas_counter,
+        method,
+        CompilePriority::default(),
+    )
+}
+
+pub fn prepare_with_priority(
+    contract: &dyn Contract,
+    wasm_config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+    gas_counter: crate::logic::GasCounter,
+    method: &str,
+    priority: CompilePriority,
+) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
-    let runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
+    let mut runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
         panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
     });
+    runtime.set_compile_priority(priority);
     runtime.prepare(contract, cache, gas_counter, method)
 }
 
@@ -142,6 +162,11 @@ pub trait VM {
     /// covered by `Config` alone (e.g. wasmtime engine version).
     fn vm_hash(&self) -> u64;
 
+    /// Set the priority of compilation calls this VM handle triggers.
+    ///
+    /// Only has an effect if the out-of-process compiler daemon is enabled.
+    fn set_compile_priority(&mut self, _priority: CompilePriority) {}
+
     /// Determine if the machine code for the contract is already cached.
     ///
     /// If this returns `true`, `VM::precompile` **will** return `Ok(Ok(ContractAlreadyInCache))`.
@@ -179,7 +204,7 @@ pub trait VM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError>;
 
     /// Like [`Self::precompile`], but returns `ContractAlreadyInCache`
     /// instead of blocking when another thread is already compiling the
@@ -189,7 +214,7 @@ pub trait VM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError>;
 }
 
 pub trait VMKindExt {

@@ -29,10 +29,14 @@ RUN rustup toolchain install
 
 ENV PORTABLE=ON
 ARG make_target=
+# The compiler daemon is experimental, pass build_compiler_daemon=1 to include it.
+ARG build_compiler_daemon=0
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/tmp/target \
-    make CARGO_TARGET_DIR=/tmp/target "${make_target:?make_target not set}" && \
-    cp /tmp/target/release/neard /near/neard
+    make CARGO_TARGET_DIR=/tmp/target BUILD_COMPILER_DAEMON="${build_compiler_daemon}" "${make_target:?make_target not set}" && \
+    mkdir /near/bin && \
+    cp /tmp/target/release/neard /near/bin/ && \
+    if [ "${build_compiler_daemon}" = "1" ]; then cp /tmp/target/release/near-vm-compiler-daemon /near/bin/; fi
 
 # Docker image
 FROM ubuntu:22.04
@@ -44,6 +48,6 @@ RUN apt-get update -qq && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/run_docker.sh /usr/local/bin/run.sh
-COPY --from=build /near/neard /usr/local/bin/
+COPY --from=build /near/bin/ /usr/local/bin/
 
 CMD ["/usr/local/bin/run.sh"]
