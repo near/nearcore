@@ -1622,9 +1622,9 @@ fn test_cloud_archival_writer_restart_after_resharding() {
         .build();
     h.run_until_one_epoch_after_resharding();
     let new_shard_layout = h.new_shard_layout();
-    // The writer resolves its shard through the layout's ancestor map, and it names the shard by a
-    // uid the split has to carry over.
-    assert!(new_shard_layout.ancestor_uids(carried_shard_uid.shard_id()).is_some());
+    // This shard has no ancestors under the new layout (the split left it alone), so the tracker
+    // can only resolve it by matching its own uid, which the split carries over unchanged.
+    assert!(new_shard_layout.ancestor_uids(carried_shard_uid.shard_id()).unwrap().is_empty());
     assert!(new_shard_layout.shard_uids().any(|shard_uid| shard_uid == carried_shard_uid));
     let cloud_head_before_restart = h.cloud_head();
 

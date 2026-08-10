@@ -10,7 +10,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::ShardUId;
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // bit mask for which shard to track
@@ -574,7 +574,6 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_id: &EpochId,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
-    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
     let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
