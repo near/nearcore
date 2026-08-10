@@ -8,22 +8,41 @@ use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
 #[cfg(feature = "nightly")]
 use crate::epoch_info_aggregator::EpochInfoAggregator;
+#[cfg(feature = "nightly")]
 use crate::reward_calculator::NUM_NS_IN_SECOND;
-use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager};
+#[cfg(feature = "nightly")]
+use crate::test_utils::DEFAULT_TOTAL_SUPPLY;
+use crate::test_utils::{
+    record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
+};
 use crate::{
     EpochManager, EpochManagerAdapter, EpochManagerHandle, compute_chunk_producer_blacklist,
 };
+#[cfg(feature = "nightly")]
+use crate::{SampleEpoch, SeedAnchor};
+#[cfg(feature = "nightly")]
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
+#[cfg(feature = "nightly")]
+use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 #[cfg(feature = "nightly")]
 use near_primitives::stateless_validation::ChunkProductionKey;
+#[cfg(feature = "nightly")]
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
+#[cfg(feature = "nightly")]
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, ChunkStats, ShardId, ValidatorId};
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
+#[cfg(feature = "nightly")]
+use near_store::DBCol;
+#[cfg(feature = "nightly")]
+use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
@@ -284,8 +303,7 @@ fn keep_one_leaves_sampler_nonempty() {
 // --- Accessor tests (end-to-end through EpochManagerHandle) ---
 
 /// Records a block at `cur` with an explicit per-shard `chunk_mask` (true =
-/// produced, false = missed). Mirrors `record_block_with_version` but lets the
-/// caller control the chunk mask so we can synthesize miss-heavy stats.
+/// produced, false = missed), so we can synthesize miss-heavy stats.
 fn record_block_with_mask(
     em: &mut EpochManager,
     prev: CryptoHash,
@@ -293,47 +311,18 @@ fn record_block_with_mask(
     height: u64,
     chunk_mask: Vec<bool>,
 ) {
-    let epoch_id = em.get_epoch_id(&prev).unwrap();
-    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    // ~2-block finality: last-final = grandparent (height - 2), consistent with the
-    // `last_finalized_height` below. The seeder bases the blacklist on this hash.
+    // ~2-block finality: last-final = grandparent (height - 2). The seeder bases the
+    // blacklist on this hash.
     let last_final = *em.get_block_info(&prev).unwrap().prev_hash();
-    // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that
-    // shard; only produced chunks include endorsements.
-    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
-        shard_layout
-            .shard_ids()
-            .enumerate()
-            .map(|(shard_index, shard_id)| {
-                if !chunk_mask[shard_index] {
-                    return vec![];
-                }
-                let assignments =
-                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
-                vec![true; assignments.assignments().iter().len()]
-            })
-            .collect(),
+    record_block_with_final_and_mask(
+        em,
+        prev,
+        cur,
+        height,
+        last_final,
+        height.saturating_sub(2),
+        chunk_mask,
     );
-    em.record_block_info(
-        BlockInfo::new(
-            cur,
-            height,
-            height.saturating_sub(2),
-            last_final,
-            prev,
-            vec![],
-            chunk_mask,
-            DEFAULT_TOTAL_SUPPLY,
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
-            height * NUM_NS_IN_SECOND,
-            chunk_endorsements,
-            None,
-        ),
-        [0; 32],
-    )
-    .unwrap()
-    .commit();
 }
 
 /// Drives `count` blocks in epoch 0 where the single shard's chunk is missed
@@ -635,7 +624,9 @@ fn get_chunk_producer_blacklist_respects_epoch_grace() {
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
     // Grace is measured against the last-final block (grandparent, anchor height - 2), so the
     // boundary in anchor height is the raw grace count + 2.
-    let epoch_start = handle.get_epoch_start_from_epoch_id(&epoch_id).unwrap();
+    // Same basis the production path uses (the `BlockInfo` walk), which in this fork-free
+    // fixture has the same value as the `EpochStart` column.
+    let epoch_start = handle.get_epoch_start_height(&h[1]).unwrap();
 
     // Down node is already miss-heavy, so an empty result here is the grace, not a lack of misses.
     let in_grace = (epoch_start + EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 1) as usize;
@@ -911,36 +902,7 @@ fn record_block_frozen_final(
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     let chunk_mask = vec![true; shard_layout.shard_ids().count()];
-    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
-        shard_layout
-            .shard_ids()
-            .map(|shard_id| {
-                let assignments =
-                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
-                vec![true; assignments.assignments().iter().len()]
-            })
-            .collect(),
-    );
-    em.record_block_info(
-        BlockInfo::new(
-            cur,
-            height,
-            final_height,
-            final_hash,
-            prev,
-            vec![],
-            chunk_mask,
-            DEFAULT_TOTAL_SUPPLY,
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
-            height * NUM_NS_IN_SECOND,
-            chunk_endorsements,
-            None,
-        ),
-        [0; 32],
-    )
-    .unwrap()
-    .commit();
+    record_block_with_final_and_mask(em, prev, cur, height, final_hash, final_height, chunk_mask);
 }
 
 // Regression guard: with finality frozen the seeder walks only to the pinned last-final block,
@@ -1042,4 +1004,270 @@ fn seed_chunk_producers_fires_safety_valve_metric() {
     let bl = handle.get_chunk_producer_blacklist(&prev).unwrap();
     assert_eq!(bl.len(), 1, "expected exactly one shard in the blacklist, got {bl:?}");
     assert_eq!(bl[&shard_id].len(), 1, "keep-one must blacklist exactly one of two producers");
+}
+
+/// The state epoch sync leaves behind: the prev epoch's first, second-last and last
+/// `BlockInfo` are installed, the third-last one deliberately is NOT, even though it is the
+/// aggregator position an anchor can be final on.
+#[cfg(feature = "nightly")]
+struct EpochSyncFixture {
+    em: EpochManager,
+    prev_epoch_id: EpochId,
+    epoch_id: EpochId,
+    epoch_info: EpochInfo,
+    shard_layout: ShardLayout,
+    /// The prev epoch's first block; every installed prev-epoch `BlockInfo` points here.
+    first: CryptoHash,
+    /// Parent of the prev epoch's last block.
+    second_last: CryptoHash,
+    /// The prev epoch's last block.
+    last: CryptoHash,
+    /// The uninstalled aggregator position.
+    third_last: CryptoHash,
+    third_last_height: u64,
+}
+
+#[cfg(feature = "nightly")]
+impl EpochSyncFixture {
+    /// An anchor a few blocks past the boundary, final on the uninstalled aggregator
+    /// position — the shape all epoch-sync regression tests below exercise.
+    fn seed_anchor(&self, hash: CryptoHash) -> SeedAnchor {
+        SeedAnchor {
+            hash,
+            height: self.third_last_height + 4,
+            final_hash: self.third_last,
+            final_height: self.third_last_height,
+        }
+    }
+}
+
+#[cfg(feature = "nightly")]
+fn epoch_sync_fixture() -> EpochSyncFixture {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap().as_ref().clone();
+    let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
+
+    const PREV_EPOCH_FIRST_HEIGHT: u64 = 90;
+    const PREV_EPOCH_LAST_HEIGHT: u64 = 99;
+    let third_last_height = PREV_EPOCH_LAST_HEIGHT - 2;
+
+    let prev_epoch_id = EpochId(hash(b"prev epoch"));
+    let epoch_id = EpochId(hash(b"current epoch"));
+    let next_epoch_id = EpochId(hash(b"next epoch"));
+    let first = hash(b"prev epoch first block");
+    let third_last = hash(b"prev epoch third-last block");
+    let second_last = hash(b"prev epoch second-last block");
+    let last = hash(b"prev epoch last block");
+
+    // Mirrors what the epoch-sync proof installs, bypassing `record_block_info`.
+    let prev_epoch_block = |cur: CryptoHash, height: u64, prev: CryptoHash| {
+        let mut info = BlockInfo::new(
+            cur,
+            height,
+            height.saturating_sub(2),
+            CryptoHash::default(),
+            prev,
+            vec![],
+            vec![true],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            ChunkEndorsementsBitmap::new(1),
+            None,
+        );
+        *info.epoch_id_mut() = prev_epoch_id;
+        *info.epoch_first_block_mut() = first;
+        info
+    };
+
+    let mut store_update = em.store.store_update();
+    em.init_after_epoch_sync(
+        &mut store_update,
+        prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
+        prev_epoch_block(second_last, PREV_EPOCH_LAST_HEIGHT - 1, third_last),
+        prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
+        &prev_epoch_id,
+        epoch_info.clone(),
+        &epoch_id,
+        epoch_info.clone(),
+        &next_epoch_id,
+        epoch_info.clone(),
+    )
+    .unwrap();
+    store_update.commit();
+
+    EpochSyncFixture {
+        em,
+        prev_epoch_id,
+        epoch_id,
+        epoch_info,
+        shard_layout,
+        first,
+        second_last,
+        last,
+        third_last,
+        third_last_height,
+    }
+}
+
+// Post-epoch-sync regression: the aggregator sits on the prev epoch's third-last block,
+// whose `BlockInfo` is deliberately never installed. An anchor final on that position is a
+// legitimate state; the seeder's cross-epoch early-return must fire before the epoch-start
+// walk, which would fail with `MissingBlock` there.
+#[cfg(feature = "nightly")]
+#[test]
+fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
+    let fx = epoch_sync_fixture();
+
+    // Final block == the aggregator position: the aggregator walk short-circuits and
+    // returns the prev-epoch aggregator, mismatching the (current) sample epoch.
+    let anchor = fx.seed_anchor(hash(b"current epoch block"));
+    let mut seed_update = fx.em.store.store_update();
+    fx.em
+        .seed_chunk_producers(
+            &mut seed_update,
+            &anchor,
+            SampleEpoch {
+                epoch_id: &fx.epoch_id,
+                epoch_info: &fx.epoch_info,
+                shard_layout: &fx.shard_layout,
+            },
+        )
+        .expect("cross-epoch anchor after epoch sync must seed, not error");
+    seed_update.commit();
+
+    // Empty blacklist -> the seeded row is the canonical sample at the anchor offset.
+    let shard_id = fx.shard_layout.shard_ids().next().unwrap();
+    let key = get_block_shard_id(&anchor.hash, shard_id);
+    let seeded = fx
+        .em
+        .store
+        .store_ref()
+        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+        .expect("seeder must write the ChunkProducers row for the anchor");
+    let canonical = fx
+        .epoch_info
+        .sample_chunk_producer(
+            &fx.shard_layout,
+            shard_id,
+            anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+        )
+        .unwrap();
+    assert_eq!(
+        seeded.account_id(),
+        fx.epoch_info.get_validator(canonical).account_id(),
+        "empty blacklist must seed the canonical sample",
+    );
+}
+
+// Companion to the test above, same missing `BlockInfo` but with the sample epoch equal to
+// the aggregator's epoch, so the cross-epoch early-return does NOT fire and the epoch-start
+// walk runs. A missing block there is structural corruption: the seeder must propagate the
+// error, not silently fall back to treating the epoch as just-started (grace).
+#[cfg(feature = "nightly")]
+#[test]
+fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor = fx.seed_anchor(hash(b"prev epoch extra block"));
+    let mut seed_update = fx.em.store.store_update();
+    let err = fx
+        .em
+        .seed_chunk_producers(
+            &mut seed_update,
+            &anchor,
+            SampleEpoch {
+                epoch_id: &fx.prev_epoch_id,
+                epoch_info: &fx.epoch_info,
+                shard_layout: &fx.shard_layout,
+            },
+        )
+        .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
+    assert_eq!(
+        err,
+        EpochError::MissingBlock(fx.third_last),
+        "expected the missing basis block to propagate verbatim, got {err:?}",
+    );
+}
+
+/// Builds the anchor `BlockInfo` the accessor tests install: same shape the fixture's
+/// proof blocks have, final on the uninstalled aggregator position.
+#[cfg(feature = "nightly")]
+fn accessor_anchor_info(
+    fx: &EpochSyncFixture,
+    anchor_hash: CryptoHash,
+    prev: CryptoHash,
+) -> BlockInfo {
+    let anchor_height = fx.third_last_height + 4;
+    BlockInfo::new(
+        anchor_hash,
+        anchor_height,
+        fx.third_last_height,
+        fx.third_last,
+        prev,
+        vec![],
+        vec![true],
+        DEFAULT_TOTAL_SUPPLY,
+        PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
+        anchor_height * NUM_NS_IN_SECOND,
+        ChunkEndorsementsBitmap::new(1),
+        None,
+    )
+}
+
+// Accessor-side companion to `seeder_tolerates_post_epoch_sync_aggregator_anchor`: the
+// same epoch-sync miss state pinned through `get_chunk_producer_blacklist`, so the
+// read-side contract stays enforced even if the accessor and seeder ever stop sharing
+// `chunk_producer_blacklist_at_anchor`.
+#[cfg(feature = "nightly")]
+#[test]
+fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
+    let fx = epoch_sync_fixture();
+
+    // A current-epoch anchor final on the uninstalled position, installed directly like
+    // the fixture's proof blocks (the accessor reads the anchor's own `BlockInfo`).
+    let anchor_hash = hash(b"current epoch block");
+    let mut info = accessor_anchor_info(&fx, anchor_hash, fx.last);
+    *info.epoch_id_mut() = fx.epoch_id;
+    *info.epoch_first_block_mut() = anchor_hash;
+    let mut store_update = fx.em.store.store_update();
+    store_update.set_block_info(&info);
+    store_update.commit();
+
+    let handle = fx.em.into_handle();
+    let blacklist = handle
+        .get_chunk_producer_blacklist(&anchor_hash)
+        .expect("cross-epoch anchor after epoch sync must read empty, not error");
+    assert!(
+        blacklist.is_empty(),
+        "cross-epoch basis must read an empty blacklist, got {blacklist:?}",
+    );
+}
+
+// Accessor-side companion to `seeder_propagates_missing_block_info_on_same_epoch_basis`.
+#[cfg(feature = "nightly")]
+#[test]
+fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor_hash = hash(b"prev epoch extra block");
+    let mut info = accessor_anchor_info(&fx, anchor_hash, fx.second_last);
+    *info.epoch_id_mut() = fx.prev_epoch_id;
+    *info.epoch_first_block_mut() = fx.first;
+    let mut store_update = fx.em.store.store_update();
+    store_update.set_block_info(&info);
+    store_update.commit();
+
+    let handle = fx.em.into_handle();
+    let err = handle
+        .get_chunk_producer_blacklist(&anchor_hash)
+        .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
+    assert_eq!(
+        err,
+        EpochError::MissingBlock(fx.third_last),
+        "expected the missing basis block to propagate verbatim, got {err:?}",
+    );
 }
