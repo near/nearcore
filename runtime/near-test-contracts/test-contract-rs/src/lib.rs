@@ -451,6 +451,47 @@ pub unsafe fn write_one_megabyte() {
     );
 }
 
+/// Write a value of the given size under the given key.
+/// Key is of type u8. Value is made up of the key repeated `size` times.
+/// The input is a u8 key followed by the size as a little-endian u32.
+#[unsafe(no_mangle)]
+pub unsafe fn write_value_of_size() {
+    const INPUT_SIZE: usize = size_of::<u8>() + size_of::<u32>();
+    input(0);
+    if register_len(0) != INPUT_SIZE as u64 {
+        panic();
+    }
+    let mut input_data = [0u8; INPUT_SIZE];
+    read_register(0, input_data.as_mut_ptr());
+
+    let mut key = input_data[0];
+    let size = u32::from_le_bytes(input_data[size_of::<u8>()..].try_into().unwrap()) as usize;
+
+    let value = vec![key; size];
+    storage_write(
+        size_of::<u8>() as u64,
+        &mut key as *mut u8 as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+/// Read the values stored under the keys between from..to, whatever their size.
+/// The input is a pair of u8 values `from` and `to`.
+#[unsafe(no_mangle)]
+pub unsafe fn read_values_in_key_range() {
+    input(0);
+    assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
+    let mut input_data = [0u8; 2 * size_of::<u8>()];
+    read_register(0, input_data.as_mut_ptr());
+
+    for key in input_data[0]..input_data[1] {
+        let result = storage_read(size_of::<u8>() as u64, &key as *const u8 as u64, 0);
+        assert_eq!(result, 1);
+    }
+}
+
 /// Read n megabytes of data between from..to
 /// Reads values that were written using `write_one_megabyte`.
 /// The input is a pair of u8 values `from` and `to.
