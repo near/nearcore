@@ -55,6 +55,10 @@ const NUM_SHARDS: u64 = 1;
 const SIBLING_LOW: BlockHeight = 1;
 const SIBLING_HIGH: BlockHeight = 3;
 
+/// The fixture's ~2-block finality: a block's stored last-final is its grandparent. Ties
+/// `build_node`, the disagreement window, and the diagnostic table to one definition.
+const FINALITY_LAG: BlockHeight = 2;
+
 fn validators() -> Vec<(AccountId, Balance)> {
     vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)]
 }
@@ -122,7 +126,7 @@ fn build_node(high_first: bool, down: ValidatorId, head_height: BlockHeight) -> 
             cur,
             height,
             grandparent,
-            height - 2,
+            height - FINALITY_LAG,
             mask(height),
         );
         grandparent = prev;
@@ -213,13 +217,64 @@ fn genesis_final_basis_resolves_through_dummy_instead_of_erroring() {
     }
 }
 
+/// Same walk mechanics on a chain whose genesis is NOT at height 0 (forknet forks mainnet
+/// state at heights in the hundreds of millions): the walk resolves a genesis-final basis
+/// through the dummy `BlockInfo` to height 0, so `blocks_into_epoch` lands numerically far
+/// past the grace window. The blacklist must still be empty — a genesis-final basis has an
+/// empty aggregator — and this pin keeps that safety a contract instead of an accident.
+#[test]
+fn high_genesis_final_basis_keeps_blacklist_empty() {
+    const GENESIS_HEIGHT: BlockHeight = 150_000_000;
+    let mut em = new_epoch_manager();
+    let genesis = genesis_hash();
+    record_block(&mut em, CryptoHash::default(), genesis, GENESIS_HEIGHT, vec![]);
+    // First canonical block has nothing final yet; the second is final on genesis, the
+    // same shape `build_node` gives the first block past the siblings.
+    record_block_with_final_and_mask(
+        &mut em,
+        genesis,
+        canonical_hash(GENESIS_HEIGHT + 1),
+        GENESIS_HEIGHT + 1,
+        CryptoHash::default(),
+        0,
+        vec![true],
+    );
+    record_block_with_final_and_mask(
+        &mut em,
+        canonical_hash(GENESIS_HEIGHT + 1),
+        canonical_hash(GENESIS_HEIGHT + 2),
+        GENESIS_HEIGHT + 2,
+        genesis,
+        GENESIS_HEIGHT,
+        vec![true],
+    );
+    let handle = em.into_handle();
+    assert_eq!(
+        handle.get_epoch_start_height(&genesis).unwrap(),
+        0,
+        "the walk resolves a high genesis through the dummy BlockInfo to height 0",
+    );
+    #[cfg(feature = "nightly")]
+    {
+        let blacklist =
+            handle.get_chunk_producer_blacklist(&canonical_hash(GENESIS_HEIGHT + 2)).unwrap();
+        assert!(
+            blacklist.is_empty(),
+            "a genesis-final basis must keep the blacklist empty even though \
+             blocks_into_epoch ({GENESIS_HEIGHT}) is far past the grace window: the empty \
+             aggregator at genesis — not the grace arithmetic — is what protects \
+             high-genesis chains, got {blacklist:?}",
+        );
+    }
+}
+
 /// Anchor heights where the two nodes' `EpochStart` values straddle the grace threshold:
 /// last-final is the anchor's grandparent, so a node holding `EpochStart = s` activates the
 /// blacklist from `anchor_height = GRACE + s + 2` onward.
 #[cfg(feature = "nightly")]
 fn disagreement_anchors() -> RangeInclusive<BlockHeight> {
-    (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_LOW + 2)
-        ..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + 1)
+    (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_LOW + FINALITY_LAG)
+        ..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + FINALITY_LAG - 1)
 }
 
 /// Anchors inspected by layers 2 and 3: the disagreement window plus margin on both sides,
@@ -360,13 +415,13 @@ fn render_table(
             "  anchor {anchor} (final height {}): A[col_start={start_a} walk_start={} \
              into_epoch={} blacklist_active={} producer={}] B[col_start={start_b} \
              walk_start={} into_epoch={} blacklist_active={} producer={}]{}",
-            anchor - 2,
+            anchor - FINALITY_LAG,
             belief_a.walk_epoch_start,
-            (anchor - 2).saturating_sub(belief_a.walk_epoch_start),
+            (anchor - FINALITY_LAG).saturating_sub(belief_a.walk_epoch_start),
             !belief_a.blacklist.is_empty(),
             belief_a.grandchild_producer,
             belief_b.walk_epoch_start,
-            (anchor - 2).saturating_sub(belief_b.walk_epoch_start),
+            (anchor - FINALITY_LAG).saturating_sub(belief_b.walk_epoch_start),
             !belief_b.blacklist.is_empty(),
             belief_b.grandchild_producer,
             if differs { "   <-- DISAGREE" } else { "" },
@@ -402,13 +457,13 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
     // Pin the aggregator at the first disagreeing anchor's basis so a split there can only
     // come from the epoch-start value, not aggregator drift.
     let first_split = *disagreement_anchors().start();
-    let basis = canonical_hash(first_split - 2);
+    let basis = canonical_hash(first_split - FINALITY_LAG);
     let counters_a = chunk_counters(&a, basis);
     let counters_b = chunk_counters(&b, basis);
     println!(
         "aggregator at the first disagreeing anchor's basis (block {}): A={counters_a:?} \
          B={counters_b:?}",
-        first_split - 2,
+        first_split - FINALITY_LAG,
     );
     assert_eq!(
         counters_a, counters_b,
@@ -419,9 +474,9 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
     // counters drift apart downstream.
     println!(
         "aggregator after the split (block {}): A={:?} B={:?}",
-        head_height() - 2,
-        chunk_counters(&a, canonical_hash(head_height() - 2)),
-        chunk_counters(&b, canonical_hash(head_height() - 2)),
+        head_height() - FINALITY_LAG,
+        chunk_counters(&a, canonical_hash(head_height() - FINALITY_LAG)),
+        chunk_counters(&b, canonical_hash(head_height() - FINALITY_LAG)),
     );
 
     let disagreements: Vec<String> = rows

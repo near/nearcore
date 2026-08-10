@@ -1016,8 +1016,29 @@ struct EpochSyncFixture {
     epoch_id: EpochId,
     epoch_info: EpochInfo,
     shard_layout: ShardLayout,
-    /// The uninstalled aggregator position, height 97.
+    /// The prev epoch's first block; every installed prev-epoch `BlockInfo` points here.
+    first: CryptoHash,
+    /// Parent of the prev epoch's last block.
+    second_last: CryptoHash,
+    /// The prev epoch's last block.
+    last: CryptoHash,
+    /// The uninstalled aggregator position.
     third_last: CryptoHash,
+    third_last_height: u64,
+}
+
+#[cfg(feature = "nightly")]
+impl EpochSyncFixture {
+    /// An anchor a few blocks past the boundary, final on the uninstalled aggregator
+    /// position — the shape all epoch-sync regression tests below exercise.
+    fn seed_anchor(&self, hash: CryptoHash) -> SeedAnchor {
+        SeedAnchor {
+            hash,
+            height: self.third_last_height + 4,
+            final_hash: self.third_last,
+            final_height: self.third_last_height,
+        }
+    }
 }
 
 #[cfg(feature = "nightly")]
@@ -1026,6 +1047,10 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap().as_ref().clone();
     let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
+
+    const PREV_EPOCH_FIRST_HEIGHT: u64 = 90;
+    const PREV_EPOCH_LAST_HEIGHT: u64 = 99;
+    let third_last_height = PREV_EPOCH_LAST_HEIGHT - 2;
 
     let prev_epoch_id = EpochId(hash(b"prev epoch"));
     let epoch_id = EpochId(hash(b"current epoch"));
@@ -1060,9 +1085,9 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     let mut store_update = em.store.store_update();
     em.init_after_epoch_sync(
         &mut store_update,
-        prev_epoch_block(first, 90, hash(b"block before prev epoch")),
-        prev_epoch_block(second_last, 98, third_last),
-        prev_epoch_block(last, 99, second_last),
+        prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
+        prev_epoch_block(second_last, PREV_EPOCH_LAST_HEIGHT - 1, third_last),
+        prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
         &prev_epoch_id,
         epoch_info.clone(),
         &epoch_id,
@@ -1073,7 +1098,18 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     .unwrap();
     store_update.commit();
 
-    EpochSyncFixture { em, prev_epoch_id, epoch_id, epoch_info, shard_layout, third_last }
+    EpochSyncFixture {
+        em,
+        prev_epoch_id,
+        epoch_id,
+        epoch_info,
+        shard_layout,
+        first,
+        second_last,
+        last,
+        third_last,
+        third_last_height,
+    }
 }
 
 // Post-epoch-sync regression: the aggregator sits on the prev epoch's third-last block,
@@ -1083,44 +1119,45 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
 #[cfg(feature = "nightly")]
 #[test]
 fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
-    let EpochSyncFixture { em, epoch_id, epoch_info, shard_layout, third_last, .. } =
-        epoch_sync_fixture();
+    let fx = epoch_sync_fixture();
 
     // Final block == the aggregator position: the aggregator walk short-circuits and
     // returns the prev-epoch aggregator, mismatching the (current) sample epoch.
-    let anchor = SeedAnchor {
-        hash: hash(b"current epoch block"),
-        height: 101,
-        final_hash: third_last,
-        final_height: 97,
-    };
-    let mut seed_update = em.store.store_update();
-    em.seed_chunk_producers(
-        &mut seed_update,
-        &anchor,
-        SampleEpoch { epoch_id: &epoch_id, epoch_info: &epoch_info, shard_layout: &shard_layout },
-    )
-    .expect("cross-epoch anchor after epoch sync must seed, not error");
+    let anchor = fx.seed_anchor(hash(b"current epoch block"));
+    let mut seed_update = fx.em.store.store_update();
+    fx.em
+        .seed_chunk_producers(
+            &mut seed_update,
+            &anchor,
+            SampleEpoch {
+                epoch_id: &fx.epoch_id,
+                epoch_info: &fx.epoch_info,
+                shard_layout: &fx.shard_layout,
+            },
+        )
+        .expect("cross-epoch anchor after epoch sync must seed, not error");
     seed_update.commit();
 
     // Empty blacklist -> the seeded row is the canonical sample at the anchor offset.
-    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_id = fx.shard_layout.shard_ids().next().unwrap();
     let key = get_block_shard_id(&anchor.hash, shard_id);
-    let seeded = em
+    let seeded = fx
+        .em
         .store
         .store_ref()
         .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
         .expect("seeder must write the ChunkProducers row for the anchor");
-    let canonical = epoch_info
+    let canonical = fx
+        .epoch_info
         .sample_chunk_producer(
-            &shard_layout,
+            &fx.shard_layout,
             shard_id,
             anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
         )
         .unwrap();
     assert_eq!(
         seeded.account_id(),
-        epoch_info.get_validator(canonical).account_id(),
+        fx.epoch_info.get_validator(canonical).account_id(),
         "empty blacklist must seed the canonical sample",
     );
 }
@@ -1132,30 +1169,105 @@ fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
 #[cfg(feature = "nightly")]
 #[test]
 fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
-    let EpochSyncFixture { em, prev_epoch_id, epoch_info, shard_layout, third_last, .. } =
-        epoch_sync_fixture();
+    let fx = epoch_sync_fixture();
 
-    let anchor = SeedAnchor {
-        hash: hash(b"prev epoch extra block"),
-        height: 101,
-        final_hash: third_last,
-        final_height: 97,
-    };
-    let mut seed_update = em.store.store_update();
-    let err = em
+    let anchor = fx.seed_anchor(hash(b"prev epoch extra block"));
+    let mut seed_update = fx.em.store.store_update();
+    let err = fx
+        .em
         .seed_chunk_producers(
             &mut seed_update,
             &anchor,
             SampleEpoch {
-                epoch_id: &prev_epoch_id,
-                epoch_info: &epoch_info,
-                shard_layout: &shard_layout,
+                epoch_id: &fx.prev_epoch_id,
+                epoch_info: &fx.epoch_info,
+                shard_layout: &fx.shard_layout,
             },
         )
         .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
     assert_eq!(
         err,
-        EpochError::MissingBlock(third_last),
+        EpochError::MissingBlock(fx.third_last),
+        "expected the missing basis block to propagate verbatim, got {err:?}",
+    );
+}
+
+/// Builds the anchor `BlockInfo` the accessor tests install: same shape the fixture's
+/// proof blocks have, final on the uninstalled aggregator position.
+#[cfg(feature = "nightly")]
+fn accessor_anchor_info(
+    fx: &EpochSyncFixture,
+    anchor_hash: CryptoHash,
+    prev: CryptoHash,
+) -> BlockInfo {
+    let anchor_height = fx.third_last_height + 4;
+    BlockInfo::new(
+        anchor_hash,
+        anchor_height,
+        fx.third_last_height,
+        fx.third_last,
+        prev,
+        vec![],
+        vec![true],
+        DEFAULT_TOTAL_SUPPLY,
+        PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
+        anchor_height * NUM_NS_IN_SECOND,
+        ChunkEndorsementsBitmap::new(1),
+        None,
+    )
+}
+
+// Accessor-side companion to `seeder_tolerates_post_epoch_sync_aggregator_anchor`: the
+// same epoch-sync miss state pinned through `get_chunk_producer_blacklist`, so the
+// read-side contract stays enforced even if the accessor and seeder ever stop sharing
+// `chunk_producer_blacklist_at_anchor`.
+#[cfg(feature = "nightly")]
+#[test]
+fn accessor_tolerates_post_epoch_sync_aggregator_anchor() {
+    let fx = epoch_sync_fixture();
+
+    // A current-epoch anchor final on the uninstalled position, installed directly like
+    // the fixture's proof blocks (the accessor reads the anchor's own `BlockInfo`).
+    let anchor_hash = hash(b"current epoch block");
+    let mut info = accessor_anchor_info(&fx, anchor_hash, fx.last);
+    *info.epoch_id_mut() = fx.epoch_id;
+    *info.epoch_first_block_mut() = anchor_hash;
+    let mut store_update = fx.em.store.store_update();
+    store_update.set_block_info(&info);
+    store_update.commit();
+
+    let handle = fx.em.into_handle();
+    let blacklist = handle
+        .get_chunk_producer_blacklist(&anchor_hash)
+        .expect("cross-epoch anchor after epoch sync must read empty, not error");
+    assert!(
+        blacklist.is_empty(),
+        "cross-epoch basis must read an empty blacklist, got {blacklist:?}",
+    );
+}
+
+// Accessor-side companion to `seeder_propagates_missing_block_info_on_same_epoch_basis`.
+#[cfg(feature = "nightly")]
+#[test]
+fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor_hash = hash(b"prev epoch extra block");
+    let mut info = accessor_anchor_info(&fx, anchor_hash, fx.second_last);
+    *info.epoch_id_mut() = fx.prev_epoch_id;
+    *info.epoch_first_block_mut() = fx.first;
+    let mut store_update = fx.em.store.store_update();
+    store_update.set_block_info(&info);
+    store_update.commit();
+
+    let handle = fx.em.into_handle();
+    let err = handle
+        .get_chunk_producer_blacklist(&anchor_hash)
+        .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
+    assert_eq!(
+        err,
+        EpochError::MissingBlock(fx.third_last),
         "expected the missing basis block to propagate verbatim, got {err:?}",
     );
 }

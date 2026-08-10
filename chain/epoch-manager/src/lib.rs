@@ -375,6 +375,8 @@ pub(crate) fn blacklist_for_epoch(
     shard_layout: &ShardLayout,
     blocks_into_epoch: BlockHeight,
 ) -> ChunkProducerBlacklist {
+    // Redundant in production: `chunk_producer_blacklist_at_anchor` returns on this same
+    // mismatch before its epoch-start walk. Kept as defense in depth for direct callers.
     if aggregator.epoch_id != *target_epoch_id {
         return ChunkProducerBlacklist::empty();
     }
@@ -2406,7 +2408,9 @@ impl EpochManager {
         // Epoch start via the `BlockInfo` walk, not `DBCol::EpochStart`: boundary fork
         // siblings overwrite that shared row, so its value depends on processing order.
         // A genesis final block resolves through the stored dummy `BlockInfo` (height 0).
-        // A miss here is structural corruption — propagate, don't map to grace.
+        // A miss here propagates. That is structural corruption everywhere except one
+        // transient state: an equivocated prev-epoch sibling final on the uninstalled
+        // epoch-sync aggregator sync-point — there failing closed beats masking with grace.
         let epoch_start = self.get_epoch_start_height(final_hash)?;
         let blocks_into_epoch = final_height.saturating_sub(epoch_start);
         Ok(blacklist_for_epoch(
