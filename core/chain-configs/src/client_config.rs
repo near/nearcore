@@ -498,7 +498,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_external_timeout() -> Duration {
+pub fn default_block_request_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -694,7 +694,7 @@ pub struct ClientConfig {
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,
