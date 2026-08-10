@@ -1,5 +1,6 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::{PeerInfo, PeerMessage, SignedOwnedAccount, TieredMessageBody};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -141,9 +142,20 @@ impl Connection {
     // TODO(gprusak): embed Stream directly in Connection,
     // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
+        self.send_message_with_permit(msg, None);
+    }
+
+    /// Like `send_message`, but forwards a pre-acquired reservation
+    /// against the outgoing-queue limiter. Used by callers that reserved
+    /// worst-case capacity before producing the message.
+    pub fn send_message_with_permit(
+        &self,
+        msg: Arc<PeerMessage>,
+        reserved_permit: Option<OutgoingPermit>,
+    ) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "sending message");
-        self.handle.send(SendMessage { message: msg }.span_wrap());
+        self.handle.send(SendMessage { message: msg, reserved_permit }.span_wrap());
     }
 }
 
@@ -371,9 +383,21 @@ impl Pool {
     /// Send message to peer that belongs to our active set
     /// Return whether the message is sent or not.
     pub fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
+        self.send_message_with_permit(peer_id, msg, None)
+    }
+
+    /// Like `send_message`, but forwards a pre-acquired reservation
+    /// against the outgoing-queue limiter. Returns false (and the permit
+    /// is released) if the peer isn't connected.
+    pub fn send_message_with_permit(
+        &self,
+        peer_id: PeerId,
+        msg: Arc<PeerMessage>,
+        reserved_permit: Option<OutgoingPermit>,
+    ) -> bool {
         let pool = self.load();
         if let Some(peer) = pool.ready.get(&peer_id) {
-            peer.send_message(msg);
+            peer.send_message_with_permit(msg, reserved_permit);
             return true;
         }
         tracing::debug!(target: "network",
