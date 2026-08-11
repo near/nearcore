@@ -55,6 +55,14 @@ impl<'a> AncestryEndorsements<'a> {
             .is_some_and(|info| fallback_eligible(carrying_height, info))
     }
 
+    /// `chunk_id`'s record, absent once the chunk is certified in the ancestry.
+    pub(crate) fn uncertified_chunk_info(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Option<&'a SpiceUncertifiedChunkInfo> {
+        self.uncertified_chunks.get(chunk_id).copied()
+    }
+
     /// Whether `(chunk_id, account_id)`'s endorsement is already on chain in the ancestry.
     pub(crate) fn is_on_chain(&self, chunk_id: &SpiceChunkId, account_id: &AccountId) -> bool {
         self.on_chain.get(chunk_id).is_some_and(|endorsers| endorsers.contains_key(account_id))
