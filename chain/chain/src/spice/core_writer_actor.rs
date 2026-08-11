@@ -1,5 +1,5 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
-use crate::spice::all_stake_fallback::all_stake_fallback_assignment;
+use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, fallback_eligible};
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -162,7 +162,8 @@ impl SpiceCoreWriterActor {
     }
 
     /// Whether `chunk_id`'s stored endorsements certify `result_hash`: by 2/3 of its designated
-    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. `endorsers` seeds it.
+    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. A fallback-only chunk
+    /// skips the designated rule. `endorsers` seeds it.
     fn endorsed_by_designated_or_fallback(
         &self,
         chunk_id: &SpiceChunkId,
@@ -173,24 +174,24 @@ impl SpiceCoreWriterActor {
     ) -> Result<bool, Error> {
         let chunk_block = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block.epoch_id();
-        let designated = self.epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_id.shard_id,
-            chunk_block.height(),
-        )?;
-        if self.core_reader.reaches_endorsement_threshold(
-            chunk_id,
-            result_hash,
-            &designated,
-            endorsers.clone(),
-        ) {
-            return Ok(true);
+        let chunk_info = self.core_reader.uncertified_chunk_info(carrying_prev_hash, chunk_id)?;
+        let is_fallback_only = chunk_info.as_ref().is_some_and(|info| info.is_fallback_only);
+        if !is_fallback_only {
+            let designated = self.epoch_manager.get_chunk_validator_assignments(
+                epoch_id,
+                chunk_id.shard_id,
+                chunk_block.height(),
+            )?;
+            if self.core_reader.reaches_endorsement_threshold(
+                chunk_id,
+                result_hash,
+                &designated,
+                endorsers.clone(),
+            ) {
+                return Ok(true);
+            }
         }
-        if !self.core_reader.fallback_eligible_in_carrying_block(
-            carrying_height,
-            carrying_prev_hash,
-            chunk_id,
-        )? {
+        if !chunk_info.is_some_and(|info| fallback_eligible(carrying_height, &info)) {
             return Ok(false);
         }
         let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;

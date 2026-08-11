@@ -10,21 +10,55 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId, ShardIndex,
     SpiceUncertifiedChunkInfo,
 };
+use std::collections::HashSet;
 
 /// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
 /// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
 pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 20;
 
-/// Whether the chunk may certify via the all-stake fallback in a block at `carrying_height`: true
-/// once its designated validators have had `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks to act.
+/// Whether the chunk may certify via the all-stake fallback in a block at `carrying_height`. A
+/// fallback-only chunk is eligible from the start: waiting until it is certifiable would open the
+/// rule a block after its endorsements land, and no block can justify a result with no endorsement.
 pub fn fallback_eligible(
     carrying_height: BlockHeight,
     chunk_info: &SpiceUncertifiedChunkInfo,
 ) -> bool {
+    if chunk_info.is_fallback_only {
+        return true;
+    }
     let Some(certifiable_since) = chunk_info.certifiable_since_height else {
         return false;
     };
     carrying_height.saturating_sub(certifiable_since) >= SPICE_FALLBACK_CERTIFICATION_DELAY
+}
+
+/// Whether `endorsers`, all attesting one execution result, certify the chunk in a block at
+/// `carrying_height`.
+///
+/// The producer and block validation both decide inclusion with this, so a producer never builds a
+/// certification its own validation rejects.
+pub fn endorsers_certify_chunk(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_block_header: &BlockHeader,
+    chunk_info: &SpiceUncertifiedChunkInfo,
+    carrying_height: BlockHeight,
+    endorsers: &HashSet<AccountId>,
+) -> Result<bool, Error> {
+    let epoch_id = chunk_block_header.epoch_id();
+    if !chunk_info.is_fallback_only {
+        let designated = epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_info.chunk_id.shard_id,
+            chunk_block_header.height(),
+        )?;
+        if designated.is_endorsed(endorsers) {
+            return Ok(true);
+        }
+    }
+    if !fallback_eligible(carrying_height, chunk_info) {
+        return Ok(false);
+    }
+    Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?.is_endorsed(endorsers))
 }
 
 /// The epoch's full validator set as a shard-independent assignment weighted by real stake. The
