@@ -678,13 +678,11 @@ impl Config {
     /// Returns the state sync configuration, deriving it from cloud archival settings
     /// when archival is enabled, or using the configured/default value otherwise.
     fn state_sync_config(&self) -> StateSyncConfig {
-        if self.cloud_archival.as_ref().is_some_and(|c| c.writer.is_some()) {
-            let cloud_archival_config = self
-                .cloud_archival
-                .clone()
-                .expect("cloud storage must be configured on cloud archive writer");
+        if let Some(cloud_archival) = &self.cloud_archival
+            && cloud_archival.writer.is_some()
+        {
             let mut config = StateSyncConfig::default();
-            config.dump = Some(cloud_archival_config.into_default_dump_config());
+            config.dump = Some(cloud_archival.clone().into_default_dump_config());
             return config;
         }
         self.state_sync.clone().unwrap_or_default()
