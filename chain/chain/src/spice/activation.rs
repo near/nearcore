@@ -36,7 +36,7 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
 /// node whose head is still pre-spice has no legitimate spice sender and drops,
 /// while a node past activation keeps buffering exactly as before.
 ///
-/// TODO(spice): at the activation boundary this drops data about the first spice
+/// TODO(spice): around the activation boundary this drops data about the first spice
 /// block that arrives before we hold that block's header, because the head is
 /// still pre-spice.
 pub fn accept_spice_network_message(

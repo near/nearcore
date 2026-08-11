@@ -204,9 +204,7 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
         }
         // `start_waiting_on_missing_data` reads the spice final execution head,
         // which only exists once spice is active, so it is skipped while the head
-        // is still pre-spice: there is no spice data to recover. Once the chain
-        // activates spice, `ProcessedBlock` starts the waiting from the activation
-        // block onwards.
+        // is still pre-spice
         let recover_missing_data = match spice_enabled_at_head(&self.chain_store) {
             Ok(enabled) => enabled,
             Err(err) => {

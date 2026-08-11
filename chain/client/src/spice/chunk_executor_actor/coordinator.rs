@@ -183,12 +183,11 @@ impl ChunkExecutorActor {
     /// Route a processed block: reconcile the tracked-shard set, then hand the
     /// block to every tracked shard's executor (each drains its own receipt
     /// buffer for the parent block).
-    ///
-    /// A block from a pre-spice epoch was already executed synchronously as part
-    /// of block processing and has no spice state to work from, so this returns
-    /// without touching it.
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        // A block from a pre-spice epoch was already executed synchronously as part
+        // of block processing and has no spice state to work from, so this returns
+        // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
             return Ok(());
         }
@@ -352,9 +351,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
             return;
         }
         // Both recovery steps below read the spice execution heads, which only
-        // exist once spice is active. A node whose head is still pre-spice has
-        // nothing to recover; if the chain activates spice while this node runs,
-        // `handle_processed_block` takes over from the activation block onwards.
+        // exist once spice is active
         match spice_enabled_at_head(&self.chain_store) {
             Ok(true) => {}
             Ok(false) => return,
