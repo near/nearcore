@@ -73,8 +73,6 @@ enum SubCommand {
     Init(InitCmd),
 
     /// Updates the state to ensure every account has a full access key that is known to us.
-    ///
-    /// Does not snapshot the DB — only `init` does that.
     AmendAccessKeys(AmendAccessKeysCmd),
 
     /// Creates a DB snapshot, then
@@ -101,15 +99,13 @@ struct InitCmd {
     pub shard_layout_protocol_version: Option<ProtocolVersion>,
     /// Skip the `data/fork-snapshot` checkpoint this command normally makes.
     ///
-    /// The snapshot exists only so `fork-network reset` can roll the DB back to this
-    /// point; nothing else reads it. It is a hard-link checkpoint, so it costs nothing at
-    /// first and then grows without bound as `amend-access-keys` compacts the live DB —
-    /// every SST the compaction retires stays on disk because the snapshot still links it.
-    /// On a mainnet fork that reached 340 GB of otherwise-free space, which is enough to
-    /// fill the disk mid-run.
+    /// The snapshot buys one thing: `fork-network reset` can roll the DB back to this point.
+    /// Nothing else reads it. It is a hard-link checkpoint, so it starts free and then grows
+    /// as `amend-access-keys` modifies the DB.
     ///
-    /// Pass this when you would rebuild the DB from its source image rather than reset it,
-    /// which is what the image-creation pipeline does.
+    /// So it is disk traded for iteration speed. Keep it when working locally, or on a large
+    /// state, where `reset` is far quicker than rebuilding the DB from its source. Skip it in
+    /// automation, which rebuilds from the source image anyway and never resets.
     #[arg(long)]
     pub no_snapshot: bool,
 }
@@ -332,6 +328,12 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
+    fn fork_snapshot_path(near_config: &NearConfig, home_dir: &Path) -> PathBuf {
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
+        store_path.join("fork-snapshot")
+    }
+
     /// Checks if a DB snapshot exists.
     /// If a snapshot doesn't exist, then creates it at `~/.near/data/fork-snapshot`.
     fn snapshot_db(
@@ -340,9 +342,7 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path = home_dir
-            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
-        let fork_snapshot_path = store_path.join("fork-snapshot");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
             tracing::info!(?fork_snapshot_path, "found a DB snapshot");
@@ -370,10 +370,21 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
         if no_snapshot {
-            tracing::warn!(
-                "skipping the fork snapshot as requested; `fork-network reset` will not be \
-                 available for this DB and rolling back means rebuilding it from its source"
-            );
+            let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
+            if fork_snapshot_path.is_dir() {
+                tracing::warn!(
+                    ?fork_snapshot_path,
+                    "--no-snapshot was given, but a snapshot from an earlier run is still here. \
+                     No new one is made, yet this one keeps hard-linking SSTs, so it will pin \
+                     every file compaction retires during amend-access-keys. `fork-network \
+                     reset` does still work. Delete it to free that space."
+                );
+            } else {
+                tracing::warn!(
+                    "skipping the fork snapshot as requested; `fork-network reset` will not be \
+                     available for this DB and rolling back means rebuilding it from its source"
+                );
+            }
         } else {
             assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
         }
@@ -488,7 +499,6 @@ impl ForkNetworkCommand {
     }
 
     /// Updates the state to ensure every account has a full access key that is known to us.
-    /// Does not snapshot the DB
     fn amend_access_keys(
         &self,
         batch_size: u64,
@@ -948,7 +958,7 @@ impl ForkNetworkCommand {
         let store_path = home_dir
             .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
-        let fork_snapshot_path = store_path.join("fork-snapshot/data");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir).join("data");
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
