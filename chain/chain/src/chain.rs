@@ -917,7 +917,14 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
-        if ProtocolFeature::Spice.enabled(epoch_protocol_version) && !header.is_spice() {
+        let spice_epoch = ProtocolFeature::Spice.enabled(epoch_protocol_version);
+        if spice_epoch != header.is_spice() {
+            tracing::error!(
+                %spice_epoch,
+                header_is_spice = %header.is_spice(),
+                %epoch_protocol_version,
+                "header spice-ness does not match its epoch"
+            );
             return Err(Error::InvalidProtocolVersion);
         }
 
