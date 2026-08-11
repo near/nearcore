@@ -20,6 +20,9 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
+use near_chain::spice::activation::{
+    accept_spice_network_message, spice_enabled_at_head, spice_enabled_for_block,
+};
 use near_chain::spice::core::{SpiceCoreReader, fallback_eligible};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -199,8 +202,26 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        self.start_waiting_on_missing_data()
-            .expect("we should be able to figure out missing data on startup");
+        // `start_waiting_on_missing_data` reads the spice final execution head,
+        // which only exists once spice is active, so it is skipped while the head
+        // is still pre-spice: there is no spice data to recover. Once the chain
+        // activates spice, `ProcessedBlock` starts the waiting from the activation
+        // block onwards.
+        let recover_missing_data = match spice_enabled_at_head(&self.chain_store) {
+            Ok(enabled) => enabled,
+            Err(err) => {
+                tracing::error!(
+                    target: "spice_data_distribution",
+                    ?err,
+                    "failed to determine whether spice is active at head; skipping recovery of missing data",
+                );
+                false
+            }
+        };
+        if recover_missing_data {
+            self.start_waiting_on_missing_data()
+                .expect("we should be able to figure out missing data on startup");
+        }
         self.schedule_data_fetching(ctx);
     }
 }
@@ -294,6 +315,9 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
     ) {
         let block_hash = *data.block_hash();
+        if !accept_spice_network_message(&self.chain_store, "partial_data", &block_hash) {
+            return;
+        }
         let sender = data.sender().clone();
         if let Err(err) = self.receive_data(data) {
             if let Some(Error::DataIsIrrelevant(data_id)) = err.inner() {
@@ -311,6 +335,13 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
 
 impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            "partial_data_request",
+            msg.request.data_id.block_hash(),
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_partial_data_request(msg.request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling partial data request");
         }
@@ -322,6 +353,13 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
         &mut self,
         SpiceContractCodeRequestMessage(request, _recv_permit): SpiceContractCodeRequestMessage,
     ) {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            "contract_code_request",
+            &request.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_code_request(request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling contract code request");
         }
@@ -344,6 +382,16 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+        // A pre-spice block distributes no receipts or witnesses and produces no
+        // endorsements, so there is nothing to wait on or contribute for it.
+        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to get block header");
+                return;
+            }
+        }
         if let Err(err) = self.contribute_fallback_endorsements(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, "failed contributing fallback endorsements");
         }
