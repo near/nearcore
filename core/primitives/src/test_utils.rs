@@ -940,8 +940,10 @@ pub struct TestBlockBuilder {
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     epoch_sync_data_hash: Option<CryptoHash>,
     timestamp_nanos: Option<u64>,
+    /// Decides whether a spice block is created; defaults to `PROTOCOL_VERSION`.
+    protocol_version: ProtocolVersion,
     // TODO(spice): Once spice is released remove Option.
-    /// Iff `Some` spice block will be created.
+    /// Overrides the empty default; only used for a spice block.
     spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
     newly_certified_block_execution_results: Vec<crate::types::BlockExecutionResults>,
     prev_last_certified_block_epoch_id: Option<EpochId>,
@@ -978,18 +980,10 @@ impl TestBlockBuilder {
             chunk_endorsements: vec![vec![]; chunks_len],
             epoch_sync_data_hash: None,
             timestamp_nanos: None,
-            spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                Some(crate::block_body::SpiceCoreStatements::new(vec![]))
-            } else {
-                None
-            },
+            protocol_version: PROTOCOL_VERSION,
+            spice_core_statements: None,
             newly_certified_block_execution_results: vec![],
-            prev_last_certified_block_epoch_id: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-            {
-                Some(*prev_header.epoch_id())
-            } else {
-                None
-            },
+            prev_last_certified_block_epoch_id: None,
             spice_chunk_endorsement_stats: Vec::new(),
             prev_header,
         }
@@ -1083,6 +1077,11 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        self.protocol_version = protocol_version;
+        self
+    }
+
     pub fn newly_certified_block_execution_results(
         mut self,
         results: Vec<crate::types::BlockExecutionResults>,
@@ -1122,8 +1121,8 @@ impl TestBlockBuilder {
     pub fn build_owned(self) -> Block {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let mut block = Block::produce(
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
+            self.protocol_version,
+            self.protocol_version,
             &self.prev_header,
             self.height,
             self.prev_header.block_ordinal() + 1,
@@ -1144,14 +1143,16 @@ impl TestBlockBuilder {
             None,
             None,
             None,
-            self.spice_core_statements.map(|core_statements| {
+            ProtocolFeature::Spice.enabled(self.protocol_version).then(|| {
                 crate::block::SpiceNewBlockProductionInfo {
-                    core_statements,
+                    core_statements: self
+                        .spice_core_statements
+                        .unwrap_or_else(|| crate::block_body::SpiceCoreStatements::new(vec![])),
                     newly_certified_block_execution_results: self
                         .newly_certified_block_execution_results,
                     prev_last_certified_block_epoch_id: self
                         .prev_last_certified_block_epoch_id
-                        .expect("prev_last_certified_block_epoch_id not set for spice block"),
+                        .unwrap_or(*self.prev_header.epoch_id()),
                     spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
                 }
             }),
