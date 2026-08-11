@@ -473,3 +473,35 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_execution_lags() {
         assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
     }
 }
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_fallback_only_chunk_certifies_when_validators_track_all_shards() {
+    init_test_logger();
+
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) =
+        FallbackSetup::new().epoch_length(epoch_length).build();
+    // Every validator tracks every shard, so they apply the chunk themselves rather than pulling
+    // its witness. Nothing is pushed for a fallback-only chunk, so this is the one path left.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .track_all_shards()
+        .build();
+
+    env.node_runner(0).run_until_head_height(epoch_length);
+    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
+    assert_eq!(
+        fallback_schedule.len() as u64,
+        NUM_SHARDS,
+        "every shard is scheduled once per epoch length"
+    );
+
+    let (last_height, _) = *fallback_schedule.last().unwrap();
+    env.node_runner(0).run_until_certified(last_height);
+    for &(chunk_height, shard_id) in &fallback_schedule {
+        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
+    }
+}
