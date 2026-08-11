@@ -91,6 +91,20 @@ pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(||
     )
     .unwrap()
 });
+pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_spice_pre_activation_messages_dropped_total",
+        "Number of spice messages dropped because the block they reference is not a spice \
+         block, by message kind: 'chunk_endorsement', 'partial_data', 'partial_data_request', \
+         'contract_accesses', 'contract_code_request', 'contract_code_response', \
+         'state_witness'. Reads against this node's head, not the chain: it grows while the \
+         head is still pre-spice, either because peers are sending spice traffic to a \
+         pre-spice chain or because this node is syncing towards an activation boundary it \
+         has not reached yet. Expected to stay flat once the head is past activation.",
+        &["kind"],
+    )
+    .unwrap()
+});
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",
