@@ -3,6 +3,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
+use near_chain::spice::activation::{accept_spice_network_message, spice_enabled_for_block};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -172,6 +173,16 @@ impl SpiceChunkValidatorActor {
 // chunk validator actor we don't need to handle possibility of missing blocks in this actor.
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+        // Pre-spice chunks are validated as part of block processing; no witness
+        // can be waiting on a pre-spice block.
+        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(err) => {
+                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to get block header");
+                return;
+            }
+        }
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
@@ -209,6 +220,13 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceChunkContractAccessesMessage(accesses, _recv_permit): SpiceChunkContractAccessesMessage,
     ) {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            "contract_accesses",
+            &accesses.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_accesses(accesses) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract accesses");
         }
@@ -220,6 +238,13 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceContractCodeResponseMessage(response, _recv_permit): SpiceContractCodeResponseMessage,
     ) {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            "contract_code_response",
+            &response.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_code_response(response) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract code response");
         }
@@ -235,6 +260,13 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
+        if !accept_spice_network_message(
+            &self.chain_store,
+            "state_witness",
+            &witness.chunk_id().block_hash,
+        ) {
+            return;
+        }
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
             return;
