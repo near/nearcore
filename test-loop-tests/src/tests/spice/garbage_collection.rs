@@ -1,14 +1,23 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients_with_rpc};
 use crate::utils::node::TestLoopNode;
+#[cfg(feature = "test_features")]
+use borsh::BorshDeserialize;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
+#[cfg(feature = "test_features")]
+use near_client::NetworkAdversarialMessage;
+#[cfg(feature = "test_features")]
+use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::ShardId;
+use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
 use near_store::DBCol;
+#[cfg(feature = "test_features")]
+use std::collections::HashMap;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -147,4 +156,72 @@ fn test_spice_chunk_certifying_block_index_is_collected_with_its_block() {
         indexed_chunks += 1;
     }
     assert!(indexed_chunks > 0, "expected the index to hold chunks of retained blocks");
+}
+
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_invalid_chunks_are_collected() {
+    init_test_logger();
+
+    let mut env =
+        TestLoopBuilder::new().validators(4, 0).epoch_length(5).gc_num_epochs_to_keep(1).build();
+
+    let (malicious_node, honest_node) = (0, 1);
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
+
+    let mut seen_invalid_chunks: HashMap<ChunkHash, BlockHeight> = HashMap::new();
+    env.node_runner(honest_node).run_until(
+        |node| {
+            seen_invalid_chunks.extend(stored_invalid_chunks(node));
+            gc_passed_an_invalid_chunk(node, &seen_invalid_chunks)
+        },
+        Duration::seconds(60),
+    );
+
+    let node = env.node(honest_node);
+    let chunk_tail = node.chunk_tail();
+    let hashes_below_chunk_tail: Vec<_> = seen_invalid_chunks
+        .iter()
+        .filter(|(_, height)| **height < chunk_tail)
+        .map(|(chunk_hash, _)| chunk_hash)
+        .collect();
+    assert!(!hashes_below_chunk_tail.is_empty(), "gc did not pass any invalid chunk");
+    for chunk_hash in hashes_below_chunk_tail {
+        for col in [DBCol::InvalidChunks, DBCol::PartialChunks, DBCol::Chunks] {
+            assert!(!node.store().exists(col, chunk_hash.as_ref()));
+        }
+    }
+
+    for height in stored_invalid_chunks(&node).into_values() {
+        assert!(height >= chunk_tail, "invalid chunk at height {height}, chunk_tail {chunk_tail}");
+    }
+    for (key, _) in node.store().iter(DBCol::invalid_chunk_hashes_by_height()) {
+        let height = BlockHeight::try_from_slice(&key).unwrap();
+        assert!(height >= chunk_tail, "index row at height {height}, chunk_tail {chunk_tail}");
+    }
+}
+
+#[cfg(feature = "test_features")]
+fn gc_passed_an_invalid_chunk(
+    node: &TestLoopNode,
+    seen_invalid_chunks: &HashMap<ChunkHash, BlockHeight>,
+) -> bool {
+    let chunk_tail = node.chunk_tail();
+    seen_invalid_chunks.values().any(|height| *height < chunk_tail)
+}
+
+#[cfg(feature = "test_features")]
+fn stored_invalid_chunks(node: &TestLoopNode) -> HashMap<ChunkHash, BlockHeight> {
+    node.store()
+        .iter(DBCol::InvalidChunks)
+        .map(|(_, value)| {
+            let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
+            (chunk.chunk_hash().clone(), chunk.height_created())
+        })
+        .collect()
 }
