@@ -302,9 +302,11 @@ impl EpochSync {
             &first_block_info_in_epoch,
         )?;
         // `record_block_info`, which epoch sync bypasses, is otherwise the only
-        // block-processing writer of `EpochStart`. Without this row the early-kickout grace
-        // check sees the synced epoch as permanently just-started, never forms the
-        // blacklist, and mis-attributes chunk production for the whole epoch.
+        // block-processing writer of `EpochStart`. The early-kickout grace check no longer
+        // reads this column (it walks `BlockInfo.epoch_first_block`), but other readers
+        // still key on it and would error on the synced epoch without this row, e.g.
+        // `get_validator_info` (RPC), `compare_epoch_id`, the epoch-sync-proof migration,
+        // and `find_target_epoch_to_produce_proof_for` (serving epoch sync to other nodes).
         store_update
             .epoch_store_update()
             .set_epoch_start(last_header.epoch_id(), last_header.height());

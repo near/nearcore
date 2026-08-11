@@ -892,6 +892,11 @@ pub enum ActionErrorKind {
         size: u64,
         limit: u64,
     } = 27,
+    /// The receipt recorded more storage proof than
+    /// `per_receipt_storage_proof_size_limit` allows.
+    ReceiptStorageProofSizeExceeded {
+        limit: u64,
+    } = 28,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1240,6 +1245,9 @@ impl Display for ActionErrorKind {
                         account_id, balance
                     )
                 }
+            }
+            ActionErrorKind::ReceiptStorageProofSizeExceeded { limit } => {
+                write!(f, "Receipt exceeded the storage proof size limit of {} bytes", limit)
             }
         }
     }

@@ -1,4 +1,5 @@
 mod early_kickout;
+mod epoch_start_fork_determinism;
 mod pick_shard_to_split;
 mod random_epochs;
 

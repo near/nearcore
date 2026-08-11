@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.15"
+    "version": "1.3.15"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2396,6 +2396,29 @@
             },
             "required": [
               "TotalPromiseInputSizeExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receipt recorded more storage proof than\n`per_receipt_storage_proof_size_limit` allows.",
+            "properties": {
+              "ReceiptStorageProofSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReceiptStorageProofSizeExceeded"
             ],
             "type": "object"
           }
@@ -13548,6 +13571,17 @@
             ],
             "description": "Duration to check for producing / skipping block."
           },
+          "block_request_timeout": {
+            "description": "How long to wait for a state sync block request response",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
             "items": {
@@ -13905,17 +13939,6 @@
               }
             ],
             "description": "Options for syncing state."
-          },
-          "state_sync_external_timeout": {
-            "description": "How long to wait for a state sync block request response",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
           },
           "state_sync_p2p_timeout": {
             "description": "How long to wait for a response from p2p state sync",
