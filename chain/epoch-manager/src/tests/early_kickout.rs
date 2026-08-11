@@ -1192,9 +1192,9 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-/// Builds the `BlockInfo` the `record_block_info` failure tests feed in, final on the
-/// uninstalled aggregator position. `record_block_info` overwrites the epoch fields itself,
-/// and consumes the value, so each call needs a fresh one.
+/// Input for the `record_block_info` failure tests, final on the aggregator position the
+/// fixture leaves uninstalled. Each call needs a fresh one: record consumes the value and
+/// overwrites its epoch fields.
 #[cfg(feature = "nightly")]
 fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) -> BlockInfo {
     const HEIGHT: u64 = 100;
@@ -1215,18 +1215,16 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
     )
 }
 
-// A failed `record_block_info` must not leave the recorded block in the `blocks_info` cache:
-// the caller drops the store update, so a surviving entry makes `has_block_info` report the
-// block as already recorded and the retry silently succeeds without writing any row.
-// Reachable after epoch sync, where a replayed prev-epoch header seeds off the uninstalled
-// aggregator position and the seeder fails with `MissingBlock`.
+// A failed record must not leave the block in `blocks_info`: the caller drops the store
+// update, and a surviving entry makes `has_block_info` skip the retry, so no row is ever
+// written. Reachable after epoch sync, where the seeder fails with `MissingBlock`.
 #[cfg(feature = "nightly")]
 #[test]
 fn record_block_info_failure_does_not_poison_block_info_cache() {
     let mut fx = epoch_sync_fixture();
 
     // Sibling of the prev epoch's last block: same epoch as its parent, so the seeder walks
-    // back to the third-last block, whose `BlockInfo` epoch sync never installed.
+    // back to the third-last block, which epoch sync never installed.
     let sibling = hash(b"prev epoch last block sibling");
     let err = fx
         .em
@@ -1245,8 +1243,7 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
         .map(|_| ())
         .expect_err("a discarded record must not have committed the row either");
 
-    // The point of the eviction: recording the same block again still reports the failure
-    // instead of returning an empty update that writes nothing.
+    // The actual bug: without the eviction this second call returns an empty update.
     let err = fx
         .em
         .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
@@ -1255,23 +1252,19 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
     assert_eq!(err, EpochError::MissingBlock(fx.third_last), "unexpected error: {err:?}");
 }
 
-// Companion for the epoch-start branch: `save_epoch_start` runs after the last fallible step,
-// so a failed record leaves no `epoch_id_to_start` entry (nor a `blocks_info` one) behind.
-//
-// Fault injection: the fixture's installed current-epoch id is an arbitrary label that does
-// not equal the id `record_block_info` derives at the boundary, so the derived epoch has no
-// `EpochInfo`. That models corrupted or incomplete state rather than a valid epoch-sync one,
-// which is what makes the failure land after the epoch-start write.
+// Same for the epoch-start branch, where `save_epoch_start` now runs after the last fallible
+// step. Fault injection: the fixture's current-epoch id is an arbitrary label, so the id the
+// boundary derives has no `EpochInfo` and the record fails where the epoch-start write used
+// to precede it. Not a state epoch sync can produce.
 #[cfg(feature = "nightly")]
 #[test]
 fn record_block_info_failure_does_not_poison_epoch_start_cache() {
     let mut fx = epoch_sync_fixture();
 
-    // The epoch id the boundary derives: the hash of the block before the prev epoch's first.
+    // What the boundary derives: the hash of the block before the prev epoch's first.
     let boundary_id = EpochId(*fx.em.get_block_info(&fx.first).unwrap().prev_hash());
 
-    // Child of the prev epoch's last block: starts a new epoch, then fails looking up that
-    // epoch's info.
+    // Child of the prev epoch's last block, so the record takes the epoch-start branch.
     let child = hash(b"first block of the new epoch");
     let err = fx
         .em

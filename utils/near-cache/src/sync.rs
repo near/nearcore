@@ -82,7 +82,6 @@ where
         self.inner.lock().put(key, value);
     }
 
-    /// Removes the key from the cache and returns its value, or None if it is not present.
     pub fn pop<Q>(&self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
