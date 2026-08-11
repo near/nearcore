@@ -1250,9 +1250,28 @@ impl EpochManager {
         block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
-        self.record_block_info_impl(block_info, rng_seed)
+        let current_hash = *block_info.hash();
+        let is_genesis = block_info.is_genesis();
+        let result = self.record_block_info_impl(block_info, rng_seed);
+        if result.is_err() {
+            // Callees pair every cache put with a write staged in the returned store_update;
+            // callers discard that update on error (and are assumed to commit or merge it on
+            // success - the API does not enforce this), so the cache entries must not outlive
+            // it: a stale `blocks_info` entry defeats the `has_block_info` idempotency guard
+            // on retry, silently skipping the record. The genesis branch additionally caches
+            // `EpochId(current)` before its fallible step; the other branch only writes that
+            // key in `finalize_epoch`, after which nothing fails, and popping it there could
+            // evict a legitimately committed entry.
+            self.blocks_info.pop(&current_hash);
+            if is_genesis {
+                self.epochs_info.pop(&EpochId(current_hash));
+            }
+        }
+        result
     }
 
+    /// Must be called through `record_block_info`, which evicts the cache entries this
+    /// stages alongside the store update when the call fails.
     fn record_block_info_impl(
         &mut self,
         mut block_info: BlockInfo,
@@ -1314,14 +1333,6 @@ impl EpochManager {
                     *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
                 }
 
-                if is_epoch_start {
-                    self.save_epoch_start(
-                        &mut store_update,
-                        block_info.epoch_id(),
-                        block_info.height(),
-                    )?;
-                }
-
                 let block_info = Arc::new(block_info);
                 // Save current block info.
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
@@ -1363,6 +1374,17 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+                }
+
+                // Kept after the last fallible step: nothing in record reads the epoch start
+                // back (unlike `blocks_info`), so a failure never leaves a stale
+                // `epoch_id_to_start` entry behind and the error guard need not evict it.
+                if is_epoch_start {
+                    self.save_epoch_start(
+                        &mut store_update,
+                        block_info.epoch_id(),
+                        block_info.height(),
+                    )?;
                 }
             }
         }
