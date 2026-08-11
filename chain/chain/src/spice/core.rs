@@ -1,4 +1,5 @@
 use crate::metrics;
+use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, fallback_eligible};
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
@@ -7,7 +8,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::{EpochError, InvalidSpiceCoreStatementsError};
+use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
@@ -37,10 +38,6 @@ use std::sync::Arc;
 /// each block can advance the execution frontier on average: at most MAX_REFERENCED_CHUNKS_PER_BLOCK / num_shards
 /// heights per block.
 pub const MAX_REFERENCED_CHUNKS_PER_BLOCK: usize = 100;
-
-/// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
-/// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
-pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 20;
 
 #[derive(Clone)]
 pub struct SpiceCoreReader {
@@ -1314,30 +1311,4 @@ pub fn get_last_certified_block_header(
         );
         Ok(header)
     }
-}
-
-/// Whether the chunk may certify via the all-stake fallback in a block at `carrying_height`: true
-/// once its designated validators have had `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks to act.
-pub fn fallback_eligible(
-    carrying_height: BlockHeight,
-    chunk_info: &SpiceUncertifiedChunkInfo,
-) -> bool {
-    let Some(certifiable_since) = chunk_info.certifiable_since_height else {
-        return false;
-    };
-    carrying_height.saturating_sub(certifiable_since) >= SPICE_FALLBACK_CERTIFICATION_DELAY
-}
-
-/// The epoch's full validator set as a shard-independent assignment weighted by real stake. The
-/// all-stake fallback certifies via 2/3 of this total when the designated assignment didn't in time.
-// TODO(spice-perf): the result is epoch-invariant but rebuilt (with per-validator AccountId clones)
-// on every call, and this is called per fallback-eligible chunk from validation, the producer, and
-// the writer. Cache it per EpochId, like get_chunk_validator_assignments.
-pub fn all_stake_fallback_assignment(
-    epoch_manager: &dyn EpochManagerAdapter,
-    epoch_id: &EpochId,
-) -> Result<ChunkValidatorAssignments, EpochError> {
-    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-    let assignments = epoch_info.validators_iter().map(|validator| validator.account_and_stake());
-    Ok(ChunkValidatorAssignments::new(assignments.collect()))
 }
