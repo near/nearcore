@@ -207,7 +207,7 @@ pub enum DBCol {
     /// - *Rows*: BlockHash
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
     BlockMerkleTree,
-    /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
+    /// Mapping from height to the set of Chunk Hashes created at that height.
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
