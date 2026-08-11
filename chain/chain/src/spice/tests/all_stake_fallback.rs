@@ -1,5 +1,5 @@
 use crate::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, is_fallback_only_chunk,
+    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
     is_fallback_only_height_for_shard_index,
 };
 use crate::spice::tests::core::{
@@ -15,6 +15,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, ShardId, SpiceChunkId,
 };
+use std::collections::HashSet;
 use std::sync::Arc;
 
 fn first_shard_chunk_id(block: &Block) -> SpiceChunkId {
@@ -584,4 +585,81 @@ fn test_fallback_only_mark_survives_in_later_blocks() {
         .into_iter()
         .any(|chunk_info| chunk_info.chunk_id == scheduled && chunk_info.is_fallback_only);
     assert!(still_marked, "the mark was lost when the chunk was carried forward");
+}
+
+// Enough validators that a chunk's designated assignment stays under 2/3 of total stake, asserted
+// below.
+fn validators_with_minority_designated_stake() -> Vec<String> {
+    (0..150).map(|i| format!("test{i}")).collect()
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() {
+    let validators = validators_with_minority_designated_stake();
+    let (mut chain, core_reader) = setup_with_validators(&validators);
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let chunk_header = fallback_only_block
+        .chunks()
+        .iter_raw()
+        .find(|chunk| chunk.shard_id() == shard_id)
+        .unwrap()
+        .clone();
+    // Certifying the parent leaves the fallback-only chunk as the oldest uncertified one.
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+    let parent_certification = certify_block_designated(&chain, &parent);
+    let tip = append_block(&mut chain, &fallback_only_block, parent_certification);
+    let uncertified = core_reader.get_uncertified_chunks(tip.hash()).unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id };
+    assert!(uncertified.iter().all(|info| info.chunk_id.block_hash != *parent.hash()));
+    assert!(uncertified.iter().any(|info| info.chunk_id == chunk_id && info.is_fallback_only));
+
+    let (designated, non_designated) =
+        split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
+    let all_stake = all_stake_fallback_assignment(
+        chain.epoch_manager.as_ref(),
+        fallback_only_block.header().epoch_id(),
+    )
+    .unwrap();
+    // The whole designated set must fall short of 2/3 of total stake, or a designated-only block
+    // would certify on the all-stake path and prove nothing about the designated rule.
+    let mut endorsers: HashSet<AccountId> = designated.iter().cloned().collect();
+    assert!(!all_stake.is_endorsed(&endorsers));
+
+    let designated_only = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(&designated, &fallback_only_block, &chunk_header),
+    );
+    assert_matches!(
+        core_reader.validate_core_statements_in_block(&designated_only),
+        Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+            reason: "execution results included without enough corresponding endorsement",
+            ..
+        })
+    );
+
+    // Topping the designated set up to 2/3 of total stake certifies, so the rejection above is the
+    // designated rule being skipped, not an unreachable threshold. Stakes are not uniform, so the
+    // set is grown against the assignment rather than by a count.
+    for account in non_designated {
+        if all_stake.is_endorsed(&endorsers) {
+            break;
+        }
+        endorsers.insert(account);
+    }
+    assert!(all_stake.is_endorsed(&endorsers), "fallback set must be able to certify");
+    let mut all_stake_endorsers: Vec<AccountId> = endorsers.into_iter().collect();
+    all_stake_endorsers.sort();
+
+    let all_stake_block = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(
+            &all_stake_endorsers,
+            &fallback_only_block,
+            &chunk_header,
+        ),
+    );
+    core_reader.validate_core_statements_in_block(&all_stake_block).unwrap();
 }
