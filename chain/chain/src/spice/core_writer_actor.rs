@@ -1,3 +1,4 @@
+use crate::spice::activation::{accept_spice_network_message, spice_enabled_for_block};
 use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -66,6 +67,10 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
+        if !accept_spice_network_message(&self.chain_store, "chunk_endorsement", msg.0.block_hash())
+        {
+            return;
+        }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
         }
@@ -555,6 +560,11 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
+        // A pre-spice block carries no core statements and needs no certification,
+        // so there is nothing to record for it.
+        if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            return Ok(());
+        }
         let block = self.chain_store.get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;
