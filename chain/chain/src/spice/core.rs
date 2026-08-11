@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::spice::all_stake_fallback::{
-    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers,
+    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
@@ -1040,6 +1040,7 @@ pub fn record_uncertified_chunks_for_block(
             present_endorsements: Vec::new(),
             present_fallback_endorsements: Vec::new(),
             certifiable_since_height: None,
+            is_fallback_only: is_fallback_only_chunk(epoch_manager, block.header(), shard_id)?,
         });
     }
 
