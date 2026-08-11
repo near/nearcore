@@ -1,5 +1,5 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
-use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, fallback_eligible};
+use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -174,8 +174,9 @@ impl SpiceCoreWriterActor {
     ) -> Result<bool, Error> {
         let chunk_block = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block.epoch_id();
-        let chunk_info = self.core_reader.uncertified_chunk_info(carrying_prev_hash, chunk_id)?;
-        let is_fallback_only = chunk_info.as_ref().is_some_and(|info| info.is_fallback_only);
+        // A property of the chunk's own block, not of the chain the carrying block sits on.
+        let is_fallback_only =
+            is_fallback_only_chunk(self.epoch_manager.as_ref(), &chunk_block, chunk_id.shard_id)?;
         if !is_fallback_only {
             let designated = self.epoch_manager.get_chunk_validator_assignments(
                 epoch_id,
@@ -190,9 +191,13 @@ impl SpiceCoreWriterActor {
             ) {
                 return Ok(true);
             }
-        }
-        if !chunk_info.is_some_and(|info| fallback_eligible(carrying_height, &info)) {
-            return Ok(false);
+            if !self.core_reader.fallback_eligible_in_carrying_block(
+                carrying_height,
+                carrying_prev_hash,
+                chunk_id,
+            )? {
+                return Ok(false);
+            }
         }
         let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
         Ok(self.core_reader.reaches_endorsement_threshold(

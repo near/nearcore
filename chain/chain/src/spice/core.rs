@@ -735,7 +735,7 @@ impl SpiceCoreReader {
 
         // TODO(spice): Add validation that endorsements for blocks are included only when previous
         // block is fully endorsed (as part of block we are validating or it's ancestry).
-        for chunk_id in ancestry_endorsements.pending_designated_chunks() {
+        for chunk_id in ancestry_endorsements.uncertified_chunk_ids() {
             if block_execution_results.contains_key(chunk_id) {
                 continue;
             }
@@ -747,9 +747,10 @@ impl SpiceCoreReader {
             let block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
             let height = block.header().height();
             if height < *max_endorsed_height_created {
-                // We cannot be waiting on an endorsement for chunk created at height that is less
-                // than maximum endorsed height for the chunk as that would mean that child is
-                // endorsed before parent.
+                // A chunk below the maximum endorsed height for its shard cannot still be
+                // uncertified, or a child would be endorsed before its parent. Keyed off
+                // uncertified, not off a missing designated endorsement: a fallback-only chunk
+                // can hold every designated one and stay uncertified.
                 return Err(SkippedExecutionResult { chunk_id: chunk_id.clone() });
             }
         }

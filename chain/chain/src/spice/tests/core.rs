@@ -1885,7 +1885,7 @@ pub(super) fn process_block(chain: &mut Chain, block: Arc<Block>) {
     .unwrap();
 }
 
-fn endorse_chunk(
+pub(super) fn endorse_chunk(
     chain: &Chain,
     core_writer_actor: &mut SpiceCoreWriterActor,
     chunk_id: &SpiceChunkId,
