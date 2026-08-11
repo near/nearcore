@@ -1,10 +1,15 @@
 //! The all-stake fallback: if a chunk's designated validators do not certify it in time, it may instead
 //! be certified by 2/3 of total epoch stake.
 
+use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::BlockHeader;
 use near_primitives::errors::EpochError;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId, ShardIndex,
+    SpiceUncertifiedChunkInfo,
+};
 
 /// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
 /// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
@@ -53,4 +58,54 @@ pub fn fallback_endorsers(
         .map(|validator| validator.take_account_id())
         .filter(|account_id| !designated.contains(account_id))
         .collect())
+}
+
+/// How far apart fallback-only heights sit. `None` when `epoch_length < num_shards`, which leaves
+/// the epoch with none. Only tests reach that: production epoch lengths far exceed shard counts.
+fn blocks_between_fallback_only_chunks(
+    epoch_length: BlockHeightDelta,
+    num_shards: usize,
+) -> Option<BlockHeightDelta> {
+    let blocks_between_fallback_only_chunks = epoch_length / num_shards as u64;
+    (blocks_between_fallback_only_chunks > 0).then_some(blocks_between_fallback_only_chunks)
+}
+
+/// Shards take turns so one chunk's witness pulls do not land on every shard at once, and
+/// `epoch_height` rotates who goes first.
+pub(super) fn is_fallback_only_height_for_shard_index(
+    epoch_length: BlockHeightDelta,
+    epoch_height: EpochHeight,
+    num_shards: usize,
+    shard_index: ShardIndex,
+    height: BlockHeight,
+) -> bool {
+    let Some(blocks_between_fallback_only_chunks) =
+        blocks_between_fallback_only_chunks(epoch_length, num_shards)
+    else {
+        return false;
+    };
+    if !height.is_multiple_of(blocks_between_fallback_only_chunks) {
+        return false;
+    }
+    shard_index as u64
+        == (height / blocks_between_fallback_only_chunks + epoch_height) % num_shards as u64
+}
+
+/// The fallback-only schedule, resolved from the previous block: the epoch manager does not know a
+/// block while that block's chunks are recorded.
+pub fn is_fallback_only_chunk(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_block_header: &BlockHeader,
+    shard_id: ShardId,
+) -> Result<bool, Error> {
+    let prev_hash = chunk_block_header.prev_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    Ok(is_fallback_only_height_for_shard_index(
+        epoch_manager.get_epoch_config(&epoch_id)?.epoch_length,
+        epoch_manager.get_epoch_height_from_prev_block(prev_hash)?,
+        shard_layout.num_shards() as usize,
+        shard_layout.get_shard_index(shard_id)?,
+        chunk_block_header.height(),
+    ))
 }
