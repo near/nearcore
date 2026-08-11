@@ -109,6 +109,10 @@ impl ParameterCost {
         let compute = self.compute.checked_mul(rhs)?;
         Some(Self { gas, compute })
     }
+
+    pub fn checked_mul_result(self, rhs: u64) -> Result<Self, IntegerOverflowError> {
+        self.checked_mul(rhs).ok_or(IntegerOverflowError)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
