@@ -3,6 +3,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_ids;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
+use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -293,6 +294,114 @@ fn test_gas_key_delegate_v2_meta_transaction() {
         "expected DelegateActionInvalidNonce on replay, got {:?}",
         replay_outcome.status,
     );
+}
+
+#[test]
+fn test_gas_key_delegate_v2_nonce_gap_rejected() {
+    init_test_logger();
+
+    let user_accounts = create_account_ids(["account0", "account1", "account2"]);
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_price = Balance::from_yoctonear(1);
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .add_user_accounts(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
+        .build();
+
+    let sender = &user_accounts[0];
+    let relayer = &user_accounts[1];
+    let receiver = &user_accounts[2];
+    let relayer_signer = create_user_test_signer(relayer);
+
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let num_nonces = 3;
+    let add_key_tx = SignedTransaction::from_actions(
+        1,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_signer.public_key(),
+            access_key: AccessKey::gas_key_full_access(num_nonces),
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        2,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_signer.public_key(),
+            deposit: Balance::from_millinear(100),
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+
+    let nonce_index: NonceIndex = 1;
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    let delegate_action = DelegateActionV2 {
+        sender_id: sender.clone(),
+        receiver_id: receiver.clone(),
+        actions: vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(10) })
+                .try_into()
+                .unwrap(),
+        ],
+        nonce: TransactionNonce::from_nonce_and_index(gas_key_nonce + 5, nonce_index),
+        max_block_height: 1_000_000,
+        public_key: gas_key_signer.public_key(),
+    };
+    let signed_delegate =
+        VersionedSignedDelegateAction::sign(&gas_key_signer, delegate_action.into());
+
+    let receiver_balance_before = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let meta_tx = SignedTransaction::from_actions(
+        1,
+        relayer.clone(),
+        sender.clone(),
+        &relayer_signer,
+        vec![Action::DelegateV2(Box::new(signed_delegate))],
+        block_hash,
+    );
+    let outcome = env.rpc_runner().execute_tx(meta_tx, Duration::seconds(5)).unwrap();
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::DelegateActionInvalidNonce { .. },
+            ..
+        }))
+    );
+
+    assert_eq!(
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index),
+        gas_key_nonce,
+    );
+    assert_eq!(
+        env.rpc_node().view_account_query(receiver).unwrap().amount,
+        receiver_balance_before,
+    );
+
+    // The sequence is untouched, so a transaction at the next nonce still works.
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
+        sender.clone(),
+        receiver.clone(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+        block_hash,
+    );
+    let outcome = env.rpc_runner().execute_tx(gas_key_tx, Duration::seconds(5)).unwrap();
+    assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
 }
 
 #[test]

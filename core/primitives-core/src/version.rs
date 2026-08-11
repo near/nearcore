@@ -459,6 +459,13 @@ pub enum ProtocolFeature {
     /// `FunctionCall` back to the contract account as a reward. Sets the
     /// `burnt_gas_reward` parameter from 30% (3/10) to 0%.
     RemoveGasRewards,
+    /// Require a gas key nonce in a `DelegateActionV2` to be exactly the
+    /// selected nonce sequence's current value plus one. Under the previous
+    /// monotonic rule a delegate action could advance a sequence by any
+    /// amount, which invalidated every queued transaction on that sequence
+    /// below the new value. A plain (non-gas-key) nonce stays monotonic, as
+    /// in `DelegateAction`.
+    DelegateV2GasKeyStrictNonce,
     /// Fix two related ML-DSA-65 cost-charging issues (both harmless for
     /// classical schemes, where the relevant quantities coincide):
     /// - Gas keys: price the exec (storage) fee on the on-trie identifier length
@@ -602,6 +609,7 @@ impl ProtocolFeature {
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
+            ProtocolFeature::DelegateV2GasKeyStrictNonce => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
