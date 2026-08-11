@@ -488,7 +488,7 @@ impl ForkNetworkCommand {
     }
 
     /// Updates the state to ensure every account has a full access key that is known to us.
-    /// Does not snapshot the DB, despite what this comment used to claim.
+    /// Does not snapshot the DB
     fn amend_access_keys(
         &self,
         batch_size: u64,
