@@ -486,7 +486,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
         actor_system.new_future_spawner("cloud archival").into(),
-        config.config.cloud_archival_writer,
+        config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),

@@ -13,9 +13,9 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
-    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
+    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
@@ -266,10 +266,6 @@ pub struct Config {
     /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_archival: Option<CloudArchivalConfig>,
-    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
-    /// writes chunk-related data based on the tracked shards.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
 
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
@@ -490,7 +486,6 @@ impl Default for Config {
             tracked_shard_schedule: None,
             archive: false,
             cloud_archival: None,
-            cloud_archival_writer: None,
             save_trie_changes: None,
             save_state_changes: None,
             save_tx_outcomes: None,
@@ -683,7 +678,7 @@ impl Config {
     /// Returns the state sync configuration, deriving it from cloud archival settings
     /// when archival is enabled, or using the configured/default value otherwise.
     fn state_sync_config(&self) -> StateSyncConfig {
-        if self.cloud_archival_writer.is_some() {
+        if self.cloud_archival.as_ref().is_some_and(|c| c.writer.is_some()) {
             let cloud_archival_config = self
                 .cloud_archival
                 .clone()
@@ -785,7 +780,10 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,
-                cloud_archival_writer: config.cloud_archival_writer,
+                cloud_archival_writer: config
+                    .cloud_archival
+                    .as_ref()
+                    .and_then(|c| c.writer.clone()),
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 save_receipt_to_tx: config
@@ -885,7 +883,8 @@ impl NearConfig {
             return None;
         };
         let cloud_storage_context = CloudStorageContext {
-            cloud_archive: cloud_archive_config.clone(),
+            location: cloud_archive_config.location.clone(),
+            credentials_file: cloud_archive_config.credentials_file.clone(),
             chain_id: self.client_config.chain_id.clone(),
         };
         Some(cloud_storage_context)

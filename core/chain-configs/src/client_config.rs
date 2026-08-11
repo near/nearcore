@@ -203,10 +203,15 @@ pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
 
+// TODO(cloud_archival): the reader has no settings of its own yet.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalReaderConfig {}
+
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
     /// Determines whether block-related data should be written to cloud storage.
