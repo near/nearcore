@@ -18,7 +18,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{PartId, StatePartIndex};
+use near_primitives::state_part::{StatePartIndex, StatePartRef};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
 use parking_lot::RwLock;
@@ -344,7 +344,7 @@ impl PartUploader {
             self.inc_parts_dumped();
             return Ok(());
         }
-        let part_id = PartId::new(part_idx, self.num_parts);
+        let part_ref = StatePartRef::new(part_idx, self.num_parts);
 
         let state_part = loop {
             if self.canceled.load(Ordering::Relaxed) {
@@ -359,7 +359,7 @@ impl PartUploader {
                     self.shard_id,
                     &self.sync_prev_prev_hash,
                     &self.state_root,
-                    part_id,
+                    part_ref,
                 )
             };
             match state_part {
@@ -370,7 +370,7 @@ impl PartUploader {
                     // TODO: return non retryable errors.
                     tracing::warn!(
                         target: "state_sync_dump",
-                        shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
+                        shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_ref, ?error,
                         "failed to obtain state part, retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;
@@ -402,12 +402,12 @@ impl PartUploader {
                             &self.shard_id.to_string(),
                         ])
                         .inc_by(bytes.len() as u64);
-                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "uploaded state part");
+                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_ref, "uploaded state part");
                     return Ok(());
                 }
                 Err(error) => {
                     tracing::warn!(
-                        target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
+                        target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_ref, ?error,
                         "failed to upload state part, retrying in 200 millis"
                     );
                     self.clock.sleep(Duration::milliseconds(200)).await;

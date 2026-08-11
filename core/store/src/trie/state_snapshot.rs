@@ -13,7 +13,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartRef;
 use near_primitives::types::ShardIndex;
 use near_primitives::types::StateRoot;
 use std::error::Error;
@@ -195,7 +195,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         block_hash: &CryptoHash,
-        part_id: PartId,
+        part_ref: StatePartRef,
         state_trie: Trie,
     ) -> Result<PartialState, StorageError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
@@ -215,7 +215,7 @@ impl ShardTries {
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
+        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_ref, &state_trie)
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.
