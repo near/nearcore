@@ -1875,6 +1875,8 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
             Default::default(),
         )
         .unwrap();
+    // This call writes the `{0, 1}` indices the rest of the test depends on.
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
     store_update.commit();
@@ -1892,6 +1894,8 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
             Default::default(),
         )
         .unwrap();
+    // The read under test only runs on the success path, so a failed call would exercise nothing.
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
     let partial_storage = apply_result.proof.unwrap();
     let PartialState::TrieValues(mut nodes) = partial_storage.nodes;
 
