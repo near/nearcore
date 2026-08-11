@@ -18,7 +18,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePartIndex};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
 use parking_lot::RwLock;
@@ -128,7 +128,7 @@ impl StateSyncDumpHandle {
     }
 }
 
-pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+pub fn extract_part_id_from_part_file_name(file_name: &String) -> StatePartIndex {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
 }
@@ -140,7 +140,7 @@ async fn get_missing_part_ids_for_epoch(
     epoch_height: u64,
     total_parts: u64,
     external: &StateSyncConnection,
-) -> Result<HashSet<u64>, anyhow::Error> {
+) -> Result<HashSet<StatePartIndex>, anyhow::Error> {
     if total_parts == 0 {
         return Ok(HashSet::new());
     }
@@ -179,7 +179,7 @@ struct ShardDump {
     // This is the set of parts who have an associated file stored in the ExternalConnection,
     // meaning they've already been dumped. We periodically check this (since other processes/machines
     // might have uploaded parts that we didn't) and avoid duplicating work for those parts that have already been updated.
-    parts_missing: Arc<RwLock<HashSet<u64>>>,
+    parts_missing: Arc<RwLock<HashSet<StatePartIndex>>>,
     // This will give Ok(()) when they're all done, or Err() when one gives an error
     // For now the tasks never fail, since we just retry all errors like the old implementation did,
     // but we probably want to make a change to distinguish which errors are actually retryable
@@ -315,7 +315,7 @@ struct PartUploader {
     // When part upload tasks are cancelled on a new epoch, this is set to -1 so tasks
     // know not to touch that metric anymore.
     parts_dumped: Arc<AtomicI64>,
-    parts_missing: Arc<RwLock<HashSet<u64>>>,
+    parts_missing: Arc<RwLock<HashSet<StatePartIndex>>>,
     obtain_parts: Arc<Semaphore>,
     canceled: Arc<AtomicBool>,
 }
@@ -339,7 +339,7 @@ impl PartUploader {
     /// the external storage. The state part generation is limited by the number of permits allocated to the `obtain_parts`
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
     /// to return Err() if the error is not going to be retryable.
-    async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
+    async fn upload_state_part(self: Arc<Self>, part_idx: StatePartIndex) -> anyhow::Result<()> {
         if !self.parts_missing.read().contains(&part_idx) {
             self.inc_parts_dumped();
             return Ok(());

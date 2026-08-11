@@ -13,7 +13,7 @@ use near_network::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::StatePart;
+use near_primitives::state_part::{StatePart, StatePartIndex};
 use near_primitives::state_sync::{
     PartIdOrHeader, ShardStateSyncResponse, ShardStateSyncResponseHeader, StateRequestAckBody,
 };
@@ -306,7 +306,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: u64,
+        part_id: StatePartIndex,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<StatePart, near_chain::Error>> {

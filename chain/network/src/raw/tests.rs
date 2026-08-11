@@ -8,6 +8,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::ShardId;
 use std::sync::Arc;
 
@@ -156,7 +157,7 @@ async fn test_raw_conn_state_parts() {
     }
 
     // Verify all expected parts were received
-    let expected_parts: std::collections::HashSet<u64> = (0..num_parts).collect();
+    let expected_parts: std::collections::HashSet<StatePartIndex> = (0..num_parts).collect();
     assert_eq!(parts_received, expected_parts, "Did not receive all expected parts");
 }
 

@@ -3,7 +3,7 @@ use near_chain::Chain;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{PartId, StatePart, StatePartIndex};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
 use near_store::archive::cloud_storage::CloudStorage;
 use std::ops::Range;
@@ -12,7 +12,7 @@ use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub enum StateFileType {
-    StatePart { part_id: u64, num_parts: u64 },
+    StatePart { part_id: StatePartIndex, num_parts: u64 },
     StateHeader,
 }
 
@@ -211,7 +211,7 @@ pub fn location_prefix(
     }
 }
 
-pub fn part_filename(part_id: u64, num_parts: u64) -> String {
+pub fn part_filename(part_id: StatePartIndex, num_parts: u64) -> String {
     format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
@@ -235,10 +235,10 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
     None
 }
 
-pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
+pub fn get_part_id_from_filename(s: &str) -> Option<StatePartIndex> {
     if let Some(captures) = match_filename(s) {
         if let Some(part_id) = captures.get(1) {
-            if let Ok(part_id) = part_id.as_str().parse::<u64>() {
+            if let Ok(part_id) = part_id.as_str().parse::<StatePartIndex>() {
                 return Some(part_id);
             }
         }
@@ -285,7 +285,7 @@ pub async fn download_and_apply_state_parts_sequentially(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     state_root: CryptoHash,
-    part_ids: Range<u64>,
+    part_ids: Range<StatePartIndex>,
     num_parts: u64,
 ) -> Result<(), anyhow::Error> {
     tracing::info!(

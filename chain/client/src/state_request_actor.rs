@@ -8,7 +8,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::StatePart;
+use near_primitives::state_part::{StatePart, StatePartIndex};
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
 };
@@ -195,7 +195,7 @@ fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StateP
 fn new_part_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    part_id: u64,
+    part_id: StatePartIndex,
     part: Option<StatePart>,
 ) -> StatePartOrHeader {
     let part = part.map(|part| (part_id, part));

@@ -10,6 +10,7 @@ use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use std::collections::HashSet;
@@ -464,7 +465,7 @@ async fn run_select_peer_test(
     test_name: &'static str,
     actions: &[SelectPeerAction],
     keys: &[SecretKey],
-    part_id: u64,
+    part_id: StatePartIndex,
     part_selection_cache_batch_size: u32,
 ) {
     let config =

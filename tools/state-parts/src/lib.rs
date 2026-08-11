@@ -4,6 +4,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use near_time::Instant;
@@ -16,7 +17,7 @@ use std::net::SocketAddr;
 pub mod cli;
 
 struct AppInfo {
-    pub requests_sent: HashMap<u64, near_time::Instant>,
+    pub requests_sent: HashMap<StatePartIndex, near_time::Instant>,
 }
 
 impl AppInfo {
@@ -84,7 +85,7 @@ async fn state_parts_from_node(
     ttl: u8,
     request_frequency_millis: u64,
     recv_timeout_seconds: u32,
-    start_part_id: u64,
+    start_part_id: StatePartIndex,
     num_parts: u64,
 ) -> anyhow::Result<()> {
     assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);

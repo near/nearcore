@@ -9,7 +9,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{PartId, StatePartIndex};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
@@ -141,7 +141,7 @@ impl StateSyncDownloader {
         sync_hash: CryptoHash,
         state_root: CryptoHash,
         num_state_parts: u64,
-        part_id: u64,
+        part_id: StatePartIndex,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
@@ -213,7 +213,7 @@ fn does_state_part_exist_on_disk(
     store: &Store,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: u64,
+    part_id: StatePartIndex,
 ) -> bool {
     store.exists(
         DBCol::StateParts,

@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{PartId, StatePart, StatePartIndex};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -277,7 +277,7 @@ impl ChainStateSyncAdapter {
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
-        part_id: u64,
+        part_id: StatePartIndex,
         sync_hash: CryptoHash,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(

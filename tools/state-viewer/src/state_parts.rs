@@ -11,7 +11,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{PartId, StatePart, StatePartIndex};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
@@ -50,7 +50,7 @@ pub(crate) enum StatePartsSubCommand {
         /// Choose a single part id.
         /// If None - affects all state parts.
         #[clap(long)]
-        part_id: Option<u64>,
+        part_id: Option<StatePartIndex>,
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
@@ -59,10 +59,10 @@ pub(crate) enum StatePartsSubCommand {
     Dump {
         /// Dump part ids starting from this part.
         #[clap(long)]
-        part_from: Option<u64>,
+        part_from: Option<StatePartIndex>,
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
-        part_to: Option<u64>,
+        part_to: Option<StatePartIndex>,
         /// Dump state sync header.
         #[clap(long, short, action)]
         dump_header: bool,
@@ -318,7 +318,7 @@ async fn load_state_parts(
     action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_id: Option<u64>,
+    part_id: Option<StatePartIndex>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
     chain: &Chain,
@@ -431,8 +431,8 @@ fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: Partia
 async fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_from: Option<u64>,
-    part_to: Option<u64>,
+    part_from: Option<StatePartIndex>,
+    part_to: Option<StatePartIndex>,
     dump_header: bool,
     chain: &Chain,
     chain_id: &str,
@@ -568,6 +568,10 @@ fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Cha
     chain.set_state_finalize(shard_id, sync_hash).unwrap()
 }
 
-fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
+fn get_part_ids(
+    part_from: Option<StatePartIndex>,
+    part_to: Option<StatePartIndex>,
+    num_parts: u64,
+) -> Range<StatePartIndex> {
     part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
 }

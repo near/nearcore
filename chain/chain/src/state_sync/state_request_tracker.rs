@@ -2,6 +2,7 @@ use crate::metrics;
 use lru::LruCache;
 use near_primitives::{
     hash::CryptoHash,
+    state_part::StatePartIndex,
     types::ShardId,
     views::{PartElapsedTimeView, RequestedStatePartsView},
 };
@@ -32,7 +33,7 @@ impl StateRequestTracker {
         &mut self,
         crypto_hash: &CryptoHash,
         shard_id: &ShardId,
-        part_id: &u64,
+        part_id: &StatePartIndex,
         elapsed_ms: u128,
     ) {
         self.requested_state_parts.get_or_insert(*crypto_hash, || HashMap::new());

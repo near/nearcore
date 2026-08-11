@@ -9,6 +9,7 @@ pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
+use near_primitives::state_part::StatePartIndex;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -1512,7 +1513,7 @@ impl StateResponseInfo {
         }
     }
 
-    pub fn part_id(&self) -> Option<u64> {
+    pub fn part_id(&self) -> Option<StatePartIndex> {
         match self {
             Self::V1(info) => info.state_response.part_id(),
             Self::V2(info) => info.state_response.part_id(),

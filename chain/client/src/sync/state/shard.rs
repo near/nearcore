@@ -14,7 +14,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{PartId, StatePart, StatePartIndex};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -88,7 +88,7 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     let mut parts_downloaded: u64 = 0;
     *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
-    let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
+    let mut parts_to_download: Vec<StatePartIndex> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
         // to send the requests to the same host. It allows the host to benefit from caching the part.
@@ -303,7 +303,7 @@ async fn apply_state_part(
     cancel: CancellationToken,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: u64,
+    part_id: StatePartIndex,
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,

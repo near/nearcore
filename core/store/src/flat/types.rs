@@ -4,6 +4,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -190,8 +191,8 @@ pub enum FlatStorageReshardingStatus {
 pub struct FetchingStateStatus {
     /// Hash of block on top of which we create flat storage.
     pub block_hash: CryptoHash,
-    /// Number of the first state part to be fetched in this step.
-    pub part_id: u64,
+    /// Index of the first state part to be fetched in this step.
+    pub part_id: StatePartIndex,
     /// Number of parts fetched in one step.
     pub num_parts_in_step: u64,
     /// Total number of state parts.

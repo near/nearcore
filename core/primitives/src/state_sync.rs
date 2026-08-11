@@ -3,7 +3,7 @@ use crate::merkle::MerklePath;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
-use crate::state_part::{StatePart, StatePartV0};
+use crate::state_part::{StatePart, StatePartIndex, StatePartV0};
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
@@ -20,13 +20,13 @@ pub struct RootProof(pub CryptoHash, pub MerklePath);
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
+pub struct StatePartKey(pub CryptoHash, pub ShardId, pub StatePartIndex);
 
 #[derive(
     Copy, PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize, ProtocolSchema,
 )]
 pub enum PartIdOrHeader {
-    Part { part_id: u64 },
+    Part { part_id: StatePartIndex },
     Header,
 }
 
@@ -245,11 +245,11 @@ impl ShardStateSyncResponseHeader {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
-    pub part: Option<(u64, Vec<u8>)>,
+    pub part: Option<(StatePartIndex, Vec<u8>)>,
 }
 
 impl ShardStateSyncResponseV1 {
-    pub fn part_id(&self) -> Option<u64> {
+    pub fn part_id(&self) -> Option<StatePartIndex> {
         self.part.as_ref().map(|(part_id, _)| *part_id)
     }
 
@@ -261,13 +261,13 @@ impl ShardStateSyncResponseV1 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
-    pub part: Option<(u64, Vec<u8>)>,
+    pub part: Option<(StatePartIndex, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
-    pub part: Option<(u64, Vec<u8>)>,
+    pub part: Option<(StatePartIndex, Vec<u8>)>,
     pub cached_parts: Option<CachedParts>,
     pub can_generate: bool,
 }
@@ -276,7 +276,7 @@ pub struct ShardStateSyncResponseV3 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseV4 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
-    pub part: Option<(u64, StatePart)>,
+    pub part: Option<(StatePartIndex, StatePart)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -294,13 +294,13 @@ impl ShardStateSyncResponse {
         Self::new_from_header_or_part(header, None)
     }
 
-    pub fn new_from_part(part: Option<(u64, StatePart)>) -> Self {
+    pub fn new_from_part(part: Option<(StatePartIndex, StatePart)>) -> Self {
         Self::new_from_header_or_part(None, part)
     }
 
     fn new_from_header_or_part(
         header: Option<ShardStateSyncResponseHeaderV2>,
-        part: Option<(u64, StatePart)>,
+        part: Option<(StatePartIndex, StatePart)>,
     ) -> Self {
         Self::V4(ShardStateSyncResponseV4 { header, part })
     }
@@ -314,7 +314,7 @@ impl ShardStateSyncResponse {
         }
     }
 
-    pub fn part_id(&self) -> Option<u64> {
+    pub fn part_id(&self) -> Option<StatePartIndex> {
         match self {
             Self::V1(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
             Self::V2(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
@@ -323,7 +323,7 @@ impl ShardStateSyncResponse {
         }
     }
 
-    pub fn take_part(self) -> Option<(u64, StatePart)> {
+    pub fn take_part(self) -> Option<(StatePartIndex, StatePart)> {
         match self {
             Self::V1(response) => {
                 response.part.map(|(idx, part)| (idx, StatePart::V0(StatePartV0(part))))

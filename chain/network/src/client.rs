@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
@@ -65,7 +66,7 @@ pub struct StateRequestHeader {
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_id: StatePartIndex,
 }
 
 /// Outgoing response to received state request.
