@@ -1,6 +1,6 @@
 use crate::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
-    is_fallback_only_height_for_shard_index,
+    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, fallback_eligible,
+    is_fallback_only_chunk, is_fallback_only_height_for_shard_index,
 };
 use crate::spice::tests::core::{
     block_certification_core_statements, build_block, endorsement_into_core_statement,
@@ -11,9 +11,11 @@ use crate::{Block, Chain};
 use assert_matches::assert_matches;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, ShardId, SpiceChunkId,
+    SpiceUncertifiedChunkInfo,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -662,4 +664,46 @@ fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() 
         ),
     );
     core_reader.validate_core_statements_in_block(&all_stake_block).unwrap();
+}
+
+fn chunk_info(
+    certifiable_since_height: Option<BlockHeight>,
+    is_fallback_only: bool,
+) -> SpiceUncertifiedChunkInfo {
+    SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId { block_hash: CryptoHash::default(), shard_id: ShardId::new(0) },
+        missing_endorsements: vec![],
+        present_endorsements: vec![],
+        present_fallback_endorsements: vec![],
+        certifiable_since_height,
+        is_fallback_only,
+    }
+}
+
+fn fallback_only_chunk_info(
+    certifiable_since_height: Option<BlockHeight>,
+) -> SpiceUncertifiedChunkInfo {
+    chunk_info(certifiable_since_height, true)
+}
+
+fn ordinary_chunk_info(certifiable_since_height: Option<BlockHeight>) -> SpiceUncertifiedChunkInfo {
+    chunk_info(certifiable_since_height, false)
+}
+
+#[test]
+fn test_fallback_only_chunk_is_eligible_before_it_is_certifiable() {
+    // A scheduled chunk has no delay to wait out, so it certifies as soon as its endorsements
+    // arrive. certifiable_since_height is only set in a later block than the chunk's own, so
+    // gating on it would add a wait this chunk is meant not to have.
+    assert!(fallback_eligible(1, &fallback_only_chunk_info(None)));
+    assert!(fallback_eligible(1, &fallback_only_chunk_info(Some(1))));
+}
+
+#[test]
+fn test_ordinary_chunk_waits_the_full_delay_after_becoming_certifiable() {
+    assert!(!fallback_eligible(BlockHeight::MAX, &ordinary_chunk_info(None)));
+    let certifiable_since = 100;
+    let info = ordinary_chunk_info(Some(certifiable_since));
+    assert!(!fallback_eligible(certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY - 1, &info));
+    assert!(fallback_eligible(certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY, &info));
 }
