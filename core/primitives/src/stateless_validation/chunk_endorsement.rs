@@ -229,4 +229,15 @@ mod tests {
             &signer.public_key(),
         ));
     }
+
+    /// Pins the exact bytes every endorsement signature is taken over. Changing them silently
+    /// would invalidate signatures across a version boundary, so this must fail loudly.
+    #[test]
+    fn signed_bytes_are_stable() {
+        assert_eq!(
+            hex::encode(endorsement_signed_bytes(&ChunkHash(CryptoHash::default()))),
+            "0000000000000000000000000000000000000000000000000000000000000000\
+             100000004368756e6b456e646f7273656d656e74",
+        );
+    }
 }
