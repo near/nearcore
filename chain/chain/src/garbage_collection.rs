@@ -645,6 +645,9 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
+            // This sweep never decrements receipt refcounts, and the call below skips the hashes
+            // it deletes, so a producer's own invalid chunk would keep its receipts. That needs a
+            // legacy archival node that produced the invalid chunk itself, which is very unlikely.
             self.clear_invalid_chunk_data_at_height(height, &chunk_hashes);
             height += 1;
             if !chunk_hashes.is_empty() {
