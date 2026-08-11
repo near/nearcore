@@ -1254,7 +1254,7 @@ impl EpochManager {
         let is_genesis = block_info.is_genesis();
         let result = self.record_block_info_impl(block_info, rng_seed);
         if result.is_err() {
-            // Callees pair every cache put with a write staged in the returned store_update;
+            // Every cache put below is paired with a write staged in the returned store_update;
             // callers discard that update on error (and are assumed to commit or merge it on
             // success - the API does not enforce this), so the cache entries must not outlive
             // it: a stale `blocks_info` entry defeats the `has_block_info` idempotency guard
