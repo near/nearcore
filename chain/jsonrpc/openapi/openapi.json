@@ -3377,13 +3377,6 @@
             "type": "object"
           },
           {
-            "description": "A `UniversalStateInit` state init defines neither contract code nor an\naccess key, so the resulting account could never be used.",
-            "enum": [
-              "UnusableUniversalStateInit"
-            ],
-            "type": "string"
-          },
-          {
             "additionalProperties": false,
             "description": "A storage key in a `UniversalStateInit` state init exceeds the limit.",
             "properties": {
@@ -21968,12 +21961,12 @@
           {
             "additionalProperties": false,
             "properties": {
-              "V1": {
+              "v1": {
                 "$ref": "#/components/schemas/UniversalStateInitV1"
               }
             },
             "required": [
-              "V1"
+              "v1"
             ],
             "type": "object"
           }
@@ -22027,10 +22020,6 @@
             "type": "object"
           }
         },
-        "required": [
-          "data",
-          "access_keys"
-        ],
         "type": "object"
       },
       "UseGlobalContractAction": {
