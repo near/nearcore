@@ -538,7 +538,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
