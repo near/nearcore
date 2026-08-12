@@ -13,7 +13,7 @@ use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -248,8 +248,13 @@ pub struct ShardChunkHeaderV3 {
 }
 
 impl ShardChunkHeaderV3 {
-    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+    pub fn new_dummy(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             Self::new_for_spice(
                 prev_block_hash,
                 Default::default(),
@@ -279,7 +284,7 @@ impl ShardChunkHeaderV3 {
                 BandwidthRequests::empty(),
                 None,
                 &EmptyValidatorSigner::default().into(),
-                PROTOCOL_VERSION,
+                protocol_version,
             )
         }
     }
@@ -395,8 +400,13 @@ pub enum ShardChunkHeader {
 }
 
 impl ShardChunkHeader {
-    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        Self::V3(ShardChunkHeaderV3::new_dummy(height, shard_id, prev_block_hash))
+    pub fn new_dummy(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        Self::V3(ShardChunkHeaderV3::new_dummy(height, shard_id, prev_block_hash, protocol_version))
     }
 
     #[inline]
@@ -1679,6 +1689,7 @@ mod tests {
         ShardChunkV2,
     };
     use crate::transaction::SignedTransaction;
+    use crate::version::PROTOCOL_VERSION;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, ShardId};
@@ -1737,7 +1748,12 @@ mod tests {
         let chunk = ShardChunkV2::from(&arced);
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
 
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(1, shard_id, hash));
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
+            1,
+            shard_id,
+            hash,
+            PROTOCOL_VERSION,
+        ));
         let chunk = ShardChunkV2 {
             chunk_hash,
             header,
@@ -1755,7 +1771,7 @@ mod tests {
     fn arced_shard_chunk_is_valid() {
         let shard_id = ShardId::new(3);
         let hash = CryptoHash([1; 32]);
-        let header = ShardChunkHeader::new_dummy(1, shard_id, hash);
+        let header = ShardChunkHeader::new_dummy(1, shard_id, hash, PROTOCOL_VERSION);
         let chunk =
             ShardChunk::new(header, vec![SignedTransaction::empty(hash)], vec![get_receipt()]);
         let arced = ArcedShardChunk::from(chunk.clone());
