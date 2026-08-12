@@ -1251,18 +1251,14 @@ impl EpochManager {
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         let current_hash = *block_info.hash();
-        let is_genesis = block_info.is_genesis();
         let result = self.record_block_info_impl(block_info, rng_seed);
         if result.is_err() {
             // Callers drop the store update on error, so the entries cached alongside it must
-            // go too: a stale `blocks_info` entry makes `has_block_info` treat the retry as
-            // already recorded and skip it. Only the genesis branch caches `EpochId(current)`
-            // before it can fail; elsewhere that key is written by `finalize_epoch`, where a
-            // pop could evict a committed entry.
+            // go too, or other readers see values that were never written. Popping a key that
+            // does hold a committed value is harmless: both caches are read-through, so the
+            // next read loads it from the store again.
             self.blocks_info.pop(&current_hash);
-            if is_genesis {
-                self.epochs_info.pop(&EpochId(current_hash));
-            }
+            self.epochs_info.pop(&EpochId(current_hash));
         }
         result
     }
@@ -2098,8 +2094,14 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Whether the block was already recorded, asked of the store rather than the
+    /// `blocks_info` cache: callers can drop the returned update even after a successful
+    /// record, so a cache hit does not mean the rows were written. Trade-off: a second
+    /// recorder of the same block between a record returning and its caller committing is
+    /// no longer deduplicated. Recording is deterministic and the writes are insert-only,
+    /// so that costs duplicate work, not correctness.
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        match self.get_block_info(hash) {
+        match self.store.get_block_info(hash) {
             Ok(_) => Ok(true),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => Err(err),

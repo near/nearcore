@@ -8,9 +8,7 @@ use crate::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
 #[cfg(feature = "nightly")]
 use crate::epoch_info_aggregator::EpochInfoAggregator;
-#[cfg(feature = "nightly")]
 use crate::reward_calculator::NUM_NS_IN_SECOND;
-#[cfg(feature = "nightly")]
 use crate::test_utils::DEFAULT_TOTAL_SUPPLY;
 use crate::test_utils::{
     record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
@@ -20,7 +18,6 @@ use crate::{
 };
 #[cfg(feature = "nightly")]
 use crate::{SampleEpoch, SeedAnchor};
-#[cfg(feature = "nightly")]
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 #[cfg(feature = "nightly")]
@@ -29,7 +26,6 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 #[cfg(feature = "nightly")]
 use near_primitives::stateless_validation::ChunkProductionKey;
-#[cfg(feature = "nightly")]
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 #[cfg(feature = "nightly")]
 use near_primitives::types::EpochId;
@@ -1237,11 +1233,6 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
         "a discarded record must not leave the block in the cache, or the retry is skipped",
     );
     assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
-    fx.em
-        .store
-        .get_block_info(&sibling)
-        .map(|_| ())
-        .expect_err("a discarded record must not have committed the row either");
 
     // The actual bug: without the eviction this second call returns an empty update.
     let err = fx
@@ -1273,9 +1264,11 @@ fn record_block_info_failure_does_not_poison_epoch_start_cache() {
         .expect_err("the derived boundary epoch has no EpochInfo installed");
     assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
 
-    fx.em
+    let err = fx
+        .em
         .get_epoch_start_from_epoch_id(&boundary_id)
         .expect_err("a discarded record must not leave an epoch start behind");
+    assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
     fx.em
         .get_block_info(&child)
         .map(|_| ())
@@ -1287,6 +1280,47 @@ fn record_block_info_failure_does_not_poison_epoch_start_cache() {
         .map(|_| ())
         .expect_err("the retry must fail the same way, not be skipped as already recorded");
     assert_eq!(err, EpochError::EpochOutOfBounds(boundary_id), "unexpected error: {err:?}");
+}
+
+// `has_block_info` reads the store, not the `blocks_info` cache, so a record whose update the
+// caller drops is recorded again on retry. The chain drops it whenever a later step of the
+// same block processing fails, not only when the record itself does.
+//
+// Covers the first real block: the default final hash makes the seeder return early, and
+// nothing advances the aggregator or finalizes an epoch, so the retry is a plain re-record.
+#[test]
+fn record_block_info_dropped_update_is_recorded_on_retry() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    let genesis = hash(b"genesis");
+    record_block(&mut em, CryptoHash::default(), genesis, 0, vec![]);
+
+    let b1 = hash(b"first real block");
+    let block_info = || {
+        BlockInfo::new(
+            b1,
+            1,
+            0,
+            CryptoHash::default(),
+            genesis,
+            vec![],
+            vec![true],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            NUM_NS_IN_SECOND,
+            ChunkEndorsementsBitmap::new(1),
+            None,
+        )
+    };
+
+    // Dropping the update stands in for a caller that fails after the record returned.
+    em.record_block_info(block_info(), [0; 32]).map(|_| ()).expect("first record must succeed");
+
+    // Pre-fix the cached entry made this a no-op that returned an empty update.
+    let store_update = em.record_block_info(block_info(), [0; 32]).expect("retry must succeed");
+    store_update.commit();
+    em.store.get_block_info(&b1).expect("the retry must write the row it skipped before");
 }
 
 /// Builds the anchor `BlockInfo` the accessor tests install: same shape the fixture's
