@@ -1,15 +1,6 @@
 //! A spice-channel binary must run a chain whose protocol version predates spice
-//! activation. In a spice build the four spice actors are spawned unconditionally
-//! (`setup/setup.rs`, mirroring `nearcore/src/lib.rs`), so on a pre-spice chain they
-//! must stay inert at runtime.
-//!
-//! These tests run the real client stack: the actors receive `ProcessedBlock` through
-//! `ClientActor`'s own fan-out and forward between themselves through the real
-//! adapters, so an actor that is spawned but left ungated — or a new fan-out target
-//! added later — fails them. The chain is pinned pre-spice by voting for a pre-spice
-//! version rather than only starting there; without the pinned vote the nodes upgrade
-//! to the binary's version within a couple of epochs and cross the activation
-//! boundary, which is a separate (and still unsupported) scenario.
+//! activation. In a spice build the four spice actors are spawned unconditionally,
+//! so on a pre-spice chain they must stay inert at runtime.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -51,9 +42,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A protocol version that is supported by this binary but predates spice.
-// TODO(spice): replace with the canonical pre-spice helper once it exists; note that
-// `PROTOCOL_VERSION - 1` is *not* pre-spice in the spice channel.
 fn pre_spice_protocol_version() -> ProtocolVersion {
     ProtocolFeature::Spice.protocol_version() - 1
 }
@@ -117,8 +105,7 @@ fn is_spice_request(request: &NetworkRequests) -> bool {
     request.as_ref().starts_with("Spice")
 }
 
-/// Counts the network requests the nodes emit, spice ones separately. A pre-spice chain
-/// must emit no spice request at all.
+/// Counts the network requests the nodes emit, spice ones separately.
 #[derive(Clone, Default)]
 struct SpiceTrafficCounter {
     total: Arc<AtomicUsize>,

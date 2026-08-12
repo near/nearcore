@@ -1,14 +1,5 @@
 //! `validate_header` requires a block's spice-ness to agree with its epoch's protocol
 //! version, in both directions.
-//!
-//! The direction covered here — a spice header in a pre-spice epoch — is the invariant
-//! the spice actors' runtime activation gates rest on: they key on the block
-//! (`BlockHeader::is_spice()`) rather than re-deriving spice-ness from the epoch, which
-//! is only sound as long as a spice block cannot enter a pre-spice epoch. It is
-//! reachable on the wire because the header version (`BlockHeaderV7`) and the body
-//! version (`BlockBodyV3`) are independent, and `preprocess_block`'s own bidirectional
-//! check looks only at the body. It needs a byzantine block producer, since the header
-//! signature is checked first.
 
 use crate::Error;
 use crate::test_utils::get_chain_with_genesis;
