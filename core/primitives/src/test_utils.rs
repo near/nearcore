@@ -1331,9 +1331,7 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
 
 /// Build a minimal `ShardChunkHeaderV3` for use in tests that only need
 /// an object with a valid signature, `prev_block_hash`, and `shard_id`
-/// (everything else is zeroed). Mirrors the implicit defaults of
-/// `ShardChunkHeaderV3::new_dummy` but takes an explicit `protocol_version`
-/// so callers can pin the header inner variant.
+/// (everything else is zeroed).
 pub fn test_chunk_header(
     prev_block_hash: CryptoHash,
     signer: &ValidatorSigner,
