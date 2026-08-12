@@ -150,13 +150,6 @@ impl SyncHandler {
                     StateSyncResult::StaleSyncHash => {
                         return Ok(Some(SyncHandlerRequest::EpochSyncDataReset));
                     }
-                    StateSyncResult::StateRootMismatch => {
-                        tracing::warn!(
-                            target: "sync",
-                            "state sync root mismatch detected, triggering data reset"
-                        );
-                        return Ok(Some(SyncHandlerRequest::EpochSyncDataReset));
-                    }
                 }
             }
             SyncStatus::BlockSync { current_height, highest_height: hh, .. } => {

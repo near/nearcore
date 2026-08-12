@@ -3,7 +3,6 @@ use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::errors::{
     ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError, StorageError,
 };
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
@@ -116,16 +115,6 @@ pub enum Error {
     /// Invalid state root hash.
     #[error("Invalid State Root Hash")]
     InvalidStateRoot,
-    /// State sync reconstructed a state root that disagrees with the next new chunk.
-    #[error(
-        "state sync produced state root {actual} for shard {shard_id} before block {sync_hash}, expected {expected}"
-    )]
-    StateSyncStateRootMismatch {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        expected: CryptoHash,
-        actual: CryptoHash,
-    },
     /// Invalid merkle root hash.
     #[error("Invalid Chunk Encoded Merkle Root Hash")]
     InvalidChunkEncodedMerkleRoot,
@@ -351,7 +340,6 @@ impl Error {
             | Error::StorageError(_)
             | Error::GCError(_)
             | Error::ReshardingError(_)
-            | Error::StateSyncStateRootMismatch { .. }
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -418,10 +406,7 @@ impl Error {
 
     pub fn is_error(&self) -> bool {
         match self {
-            Error::IOErr(_)
-            | Error::Other(_)
-            | Error::DBNotFoundErr(_)
-            | Error::StateSyncStateRootMismatch { .. } => true,
+            Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_) => true,
             _ => false,
         }
     }
@@ -460,7 +445,6 @@ impl Error {
             Error::InvalidChunkEndorsementBitmap(_) => "invalid_chunk_endorsement_bitmap",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
-            Error::StateSyncStateRootMismatch { .. } => "state_sync_state_root_mismatch",
             Error::InvalidChunkEncodedMerkleRoot => "invalid_chunk_encoded_merkle_root",
             Error::InvalidChunkEncodedLength => "invalid_chunk_encoded_length",
             Error::InvalidTxRoot => "invalid_tx_root",

@@ -328,6 +328,8 @@ pub struct Chain {
     /// need a node-scoped signal instead of the process-global metric.
     #[cfg(feature = "test_features")]
     pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "test_features")]
+    pub adv_corrupt_state_sync_state_root: bool,
 }
 
 impl Drop for Chain {
@@ -469,6 +471,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            adv_corrupt_state_sync_state_root: false,
         })
     }
 
@@ -654,6 +658,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            adv_corrupt_state_sync_state_root: false,
         })
     }
 
@@ -2782,8 +2788,21 @@ impl Chain {
 
         let chunk_extra = self.get_chunk_extra(sync_block.header().prev_hash(), &shard_uid)?;
         let expected = chunk_header.prev_state_root();
-        let actual = *chunk_extra.state_root();
-        ensure_state_sync_state_root(shard_id, sync_hash, expected, actual)
+        let mut actual = *chunk_extra.state_root();
+        #[cfg(feature = "test_features")]
+        if self.adv_corrupt_state_sync_state_root {
+            actual.0[0] ^= 1;
+        }
+        if actual != expected {
+            panic!(
+                "state sync reconstructed state root {actual} for shard {shard_id} before block \
+                 {sync_hash}, but the chain commits to {expected}. this node executed the chunk \
+                 differently from the network. the data directory is intact; report this with the \
+                 node's config, binary version, and hardware. then restart the node with an empty \
+                 data directory."
+            );
+        }
+        Ok(())
     }
 
     pub fn clear_downloaded_parts(
@@ -3858,52 +3877,6 @@ impl Chain {
             // Not yet processed this block, we can proceed.
             BlockKnowledge::Unknown
         }
-    }
-}
-
-fn ensure_state_sync_state_root(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    expected: CryptoHash,
-    actual: CryptoHash,
-) -> Result<(), Error> {
-    if actual == expected {
-        return Ok(());
-    }
-    Err(Error::StateSyncStateRootMismatch { shard_id, sync_hash, expected, actual })
-}
-
-#[cfg(test)]
-mod state_sync_state_root_tests {
-    use super::*;
-
-    #[test]
-    fn accepts_matching_state_root() {
-        let state_root = CryptoHash::hash_bytes(b"state root");
-        assert!(
-            ensure_state_sync_state_root(
-                ShardId::new(3),
-                CryptoHash::hash_bytes(b"sync hash"),
-                state_root,
-                state_root,
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn classifies_mismatching_state_root_as_local_sync_error() {
-        let error = ensure_state_sync_state_root(
-            ShardId::new(3),
-            CryptoHash::hash_bytes(b"sync hash"),
-            CryptoHash::hash_bytes(b"expected"),
-            CryptoHash::hash_bytes(b"actual"),
-        )
-        .unwrap_err();
-
-        assert!(matches!(error, Error::StateSyncStateRootMismatch { .. }));
-        assert!(!error.is_bad_data());
-        assert!(error.is_error());
     }
 }
 

@@ -14,7 +14,7 @@ use near_async::messaging::{AsyncSender, IntoAsyncSender};
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{BlockHeader, BlockProcessingArtifact, Chain, Error};
+use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
 use near_chain_configs::{StateSyncConfig, SyncConcurrency};
 use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
@@ -303,20 +303,7 @@ impl StateSync {
             shard_tracker,
             self.epoch_manager.as_ref(),
         );
-        let shard_result = match self.run_with_shards(sync_status, &tracking_shards) {
-            Err(Error::StateSyncStateRootMismatch { shard_id, sync_hash, expected, actual }) => {
-                tracing::error!(
-                    target: "sync",
-                    %shard_id,
-                    ?sync_hash,
-                    ?expected,
-                    ?actual,
-                    "state sync finalized with a non-canonical state root"
-                );
-                return Ok(StateSyncResult::StateRootMismatch);
-            }
-            result => result?,
-        };
+        let shard_result = self.run_with_shards(sync_status, &tracking_shards)?;
         match shard_result {
             StateSyncShardResult::Completed => {
                 tracing::info!(target: "sync", "state sync: all shards are done");
@@ -438,9 +425,6 @@ pub enum StateSyncResult {
     /// The sync hash is stale — the network has moved past this epoch and
     /// state parts are no longer available. The node should reset and restart.
     StaleSyncHash,
-    /// Finalization reconstructed state that disagrees with the sync block.
-    /// The node should reset instead of attributing the mismatch to a producer.
-    StateRootMismatch,
 }
 
 /// Result of `StateSync::run_with_shards()` — shard downloading only,
