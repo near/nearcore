@@ -883,6 +883,8 @@ impl PartialEncodedChunk {
         }
     }
 
+    /// Attacker-controlled: callers must cross-check it against the anchor implied by
+    /// the parent block before trusting the producer it resolves.
     pub fn prev_prev_block_hash(&self) -> Option<&CryptoHash> {
         match self {
             Self::V1(_) | Self::V2(_) => None,
@@ -890,8 +892,8 @@ impl PartialEncodedChunk {
         }
     }
 
-    /// Not trusted: a forged value resolves the wrong producer, so the
-    /// signature check fails.
+    /// Attacker-controlled: callers must cross-check it against the epoch implied by
+    /// the parent block before trusting the producer it resolves.
     pub fn epoch_id(&self) -> Option<&EpochId> {
         match self {
             Self::V1(_) | Self::V2(_) => None,
@@ -939,7 +941,9 @@ pub struct PartialEncodedChunkV3 {
     /// Grandparent anchor (`parent.prev_hash()`); `CryptoHash::default()` when there is no
     /// real grandparent (parent is genesis).
     pub prev_prev_block_hash: CryptoHash,
-    /// The chunk's own epoch id. Not trusted.
+    /// The chunk's own epoch id. Attacker-controlled; a forged value can resolve a real
+    /// producer, so it is only safe after
+    /// the parent/anchor cross-check in `resolve_and_verify_anchored_producer`.
     pub epoch_id: EpochId,
 }
 

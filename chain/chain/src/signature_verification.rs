@@ -103,7 +103,7 @@ fn verify_anchored_chunk_key(
                 || &expected_epoch_id != epoch_id
             {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
-                    "V2 {msg_label} chunk key mismatch: signed (epoch_id={:?}, height={}, \
+                    "{msg_label} key mismatch: signed (epoch_id={:?}, height={}, \
                      prev_prev={:?}) does not match prev_block_hash-implied \
                      (epoch_id={:?}, height={}, prev_prev={:?})",
                     epoch_id,
@@ -147,7 +147,7 @@ fn verify_anchored_chunk_key(
                 let max_height = genesis_height.checked_add(1).expect("block height overflow");
                 if height_created > max_height {
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
-                        "V2 {msg_label} with default anchor at height {height_created} \
+                        "{msg_label} with default anchor at height {height_created} \
                          above genesis + 1 ({max_height})"
                     )));
                 }
