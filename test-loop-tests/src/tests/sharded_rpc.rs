@@ -1,5 +1,6 @@
 use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
+use near_client_primitives::types::QueryError;
 use near_jsonrpc::client::ChunkId;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::Message;
@@ -429,6 +430,25 @@ fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
     run_query_view_global_contract(&h.zoe_node, &h.alice).unwrap();
     // Local.
     run_query_view_global_contract(&h.alice_node, &h.alice).unwrap();
+}
+
+/// Global contract code queries should use a shard tracked by the receiving node.
+#[test]
+fn test_view_global_contract_code_uses_locally_tracked_shard() {
+    init_test_logger();
+    let h = TwoShardHarness::new();
+
+    // zoe's RPC node tracks the second shard, while global contract queries currently default to
+    // the first shard. A missing hash should therefore report missing code, not an unavailable shard.
+    let err = h
+        .env
+        .node_for_account(&h.zoe_node)
+        .runtime_query(QueryRequest::ViewGlobalContractCode { code_hash: CryptoHash::default() })
+        .unwrap_err();
+    assert!(
+        matches!(err, QueryError::NoGlobalContractCode { .. }),
+        "expected missing global contract code, got: {err:?}"
+    );
 }
 
 /// Cross-shard CallFunction that triggers a VM error should return the backward-compatible
