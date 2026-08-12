@@ -128,6 +128,21 @@ snapshot_kind: text
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_BASE",
+      "gas_used": "1026"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_BYTE",
+      "gas_used": "1027"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "UNIVERSAL_STATE_INIT_ENTRY",
+      "gas_used": "1028"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "USE_GLOBAL_CONTRACT_BASE",
       "gas_used": "1018"
     },

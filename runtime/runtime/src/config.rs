@@ -209,10 +209,57 @@ pub fn total_send_fees(
                 gas_key_send_pk_len(config, &action.public_key),
             )
             .total(),
+            UniversalStateInit(action) => {
+                let state_init = &action.state_init;
+                let num_entries = state_init.data().len() as u64;
+                let num_bytes = state_init.len_bytes() as u64;
+                let num_keys = state_init.access_keys().len() as u64;
+                let base_fee =
+                    fees.fee(ActionCosts::universal_state_init_base).send_fee(sender_is_receiver);
+                let entry_fee =
+                    fees.fee(ActionCosts::universal_state_init_entry).send_fee(sender_is_receiver);
+                let byte_fee =
+                    fees.fee(ActionCosts::universal_state_init_byte).send_fee(sender_is_receiver);
+                // Each installed key is a full-access key write, priced the same as `AddKey`.
+                let key_fee =
+                    fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+                universal_state_init_fee(
+                    base_fee,
+                    entry_fee,
+                    byte_fee,
+                    key_fee,
+                    num_entries,
+                    num_bytes,
+                    num_keys,
+                )?
+            }
         };
         result = result.checked_add_result(delta)?;
     }
     Ok(result)
+}
+
+/// Sum the universal-state-init action fee: base + per-entry + per-byte + per-key.
+///
+/// The counts are bounded transitively by the transaction/receipt size limit, which
+/// is checked before any fee is computed, so overflow is far out of reach at current
+/// parameter values.
+fn universal_state_init_fee(
+    base_fee: ParameterCost,
+    entry_fee: ParameterCost,
+    byte_fee: ParameterCost,
+    key_fee: ParameterCost,
+    num_entries: u64,
+    num_bytes: u64,
+    num_keys: u64,
+) -> Result<ParameterCost, IntegerOverflowError> {
+    let all_entries_fee = entry_fee.checked_mul_result(num_entries)?;
+    let all_bytes_fee = byte_fee.checked_mul_result(num_bytes)?;
+    let all_keys_fee = key_fee.checked_mul_result(num_keys)?;
+    base_fee
+        .checked_add_result(all_bytes_fee)?
+        .checked_add_result(all_entries_fee)?
+        .checked_add_result(all_keys_fee)
 }
 
 fn permission_send_fees(
@@ -293,10 +340,14 @@ pub fn total_prepaid_send_fees(
     Ok(result)
 }
 
-pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> ParameterCost {
+pub fn exec_fee(
+    config: &RuntimeConfig,
+    action: &Action,
+    receiver_id: &AccountId,
+) -> Result<ParameterCost, IntegerOverflowError> {
     use Action::*;
     let fees = &config.fees;
-    match action {
+    let cost = match action {
         CreateAccount(_) => fees.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
@@ -361,6 +412,26 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
+        UniversalStateInit(action) => {
+            let state_init = &action.state_init;
+            let num_entries = state_init.data().len() as u64;
+            let num_bytes = state_init.len_bytes() as u64;
+            let num_keys = state_init.access_keys().len() as u64;
+            let base_fee = fees.fee(ActionCosts::universal_state_init_base).exec_fee();
+            let entry_fee = fees.fee(ActionCosts::universal_state_init_entry).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::universal_state_init_byte).exec_fee();
+            // Each installed key is a full-access key write, priced the same as `AddKey`.
+            let key_fee = fees.fee(ActionCosts::add_full_access_key).exec_fee();
+            universal_state_init_fee(
+                base_fee,
+                entry_fee,
+                byte_fee,
+                key_fee,
+                num_entries,
+                num_bytes,
+                num_keys,
+            )?
+        }
         TransferToGasKey(action) => {
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
@@ -369,7 +440,8 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
         }
-    }
+    };
+    Ok(cost)
 }
 
 fn permission_exec_fees(
@@ -590,11 +662,11 @@ pub fn total_prepaid_exec_fees(
                 config,
                 action,
                 delegate_action.receiver_id(),
-            ))?;
+            )?)?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
-            delta = exec_fee(config, action, receiver_id);
+            delta = exec_fee(config, action, receiver_id)?;
         }
 
         result = result.checked_add_result(delta)?;
@@ -837,5 +909,38 @@ mod tests {
         let pq = cost_of(&config, KeyType::MLDSA65, vec![transfer()]);
         assert_eq!(pq.gas_burnt, ed.gas_burnt);
         assert_eq!(pq.gas_cost, ed.gas_cost);
+    }
+
+    /// The universal-state-init fee reports an overflow instead of panicking.
+    /// The counts needed to get here are orders of magnitude beyond the
+    /// transaction size limit, so this only pins the failure mode.
+    #[test]
+    fn universal_state_init_fee_reports_overflow() {
+        let one = ParameterCost::new(Gas::from_gas(1), 1);
+        let two = ParameterCost::new(Gas::from_gas(2), 2);
+        let zero = ParameterCost::ZERO;
+
+        // A sane call still sums normally.
+        let ok = universal_state_init_fee(one, one, one, one, 2, 3, 4).unwrap();
+        assert_eq!(ok.gas, Gas::from_gas(1 + 2 + 3 + 4));
+
+        // Each multiplied term overflows independently...
+        for (entry, byte, key, entries, bytes, keys) in [
+            (two, zero, zero, u64::MAX, 0, 0),
+            (zero, two, zero, 0, u64::MAX, 0),
+            (zero, zero, two, 0, 0, u64::MAX),
+        ] {
+            assert_eq!(
+                universal_state_init_fee(zero, entry, byte, key, entries, bytes, keys),
+                Err(IntegerOverflowError)
+            );
+        }
+
+        // ...and so does the final summation.
+        let max = ParameterCost::new(Gas::from_gas(u64::MAX), u64::MAX);
+        assert_eq!(
+            universal_state_init_fee(max, one, zero, zero, 1, 0, 0),
+            Err(IntegerOverflowError)
+        );
     }
 }

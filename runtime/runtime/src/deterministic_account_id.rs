@@ -2,7 +2,7 @@ use crate::config::safe_add_balance;
 use crate::global_contracts::use_global_contract;
 use crate::verifier::{StorageStakingError, check_storage_stake};
 use crate::{ActionResult, ApplyState};
-use near_parameters::StorageUsageConfig;
+use near_parameters::{RuntimeConfig, StorageUsageConfig};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::DeterministicStateInitAction;
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
@@ -50,22 +50,41 @@ pub(crate) fn action_deterministic_state_init(
         return Ok(());
     }
 
+    settle_state_init_deposit(
+        account,
+        action.deposit,
+        account_id,
+        receipt,
+        &apply_state.config,
+        result,
+    )
+}
+
+/// Settle a state-init action's attached deposit against the created account's
+/// storage-staking requirement: top up exactly what is missing and refund the
+/// rest, or fail with `LackBalanceForState` if the deposit can't cover it.
+/// Shared by the deterministic and universal state-init handlers.
+pub(crate) fn settle_state_init_deposit(
+    account: &mut Account,
+    deposit: Balance,
+    account_id: &AccountId,
+    receipt: &Receipt,
+    config: &RuntimeConfig,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
     // Use attached deposit to satisfy storage staking requirements and refund
     // the rest.
-    let deposit_refund = match check_storage_stake(account, account.amount(), &apply_state.config) {
+    let deposit_refund = match check_storage_stake(account, account.amount(), config) {
         Ok(_) => {
             // no additional storage needed, refunding all
-            action.deposit
+            deposit
         }
         Err(StorageStakingError::LackBalanceForStorageStaking(missing_amount)) => {
-            if missing_amount <= action.deposit {
+            if missing_amount <= deposit {
                 // use exactly as much as needed and refund the rest
                 let new_balance = safe_add_balance(account.amount(), missing_amount)?;
                 account.set_amount(new_balance);
-                action
-                    .deposit
-                    .checked_sub(missing_amount)
-                    .expect("just checked missing_amount <= action.deposit")
+                deposit.checked_sub(missing_amount).expect("just checked missing_amount <= deposit")
             } else {
                 result.result = Err(ActionErrorKind::LackBalanceForState {
                     account_id: account_id.clone(),
