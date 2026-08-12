@@ -66,7 +66,7 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
 ///
 /// A store with no head yet is reported as pre-spice. Any other storage error is
 /// fatal: the recovery paths this gates already panic on a store they cannot read, so
-/// skipping them would trade a crash for a node silently running with unrecovered state.
+/// skipping them would trade a crash for a node that silently skipped recovery.
 pub fn spice_enabled_at_head_on_startup(chain_store: &ChainStoreAdapter) -> bool {
     match spice_enabled_at_head(chain_store) {
         Ok(enabled) => enabled,
