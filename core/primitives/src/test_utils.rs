@@ -1152,7 +1152,7 @@ impl TestBlockBuilder {
                         .newly_certified_block_execution_results,
                     prev_last_certified_block_epoch_id: self
                         .prev_last_certified_block_epoch_id
-                        .unwrap_or(*self.prev_header.epoch_id()),
+                        .unwrap_or_else(|| *self.prev_header.epoch_id()),
                     spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
                 }
             }),
