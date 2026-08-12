@@ -82,12 +82,9 @@ fn setup_pre_spice_chain(num_validators: usize, gc_num_epochs_to_keep: u64) -> T
 }
 
 /// Spice columns that must stay untouched on a pre-spice chain.
-///
-/// `DBCol::all_next_block_hashes()` is deliberately absent: `ChainStoreUpdate` writes it
-/// for every block gated on `cfg!(feature = "protocol_feature_spice")` rather than on the
-/// block's own protocol version, so a spice build populates it pre-activation too.
 fn spice_columns() -> Vec<DBCol> {
     vec![
+        DBCol::all_next_block_hashes(),
         DBCol::receipt_proofs(),
         DBCol::witnesses(),
         DBCol::endorsements(),
