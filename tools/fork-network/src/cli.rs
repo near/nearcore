@@ -68,11 +68,10 @@ pub struct ForkNetworkCommand {
 #[derive(clap::Subcommand)]
 enum SubCommand {
     /// Prepares the DB for doing the modifications:
-    /// * Makes a snapshot.
+    /// * Makes a snapshot, unless `--no-snapshot` is given.
     /// * Finds and persists state roots.
     Init(InitCmd),
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
     AmendAccessKeys(AmendAccessKeysCmd),
 
@@ -98,6 +97,17 @@ struct InitCmd {
     /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
     #[arg(short = 'p', long)]
     pub shard_layout_protocol_version: Option<ProtocolVersion>,
+    /// Skip the `data/fork-snapshot` checkpoint this command normally makes.
+    ///
+    /// The snapshot buys one thing: `fork-network reset` can roll the DB back to this point.
+    /// Nothing else reads it. It is a hard-link checkpoint, so it starts free and then grows
+    /// as `amend-access-keys` modifies the DB.
+    ///
+    /// So it is disk traded for iteration speed. Keep it when working locally, or on a large
+    /// state, where `reset` is far quicker than rebuilding the DB from its source. Skip it in
+    /// automation, which rebuilds from the source image anyway and never resets.
+    #[arg(long)]
+    pub no_snapshot: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -265,7 +275,11 @@ impl ForkNetworkCommand {
         crate::metrics_server::spawn(&self.prometheus_addr);
 
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+            SubCommand::Init(InitCmd {
+                shard_layout_file,
+                shard_layout_protocol_version,
+                no_snapshot,
+            }) => {
                 let shard_layout_override = {
                     if let Some(file) = shard_layout_file {
                         ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
@@ -275,7 +289,7 @@ impl ForkNetworkCommand {
                         ShardLayoutOverride::NoOverride
                     }
                 };
-                self.init(near_config, home_dir, &shard_layout_override)?;
+                self.init(near_config, home_dir, &shard_layout_override, *no_snapshot)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
@@ -314,6 +328,12 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
+    fn fork_snapshot_path(near_config: &NearConfig, home_dir: &Path) -> PathBuf {
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
+        store_path.join("fork-snapshot")
+    }
+
     /// Checks if a DB snapshot exists.
     /// If a snapshot doesn't exist, then creates it at `~/.near/data/fork-snapshot`.
     fn snapshot_db(
@@ -322,9 +342,7 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path = home_dir
-            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
-        let fork_snapshot_path = store_path.join("fork-snapshot");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
             tracing::info!(?fork_snapshot_path, "found a DB snapshot");
@@ -346,11 +364,30 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
-        assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        if no_snapshot {
+            let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
+            if fork_snapshot_path.is_dir() {
+                tracing::warn!(
+                    ?fork_snapshot_path,
+                    "--no-snapshot was given, but a snapshot from an earlier run is still here. \
+                     No new one is made, yet this one keeps hard-linking SSTs, so it will pin \
+                     every file compaction retires during amend-access-keys. `fork-network \
+                     reset` does still work. Delete it to free that space."
+                );
+            } else {
+                tracing::warn!(
+                    "skipping the fork snapshot as requested; `fork-network reset` will not be \
+                     available for this DB and rolling back means rebuilding it from its source"
+                );
+            }
+        } else {
+            assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        }
         metrics::set_phase(Phase::WriteForkInfo);
 
         let epoch_manager = EpochManager::new_arc_handle(
@@ -440,8 +477,9 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir, shard_layout_override)?;
+        self.write_fork_info(near_config, home_dir, shard_layout_override, no_snapshot)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
@@ -460,7 +498,6 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
     fn amend_access_keys(
         &self,
@@ -921,7 +958,7 @@ impl ForkNetworkCommand {
         let store_path = home_dir
             .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
-        let fork_snapshot_path = store_path.join("fork-snapshot/data");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir).join("data");
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
