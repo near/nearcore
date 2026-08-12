@@ -5,6 +5,41 @@ use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SpiceMessageKind {
+    ChunkEndorsement,
+    PartialData,
+    PartialDataRequest,
+    ContractAccesses,
+    ContractCodeRequest,
+    ContractCodeResponse,
+    StateWitness,
+}
+
+impl SpiceMessageKind {
+    pub const ALL: [Self; 7] = [
+        Self::ChunkEndorsement,
+        Self::PartialData,
+        Self::PartialDataRequest,
+        Self::ContractAccesses,
+        Self::ContractCodeRequest,
+        Self::ContractCodeResponse,
+        Self::StateWitness,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ChunkEndorsement => "chunk_endorsement",
+            Self::PartialData => "partial_data",
+            Self::PartialDataRequest => "partial_data_request",
+            Self::ContractAccesses => "contract_accesses",
+            Self::ContractCodeRequest => "contract_code_request",
+            Self::ContractCodeResponse => "contract_code_response",
+            Self::StateWitness => "state_witness",
+        }
+    }
+}
+
 /// Whether the block `block_hash` is a spice block.
 ///
 /// Errors when the header is not on disk; callers that can be handed an
@@ -26,9 +61,22 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
     spice_enabled_for_block(chain_store, &head.last_block_hash)
 }
 
-/// Whether an inbound spice message referencing `block_hash` should be
-/// processed. A dropped message is counted under `kind`, which must be one of the
-/// values enumerated on [`metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED`].
+/// [`spice_enabled_at_head`] for actor startup, where there is no caller to return an
+/// error to.
+///
+/// A store with no head yet is reported as pre-spice. Any other storage error is
+/// fatal: the recovery paths this gates already panic on a store they cannot read, so
+/// skipping them would trade a crash for a node silently running with unrecovered state.
+pub fn spice_enabled_at_head_on_startup(chain_store: &ChainStoreAdapter) -> bool {
+    match spice_enabled_at_head(chain_store) {
+        Ok(enabled) => enabled,
+        Err(Error::DBNotFoundErr(_)) => false,
+        Err(err) => panic!("failed to determine whether spice is active at head: {err}"),
+    }
+}
+
+/// Whether an inbound spice message referencing `block_hash` should be processed. A
+/// dropped message is counted under `kind`.
 ///
 /// The authoritative answer is the referenced block itself. When that block is
 /// not on disk we cannot ask it, and we must not simply drop: spice legitimately
@@ -41,7 +89,7 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
 /// still pre-spice.
 pub fn accept_spice_network_message(
     chain_store: &ChainStoreAdapter,
-    kind: &'static str,
+    kind: SpiceMessageKind,
     block_hash: &CryptoHash,
 ) -> bool {
     let enabled = match spice_enabled_for_block(chain_store, block_hash) {
@@ -54,9 +102,9 @@ pub fn accept_spice_network_message(
                 tracing::debug!(
                     target: "spice_activation",
                     ?err,
-                    kind,
+                    kind = kind.as_str(),
                     %block_hash,
-                    "cannot resolve spice-ness for spice message; dropping",
+                    "cannot resolve spice-ness for spice message, dropping",
                 );
                 false
             }
@@ -65,11 +113,11 @@ pub fn accept_spice_network_message(
     if !enabled {
         tracing::debug!(
             target: "spice_activation",
-            kind,
+            kind = kind.as_str(),
             %block_hash,
-            "dropping spice message: spice is not active",
+            "dropping spice message, spice is not active",
         );
-        metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED.with_label_values(&[kind]).inc();
+        metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED.with_label_values(&[kind.as_str()]).inc();
     }
     enabled
 }

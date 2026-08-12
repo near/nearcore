@@ -390,7 +390,7 @@ impl ChainStore {
                 tracing::debug!(
                     target: "garbage_collection",
                     ?err,
-                    "could not resolve the final head's spice-ness; skipping witness GC",
+                    "could not resolve the final head's spice-ness, skipping witness GC",
                 );
                 return Ok(());
             }

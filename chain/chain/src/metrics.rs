@@ -95,9 +95,7 @@ pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = Lazy
     try_create_int_counter_vec(
         "near_spice_pre_activation_messages_dropped_total",
         "Number of spice messages dropped because the block they reference is not a spice \
-         block, by message kind: 'chunk_endorsement', 'partial_data', 'partial_data_request', \
-         'contract_accesses', 'contract_code_request', 'contract_code_response', \
-         'state_witness'.",
+         block, by message kind",
         &["kind"],
     )
     .unwrap()

@@ -21,7 +21,8 @@ use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
-    accept_spice_network_message, spice_enabled_at_head, spice_enabled_for_block,
+    SpiceMessageKind, accept_spice_network_message, spice_enabled_at_head_on_startup,
+    spice_enabled_for_block,
 };
 use near_chain::spice::core::{SpiceCoreReader, fallback_eligible};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
@@ -205,18 +206,7 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
         // `start_waiting_on_missing_data` reads the spice final execution head,
         // which only exists once spice is active, so it is skipped while the head
         // is still pre-spice
-        let recover_missing_data = match spice_enabled_at_head(&self.chain_store) {
-            Ok(enabled) => enabled,
-            Err(err) => {
-                tracing::error!(
-                    target: "spice_data_distribution",
-                    ?err,
-                    "failed to determine whether spice is active at head; skipping recovery of missing data",
-                );
-                false
-            }
-        };
-        if recover_missing_data {
+        if spice_enabled_at_head_on_startup(&self.chain_store) {
             self.start_waiting_on_missing_data()
                 .expect("we should be able to figure out missing data on startup");
         }
@@ -313,7 +303,11 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
     ) {
         let block_hash = *data.block_hash();
-        if !accept_spice_network_message(&self.chain_store, "partial_data", &block_hash) {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            SpiceMessageKind::PartialData,
+            &block_hash,
+        ) {
             return;
         }
         let sender = data.sender().clone();
@@ -335,7 +329,7 @@ impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
         if !accept_spice_network_message(
             &self.chain_store,
-            "partial_data_request",
+            SpiceMessageKind::PartialDataRequest,
             msg.request.data_id.block_hash(),
         ) {
             return;
@@ -353,7 +347,7 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
     ) {
         if !accept_spice_network_message(
             &self.chain_store,
-            "contract_code_request",
+            SpiceMessageKind::ContractCodeRequest,
             &request.chunk_id().block_hash,
         ) {
             return;

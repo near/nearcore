@@ -11,6 +11,7 @@ use near_async::messaging::CanSend as _;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED;
+use near_chain::spice::activation::SpiceMessageKind;
 use near_client::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
@@ -32,19 +33,14 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
     SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Balance, ChunkExecutionResult, SpiceChunkId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::DBCol;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-fn pre_spice_protocol_version() -> ProtocolVersion {
-    ProtocolFeature::Spice.protocol_version() - 1
-}
 
 const EPOCH_LENGTH: u64 = 5;
 
@@ -149,8 +145,8 @@ impl SpiceTrafficCounter {
     }
 }
 
-fn dropped_count(kind: &str) -> u64 {
-    SPICE_PRE_ACTIVATION_MESSAGES_DROPPED.with_label_values(&[kind]).get()
+fn dropped_count(kind: SpiceMessageKind) -> u64 {
+    SPICE_PRE_ACTIVATION_MESSAGES_DROPPED.with_label_values(&[kind.as_str()]).get()
 }
 
 /// A pre-spice chain produces, validates, executes and garbage-collects normally under a
@@ -231,9 +227,9 @@ fn test_pre_spice_chain_survives_node_restart() {
 /// Every spice message kind a peer can route to us is dropped, counted, and leaves no
 /// trace while spice is not active.
 ///
-/// All eight injections live in one test because the drop counters are process-global:
-/// keeping the deltas for a label sequential within a single test keeps them meaningful
-/// under `cargo test`, which shares a process across tests.
+/// All eight injections live in one test because the drop counters are process-global.
+/// CI runs nextest, which gives each test its own process, but under `cargo test` a
+/// second test injecting the same kind concurrently would break the deltas below.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
@@ -249,18 +245,8 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
     let shard_id = block.chunks()[0].shard_id();
     let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id };
 
-    let before: HashMap<&str, u64> = [
-        "chunk_endorsement",
-        "partial_data",
-        "partial_data_request",
-        "contract_accesses",
-        "contract_code_request",
-        "contract_code_response",
-        "state_witness",
-    ]
-    .into_iter()
-    .map(|kind| (kind, dropped_count(kind)))
-    .collect();
+    let before: HashMap<SpiceMessageKind, u64> =
+        SpiceMessageKind::ALL.into_iter().map(|kind| (kind, dropped_count(kind))).collect();
 
     node_data.spice_core_writer_sender.send(SpiceChunkEndorsementMessage(
         SpiceChunkEndorsement::new(chunk_id.clone(), new_test_execution_result(), &signer),
@@ -331,8 +317,16 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
     for (kind, before) in before {
         // `chunk_endorsement` is injected twice: once naming a known pre-spice block and
         // once naming an unknown one.
-        let expected = if kind == "chunk_endorsement" { before + 2 } else { before + 1 };
-        assert_eq!(dropped_count(kind), expected, "unexpected drop count for {kind} messages");
+        let expected = match kind {
+            SpiceMessageKind::ChunkEndorsement => before + 2,
+            _ => before + 1,
+        };
+        assert_eq!(
+            dropped_count(kind),
+            expected,
+            "unexpected drop count for {} messages",
+            kind.as_str(),
+        );
     }
     traffic.assert_no_spice_traffic();
     assert_spice_columns_empty(&env);

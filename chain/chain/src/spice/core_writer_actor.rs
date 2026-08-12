@@ -1,4 +1,6 @@
-use crate::spice::activation::{accept_spice_network_message, spice_enabled_for_block};
+use crate::spice::activation::{
+    SpiceMessageKind, accept_spice_network_message, spice_enabled_for_block,
+};
 use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -67,8 +69,11 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
-        if !accept_spice_network_message(&self.chain_store, "chunk_endorsement", msg.0.block_hash())
-        {
+        if !accept_spice_network_message(
+            &self.chain_store,
+            SpiceMessageKind::ChunkEndorsement,
+            msg.0.block_hash(),
+        ) {
             return;
         }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {

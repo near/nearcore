@@ -919,7 +919,8 @@ impl Chain {
         }
         let spice_epoch = ProtocolFeature::Spice.enabled(epoch_protocol_version);
         if spice_epoch != header.is_spice() {
-            tracing::error!(
+            tracing::warn!(
+                target: "chain",
                 %spice_epoch,
                 header_is_spice = %header.is_spice(),
                 %epoch_protocol_version,

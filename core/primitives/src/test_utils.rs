@@ -1120,6 +1120,29 @@ impl TestBlockBuilder {
 
     pub fn build_owned(self) -> Block {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
+        let spice_info = if ProtocolFeature::Spice.enabled(self.protocol_version) {
+            Some(crate::block::SpiceNewBlockProductionInfo {
+                core_statements: self
+                    .spice_core_statements
+                    .unwrap_or_else(|| crate::block_body::SpiceCoreStatements::new(vec![])),
+                newly_certified_block_execution_results: self
+                    .newly_certified_block_execution_results,
+                prev_last_certified_block_epoch_id: self
+                    .prev_last_certified_block_epoch_id
+                    .unwrap_or_else(|| *self.prev_header.epoch_id()),
+                spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
+            })
+        } else {
+            assert!(
+                self.spice_core_statements.is_none()
+                    && self.newly_certified_block_execution_results.is_empty()
+                    && self.prev_last_certified_block_epoch_id.is_none()
+                    && self.spice_chunk_endorsement_stats.is_empty(),
+                "spice fields set on a block pinned to pre-spice protocol version {}",
+                self.protocol_version,
+            );
+            None
+        };
         let mut block = Block::produce(
             self.protocol_version,
             self.protocol_version,
@@ -1143,19 +1166,7 @@ impl TestBlockBuilder {
             None,
             None,
             None,
-            ProtocolFeature::Spice.enabled(self.protocol_version).then(|| {
-                crate::block::SpiceNewBlockProductionInfo {
-                    core_statements: self
-                        .spice_core_statements
-                        .unwrap_or_else(|| crate::block_body::SpiceCoreStatements::new(vec![])),
-                    newly_certified_block_execution_results: self
-                        .newly_certified_block_execution_results,
-                    prev_last_certified_block_epoch_id: self
-                        .prev_last_certified_block_epoch_id
-                        .unwrap_or_else(|| *self.prev_header.epoch_id()),
-                    spice_chunk_endorsement_stats: self.spice_chunk_endorsement_stats,
-                }
-            }),
+            spice_info,
         );
         if let Some(ts) = self.timestamp_nanos {
             block.mut_header().set_timestamp(ts);
@@ -1327,6 +1338,10 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
         near_crypto::KeyType::ED25519,
         account_name,
     )
+}
+
+pub fn pre_spice_protocol_version() -> ProtocolVersion {
+    ProtocolFeature::Spice.protocol_version() - 1
 }
 
 /// Build a minimal `ShardChunkHeaderV3` for use in tests that only need

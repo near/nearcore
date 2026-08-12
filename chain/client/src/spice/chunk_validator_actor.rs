@@ -3,7 +3,9 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::spice::activation::{accept_spice_network_message, spice_enabled_for_block};
+use near_chain::spice::activation::{
+    SpiceMessageKind, accept_spice_network_message, spice_enabled_for_block,
+};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -222,7 +224,7 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
     ) {
         if !accept_spice_network_message(
             &self.chain_store,
-            "contract_accesses",
+            SpiceMessageKind::ContractAccesses,
             &accesses.chunk_id().block_hash,
         ) {
             return;
@@ -240,7 +242,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
     ) {
         if !accept_spice_network_message(
             &self.chain_store,
-            "contract_code_response",
+            SpiceMessageKind::ContractCodeResponse,
             &response.chunk_id().block_hash,
         ) {
             return;
@@ -262,7 +264,7 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
         if !accept_spice_network_message(
             &self.chain_store,
-            "state_witness",
+            SpiceMessageKind::StateWitness,
             &witness.chunk_id().block_hash,
         ) {
             return;

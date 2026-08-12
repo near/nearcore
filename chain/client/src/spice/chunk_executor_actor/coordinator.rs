@@ -6,7 +6,7 @@ use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
-use near_chain::spice::activation::{spice_enabled_at_head, spice_enabled_for_block};
+use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
@@ -352,17 +352,8 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active
-        match spice_enabled_at_head(&self.chain_store) {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(err) => {
-                tracing::error!(
-                    target: "chunk_executor",
-                    ?err,
-                    "failed to determine whether spice is active at head; skipping startup recovery",
-                );
-                return;
-            }
+        if !spice_enabled_at_head_on_startup(&self.chain_store) {
+            return;
         }
         // Recover after a crash between apply-commit and finalize: walk forward
         // past anything already-applied on disk before scheduling fresh applies.

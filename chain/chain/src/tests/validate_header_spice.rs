@@ -6,14 +6,11 @@ use crate::test_utils::get_chain_with_genesis;
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::test_utils::{
+    TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
+};
+use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
-
-/// A protocol version that is supported by this binary but predates spice.
-fn pre_spice_protocol_version() -> ProtocolVersion {
-    ProtocolFeature::Spice.protocol_version() - 1
-}
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
