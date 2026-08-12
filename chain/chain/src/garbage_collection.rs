@@ -1,3 +1,4 @@
+use crate::spice::activation::spice_enabled_for_block;
 use crate::spice::core::get_last_certified_block_header;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
@@ -375,12 +376,26 @@ impl ChainStore {
     #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
     fn clear_witnesses_data(&self) -> Result<(), Error> {
         let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
-        // Use binary version to determine whether Spice related GC should run.
-        if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+
+        // A build without spice has no witnesses column to collect.
+        if !cfg!(feature = "protocol_feature_spice") {
             return Ok(());
         }
 
         let final_head = self.final_head()?;
+        match spice_enabled_for_block(self, &final_head.last_block_hash) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(err) => {
+                tracing::debug!(
+                    target: "garbage_collection",
+                    ?err,
+                    "could not resolve the final head's spice-ness; skipping witness GC",
+                );
+                return Ok(());
+            }
+        }
+
         let Ok(last_certified_height) =
             get_last_certified_block_header(&self, &final_head.last_block_hash)
                 .map(|header| header.height())
