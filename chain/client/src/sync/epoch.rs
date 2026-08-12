@@ -14,7 +14,8 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    HighestHeightPeerInfo, NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter,
+    PeerManagerMessageRequest,
 };
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -301,9 +302,11 @@ impl EpochSync {
             &first_block_info_in_epoch,
         )?;
         // `record_block_info`, which epoch sync bypasses, is otherwise the only
-        // block-processing writer of `EpochStart`. Without this row the early-kickout grace
-        // check sees the synced epoch as permanently just-started, never forms the
-        // blacklist, and mis-attributes chunk production for the whole epoch.
+        // block-processing writer of `EpochStart`. The early-kickout grace check no longer
+        // reads this column (it walks `BlockInfo.epoch_first_block`), but other readers
+        // still key on it and would error on the synced epoch without this row, e.g.
+        // `get_validator_info` (RPC), `compare_epoch_id`, the epoch-sync-proof migration,
+        // and `find_target_epoch_to_produce_proof_for` (serving epoch sync to other nodes).
         store_update
             .epoch_store_update()
             .set_epoch_start(last_header.epoch_id(), last_header.height());
@@ -573,6 +576,7 @@ impl EpochSync {
 
 impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
+        let response_permit = msg.response_permit;
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
@@ -585,9 +589,10 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                 tracing::warn!(target: "sync", ?head, ?genesis_height, "no epoch sync proof is stored");
                 return;
             };
-            self.client.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
-            ));
+            self.client.network_adapter.send(NetworkRequestWithPermit {
+                request: NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
+                permit: response_permit,
+            });
         } else {
             let store = self.client.chain.chain_store.store();
             let network_adapter = self.client.network_adapter.clone();
@@ -608,9 +613,13 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                             return;
                         }
                     };
-                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
-                    ));
+                    network_adapter.send(NetworkRequestWithPermit {
+                        request: NetworkRequests::EpochSyncResponse {
+                            peer_id: requester_peer_id,
+                            proof,
+                        },
+                        permit: response_permit,
+                    });
                 },
             )
         }

@@ -24,6 +24,9 @@ pub enum VMRunnerError {
     /// Type erased error from `External` trait implementation.
     #[error("external error")]
     ExternalError(AnyError),
+    /// Non-deterministic error.
+    #[error("non-deterministic error during contract execution: {0}")]
+    Nondeterministic(String),
     #[error("unknown error during contract execution: {debug_message}")]
     WasmUnknownError { debug_message: String },
     #[error("account has no associated contract code")]
@@ -56,12 +59,6 @@ pub enum FunctionCallError {
     LoadingError {
         msg: String,
     },
-    /// The VM runner reported an unrecoverable internal failure (e.g. an
-    /// unhandled wasmtime trap). Surfaced instead of panicking so a single bad
-    /// node does not crash the network; the message is for diagnostics only.
-    WasmUnknownError {
-        msg: String,
-    },
 }
 
 impl FunctionCallError {
@@ -69,9 +66,9 @@ impl FunctionCallError {
         const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
         match self {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
-            FunctionCallError::LinkError { msg }
-            | FunctionCallError::LoadingError { msg }
-            | FunctionCallError::WasmUnknownError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::LinkError { msg } | FunctionCallError::LoadingError { msg } => {
+                BASE_SIZE + msg.len()
+            }
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -473,9 +470,6 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
-            FunctionCallError::WasmUnknownError { msg } => {
-                write!(f, "Unknown error during contract execution: {}", msg)
-            }
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
     }

@@ -443,9 +443,18 @@ pub enum ProtocolFeature {
     /// rather than a zero-gas nop) when a compiled module fails to load at
     /// `Module::deserialize`.
     FixContractLoadingError,
+    /// Bound the combined size of the promise inputs a single receipt consumes.
+    ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
     EnforcePerReceiptStorageProofLimit,
+    /// Extend the per-receipt storage proof limit to every action kind. The
+    /// `RecordedStorageCounter` only runs inside the VM, so it bounds
+    /// `FunctionCall` actions alone; other actions in the same receipt could
+    /// record proof past the limit. Check the receipt's recorded size after
+    /// each action and fail the receipt with
+    /// `ActionErrorKind::ReceiptStorageProofSizeExceeded` once it goes over.
+    EnforceStorageProofLimitForAllActions,
     /// Remove gas rewards: stop paying part of the gas burned by a
     /// `FunctionCall` back to the contract account as a reward. Sets the
     /// `burnt_gas_reward` parameter from 30% (3/10) to 0%.
@@ -591,6 +600,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RemoveGasRewards => 87,
+            ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
+            ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

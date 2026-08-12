@@ -25,6 +25,7 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+    validate_spice_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
@@ -418,6 +419,7 @@ impl Chain {
             chain_genesis,
             state_roots,
         )?;
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         let (sc, rc) = unbounded();
         let resharding_manager = ReshardingManager::new(
             store.clone(),
@@ -447,7 +449,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
@@ -615,6 +617,7 @@ impl Chain {
             epoch_manager.clone(),
             chain_genesis.gas_limit,
         );
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -633,7 +636,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
@@ -1020,7 +1023,9 @@ impl Chain {
                 }
             }
 
-            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+            if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+                validate_spice_chunk_endorsements_in_header(header)?;
+            } else {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
@@ -1629,6 +1634,10 @@ impl Chain {
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
+
+        // State sync moves the head without processing a block, so the tracker has to be told
+        // separately. Otherwise its window stays where the head was before the sync.
+        self.blocks_delay_tracker.update_head(tip.height);
 
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks

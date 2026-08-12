@@ -32,7 +32,9 @@ use near_network::spice::data_distribution::{
     SpiceContractCodeRequestMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
     SpicePartialDataRequestMessage,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
@@ -48,14 +50,14 @@ use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
     SpiceVerifiedPartialData, testonly_create_spice_partial_data,
 };
-use near_primitives::spice::state_witness::{SpiceChunkStateTransition, SpiceChunkStateWitness};
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeHash, SpiceContractCodeRequest,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::types::AccountId;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ChunkExecutionResultHash};
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -63,7 +65,7 @@ use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -118,10 +120,7 @@ fn new_test_witness_for_chunk(
     block: &Block,
     chunk_header: &ShardChunkHeader,
 ) -> SpiceChunkStateWitness {
-    let state_transition = SpiceChunkStateTransition {
-        base_state: PartialState::TrieValues(vec![]),
-        post_state_root: CryptoHash::default(),
-    };
+    let pre_state = PartialState::TrieValues(vec![]);
     let receipt_proofs = HashMap::new();
     let receipts_hash = CryptoHash::default();
     let transactions = vec![];
@@ -130,12 +129,11 @@ fn new_test_witness_for_chunk(
             block_hash: *block.hash(),
             shard_id: chunk_header.shard_id(),
         },
-        state_transition,
+        pre_state,
         receipt_proofs,
         receipts_hash,
         transactions,
-        ChunkExecutionResultHash(CryptoHash::default()),
-        CryptoHash::default(),
+        BTreeSet::new(),
         None,
     )
 }
@@ -256,6 +254,15 @@ impl ActorBuilder {
                         unreachable!()
                     };
                     outgoing_sc.send(OutgoingMessage::NetworkRequests { request }).unwrap();
+                }
+            }),
+            request_with_permit_sender: Sender::from_fn({
+                let outgoing_sc = outgoing_sc.clone();
+                move |message: NetworkRequestWithPermit| {
+                    // ignore the permit in tests
+                    outgoing_sc
+                        .send(OutgoingMessage::NetworkRequests { request: message.request })
+                        .unwrap();
                 }
             }),
         };
@@ -1008,6 +1015,7 @@ fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &Account
     let mut core_writer_actor = SpiceCoreWriterActor::new(
         chain.runtime_adapter.store().chain_store(),
         chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
         core_reader(chain),
         noop().into_sender(),
         noop().into_sender(),

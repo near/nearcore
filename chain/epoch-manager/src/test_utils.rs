@@ -341,6 +341,58 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     epoch_manager
 }
 
+/// Records one block with an explicit per-shard `chunk_mask` (true = produced, false =
+/// missed) and explicit last-final fields. The finals are parameters rather than derived
+/// from the grandparent because a genesis-parented block at a skipped height has no
+/// grandparent and nothing final yet.
+pub fn record_block_with_final_and_mask(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+) {
+    let epoch_id = em.get_epoch_id(&prev).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .enumerate()
+            .map(|(shard_index, shard_id)| {
+                if !chunk_mask[shard_index] {
+                    return vec![];
+                }
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    em.record_block_info(
+        BlockInfo::new(
+            cur,
+            height,
+            last_final_height,
+            last_final_hash,
+            prev,
+            vec![],
+            chunk_mask,
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+        [0; 32],
+    )
+    .unwrap()
+    .commit();
+}
+
 pub fn record_block_with_final_block_hash(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,

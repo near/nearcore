@@ -76,6 +76,7 @@ impl TestonlySyncChunkExecutorActor {
         let core_writer_actor = SpiceCoreWriterActor::new(
             runtime_adapter.store().chain_store(),
             epoch_manager.clone(),
+            validator_signer.clone(),
             core_reader,
             noop().into_sender(),
             noop().into_sender(),

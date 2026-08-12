@@ -655,11 +655,7 @@ impl FromStr for PublicKeyHandle {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         if let Some(data) = value.strip_prefix(ML_DSA_65_HASH_PREFIX) {
-            return Ok(Self::MlDsa65(MlDsa65PublicKeyHandle(try_fixed_array(
-                &bs58::decode(data)
-                    .into_vec()
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
-            )?)));
+            return Ok(Self::MlDsa65(MlDsa65PublicKeyHandle(decode_bs58(data)?)));
         }
         let (key_type, key_data) = split_key_type_data(value)?;
         match key_type {
@@ -1690,6 +1686,40 @@ mod tests {
         assert!(s.starts_with("ml-dsa-65-hash:"));
         let kh2: PublicKeyHandle = s.parse().expect("parse roundtrip");
         assert_eq!(kh, kh2);
+    }
+
+    /// `PublicKeyHandle::from_str` is reachable from untrusted JSON-RPC
+    /// parameters (`after_key` on `view_access_key_list`), and must be bounded.
+    #[test]
+    fn test_key_handle_decoding_bounded() {
+        use super::PublicKeyHandle;
+        use crate::errors::ParseKeyError;
+        use std::time::Instant;
+
+        // 'z' is the highest-value base58 character, i.e. the worst case for
+        // the decoder's inner loop.
+        let long = "z".repeat(100_000);
+        for prefix in ["ml-dsa-65-hash:", "ed25519:", "secp256k1:"] {
+            let input = format!("{prefix}{long}");
+            let started = Instant::now();
+            let err = input.parse::<PublicKeyHandle>().expect_err("100k-character key accepted");
+            let elapsed = started.elapsed();
+
+            // The decoder should give up as soon as the value outgrows its
+            // destination, and report `received` bytes as `expected + 1`.
+            // Decoding into an input-sized buffer would report the true length instead.
+            let ParseKeyError::InvalidLength(err) = err else {
+                panic!("{prefix}: expected a length error, got {err:?}");
+            };
+            assert_eq!(
+                err.received,
+                err.expected + 1,
+                "{prefix} decoded the whole input instead of bailing out early",
+            );
+            // Cost backstop, loose enough not to trip on a busy machine: the
+            // work above is ~1us, while an unbounded decode needs a few seconds.
+            assert!(elapsed.as_millis() < 100, "{prefix} took {elapsed:?} to reject 100k chars");
+        }
     }
 
     /// Borsh roundtrip of `PublicKeyHandle::MlDsa65`. Bytes must be tag 3

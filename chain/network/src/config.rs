@@ -10,6 +10,7 @@ use crate::stun;
 use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
+use bytesize::{GIB, MIB};
 use near_async::time;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::MutableValidatorSigner;
@@ -36,6 +37,11 @@ pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES: usize = 1_000_000;
 /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
 /// Sized at ~10x the realistic validator count to leave headroom.
 pub const DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE: usize = 10_000;
+
+/// Default size of the semaphore which limits the total size of the outgoing messages.
+pub const DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 3 * GIB as usize;
+/// Default maximum capacity of the write buffer of a single connection.
+pub const DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = 700 * MIB as usize;
 
 /// Maximum number of PeerAddrs in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
@@ -234,6 +240,10 @@ pub struct NetworkConfig {
     pub routing_graph_max_edges: usize,
     /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
     pub routing_graph_max_accounts_per_message: usize,
+    /// Size of the semaphore which limits the total size of the outgoing messages.
+    pub outgoing_queue_limiter_capacity_bytes: usize,
+    /// Maximum capacity of the write buffer of a single connection.
+    pub max_write_buffer_capacity_bytes: usize,
 
     #[cfg(test)]
     pub(crate) event_sink:
@@ -451,6 +461,12 @@ impl NetworkConfig {
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
             routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
+            outgoing_queue_limiter_capacity_bytes: cfg
+                .outgoing_queue_limiter_capacity_bytes
+                .unwrap_or(DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES),
+            max_write_buffer_capacity_bytes: cfg
+                .max_write_buffer_capacity_bytes
+                .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -536,6 +552,8 @@ impl NetworkConfig {
             routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
             routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
+            outgoing_queue_limiter_capacity_bytes: DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
+            max_write_buffer_capacity_bytes: DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),

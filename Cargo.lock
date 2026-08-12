@@ -4300,6 +4300,7 @@ name = "near-fork-network"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "clap",
  "hex",
@@ -4308,6 +4309,7 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-epoch-manager",
+ "near-jsonrpc",
  "near-mirror",
  "near-o11y",
  "near-parameters",
@@ -4603,7 +4605,6 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_json",
- "smartstring",
  "strum",
  "thiserror 2.0.18",
  "tracing",
@@ -7388,17 +7389,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
-]
-
-[[package]]
-name = "smartstring"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
-dependencies = [
- "autocfg",
- "static_assertions",
- "version_check",
 ]
 
 [[package]]
