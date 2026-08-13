@@ -20,6 +20,7 @@ use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncShardResult};
+use crate::verified_peer_heights::VerifiedPeerHeights;
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::RayonAsyncComputationSpawner;
@@ -42,7 +43,9 @@ use near_chain::{
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
     Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
+use near_chain_configs::{
+    BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
@@ -85,9 +88,6 @@ use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
@@ -192,6 +192,7 @@ pub struct Client {
     /// watch::Sender used to notify watchers about new postprocessed blocks.
     pub block_notification_watch_sender:
         tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
+    pub(crate) verified_peer_heights: VerifiedPeerHeights,
 }
 
 impl AsRef<Client> for Client {
@@ -406,7 +407,7 @@ impl Client {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             network_adapter.clone().into_async_sender(),
-            config.state_sync_external_timeout,
+            config.block_request_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
             &config.state_sync,
@@ -510,6 +511,7 @@ impl Client {
             shadow_validation_reed_solomon: OnceLock::new(),
             last_validator_key_check_epoch: None,
             block_notification_watch_sender,
+            verified_peer_heights: VerifiedPeerHeights::default(),
         };
         Ok(client)
     }
@@ -1204,6 +1206,21 @@ impl Client {
         Ok(Some(block))
     }
 
+    /// Record `peer_id`'s verified height if the relayed block is ahead of us
+    /// and its approvals verify as >2/3 of a known epoch's stake; far-ahead
+    /// blocks (unknown epoch) fail that check and are ignored.
+    pub(crate) fn note_verified_peer_height(&mut self, block: &Block, peer_id: &PeerId) {
+        let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
+        self.verified_peer_heights.prune_at_or_below(head_height);
+        let height = block.header().height();
+        if height <= head_height {
+            return;
+        }
+        self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
+            self.chain.verify_header_approvals_without_ancestry(block.header()).is_ok()
+        });
+    }
+
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     // This function is just a wrapper for process_block_impl that makes error propagation easier.
     #[instrument(
@@ -1605,16 +1622,16 @@ impl Client {
             DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
-                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 let epoch_id = self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 if !ProtocolFeature::Spice.enabled(protocol_version) {
-                    // Pre-SPICE, we don't process invalid chunks. This is okay as they cannot be
-                    // included on chain as validators will not endorse invalid chunks.
+                    // Pre-SPICE, we don't process invalid chunks.
                     return Ok(());
                 }
+                // SPICE path: persist the invalid chunk as evidence.
+                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
                 // the header commits to malicious content, so pairing it with an
                 // empty body would break validate_chunk_proofs for any reader.
@@ -2546,7 +2563,7 @@ impl Client {
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
                             self.network_adapter.clone().into_async_sender(),
-                            self.config.state_sync_external_timeout,
+                            self.config.block_request_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
                             &self.config.state_sync,

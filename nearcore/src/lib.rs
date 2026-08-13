@@ -50,7 +50,7 @@ use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
-use near_store::{NodeStorage, Store, StoreOpenerError};
+use near_store::{NodeStorage, Store, StoreOpenerError, is_cloud_reader_store};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
@@ -280,6 +280,7 @@ fn spawn_spice_actors(
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        validator_signer.clone(),
         spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -393,6 +394,13 @@ pub async fn start_with_config_and_synchronization_impl(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
+    // Before any actor is spawned, so the GC actor never starts on this store.
+    if is_cloud_reader_store(&storage.get_hot_store()) {
+        anyhow::bail!(
+            "this store was written by a cloud-archive reader and cannot be used by a running \
+             node; point the cloud-archive tool at it instead"
+        );
+    }
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
@@ -478,7 +486,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
         actor_system.new_future_spawner("cloud archival").into(),
-        config.config.cloud_archival_writer,
+        config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),

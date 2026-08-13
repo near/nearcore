@@ -534,8 +534,12 @@ fn get_public_key(
     registers: &Registers,
     ptr: u64,
     len: u64,
+    post_quantum_keys_enabled: bool,
 ) -> Result<PublicKeyBuffer> {
-    Ok(PublicKeyBuffer::new(get_memory_or_register(gas_counter, memory, registers, ptr, len)?))
+    Ok(PublicKeyBuffer::new(
+        get_memory_or_register(gas_counter, memory, registers, ptr, len)?,
+        post_quantum_keys_enabled,
+    ))
 }
 
 // ###############
@@ -2081,6 +2085,100 @@ pub fn p256_verify(
     }
 }
 
+/// Verify an ML-DSA-65 (FIPS 204) signature given a message and a public key.
+///
+/// The signature must be 3309 bytes and the public key must be the 1952-byte
+/// raw FIPS 204 encoding. The message is of arbitrary length and is passed to
+/// the verifier as-is: ML-DSA hashes the message internally, so the caller
+/// must not pre-hash. Verification uses an empty
+/// context string, matching NEAR's transaction-level ML-DSA-65 signatures.
+///
+/// Returns a bool indicating success (1) or failure (0) as a `u64`.
+///
+/// # Errors
+///
+/// * If the signature's size is not 3309 or the public key's size is not 1952,
+///   returns [HostError::MlDsaVerifyInvalidInput], whose message is the
+///   underlying error and reports the expected and received sizes. Well-sized
+///   inputs that fail verification return 0 instead of aborting.
+/// * If any of the signature, message or public key arguments are out of
+///   memory bounds, returns [`HostError::MemoryAccessViolation`]
+///
+/// # Cost
+///
+/// Each input can either be in memory or in a register. Set the length of
+/// the input to `u64::MAX` to declare that the input is a register number
+/// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
+/// depends on whether it is from memory or from a register. It is either
+/// read_memory_base + num_bytes * read_memory_byte in the former case or
+/// read_register_base + num_bytes * read_register_byte in the latter. This
+/// function is labeled as `input_cost` below.
+///
+/// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
+///  input_cost(num_bytes_public_key) + ml_dsa_verify_base +
+///  ml_dsa_verify_byte * num_bytes_message`
+pub fn ml_dsa_verify(
+    ctx: &mut Ctx,
+    memory: &mut [u8],
+    signature_len: u64,
+    signature_ptr: u64,
+    message_len: u64,
+    message_ptr: u64,
+    public_key_len: u64,
+    public_key_ptr: u64,
+) -> Result<u64> {
+    use near_crypto::{MlDsa65PublicKey, MlDsa65Signature, PublicKey, Signature};
+
+    ctx.result_state.gas_counter.pay_base(ml_dsa_verify_base)?;
+
+    let signature = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            signature_ptr,
+            signature_len,
+        )?;
+        match MlDsa65Signature::try_from(&vec[..]) {
+            Ok(signature) => Signature::MLDSA65(signature),
+            Err(err) => {
+                return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
+                    msg: err.to_string(),
+                }));
+            }
+        }
+    };
+
+    let message = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        message_ptr,
+        message_len,
+    )?;
+    ctx.result_state.gas_counter.pay_per(ml_dsa_verify_byte, message.len() as u64)?;
+
+    let public_key = {
+        let vec = get_memory_or_register(
+            &mut ctx.result_state.gas_counter,
+            memory,
+            &ctx.registers,
+            public_key_ptr,
+            public_key_len,
+        )?;
+        match MlDsa65PublicKey::try_from(&vec[..]) {
+            Ok(public_key) => PublicKey::MLDSA65(public_key),
+            Err(err) => {
+                return Err(VMLogicError::HostError(HostError::MlDsaVerifyInvalidInput {
+                    msg: err.to_string(),
+                }));
+            }
+        }
+    };
+
+    Ok(signature.verify(&message, &public_key) as u64)
+}
+
 /// Consume gas. Counts both towards `burnt_gas` and `used_gas`.
 ///
 /// # Errors
@@ -3309,20 +3407,23 @@ pub fn promise_batch_action_transfer_to_gas_key(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let amount =
         Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, public_key_len as usize);
-    let exec =
-        gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), public_key_len as usize);
+    let send = gas_key_transfer_send_fee(&ctx.fees_config, sir, pk_len);
+    let exec_pk_len = gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len);
+    let exec = gas_key_transfer_exec_fee(&ctx.fees_config, receiver_id.len(), exec_pk_len);
     let burn_base = send.base;
     let use_base = burn_base.gas.checked_add(exec.base.gas).ok_or(HostError::IntegerOverflow)?;
     ctx.result_state.gas_counter.pay_action_accumulated(
@@ -3339,7 +3440,7 @@ pub fn promise_batch_action_transfer_to_gas_key(
         ActionCosts::gas_key_byte,
     )?;
     ctx.result_state.deduct_balance(amount)?;
-    ctx.ext.append_action_transfer_to_gas_key(receipt_idx, public_key.decode()?, amount);
+    ctx.ext.append_action_transfer_to_gas_key(receipt_idx, public_key_res?, amount);
     Ok(())
 }
 
@@ -3375,13 +3476,16 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(
@@ -3395,15 +3499,11 @@ pub fn promise_batch_action_add_gas_key_with_full_access(
     let exec_fee = gas_key_add_key_exec_fee(
         &ctx.fees_config,
         receiver_id.len(),
-        public_key_len as usize,
+        gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len),
         num_nonces,
     );
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
-    ctx.ext.append_action_add_gas_key_with_full_access(
-        receipt_idx,
-        public_key.decode()?,
-        num_nonces,
-    );
+    ctx.ext.append_action_add_gas_key_with_full_access(receipt_idx, public_key_res?, num_nonces);
     Ok(())
 }
 
@@ -3449,13 +3549,16 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         }
         .into());
     }
-    let public_key = get_public_key(
+    let public_key_buf = get_public_key(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
+    let public_key_res = public_key_buf.decode();
+    let pk_len = public_key_res.as_ref().map_or(0, |pk| pk.len());
     let num_nonces = u16::try_from(num_nonces).map_err(|_| HostError::IntegerOverflow)?;
     let allowance = Balance::from_yoctonear(get_u128(
         &mut ctx.result_state.gas_counter,
@@ -3499,13 +3602,13 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
     let exec_fee = gas_key_add_key_exec_fee(
         &ctx.fees_config,
         receipt_receiver_id.len(),
-        public_key_len as usize,
+        gas_key_exec_pk_len(&public_key_res, &ctx.config, pk_len),
         num_nonces,
     );
     ctx.result_state.gas_counter.pay_gas_key_add_key_fees(send_fee, &exec_fee)?;
     ctx.ext.append_action_add_gas_key_with_function_call(
         receipt_idx,
-        public_key.decode()?,
+        public_key_res?,
         num_nonces,
         allowance,
         receiver_id,
@@ -3554,6 +3657,7 @@ pub fn promise_batch_action_stake(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
 
@@ -3600,6 +3704,7 @@ pub fn promise_batch_action_add_key_with_full_access(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(
@@ -3657,6 +3762,7 @@ pub fn promise_batch_action_add_key_with_function_call(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let allowance = Balance::from_yoctonear(get_u128(
         &mut ctx.result_state.gas_counter,
@@ -3746,6 +3852,7 @@ pub fn promise_batch_action_delete_key(
         &ctx.registers,
         public_key_ptr,
         public_key_len,
+        ctx.ext.post_quantum_keys_enabled(),
     )?;
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     pay_action_base(

@@ -4,6 +4,7 @@ use near_primitives::types::ShardId;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+mod cold_column_checked;
 mod colddb;
 mod database_tests;
 pub mod metadata;
@@ -15,6 +16,7 @@ mod slice;
 mod splitdb;
 mod testdb;
 
+pub use self::cold_column_checked::ColumnCheckedColdDB;
 pub use self::colddb::ColdDB;
 pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::recoverydb::RecoveryDB;
@@ -43,12 +45,18 @@ pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 pub const GC_STOP_HEIGHT_KEY: &[u8; 14] = b"GC_STOP_HEIGHT";
 pub const CLOUD_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_BLOCK_HEAD";
 pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
-/// Highest height up to which the writer knows all components are archived
-/// (by us or another writer). Drives the next batch range to upload.
+/// Highest height every component this writer archives has reached in the
+/// bucket, whoever put it there. Drives the next batch range to upload.
 pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
-/// Hash of the last block of the latest epoch the writer has fully archived.
-/// GC stops at the start of that epoch.
+/// Hash of the last block of the latest epoch this writer archived its assigned
+/// components for. GC stops at the start of that epoch.
 pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
+/// Set once a cloud-archive reader has written into this store. A running node refuses
+/// such a store; only the cloud-archive tool may use it.
+// TODO(cloud_archival): consider supporting a normal node on a store that was a recent
+// reader's. It is missing at least the epoch info for the epoch after the head; what else
+// it needs is unknown.
+pub const CLOUD_READER_STORE_KEY: &[u8] = b"CLOUD_READER_STORE";
 
 pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
     let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();

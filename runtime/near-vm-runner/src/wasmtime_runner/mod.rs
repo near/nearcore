@@ -345,7 +345,7 @@ impl Ctx {
         let current_account_locked_balance = context.account_locked_balance;
         let config = Arc::clone(&result_state.config);
         let recorded_storage_counter = RecordedStorageCounter::new(
-            ext.get_recorded_storage_size(),
+            ext.storage_proof_size_before_receipt(),
             result_state.config.limit_config.per_receipt_storage_proof_size_limit,
         );
         let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
@@ -411,9 +411,7 @@ impl IntoVMError for wasmtime::Error {
                     }
                 }));
             };
-            return Err(VMRunnerError::WasmUnknownError {
-                debug_message: format!("nondeterministic trap: {}", nondeterministic_message),
-            });
+            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
         let description = if cause.is::<wasmtime::UnknownImportError>() {
             "unknown or invalid import".to_string()
@@ -1203,7 +1201,6 @@ mod tests {
         assert_eq!(concurrency.release_tables(1), 2);
         assert_eq!(concurrency.release_tables(1), 1);
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] = array::from_fn(|_| {
                 scope.spawn(|| concurrency.try_acquire(MAX_TABLES / MAX_CONCURRENCY))
@@ -1234,7 +1231,6 @@ mod tests {
             assert!(acquired);
         });
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] =
                 array::from_fn(|_| scope.spawn(|| concurrency.try_acquire(0)));

@@ -10,7 +10,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::ShardUId;
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // bit mask for which shard to track
@@ -574,20 +574,19 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_id: &EpochId,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
-    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
     let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-
-    // `ShardLayoutV3` stores all ancestor shards, no need to iterate through protocol versions
-    if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
-        let ancestors = HashSet::from_iter(ancestors);
-        return Ok(!ancestors.is_disjoint(&tracked_shards));
-    }
 
     let mut shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     if tracked_shards.contains(&shard_uid) {
         // We explicitly track `shard_id` (the shard is a descendant of itself).
         return Ok(true);
+    }
+
+    // `ShardLayoutV3` introduced storing all ancestor shards, no need to iterate through
+    // protocol versions
+    if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
+        return Ok(ancestors.iter().any(|ancestor| tracked_shards.contains(ancestor)));
     }
 
     // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
@@ -640,11 +639,12 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);
     const EPOCH_LENGTH: usize = 5;
+    const RESHARDING_BOUNDARY_ACCOUNT: &str = "boundary";
 
     // Initializes an epoch manager, optionally including epoch configs for two reshardings.
     fn get_epoch_manager(
         genesis_protocol_version: ProtocolVersion,
-        num_shards: u64,
+        base_shard_layout: ShardLayout,
         do_reshardings: bool,
     ) -> Arc<EpochManagerHandle> {
         let store = create_test_store();
@@ -655,7 +655,6 @@ mod tests {
             public_key: PublicKey::empty(KeyType::ED25519),
             amount: Balance::from_yoctonear(100),
         }];
-        let base_shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let base_epoch_config = TestEpochConfigBuilder::new()
             .epoch_length(EPOCH_LENGTH as u64)
             .shard_layout(base_shard_layout.clone())
@@ -778,7 +777,8 @@ mod tests {
         // Two reshardings will happen, at `PROTOCOL_VERSION - 1` and `PROTOCOL_VERSION`.
         let genesis_pv = PROTOCOL_VERSION - 3;
         let intermediate_pv = PROTOCOL_VERSION - 2;
-        let epoch_manager = get_epoch_manager(genesis_pv, num_shards, true);
+        let epoch_manager =
+            get_epoch_manager(genesis_pv, ShardLayout::multi_shard(num_shards, 0), true);
 
         // Simulate two reshardings by producing fake blocks.
         let block_hashes = hash_range(EPOCH_LENGTH * 4);
@@ -941,11 +941,84 @@ mod tests {
         );
     }
 
+    // Splits the shard owning `RESHARDING_BOUNDARY_ACCOUNT` the way dynamic resharding does.
+    fn derive_split_shard_layout(base_shard_layout: &ShardLayout) -> ShardLayout {
+        base_shard_layout
+            .derive_v3(RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap(), || {
+                vec![base_shard_layout.clone()]
+            })
+            .unwrap()
+    }
+
+    /// A shard is a descendant of itself, so a config naming a carried-over shard by its own
+    /// uid keeps tracking it across a split.
+    #[test]
+    fn test_track_carried_shard_by_own_shard_uid() {
+        let base_shard_layout = ShardLayout::multi_shard(3, 0);
+        let split_shard_layout = derive_split_shard_layout(&base_shard_layout);
+        // A shard the split left alone has no ancestors, and the split layout is where its uid
+        // comes from, so the config names it exactly as the tracker sees it.
+        let carried_shard_uid = split_shard_layout
+            .shard_uids()
+            .find(|shard_uid| {
+                split_shard_layout.ancestor_uids(shard_uid.shard_id()).unwrap().is_empty()
+            })
+            .expect("a shard carries over the split");
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, split_shard_layout, false);
+        let tracker = ShardTracker::new(
+            TrackedShardsConfig::Shards(vec![carried_shard_uid]),
+            epoch_manager,
+            MutableConfigValue::new(None, "validator_signer"),
+        );
+
+        assert_eq!(
+            tracker.get_tracked_shards_for_non_validator_in_epoch(&EpochId::default()).unwrap(),
+            vec![carried_shard_uid],
+        );
+    }
+
+    /// A config naming the shard that was split tracks its children after the split.
+    #[test]
+    fn test_track_children_of_split_shard_by_parent_shard_uid() {
+        let base_shard_layout = ShardLayout::multi_shard(3, 0);
+        let split_shard_layout = derive_split_shard_layout(&base_shard_layout);
+        let split_shard_id =
+            base_shard_layout.account_id_to_shard_id(&RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap());
+        let children_shard_uids: HashSet<ShardUId> = split_shard_layout
+            .get_children_shards_uids(split_shard_id)
+            .expect("the split shard has children")
+            .into_iter()
+            .collect();
+        assert_eq!(children_shard_uids.len(), 2);
+        // The split layout stamps its own uid for the shard that was split, and that is the uid a
+        // config has to name to reach the children.
+        let child_shard_id = children_shard_uids.iter().next().unwrap().shard_id();
+        assert_ne!(child_shard_id, split_shard_id);
+        let ancestor_shard_uids = split_shard_layout.ancestor_uids(child_shard_id).unwrap();
+        let split_shard_uid = *ancestor_shard_uids.first().expect("a child has an ancestor");
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, split_shard_layout, false);
+        let tracker = ShardTracker::new(
+            TrackedShardsConfig::Shards(vec![split_shard_uid]),
+            epoch_manager,
+            MutableConfigValue::new(None, "validator_signer"),
+        );
+
+        assert_eq!(
+            tracker
+                .get_tracked_shards_for_non_validator_in_epoch(&EpochId::default())
+                .unwrap()
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            children_shard_uids,
+        );
+    }
+
     #[test]
     fn test_track_accounts() {
         let num_shards = 4;
         let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let epoch_manager =
+            get_epoch_manager(PROTOCOL_VERSION, ShardLayout::multi_shard(num_shards, 0), false);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker = ShardTracker::new(
@@ -971,7 +1044,8 @@ mod tests {
     fn test_track_all_shards() {
         let num_shards = 4;
         let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let epoch_manager =
+            get_epoch_manager(PROTOCOL_VERSION, ShardLayout::multi_shard(num_shards, 0), false);
         let tracker = ShardTracker::new(
             TrackedShardsConfig::AllShards,
             epoch_manager,
@@ -995,7 +1069,8 @@ mod tests {
         // Creates a ShardTracker that changes every epoch tracked shards.
         let num_shards = 4;
         let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let epoch_manager =
+            get_epoch_manager(PROTOCOL_VERSION, ShardLayout::multi_shard(num_shards, 0), false);
 
         let subset1: HashSet<ShardId> =
             HashSet::from([0, 1]).into_iter().map(ShardId::new).collect();

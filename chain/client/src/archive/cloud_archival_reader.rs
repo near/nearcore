@@ -4,7 +4,7 @@ use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
-use near_store::{DBCol, Store, StoreUpdate};
+use near_store::{DBCol, Store, StoreUpdate, set_cloud_reader_store};
 use std::collections::HashSet;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -22,9 +22,10 @@ pub enum CloudArchivalReaderError {
 /// extended with prev_hash, and saved under the current block's hash. The
 /// initial tree for each epoch must be written by `save_epoch_data` first.
 ///
-/// Block, BlockHeader, BlockInfo use `insert_ser` (insert-only, content-addressed
-/// by hash). BlockHeight and BlockMerkleTree use `set_ser` (regular columns,
-/// keyed by height or hash, safe to overwrite).
+/// Block, BlockHeader, BlockInfo (content-addressed by hash) and, on nightly,
+/// ChunkProducers all use `insert_ser` (insert-only columns). BlockHeight and
+/// BlockMerkleTree use `set_ser` (regular columns, keyed by height or hash, safe
+/// to overwrite).
 pub fn save_block_data(store: &Store, block_data: &BlockData) {
     let block = block_data.block();
     let header = block.header();
@@ -48,6 +49,15 @@ pub fn save_block_data(store: &Store, block_data: &BlockData) {
         let mut tree = prev_tree;
         tree.insert(*header.prev_hash());
         update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), &tree);
+    }
+
+    #[cfg(feature = "nightly")]
+    for (shard_id, stake) in block_data.chunk_producers() {
+        update.insert_ser(
+            DBCol::ChunkProducers,
+            &get_block_shard_id(&block_hash, *shard_id),
+            stake,
+        );
     }
 
     update.commit();
@@ -83,6 +93,11 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
+    // Before the first write, so an interrupted bootstrap leaves the store marked too.
+    let mut update = store.store_update();
+    set_cloud_reader_store(&mut update);
+    update.commit();
+
     let mut saved_epochs = HashSet::<EpochId>::new();
 
     // Backfill blocks from the first epoch's start up to `start_height` so the

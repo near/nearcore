@@ -44,6 +44,7 @@ mod prepare_error {
                 From::TooManyParamsPerFunction => Self::TooManyParamsPerFunction,
                 From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
                 From::OperandStackTooLarge => Self::OperandStackTooLarge,
+                From::TooManyGlobals => Self::TooManyGlobals,
             }
         }
     }
@@ -83,7 +84,6 @@ mod function_call_error {
                 From::LoadingError { msg } => {
                     Self::ExecutionError(format!("Loading Error: {}", msg))
                 }
-                From::WasmUnknownError { msg } => Self::ExecutionError(msg),
                 From::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
             }
         }

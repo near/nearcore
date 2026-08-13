@@ -1,0 +1,15 @@
+name: "Install clang"
+description: >
+  Installs LLVM/clang on Linux runners. librocksdb-sys (pulled in by the
+  rocksdb crate) generates its FFI bindings with bindgen at build time, which
+  needs libclang. GitHub-hosted ubuntu and macOS runners ship it already, but
+  the self-hosted warp-ubuntu runners do not. No-op on non-Linux runners.
+
+runs:
+  using: "composite"
+  steps:
+    - if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends llvm clang libclang-dev

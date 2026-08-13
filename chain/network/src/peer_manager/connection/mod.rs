@@ -1,5 +1,6 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::{PeerInfo, PeerMessage, SignedOwnedAccount, TieredMessageBody};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -141,9 +142,20 @@ impl Connection {
     // TODO(gprusak): embed Stream directly in Connection,
     // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
+        self.send_message_with_permit(msg, None);
+    }
+
+    /// Like `send_message`, but forwards a pre-acquired reservation
+    /// against the outgoing-queue limiter. Used by callers that reserved
+    /// worst-case capacity before producing the message.
+    pub fn send_message_with_permit(
+        &self,
+        msg: Arc<PeerMessage>,
+        reserved_permit: Option<OutgoingPermit>,
+    ) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "sending message");
-        self.handle.send(SendMessage { message: msg }.span_wrap());
+        self.handle.send(SendMessage { message: msg, reserved_permit }.span_wrap());
     }
 }
 
@@ -152,11 +164,11 @@ pub(crate) struct PoolSnapshot {
     pub me: PeerId,
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
-    pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    pub ready: imbl::HashMap<PeerId, Arc<Connection>>,
     /// Index on `ready` by Connection.owned_account.account_key.
     /// We allow only 1 connection to a peer with the given account_key,
     /// as it is an invalid setup to have 2 nodes acting as the same validator.
-    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
+    pub ready_by_account_key: imbl::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -188,7 +200,7 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    pub outbound_handshakes: im::HashSet<PeerId>,
+    pub outbound_handshakes: imbl::HashSet<PeerId>,
     /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
     pub loop_inbound: Option<Arc<Connection>>,
 }
@@ -240,9 +252,9 @@ impl Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
             loop_inbound: None,
             me,
-            ready: im::HashMap::new(),
-            ready_by_account_key: im::HashMap::new(),
-            outbound_handshakes: im::HashSet::new(),
+            ready: imbl::HashMap::new(),
+            ready_by_account_key: imbl::HashMap::new(),
+            outbound_handshakes: imbl::HashSet::new(),
         })))
     }
 
@@ -351,14 +363,14 @@ impl Pool {
     pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|mut pool| {
             match pool.ready.entry(conn.peer_info.id.clone()) {
-                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                imbl::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
                     e.remove_entry();
                 }
                 _ => {}
             }
             if let Some(owned_account) = &conn.owned_account {
                 match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
-                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                    imbl::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
                         e.remove_entry();
                     }
                     _ => {}
@@ -371,9 +383,21 @@ impl Pool {
     /// Send message to peer that belongs to our active set
     /// Return whether the message is sent or not.
     pub fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
+        self.send_message_with_permit(peer_id, msg, None)
+    }
+
+    /// Like `send_message`, but forwards a pre-acquired reservation
+    /// against the outgoing-queue limiter. Returns false (and the permit
+    /// is released) if the peer isn't connected.
+    pub fn send_message_with_permit(
+        &self,
+        peer_id: PeerId,
+        msg: Arc<PeerMessage>,
+        reserved_permit: Option<OutgoingPermit>,
+    ) -> bool {
         let pool = self.load();
         if let Some(peer) = pool.ready.get(&peer_id) {
-            peer.send_message(msg);
+            peer.send_message_with_permit(msg, reserved_permit);
             return true;
         }
         tracing::debug!(target: "network",

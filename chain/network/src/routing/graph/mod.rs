@@ -17,6 +17,18 @@ mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
+
+/// Clock-skew tolerance for accepting edges with nonces in the future. Edges with nonces
+/// further ahead than this are rejected to prevent attackers from setting far-future
+/// timestamps to bypass the past-only `PRUNE_EDGES_AFTER` window.
+///
+/// This is distinct from, and stricter than, `EDGE_NONCE_MAX_TIME_DELTA` (20 min): that
+/// constant guards the nonce of the *local* node's own partial edges during handshake
+/// (`routing::edge::verify_nonce`) and is a symmetric past/future bound. This one applies
+/// to *all* propagated edges in the graph, where the past direction is already covered by
+/// the `PRUNE_EDGES_AFTER` window, so only the future direction needs bounding — and we
+/// keep that bound tight, just enough to absorb realistic clock skew between peers.
+const EDGE_NONCE_FUTURE_TOLERANCE: time::Duration = time::Duration::minutes(5);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 pub type DistanceTable = HashMap<PeerId, u32>;
 
@@ -32,7 +44,7 @@ pub struct GraphConfig {
 
 #[derive(Default)]
 pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey, Edge>,
+    pub edges: imbl::HashMap<EdgeKey, Edge>,
     pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
     pub distances: Arc<DistanceTable>,
@@ -46,7 +58,7 @@ struct Inner {
     /// Nodes are Peers and edges are active connections.
     graph: bfs::Graph,
 
-    edges: im::HashMap<EdgeKey, Edge>,
+    edges: imbl::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     /// Maps each edge key to the remote peer that first introduced it.
@@ -55,8 +67,8 @@ struct Inner {
     source_edge_count: HashMap<PeerId, usize>,
 }
 
-fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
-    set.get(&edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
+fn has(set: &imbl::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
+    set.get(edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
 }
 
 impl Inner {
@@ -213,6 +225,19 @@ impl Inner {
             if let Some(prune_edges_after) = self.config.prune_edges_after {
                 // Don't add edges that are older than the limit.
                 if e.is_edge_older_than(now - prune_edges_after) {
+                    return false;
+                }
+            }
+
+            // Reject edges with nonces too far in the future. Otherwise an attacker can set
+            // nonces years ahead to bypass the past-only prune window above. A nonce that
+            // doesn't map to a valid timestamp is rejected as well: `is_edge_older_than`
+            // treats such an edge as not-old, so it would never be pruned, granting the
+            // attacker the very immunity this check is meant to deny.
+            match Edge::nonce_to_utc(e.nonce()) {
+                Ok(nonce_time) if nonce_time <= now + EDGE_NONCE_FUTURE_TOLERANCE => {}
+                _ => {
+                    metrics::EDGE_DROPPED.inc();
                     return false;
                 }
             }

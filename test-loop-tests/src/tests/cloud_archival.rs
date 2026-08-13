@@ -10,27 +10,34 @@ use crate::utils::cloud_archival::{
     get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
-use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use borsh::to_vec;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
+#[cfg(feature = "nightly")]
+use near_client::archive::cloud_archival_reader::save_block_data;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+#[cfg(feature = "nightly")]
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+#[cfg(feature = "nightly")]
+use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::db::cloud_shard_head_key;
+#[cfg(feature = "nightly")]
+use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -68,6 +75,9 @@ struct CloudArchiveHarnessBuilder {
     resharding_enabled: bool,
     /// Cloud archival batch size in blocks.
     batch_size: u32,
+    /// Delay between catch-up batches. Zero by default, so a small batch size
+    /// cannot hold catch-up below block production.
+    catch_up_throttle: Duration,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -130,12 +140,18 @@ impl CloudArchiveHarnessBuilder {
         self
     }
 
+    fn catch_up_throttle(mut self, throttle: Duration) -> Self {
+        self.catch_up_throttle = throttle;
+        self
+    }
+
     fn build(self) -> CloudArchiveHarness {
         let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
         let archival_kind =
             if self.cold_storage { ArchivalKind::ColdAndCloud } else { ArchivalKind::Cloud };
         let archival_id = self.writer.id.clone();
         let snapshot_every_n_epochs = self.writer.snapshot_every_n_epochs;
+        let catch_up_throttle = self.catch_up_throttle;
         let has_drops =
             !self.dropped_block_heights.is_empty() || !self.dropped_chunks_by_shard.is_empty();
         let base_shard_layout = CloudArchiveHarness::default_shard_layout();
@@ -155,6 +171,7 @@ impl CloudArchiveHarnessBuilder {
                     self.writer.archive_block_data,
                     &self.writer.tracked_shards,
                     snapshot_every_n_epochs,
+                    catch_up_throttle,
                 );
             });
         let mut new_shard_layout = None;
@@ -171,8 +188,12 @@ impl CloudArchiveHarnessBuilder {
                 .shard_layout(base_shard_layout)
                 .epoch_length(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH)
                 .build();
-            let (new_epoch_config, derived_layout) =
-                derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary);
+            let split_base_layout = base_epoch_config.static_shard_layout().unwrap();
+            let derived_layout = split_base_layout
+                .derive_v3(boundary.clone(), || vec![split_base_layout.clone()])
+                .unwrap();
+            let new_epoch_config =
+                base_epoch_config.clone().with_shard_layout(derived_layout.clone());
             new_shard_layout = Some(derived_layout);
             let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter([
                 (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
@@ -237,6 +258,7 @@ impl CloudArchiveHarness {
             dropped_chunks_by_shard: HashMap::new(),
             resharding_enabled: false,
             batch_size: Self::TEST_BATCH_SIZE,
+            catch_up_throttle: Duration::ZERO,
         }
     }
 
@@ -272,8 +294,9 @@ impl CloudArchiveHarness {
         get_writer_handle(&self.env, &self.archival_id).0.stop();
     }
 
-    fn resume_writer(&mut self) {
-        get_writer_handle(&self.env, &self.archival_id).0.resume();
+    /// Stops the writer node and starts it again. The writer resolves its tracked shards on
+    /// startup, against the layout in force at that height.
+    fn restart_writer(&mut self) {
         let node_data = self.env.get_node_data_by_account_id(&self.archival_id);
         let node_identifier = node_data.identifier.clone();
         stop_and_restart_node(&mut self.env, node_identifier.as_str());
@@ -358,6 +381,13 @@ impl CloudArchiveHarness {
 
     fn cloud_head(&self) -> BlockHeight {
         get_cloud_head(&self.env, &self.archival_id)
+    }
+
+    /// Runs one epoch of blocks from wherever the chain stands.
+    fn run_one_more_epoch(&mut self) {
+        self.env
+            .runner_for_account(&self.archival_id)
+            .run_for_number_of_blocks(self.epoch_length as usize);
     }
 
     fn block_batch_exists_at(&self, block_height: BlockHeight) -> bool {
@@ -455,11 +485,48 @@ fn test_cloud_archival_resume() {
     h.run_until(resume_height);
     h.assert_heads_ok_before_gc();
 
-    // Resume and run far enough for GC to collect blocks up to resume_height.
-    h.resume_writer();
+    // A paused writer's loop has exited, so it archives again only after a node restart. Run far
+    // enough for GC to collect blocks up to resume_height.
+    h.restart_writer();
     h.run_until_epoch(2 * MIN_GC_NUM_EPOCHS_TO_KEEP + 4);
     h.assert_heads_and_gc_ok();
     h.assert_snapshots_ok();
+    h.shutdown();
+}
+
+/// Verifies that a writer clearing a lag archives one batch per
+/// `catch_up_throttle`, so three seconds of catch-up at a one second delay
+/// archive three batches.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_catch_up_throttle_limits_batch_rate() {
+    let throttle = Duration::seconds(1);
+    let window = Duration::seconds(3);
+    // The window holds one batch per delay.
+    let expected_batches = 3;
+    let batch_size = u64::from(CloudArchiveHarness::TEST_BATCH_SIZE);
+
+    let mut h = CloudArchiveHarness::builder().catch_up_throttle(throttle).build();
+    let paused_at = h.epoch_length;
+    h.run_until(paused_at);
+
+    // Pause long enough to leave the batches the window clears, plus a buffer.
+    h.pause_writer();
+    let lag_batches = expected_batches + 5;
+    h.run_until(paused_at + lag_batches * batch_size);
+    h.restart_writer();
+
+    // The first batch after initializing is archived immediately, the delay only
+    // separating later ones. Let it land before measuring, half a delay being too
+    // short for the next one.
+    h.env.test_loop.run_for(throttle / 2);
+    let head_before = h.cloud_head();
+    h.env.test_loop.run_for(window);
+
+    let batches = (h.cloud_head() - head_before) / batch_size;
+    assert_eq!(batches, expected_batches);
+
     h.shutdown();
 }
 
@@ -1533,6 +1600,78 @@ fn test_cloud_archival_resharding_snapshot_forced_off_cadence() {
     h.shutdown();
 }
 
+/// A writer whose config names a carried-over shard by that shard's own `ShardUId` restarts after
+/// a dynamic split and keeps archiving the shard. The shard is the writer's only component, so
+/// failing to resolve it aborts initialization.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_restart_after_resharding() {
+    let base_shard_layout = CloudArchiveHarness::default_shard_layout();
+    let boundary: AccountId = CloudArchiveHarness::RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap();
+    let split_shard_id = base_shard_layout.account_id_to_shard_id(&boundary);
+    let carried_shard_uid = base_shard_layout
+        .shard_uids()
+        .find(|shard_uid| shard_uid.shard_id() != split_shard_id)
+        .expect("layout has a shard other than the resharding parent");
+
+    let mut h = CloudArchiveHarness::builder()
+        .enable_resharding()
+        .archive_block_data(false)
+        .tracked_shards(vec![carried_shard_uid])
+        .build();
+    h.run_until_one_epoch_after_resharding();
+    let new_shard_layout = h.new_shard_layout();
+    // This shard has no ancestors under the new layout (the split left it alone), so the tracker
+    // can only resolve it by matching its own uid, which the split carries over unchanged.
+    assert!(new_shard_layout.ancestor_uids(carried_shard_uid.shard_id()).unwrap().is_empty());
+    assert!(new_shard_layout.shard_uids().any(|shard_uid| shard_uid == carried_shard_uid));
+    let cloud_head_before_restart = h.cloud_head();
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+
+    assert!(
+        h.cloud_head() > cloud_head_before_restart,
+        "cloud head stalled at {cloud_head_before_restart} across the restart"
+    );
+    h.shutdown();
+}
+
+/// A writer whose config names the shard that gets split keeps archiving across a restart after
+/// the split, now resolving the children of that shard.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_writer_restart_after_resharding_tracking_split_shard() {
+    let boundary: AccountId = CloudArchiveHarness::RESHARDING_BOUNDARY_ACCOUNT.parse().unwrap();
+    let split_shard_uid =
+        CloudArchiveHarness::default_shard_layout().account_id_to_shard_uid(&boundary);
+
+    let mut h = CloudArchiveHarness::builder()
+        .enable_resharding()
+        .archive_block_data(false)
+        .tracked_shards(vec![split_shard_uid])
+        .build();
+    h.run_until_one_epoch_after_resharding();
+    let new_shard_layout = h.new_shard_layout();
+    assert!(!new_shard_layout.shard_ids().any(|shard_id| shard_id == split_shard_uid.shard_id()));
+    let children_shard_uids = new_shard_layout
+        .get_children_shards_uids(split_shard_uid.shard_id())
+        .expect("the split shard has children");
+    assert_eq!(children_shard_uids.len(), 2);
+    let cloud_head_before_restart = h.cloud_head();
+
+    h.restart_writer();
+    h.run_one_more_epoch();
+
+    assert!(
+        h.cloud_head() > cloud_head_before_restart,
+        "cloud head stalled at {cloud_head_before_restart} across the restart"
+    );
+    h.shutdown();
+}
+
 /// The resharding writer matches carried-over shards by ShardUId and reads them
 /// under the new layout across the boundary. That is correct only because a
 /// version-stable resharding leaves a carried shard's account-to-shard mapping
@@ -1543,6 +1682,84 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
     match CloudArchiveHarness::default_shard_layout() {
         ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) | ShardLayout::V3(_) => {}
     }
+}
+
+/// Across a resharding boundary, the cloud `BlockData` captures every
+/// `DBCol::ChunkProducers` row for a block, and `save_block_data` reconstructs
+/// them byte-for-byte into a fresh store. The boundary block is the last block
+/// of the pre-split epoch; the capture is a block-hash prefix scan, so it is
+/// layout-agnostic and round-trips the rows the seeder wrote (the anchor's own
+/// pre-split layout) without consulting any layout.
+#[test]
+#[cfg(feature = "nightly")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_reader_reconstructs_chunk_producers() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let boundary_height = r.resharding_block_height;
+    let writer = h.writer_store();
+    let block_hash = writer.chain_store().get_block_hash_by_height(boundary_height).unwrap();
+
+    // Writer's own ChunkProducers rows for the boundary block, keyed
+    // block_hash||shard_id.
+    let writer_rows: BTreeMap<Vec<u8>, Vec<u8>> = writer
+        .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(k, v)| (k.into_vec(), v.into_vec()))
+        .collect();
+    assert!(
+        !writer_rows.is_empty(),
+        "EarlyKickout must be active so the boundary block has seeded ChunkProducers rows"
+    );
+
+    // The captured shard_ids must be the boundary block's OWN (pre-split) layout's, matching
+    // what the own-epoch seeder wrote; pinning inequality with the post-split set proves the
+    // reshard actually changed the layout, so the round-trip below is not vacuous.
+    let captured_shards: HashSet<ShardId> =
+        writer_rows.keys().map(|k| get_block_shard_id_rev(k).unwrap().1).collect();
+    let new_shards: HashSet<ShardId> = h.new_shard_layout().shard_ids().collect();
+    let base_shards: HashSet<ShardId> = CloudArchiveHarness::all_shard_ids().into_iter().collect();
+    assert_eq!(captured_shards, base_shards, "boundary rows must use the pre-split layout");
+    assert_ne!(captured_shards, new_shards, "post-split layout must differ from the base layout");
+
+    // TODO(cloud_archival): once an unignored test bootstraps a reader across a resharding
+    // boundary and runs assert_reader_writer_parity over the boundary block, that covers
+    // ChunkProducers and the two asserts below (blob vs writer, reconstructed vs writer)
+    // become redundant; drop them then.
+    // The cloud blob round-trips those rows: `build_block_data` populated
+    // `chunk_producers`, borsh serialized it, and `get_block_data` deserialized it.
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    let block_data = cloud_storage.get_block_data(boundary_height).unwrap().unwrap();
+    let blob_rows: BTreeMap<Vec<u8>, Vec<u8>> = block_data
+        .chunk_producers()
+        .iter()
+        .map(|(shard_id, stake)| {
+            (get_block_shard_id(&block_hash, *shard_id), to_vec(stake).unwrap())
+        })
+        .collect();
+    assert_eq!(blob_rows, writer_rows, "cloud blob rows must match the writer's rows");
+
+    // `save_block_data` writes them back byte-for-byte into a fresh store. It
+    // extends the merkle chain from prev_hash, so seed a placeholder tree to
+    // keep the non-genesis path from panicking; only ChunkProducers is asserted.
+    let fresh = create_test_store();
+    {
+        let mut update = fresh.store_update();
+        update.set_ser(
+            DBCol::BlockMerkleTree,
+            block_data.block().header().prev_hash().as_ref(),
+            &PartialMerkleTree::default(),
+        );
+        update.commit();
+    }
+    save_block_data(&fresh, &block_data);
+    let fresh_rows: BTreeMap<Vec<u8>, Vec<u8>> = fresh
+        .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
+        .map(|(k, v)| (k.into_vec(), v.into_vec()))
+        .collect();
+    assert_eq!(fresh_rows, writer_rows, "reconstructed rows must match the writer byte-for-byte");
+
+    h.shutdown();
 }
 
 /// Bootstraps a reader across a resharding boundary and asserts the reader trie

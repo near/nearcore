@@ -1,4 +1,4 @@
-use crate::EpochManagerHandle;
+use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
@@ -53,6 +53,9 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
@@ -619,10 +622,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
-    /// early-kickout thresholds, computed from the aggregator's stats up to `anchor_hash`.
-    /// The epoch is derived from `anchor_hash` via `get_epoch_id_from_prev_block`. Gated by
-    /// `ProtocolFeature::EarlyKickout`: empty when the feature is off, and empty at an epoch
-    /// boundary (the aggregator's stats belong to the anchor's epoch).
+    /// early-kickout thresholds, computed from the aggregator's stats up to the anchor's
+    /// last-final block. The epoch is the anchor's own (via `get_epoch_id`), mirroring
+    /// `seed_chunk_producers`. Gated by `ProtocolFeature::EarlyKickout`: empty when the
+    /// feature is off, and empty for early-epoch anchors (the aggregator basis still sits in
+    /// the previous epoch, then the start-of-epoch grace applies).
     fn get_chunk_producer_blacklist(
         &self,
         anchor_hash: &CryptoHash,
@@ -1133,25 +1137,32 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         anchor_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(anchor_hash)?;
+        // The anchor's own epoch, matching the seeder's gate and sample epoch.
+        let epoch_id = self.get_epoch_id(anchor_hash)?;
         let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
             return Ok(HashMap::new());
         }
+        // Same basis as `seed_chunk_producers`, via the shared helper, so this live read
+        // agrees with the stored row. Read-guard methods directly; adapter methods would
+        // re-take `self.read()` and deadlock.
         let epoch_manager = self.read();
-        let aggregator = epoch_manager.get_epoch_info_aggregator_upto_last(anchor_hash)?;
-        // Aggregator belongs to the anchor's epoch. If the next block starts a new epoch,
-        // stats reset -> empty blacklist (boundary reset).
-        if aggregator.epoch_id != epoch_id {
+        let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
+        let final_block_hash = *anchor_info.last_final_block_hash();
+        if final_block_hash == CryptoHash::default() {
             return Ok(HashMap::new());
         }
+        let final_block_height = anchor_info.last_finalized_height();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        Ok(crate::compute_chunk_producer_blacklist(
-            &aggregator.shard_tracker,
-            epoch_info.as_ref(),
-            &shard_layout,
-        ))
+        let epoch = SampleEpoch {
+            epoch_id: &epoch_id,
+            epoch_info: epoch_info.as_ref(),
+            shard_layout: &shard_layout,
+        };
+        Ok(epoch_manager
+            .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
+            .blacklist)
     }
 
     fn get_chunk_validator_assignments(

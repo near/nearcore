@@ -14,10 +14,13 @@ NOT deprecated. ML-DSA-65 is accepted in transactions and as access keys after
 the `PostQuantumSignatures` protocol feature activates (stabilized at protocol
 version 85).
 
-Scope of the integration: transaction signing and access keys only. Validator
-keys, block/chunk signatures, host-function verification primitives, and
-implicit-account derivation remain unchanged and are out of scope for this
-feature.
+Contracts can also verify ML-DSA-65 signatures on-chain through the
+`ml_dsa_verify` host function (§7), which is gated separately from the
+transaction-signature work.
+
+Scope of the integration: transaction signing, access keys, and the
+`ml_dsa_verify` host function. Validator keys, block/chunk signatures, and
+implicit-account derivation remain unchanged and are out of scope.
 
 ## Key design decisions
 
@@ -162,16 +165,42 @@ integration:
   the verification-pricing note under "Resolved during integration" for the
   full mechanism.
 
-### 7. Out-of-scope (and why)
+### 7. `ml_dsa_verify` host function
+
+Contracts verify ML-DSA-65 signatures on-chain through `ml_dsa_verify`:
+
+```text
+ml_dsa_verify(sig_len, sig_ptr, msg_len, msg_ptr, pub_key_len, pub_key_ptr) -> u64
+```
+
+- Inputs follow the usual memory-or-register convention: pass `u64::MAX` as a
+  length to declare that the corresponding pointer is a register id. Returns 1
+  for a valid signature, 0 for an invalid one.
+- The signature must be 3309 bytes and the public key the 1952-byte raw FIPS 204
+  encoding. A length mismatch aborts the call with
+  `HostError::MlDsaVerifyInvalidInput`; well-sized inputs that simply fail to
+  verify return 0.
+- The message is handed to the verifier as-is - ML-DSA hashes it internally, so
+  the caller must not pre-hash - with an empty context string, matching
+  transaction-level ML-DSA-65 signatures.
+
+Gas:
+
+| parameter                 | value                         |
+|---------------------------|-------------------------------|
+| `wasm_ml_dsa_verify_base` | `540_000_000_000` (540 Ggas)  |
+| `wasm_ml_dsa_verify_byte` | `11_000_000` (11 Mgas)        |
+
+### 8. Out-of-scope (and why)
 
 - **Validator / staking keys** remain ed25519-only. `is_valid_staking_key`
   (`core/crypto/src/key_conversion.rs`) returns false for any ML-DSA-65
   variant.
 - **Implicit accounts** (NEAR-style and ETH-style) unchanged. PQ implicit
   accounts are a separate research item.
-- **Host functions / on-chain verification primitives**: no `ml_dsa_verify`
-  host function added. Contracts wanting to verify PQ signatures will
-  continue using ed25519 host fn until a separate proposal lands.
+- **Host functions / on-chain verification primitives**: out of scope for the
+  `PostQuantumSignatures` feature itself - `ml_dsa_verify` landed afterwards
+  under its own config gate, see §7.
 - **Cross-network mirror** (`tools/mirror/src/key_mapping.rs`) panics on
   ML-DSA-65 pubkey mapping; deterministic-derivation scheme for PQ keys is a
   follow-up.
@@ -195,7 +224,8 @@ integration:
    version bump and consider pinning.
 
 4. **Variable-time verify**: bounded but real. Gas pricing must cover the
-   worst-case observed verify, not the average.
+   worst-case observed verify, not the average - this applies to both
+   `ml_dsa_65_verification_cost` (§6) and `wasm_ml_dsa_verify_base` (§7).
 
 5. **`view_access_key_list` returns hashes, not pubkeys**, for ML-DSA-65
    entries. Public-facing wallets/explorers need to know their own pubkey to

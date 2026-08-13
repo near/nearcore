@@ -1,4 +1,5 @@
 use near_chain::ChainStoreAccess;
+use near_chain::near_chain_primitives::Error as ChainError;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -9,9 +10,10 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunkWithEncoding;
 use near_primitives::sharding::{
     PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1, PartialEncodedChunkV2,
-    ReceiptProof, ShardChunk, ShardChunkHeader,
+    PartialEncodedChunkV3, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::types::{AccountId, ShardId};
+use near_primitives::version::ProtocolFeature;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -77,7 +79,7 @@ pub fn make_outgoing_receipts_proofs(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts: Vec<Receipt>,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<Vec<ReceiptProof>, EpochError> {
+) -> Result<Vec<ReceiptProof>, ChainError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
@@ -86,8 +88,47 @@ pub fn make_outgoing_receipts_proofs(
         shard_id,
         outgoing_receipts,
     )?;
-    assert_eq!(chunk_header.prev_outgoing_receipts_root(), &root);
+    if chunk_header.prev_outgoing_receipts_root() != &root {
+        // Genesis chunks store CryptoHash::default() here while a recomputed root is
+        // always non-default, so this fires for any peer asking for a genesis chunk
+        // by hash. Must return Err rather than panic since this path is unauthenticated.
+        return Err(ChainError::InvalidChunkReceiptsRoot);
+    }
     Ok(receipt_proofs)
+}
+
+pub fn make_partial_encoded_chunk(
+    header: ShardChunkHeader,
+    parts: Vec<PartialEncodedChunkPart>,
+    prev_outgoing_receipts: Vec<ReceiptProof>,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<PartialEncodedChunk, EpochError> {
+    let header = match header {
+        ShardChunkHeader::V1(header) => {
+            return Ok(PartialEncodedChunk::V1(PartialEncodedChunkV1 {
+                header,
+                parts,
+                prev_outgoing_receipts,
+            }));
+        }
+        header => header,
+    };
+    let prev_block_hash = header.prev_block_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+        let prev_prev_block_hash =
+            epoch_manager.grandparent_anchor(prev_block_hash)?.unwrap_or_default();
+        Ok(PartialEncodedChunk::V3(PartialEncodedChunkV3 {
+            header,
+            parts,
+            prev_outgoing_receipts,
+            prev_prev_block_hash,
+            epoch_id,
+        }))
+    } else {
+        Ok(PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts }))
+    }
 }
 
 pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
@@ -97,7 +138,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     me: Option<&AccountId>,
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
-) -> PartialEncodedChunk {
+) -> Result<PartialEncodedChunk, EpochError> {
     let prev_block_hash = header.prev_block_hash();
     let cares_about_shard =
         shard_tracker.cares_about_shard_this_or_next_epoch(prev_block_hash, header.shard_id());
@@ -114,14 +155,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
         .collect::<Vec<_>>();
     // Make sure the receipts are in a deterministic order.
     prev_outgoing_receipts.sort();
-    match header {
-        ShardChunkHeader::V1(header) => {
-            PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, prev_outgoing_receipts })
-        }
-        header => {
-            PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts })
-        }
-    }
+    make_partial_encoded_chunk(header, parts, prev_outgoing_receipts, epoch_manager)
 }
 
 #[instrument(target = "chunks", level = "debug", "create_partial_chunk", skip_all, fields(
@@ -177,7 +211,7 @@ pub fn create_partial_chunk(
         me,
         epoch_manager,
         shard_tracker,
-    ))
+    )?)
 }
 
 #[instrument(target = "client", level = "debug", "persist_chunk", skip_all, fields(
@@ -201,4 +235,30 @@ pub fn persist_chunk(
         }
     }
     update.commit().map_err(Error::from)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::ChunkTestFixture;
+    use assert_matches::assert_matches;
+    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::types::EpochId;
+
+    #[test]
+    fn make_outgoing_receipts_proofs_returns_err_on_root_mismatch() {
+        let fixture = ChunkTestFixture::default();
+        let shard_id = fixture
+            .epoch_manager
+            .get_shard_layout(&EpochId::default())
+            .unwrap()
+            .shard_ids()
+            .next()
+            .unwrap();
+        let header = ShardChunkHeader::new_dummy(0, shard_id, CryptoHash::default());
+
+        let result = make_outgoing_receipts_proofs(&header, vec![], &fixture.epoch_manager);
+
+        assert_matches!(result, Err(ChainError::InvalidChunkReceiptsRoot));
+    }
 }

@@ -235,10 +235,12 @@ pub(crate) fn apply_writer_settings(
     archive_block_data: bool,
     tracked_shards: &[ShardUId],
     snapshot_every_n_epochs: u64,
+    catch_up_throttle: Duration,
 ) {
     config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
         archive_block_data,
         snapshot_every_n_epochs,
+        catch_up_throttle,
         ..Default::default()
     });
     config.tracked_shards_config = if tracked_shards.is_empty() {
@@ -279,6 +281,7 @@ pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
                 archive_block_data,
                 &tracked_shards,
                 snapshot_every_n_epochs,
+                Duration::ZERO,
             );
         })
         .build();
@@ -758,6 +761,8 @@ pub(crate) fn assert_reader_writer_parity(
             DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
                 Parity::Containment
             }
+            #[cfg(feature = "nightly")]
+            DBCol::ChunkProducers => Parity::Containment,
             _ => Parity::Equality,
         };
         assert_keyed_parity(reader, col, &writer_kvs[&col], parity);
@@ -847,6 +852,12 @@ fn writer_kvs(
             if let Some(value) = writer.get(col, &key) {
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
             }
+        }
+        // ChunkProducers rows are keyed by block hash across all shards of the
+        // next epoch, so one prefix scan captures every row for this block.
+        #[cfg(feature = "nightly")]
+        for (key, value) in writer.iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()) {
+            kvs.get_mut(&DBCol::ChunkProducers).unwrap().insert(key.into_vec(), value.into_vec());
         }
         let block = writer_store.get_block(&block_hash).expect("block exists, checked above");
         for chunk_header in block.chunks().iter_raw() {

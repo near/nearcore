@@ -90,8 +90,15 @@ impl GasCounter {
         is_view: bool,
     ) -> Self {
         use std::cmp::min;
-        // Ignore prepaid gas limit when in view.
-        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
+        // In view mode there is no real prepaid gas; the per-call budget is
+        // `max_gas_burnt` (i.e. `max_gas_burnt_view`). Bound `prepaid_gas` by it
+        // rather than widening it to `Gas::MAX`: `remaining_gas()` seeds the
+        // in-Wasm gas global on the Wasmtime backend, and seeding it from
+        // `Gas::MAX` let a pure-Wasm loop with no host imports run until it
+        // drained ~u64::MAX of guest gas before the cap was ever checked.
+        // Promises are prohibited in view mode, so `used_gas` never exceeds
+        // `burnt_gas` and this does not change any view-call result.
+        let prepaid_gas = if is_view { max_gas_burnt } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {

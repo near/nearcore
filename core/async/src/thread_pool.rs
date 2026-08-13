@@ -9,7 +9,34 @@ use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
+pub type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// Ordering discipline for a [`ThreadPool`]'s pending jobs. The default
+/// [`FifoQueue`] keeps first-in-first-out order.
+pub trait JobQueue: Default + Send + 'static {
+    fn push(&mut self, job: Job);
+    fn pop(&mut self) -> Option<Job>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// First-in-first-out job queue.
+#[derive(Default)]
+pub struct FifoQueue(VecDeque<Job>);
+
+impl JobQueue for FifoQueue {
+    fn push(&mut self, job: Job) {
+        self.0.push_back(job);
+    }
+    fn pop(&mut self) -> Option<Job> {
+        self.0.pop_front()
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
@@ -54,42 +81,42 @@ static THREAD_POOL_QUEUE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 /// since the workers are not rayon threads, nested `rayon::join()` calls fall
 /// through to the global rayon pool instead of the worker's pool, avoiding
 /// deadlocks from recursive work-stealing.
-pub struct ThreadPool {
+pub struct ThreadPool<Q: JobQueue = FifoQueue> {
     name: &'static str,
     /// Thread priority in [0; 99] range. Only used on unix for SCHED_RR policy.
     #[cfg(unix)]
     priority: u8,
     idle_timeout: Duration,
     thread_limit: usize,
-    state: Arc<ThreadPoolState>,
+    state: Arc<ThreadPoolState<Q>>,
 }
 
-impl std::fmt::Debug for ThreadPool {
+impl<Q: JobQueue> std::fmt::Debug for ThreadPool<Q> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ThreadPool").field("name", &self.name).finish()
     }
 }
 
-struct ThreadPoolStateInner {
+struct ThreadPoolStateInner<Q: JobQueue> {
     name: &'static str,
-    queue: VecDeque<Job>,
+    queue: Q,
     total_threads: usize,
     idle_threads: usize,
     shutdown: bool,
 }
 
-impl ThreadPoolStateInner {
+impl<Q: JobQueue> ThreadPoolStateInner<Q> {
     fn new(name: &'static str) -> Self {
-        Self { name, queue: VecDeque::new(), total_threads: 0, idle_threads: 0, shutdown: false }
+        Self { name, queue: Q::default(), total_threads: 0, idle_threads: 0, shutdown: false }
     }
 
     fn enqueue(&mut self, job: Job) {
-        self.queue.push_back(job);
+        self.queue.push(job);
         self.update_queue_metrics();
     }
 
     fn dequeue(&mut self) -> Option<Job> {
-        let ret = self.queue.pop_front();
+        let ret = self.queue.pop();
         if ret.is_some() {
             self.update_queue_metrics();
         }
@@ -127,20 +154,20 @@ impl ThreadPoolStateInner {
     }
 }
 
-struct ThreadPoolState {
-    inner: Mutex<ThreadPoolStateInner>,
+struct ThreadPoolState<Q: JobQueue> {
+    inner: Mutex<ThreadPoolStateInner<Q>>,
     /// Signaled when new task is added to the queue or on shutdown.
     condvar: Condvar,
 }
 
-impl Drop for ThreadPool {
+impl<Q: JobQueue> Drop for ThreadPool<Q> {
     fn drop(&mut self) {
         self.state.inner.lock().shutdown = true;
         self.state.condvar.notify_all();
     }
 }
 
-impl ThreadPool {
+impl ThreadPool<FifoQueue> {
     /// Create a new thread pool. Panics if priority is out of [0; 99] range.
     pub fn new(name: &'static str, idle_timeout: Duration, limit: usize, priority: u8) -> Self {
         assert!(priority <= 99, "priority out of range");
@@ -156,7 +183,9 @@ impl ThreadPool {
             }),
         }
     }
+}
 
+impl<Q: JobQueue> ThreadPool<Q> {
     /// Spawn a new task to be run on the pool. It will re-use existing idle threads
     /// if possible, or spawn a new thread (up to the configured limit).
     /// If at the thread limit and no idle threads are available, the job will be
@@ -217,20 +246,20 @@ impl ThreadPool {
     }
 
     #[cfg(test)]
-    fn state(&self) -> &Arc<ThreadPoolState> {
+    fn state(&self) -> &Arc<ThreadPoolState<Q>> {
         &self.state
     }
 }
 
-impl AsyncComputationSpawner for ThreadPool {
+impl<Q: JobQueue> AsyncComputationSpawner for ThreadPool<Q> {
     fn spawn_boxed(&self, _name: &str, job: Box<dyn FnOnce() + Send>) {
         self.spawn_boxed(job)
     }
 }
 
-struct ThreadCountGuard(Arc<ThreadPoolState>);
+struct ThreadCountGuard<Q: JobQueue>(Arc<ThreadPoolState<Q>>);
 
-impl Drop for ThreadCountGuard {
+impl<Q: JobQueue> Drop for ThreadCountGuard<Q> {
     fn drop(&mut self) {
         self.0.inner.lock().dec_total_threads();
     }
@@ -239,7 +268,7 @@ impl Drop for ThreadCountGuard {
 /// Start a worker thread. It will then pick up jobs from the queue one at a time in
 /// a loop. The thread will terminate if it's idle for `idle_timeout` or when
 /// shutdown is triggered via `shutdown` flag.
-fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
+fn run_worker<Q: JobQueue>(state: Arc<ThreadPoolState<Q>>, idle_timeout: Duration) {
     // `_thread_count_guard` must be declared before `state_guard` so that
     // the mutex lock is dropped first during unwinding (reverse declaration
     // order), avoiding deadlock when the guard acquires the lock in its Drop.

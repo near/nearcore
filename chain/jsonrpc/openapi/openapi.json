@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.12"
+    "version": "1.3.15"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1155,6 +1155,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [
@@ -1355,12 +1369,18 @@
         "description": "Describes access key permission scope and nonce.",
         "properties": {
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -1506,10 +1526,20 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -1522,7 +1552,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -1535,19 +1566,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -2329,6 +2367,58 @@
             },
             "required": [
               "DelegateActionInvalidNonceIndex"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The combined size of the resolved promise inputs (the `DataReceipt`s\nreferenced by the receipt's `input_data_ids`) exceeded the limit.",
+            "properties": {
+              "TotalPromiseInputSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "size": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "size",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalPromiseInputSizeExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receipt recorded more storage proof than\n`per_receipt_storage_proof_size_limit` allows.",
+            "properties": {
+              "ReceiptStorageProofSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReceiptStorageProofSizeExceeded"
             ],
             "type": "object"
           }
@@ -3178,6 +3268,13 @@
               "TotalNumberOfDeployActionsExceeded"
             ],
             "type": "object"
+          },
+          {
+            "description": "The method name in a FunctionCall action must not be empty.",
+            "enum": [
+              "FunctionCallEmptyMethodName"
+            ],
+            "type": "string"
           }
         ]
       },
@@ -3294,6 +3391,20 @@
               }
             ],
             "description": "The merkle root of all the block hashes"
+          },
+          "chunk_execution_root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Merkle root over the block's certified chunk execution results.\n`None` for pre-spice headers."
           },
           "epoch_id": {
             "allOf": [
@@ -3415,6 +3526,19 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "chunk_execution_root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
           },
           "chunk_headers_root": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -3919,6 +4043,18 @@
             "default": false,
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
+          },
+          "catch_up_throttle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 100000000,
+              "secs": 1
+            },
+            "description": "Delay between consecutive batches while the writer is catching up, pacing\nhow fast it uploads to the storage backend."
           },
           "polling_interval": {
             "allOf": [
@@ -6456,6 +6592,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "ml_dsa_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification base"
+          },
+          "ml_dsa_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of ML-DSA-65 signature verification per byte"
+          },
           "p256_verify_base": {
             "allOf": [
               {
@@ -8417,6 +8569,27 @@
             },
             "required": [
               "P256VerifyInvalidInput"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Input length mismatch for ML-DSA-65 signature verification (signature is\nnot 3309 bytes or public key is not 1952 bytes). Parse failures of\notherwise well-sized inputs return 0 from the host function instead of\naborting.",
+            "properties": {
+              "MlDsaVerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "MlDsaVerifyInvalidInput"
             ],
             "type": "object"
           }
@@ -11405,6 +11578,13 @@
             ],
             "description": "Max amount of gas that can be used, excluding gas attached to promises."
           },
+          "max_globals_per_contract": {
+            "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "max_instrumented_code_size": {
             "description": "If present, stores max byte size of the wasm code after gas instrumentation.\nThis prevents Cranelift's 24-bit SSA counter from overflowing on\npathologically large contracts.",
             "format": "uint64",
@@ -11500,6 +11680,12 @@
           },
           "max_receipt_size": {
             "description": "Max receipt size",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_receipt_total_input_size": {
+            "description": "Max combined size (in bytes) of the resolved promise inputs a single\nreceipt may consume.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -12172,6 +12358,13 @@
             "description": "A function's max operand-stack size (in bytes) exceeds\n`max_operand_stack_bytes_per_function`.",
             "enum": [
               "OperandStackTooLarge"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Contract declares too many entries in the wasm global section.",
+            "enum": [
+              "TooManyGlobals"
             ],
             "type": "string"
           }
@@ -13229,6 +13422,17 @@
             ],
             "description": "Duration to check for producing / skipping block."
           },
+          "block_request_timeout": {
+            "description": "How long to wait for a state sync block request response",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
             "items": {
@@ -13284,7 +13488,7 @@
             "description": "Multiplier for the wait time for all chunks to be received."
           },
           "chunks_cache_height_horizon": {
-            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is given by default_chunks_cache_height_horizon().",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -13587,17 +13791,6 @@
             ],
             "description": "Options for syncing state."
           },
-          "state_sync_external_timeout": {
-            "description": "How long to wait for a state sync block request response",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
           "state_sync_p2p_timeout": {
             "description": "How long to wait for a response from p2p state sync",
             "items": {
@@ -13706,6 +13899,12 @@
               }
             ],
             "description": "Version of the binary."
+          },
+          "view_access_keys_limit": {
+            "description": "Upper bound on the number of access keys returned by a `view_access_key_list`\nquery.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
           },
           "view_client_threads": {
             "description": "Number of threads for ViewClientActor pool.",
@@ -15085,6 +15284,48 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "limit",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TOO_MANY_ACCESS_KEYS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "error": {
                     "$ref": "#/components/schemas/FunctionCallError"
                   },
@@ -15362,6 +15603,25 @@
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "request_type": {
                     "enum": [
@@ -15711,6 +15971,25 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "request_type": {
                     "enum": [
                       "view_access_key_list"
@@ -16058,6 +16337,25 @@
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
+                  },
+                  "after_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKeyHandle"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "request_type": {
                     "enum": [
@@ -17877,7 +18175,21 @@
             "type": "object"
           },
           {
+            "description": "`None` when the response comes from a node running an older version that omitted the\ncause, so newer clients can still parse it.",
             "properties": {
+              "info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TimeoutErrorCause"
+                  },
+                  {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true
+                  }
+                ]
+              },
               "name": {
                 "enum": [
                   "TIMEOUT_ERROR"
@@ -18482,6 +18794,27 @@
         "properties": {
           "account_id": {
             "$ref": "#/components/schemas/AccountId"
+          },
+          "after_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor: resume the listing strictly after this access key.\nPass the `last_key` returned by the previous page."
+          },
+          "limit": {
+            "description": "Maximum number of access keys to return in this page.",
+            "format": "uint32",
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -18506,6 +18839,20 @@
               "$ref": "#/components/schemas/AccessKeyInfoView"
             },
             "type": "array"
+          },
+          "last_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKeyHandle"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Pagination cursor. When `Some`, the listing was truncated and the caller\nshould issue another request with `after_key` set to this handle to fetch\nthe next page. `None` means this was the last page."
           }
         },
         "required": [
@@ -18578,12 +18925,18 @@
             "type": "integer"
           },
           "nonce": {
+            "description": "Current nonce; each transaction signed with this key must use a strictly greater value.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermissionView"
+              }
+            ],
+            "description": "Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits."
           }
         },
         "required": [
@@ -18773,7 +19126,12 @@
         "description": "A view of the account",
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "block_hash": {
             "$ref": "#/components/schemas/CryptoHash"
@@ -18784,7 +19142,12 @@
             "type": "integer"
           },
           "code_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
           },
           "global_contract_account_id": {
             "anyOf": [
@@ -18797,7 +19160,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by the deploying account id."
           },
           "global_contract_hash": {
             "anyOf": [
@@ -18810,19 +19174,26 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Set when the account uses a global contract referenced by code hash."
           },
           "locked": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Staked balance locked for validation, in yoctoNEAR."
           },
           "storage_paid_at": {
             "default": 0,
-            "description": "TODO(2271): deprecated.",
+            "description": "Deprecated and unused. TODO(2271): remove.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "storage_usage": {
+            "description": "Total storage used by the account, in bytes.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -19291,7 +19662,8 @@
                 "nullable": true
               }
             ],
-            "default": null
+            "default": null,
+            "description": "Resume listing after this key (exclusive); must start with `prefix`."
           },
           "include_proof": {
             "default": false,
@@ -19299,6 +19671,7 @@
           },
           "limit": {
             "default": null,
+            "description": "Maximum number of entries to return in this page.",
             "format": "uint32",
             "minimum": 1,
             "nullable": true,
@@ -19337,7 +19710,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete."
           },
           "proof": {
             "items": {
@@ -20162,10 +20536,20 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "amount": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "code_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/CryptoHash"
+                      }
+                    ],
+                    "description": "Hash of the deployed contract code; the all-`1`s hash when no contract is deployed."
                   },
                   "global_contract_account_id": {
                     "anyOf": [
@@ -20178,7 +20562,8 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by the deploying account id."
                   },
                   "global_contract_hash": {
                     "anyOf": [
@@ -20191,19 +20576,26 @@
                         ],
                         "nullable": true
                       }
-                    ]
+                    ],
+                    "description": "Set when the account uses a global contract referenced by code hash."
                   },
                   "locked": {
-                    "$ref": "#/components/schemas/NearToken"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      }
+                    ],
+                    "description": "Staked balance locked for validation, in yoctoNEAR."
                   },
                   "storage_paid_at": {
                     "default": 0,
-                    "description": "TODO(2271): deprecated.",
+                    "description": "Deprecated and unused. TODO(2271): remove.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
                   },
                   "storage_usage": {
+                    "description": "Total storage used by the account, in bytes.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": "integer"
@@ -20787,6 +21179,83 @@
         ],
         "type": "object"
       },
+      "TimeoutErrorCause": {
+        "description": "Explains why a transaction status request returned a `RpcTransactionError::TimeoutError`:",
+        "oneOf": [
+          {
+            "description": "The node never observed the transaction on chain.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "NOT_OBSERVED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The transaction was observed but is still pending the requested finality. The\nlast-known status is included so the caller can re-poll for a higher finality.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "PENDING"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/RpcTransactionResponse"
+              }
+            },
+            "required": [
+              "cause",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node does not track the transaction's shard and could not get an answer from a\nchunk producer that does before the timeout.",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "DOES_NOT_TRACK_SHARD"
+                ],
+                "type": "string"
+              },
+              "shard_id": {
+                "$ref": "#/components/schemas/ShardId"
+              }
+            },
+            "required": [
+              "cause",
+              "shard_id"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The node could not produce a usable transaction status before the timeout (for\nexample a repeated internal error, or no response at all).",
+            "properties": {
+              "cause": {
+                "enum": [
+                  "ERROR"
+                ],
+                "type": "string"
+              },
+              "debug_info": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "debug_info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "TrackedShardsConfig": {
         "description": "Describes the expected behavior of the node regarding shard tracking.\nIf the node is an active validator, it will also track the shards it is responsible for as a validator.",
         "oneOf": [
@@ -21151,6 +21620,10 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "ml_dsa_verify_host_fn": {
+            "description": "See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).",
+            "type": "boolean"
           },
           "one_yocto_on_promise": {
             "description": "See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).",
@@ -21534,7 +22007,8 @@
                 ],
                 "nullable": true
               }
-            ]
+            ],
+            "description": "Cursor to resume from: present when more entries remain, absent when the listing is complete."
           },
           "proof": {
             "items": {

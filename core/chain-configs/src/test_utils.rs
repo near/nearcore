@@ -6,7 +6,7 @@ use crate::{
     default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_view_access_keys_limit,
 };
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -286,7 +286,7 @@ impl ClientConfig {
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            block_request_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
@@ -325,6 +325,7 @@ impl ClientConfig {
             state_requests_per_throttle_period: 30,
             state_request_server_threads: 1,
             trie_viewer_state_size_limit: None,
+            view_access_keys_limit: default_view_access_keys_limit(),
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,

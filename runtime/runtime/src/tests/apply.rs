@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::tx_cost;
+use crate::config::{total_send_fees, tx_cost};
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -11,7 +11,7 @@ use crate::{
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -27,10 +27,12 @@ use near_primitives::congestion_info::{
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
-    InvalidTxError, MissingTrieValue, TxExecutionError,
+    InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
+};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -46,16 +48,18 @@ use near_primitives::types::{
     ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    MissingTrieValueContext, ShardTries, StorageError, Trie, get_access_key, get_account,
-    get_gas_key_nonce, set_access_key, set_account,
+    MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie, get_access_key,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, set_access_key,
+    set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
 use std::collections::HashSet;
+use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1549,6 +1553,590 @@ fn test_main_storage_proof_size_soft_limit() {
             hash: _
         }))
     );
+}
+
+/// Test ProtocolFeature::EnforcePerReceiptStorageProofLimit. A receipt should record at most 4MB of
+/// storage proof, no matter how many actions it has.
+#[test]
+fn test_per_receipt_storage_proof_size_limit() {
+    // Number of distinct 1MB values written and then read, one per action.
+    const NUM_VALUES: u8 = 5;
+
+    const ACTION_GAS: Gas = Gas::from_teragas(800 / NUM_VALUES as u64);
+
+    assert!(ProtocolFeature::EnforcePerReceiptStorageProofLimit.enabled(PROTOCOL_VERSION));
+    let feature_version = ProtocolFeature::EnforcePerReceiptStorageProofLimit.protocol_version();
+
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1_000),
+    );
+
+    let account = alice_account();
+    let signer = signers[0].clone();
+
+    // Setup: deploy the contract and write NUM_VALUES 1MB values under keys 0..NUM_VALUES.
+    let deploy_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer.clone(),
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+    );
+    let write_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer.clone(),
+        (0..NUM_VALUES)
+            .map(|key| {
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "write_one_megabyte".to_string(),
+                    args: vec![key],
+                    gas: ACTION_GAS,
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect(),
+    );
+    let write_receipt_id = *write_receipt.receipt_id();
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[deploy_receipt, write_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    let write_status = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == write_receipt_id)
+        .expect("write receipt outcome should be present")
+        .outcome
+        .status
+        .clone();
+    assert_matches!(write_status, ExecutionStatus::SuccessValue(_));
+
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    // A single receipt whose actions each read a distinct 1MB value.
+    let read_receipt = create_receipt_with_actions(
+        account,
+        signer,
+        (0..NUM_VALUES)
+            .map(|key| {
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "read_n_megabytes".to_string(),
+                    args: vec![key, key + 1],
+                    gas: ACTION_GAS,
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect(),
+    );
+    let read_receipt_id = *read_receipt.receipt_id();
+
+    // Apply `read_receipt` at the given protocol version and return the result.
+    let mut apply_read_receipt = |protocol_version: ProtocolVersion| {
+        apply_state.current_protocol_version = protocol_version;
+
+        let apply_result = runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_new_recorder(),
+                &None,
+                &apply_state,
+                std::slice::from_ref(&read_receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        apply_result
+            .outcomes
+            .into_iter()
+            .find(|o| o.id == read_receipt_id)
+            .expect("read receipt outcome should be present")
+            .outcome
+            .status
+    };
+
+    // Before the fix (per-action limit): every action reads only ~1 MB, which is
+    // below the 4 MB limit, so the whole receipt succeeds even though it reads
+    // ~5 MB of state in total.
+    let status_before = apply_read_receipt(feature_version - 1);
+    assert_matches!(status_before, ExecutionStatus::SuccessValue(_));
+
+    // After the fix (per-receipt limit): the cumulative read crosses 4MB, so the receipt fails with
+    // RecordedStorageExceeded.
+    let status_after = apply_read_receipt(PROTOCOL_VERSION);
+    let action_error = assert_matches!(
+        status_after,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => ae
+    );
+    let error_message = assert_matches!(
+        action_error.kind,
+        ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(msg)) => msg
+    );
+    assert!(error_message.contains("storage proof"), "unexpected error message: {error_message}");
+}
+
+#[test]
+fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
+    const NUM_VALUES: u8 = 4;
+    // Part of the limit the values leave free. The read's trie nodes fit in it; the
+    // `AddKey` actions that follow do not.
+    const RESERVED_UNDER_LIMIT: usize = 1_000;
+    // Keys `alice` already holds, enough to fill one branch of the access key subtree. An
+    // `AddKey` records the subtree nodes its lookup walks that no earlier one did.
+    const NUM_EXISTING_KEYS: usize = 16;
+    const NUM_ADDED_KEYS: usize = 6;
+    const ACTION_GAS: Gas = Gas::from_teragas(100);
+
+    assert!(ProtocolFeature::EnforceStorageProofLimitForAllActions.enabled(PROTOCOL_VERSION));
+    let feature_version = ProtocolFeature::EnforceStorageProofLimitForAllActions.protocol_version();
+
+    let shard_uid = ShardUId::single_shard();
+    let existing_signers = (0..NUM_EXISTING_KEYS)
+        .map(|i| {
+            Arc::new(InMemorySigner::from_seed(
+                alice_account(),
+                KeyType::ED25519,
+                &format!("existing{i}"),
+            ))
+        })
+        .collect();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+        setup_runtime_with_keys(
+            vec![(alice_account(), existing_signers)],
+            Balance::from_near(1_000_000),
+            Balance::ZERO,
+            Gas::from_teragas(1_000),
+        );
+    let account = alice_account();
+    let signer = signers[0].clone();
+    let limit = apply_state.config.wasm_config.limit_config.per_receipt_storage_proof_size_limit;
+    let value_size = (limit - RESERVED_UNDER_LIMIT) / NUM_VALUES as usize;
+
+    let apply_receipt = |apply_state: &ApplyState, root: CryptoHash, receipt: &Receipt| {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+                &None,
+                apply_state,
+                std::slice::from_ref(receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let status = apply_result
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.id == *receipt.receipt_id())
+            .expect("receipt outcome should be present")
+            .outcome
+            .status
+            .clone();
+        (apply_result, status)
+    };
+
+    // Setup: deploy the contract, then write the values the receipt reads back.
+    let setup_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer.clone(),
+        std::iter::once(Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        }))
+        .chain((0..NUM_VALUES).map(|key| {
+            let mut args = vec![key];
+            args.extend_from_slice(&(value_size as u32).to_le_bytes());
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "write_value_of_size".to_string(),
+                args,
+                gas: ACTION_GAS,
+                deposit: Balance::ZERO,
+            }))
+        }))
+        .collect(),
+    );
+    let (apply_result, setup_status) = apply_receipt(&apply_state, root, &setup_receipt);
+    assert_matches!(setup_status, ExecutionStatus::SuccessValue(_));
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+
+    let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "read_values_in_key_range".to_string(),
+        args: vec![0, NUM_VALUES],
+        gas: ACTION_GAS,
+        deposit: Balance::ZERO,
+    }));
+    let added_keys: Vec<PublicKey> = (0..NUM_ADDED_KEYS)
+        .map(|i| {
+            InMemorySigner::from_seed(account.clone(), KeyType::ED25519, &format!("added{i}"))
+                .public_key()
+        })
+        .collect();
+    let read_receipt =
+        create_receipt_with_actions(account.clone(), signer.clone(), vec![read_action.clone()]);
+    let read_and_add_keys_receipt = create_receipt_with_actions(
+        account.clone(),
+        signer,
+        std::iter::once(read_action)
+            .chain(added_keys.iter().map(|public_key| {
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: public_key.clone(),
+                    access_key: AccessKey::full_access(),
+                }))
+            }))
+            .collect(),
+    );
+
+    // The read fills the receipt's allowance and still fits, so a real receipt could do it.
+    let (_, read_status) = apply_receipt(&apply_state, root, &read_receipt);
+    assert_matches!(read_status, ExecutionStatus::SuccessValue(_));
+
+    // Before the feature version only the `FunctionCall` is bounded, so the keys
+    // record past the limit unchecked.
+    apply_state.current_protocol_version = feature_version - 1;
+    let (_, status_before) = apply_receipt(&apply_state, root, &read_and_add_keys_receipt);
+    assert_matches!(status_before, ExecutionStatus::SuccessValue(_));
+
+    apply_state.current_protocol_version = PROTOCOL_VERSION;
+    let (apply_result, status_after) =
+        apply_receipt(&apply_state, root, &read_and_add_keys_receipt);
+    let action_error = assert_matches!(
+        status_after,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => action_error
+    );
+    assert_eq!(
+        action_error.kind,
+        ActionErrorKind::ReceiptStorageProofSizeExceeded { limit: limit as u64 }
+    );
+    let failed_index = action_error.index.unwrap();
+    assert!(failed_index > 0, "receipt should fail on an `AddKey`, not on the read");
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    for public_key in &added_keys {
+        assert_eq!(get_access_key(&state, &account, public_key).unwrap(), None);
+    }
+}
+
+/// Deploys a contract, records a witness for a call to it (which excludes the
+/// contract body), then applies that call over the recorded storage.
+fn apply_call_to_contract_missing_from_witness(
+    apply_reason: ApplyChunkReason,
+) -> Result<ApplyResult, RuntimeError> {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::DeployContract(DeployContractAction { code: contract_code.code().to_vec() })],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[deploy_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            std::slice::from_ref(&call_receipt),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(*contract_code.hash())])
+    );
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A validator with an empty compiled-contract cache has no source for the
+    // body other than the witness, which excludes it.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = apply_reason;
+    runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        std::slice::from_ref(&call_receipt),
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    )
+}
+
+#[test]
+fn test_validation_rejects_missing_contract_code() {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    assert_matches!(
+        apply_call_to_contract_missing_from_witness(ApplyChunkReason::ValidateChunkStateWitness),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == *contract_code.hash()
+    );
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "contract code is missing from the trie")]
+fn test_tracked_shard_apply_asserts_on_missing_contract_code() {
+    let _ = apply_call_to_contract_missing_from_witness(ApplyChunkReason::UpdateTrackedShard);
+}
+
+/// Deploys the test contract to alice and returns the resulting state root.
+fn deploy_rs_contract(
+    runtime: &Runtime,
+    tries: &ShardTries,
+    root: CryptoHash,
+    apply_state: &ApplyState,
+    signer: Arc<Signer>,
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> CryptoHash {
+    let deploy_receipt = create_receipt_with_actions(
+        alice_account(),
+        signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            apply_state,
+            &[deploy_receipt],
+            SignedValidPeriodTransactions::empty(),
+            epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    root
+}
+
+/// A witness whose recorded state omits the `PromiseYieldIndices` value makes the read in
+/// `action_function_call` return `Err(MissingTrieValue)`. The error must propagate; swallowing it
+/// with `.unwrap_or_default()` resets the indices to `{0, 0}` and lets `apply` return `Ok`, so a
+/// chunk producer could hand out a witness that validates against state it never proved.
+///
+/// The receipt must create a yield. A call that creates none writes nothing back, and the later
+/// `resolve_promise_yield_timeouts` read propagates the same error either way, which would make
+/// the two cases indistinguishable.
+#[test]
+fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    // The helper installs `RuntimeConfig::test()`; run the deploy and the yield calls without gas
+    // accounting noise instead.
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    let shard_uid = ShardUId::single_shard();
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+
+    let yield_receipt = || {
+        create_receipt_with_actions(
+            alice_account(),
+            signers[0].clone(),
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_create_return_data_id".to_string(),
+                args: vec![6u8; 16],
+                gas: Gas::from_teragas(300),
+                deposit: Balance::ZERO,
+            }))],
+        )
+    };
+
+    // First yield call. State now holds indices `{0, 1}` and one timeout entry.
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[yield_receipt()],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    // This call writes the `{0, 1}` indices the rest of the test depends on.
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    // Replay the same call with recording on, so the proof captures the indices value.
+    let second_yield = yield_receipt();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            from_ref(&second_yield),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    // The read under test only runs on the success path, so a failed call would exercise nothing.
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let partial_storage = apply_result.proof.unwrap();
+    let PartialState::TrieValues(mut nodes) = partial_storage.nodes;
+
+    // Drop exactly the `PromiseYieldIndices` value blob from the recorded proof.
+    let target = hash(
+        &borsh::to_vec(&PromiseYieldIndices { first_index: 0, next_available_index: 1 }).unwrap(),
+    );
+    let before = nodes.len();
+    nodes.retain(|value| hash(&value[..]) != target);
+    assert_eq!(nodes.len(), before - 1, "expected to remove exactly the indices value blob");
+
+    // Contract code bypasses the trie recorder, so re-add it. The indices blob is now the only
+    // node missing from the proof.
+    nodes.push(near_test_contracts::rs_contract().to_vec().into());
+
+    let trie = Trie::from_recorded_storage(
+        PartialStorage { nodes: PartialState::TrieValues(nodes) },
+        root,
+        false,
+    );
+    let result = runtime.apply(
+        trie,
+        &None,
+        &apply_state,
+        from_ref(&second_yield),
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    );
+
+    // Bind the missing hash and compare it, so an unrelated omitted blob cannot make this pass.
+    let missing_hash = assert_matches!(
+        result,
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) => hash
+    );
+    assert_eq!(missing_hash, target, "expected the missing value to be the trimmed indices blob");
+}
+
+/// The honest path the `?` above could plausibly break: when the `PromiseYieldIndices` key has
+/// never been written, the read must still yield the default and the call must succeed.
+///
+/// This needs a fresh harness. Reusing the state left by the test above would make the assertion
+/// vacuous, since the key is already present there.
+#[test]
+fn test_promise_yield_indices_absent_key_still_applies() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    apply_state.config = Arc::new(RuntimeConfig::free());
+
+    let shard_uid = ShardUId::single_shard();
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+
+    // `setup_runtime_for_shard` writes accounts and access keys only, and the deploy above does
+    // not touch the queue, so the key is genuinely absent.
+    assert_eq!(
+        tries
+            .get_trie_for_shard(shard_uid, root)
+            .get(&TrieKey::PromiseYieldIndices.to_vec(), AccessOptions::DEFAULT)
+            .unwrap(),
+        None,
+        "the promise yield indices key must be absent for this control to mean anything"
+    );
+
+    // A call that creates no yield leaves the indices untouched, so nothing is written back.
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[call_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
 }
 
 // Tests excluding contract code from state witness and recording of contract deployments and function calls.
@@ -4390,5 +4978,509 @@ fn test_function_call_after_same_chunk_delete_recreate_resolves_fresh_code() {
             )),
             ..
         }))
+    );
+}
+
+/// The promise-input size limit used by these tests (4 MiB).
+const PROMISE_INPUT_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// Protocol version at which the promise-input size limit activates.
+fn promise_input_limit_version() -> ProtocolVersion {
+    ProtocolFeature::ReceiptPromiseInputSizeLimit.protocol_version()
+}
+
+/// Reconfigures `apply_state` for the promise-input size-limit tests: a free
+/// runtime config (no gas costs, to keep the tests focused on the size check)
+/// with `max_receipt_total_input_size` set to `PROMISE_INPUT_SIZE_LIMIT`,
+/// applied at the given protocol version.
+fn setup_promise_input_limit(apply_state: &mut ApplyState, protocol_version: ProtocolVersion) {
+    let mut config = RuntimeConfig::free();
+    let wasm_config = Arc::make_mut(&mut config.wasm_config);
+    wasm_config.limit_config.max_receipt_total_input_size = PROMISE_INPUT_SIZE_LIMIT;
+    apply_state.config = Arc::new(config);
+    apply_state.current_protocol_version = protocol_version;
+}
+
+/// A data receipt delivering `size` bytes to `receiver` under `data_id`.
+fn promise_data_receipt(receiver: AccountId, data_id: CryptoHash, size: usize) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: receiver,
+        receipt_id: data_id,
+        receipt: ReceiptEnum::Data(DataReceipt { data_id, data: Some(vec![0u8; size]) }),
+    })
+}
+
+/// An action receipt (a single zero-value transfer) awaiting `data_ids`.
+fn action_receipt_awaiting(
+    receiver: AccountId,
+    receipt_id: CryptoHash,
+    data_ids: Vec<CryptoHash>,
+) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: receiver,
+        receipt_id,
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: bob_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: data_ids,
+            actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+        }),
+    })
+}
+
+/// A receipt with oversized combined promise inputs fails with
+/// `TotalPromiseInputSizeExceeded`, and its received data and postponed
+/// bookkeeping are cleaned up from the state.
+#[test]
+fn test_promise_input_size_limit_exceeded_fails_and_cleans_up() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-exceeded-1");
+    let data_id_2 = hash(b"promise-input-exceeded-2");
+    let receipt_id = hash(b"promise-input-exceeded-receipt");
+    // Two data receipts, each below `max_length_returned_data` (4 MiB) so they
+    // pass receipt validation, but whose combined size exceeds the limit.
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    match &outcome.outcome.status {
+        ExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
+            assert_matches!(
+                action_error.kind,
+                ActionErrorKind::TotalPromiseInputSizeExceeded { .. }
+            );
+        }
+        other => panic!("expected TotalPromiseInputSizeExceeded failure, got {other:?}"),
+    }
+
+    // The received data and postponed bookkeeping must be cleaned up.
+    let mut store_update = tries.store_update();
+    let new_root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+    assert_eq!(get_received_data(&state, &alice_account(), data_id_1).unwrap(), None);
+    assert_eq!(get_received_data(&state, &alice_account(), data_id_2).unwrap(), None);
+    assert_eq!(get_postponed_receipt(&state, &alice_account(), receipt_id).unwrap(), None);
+}
+
+/// Failing one receipt for exceeding the promise-input size limit must not
+/// affect other receipts processed in the same chunk, and `apply` must succeed
+/// (a per-receipt failure, not a chunk-level error).
+#[test]
+fn test_promise_input_size_limit_does_not_affect_other_receipts() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-isolation-1");
+    let data_id_2 = hash(b"promise-input-isolation-2");
+    let failing_id = hash(b"promise-input-isolation-failing");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+
+    // A succeeding receipt with no input dependencies, placed both before and
+    // after the failing one to guard against order-dependent early returns.
+    let before = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+    );
+    let after = create_receipt_with_actions(
+        bob_account(),
+        signers[1].clone(),
+        vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+    );
+    let before_id = *before.receipt_id();
+    let after_id = *after.receipt_id();
+
+    let receipts = vec![
+        before,
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), failing_id, vec![data_id_1, data_id_2]),
+        after,
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let status_of = |id: CryptoHash| {
+        apply_result
+            .outcomes
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.outcome.status.clone())
+            .unwrap_or_else(|| panic!("missing outcome for {id}"))
+    };
+    assert_matches!(status_of(before_id), ExecutionStatus::SuccessValue(_));
+    assert_matches!(status_of(after_id), ExecutionStatus::SuccessValue(_));
+    assert_matches!(
+        status_of(failing_id),
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::TotalPromiseInputSizeExceeded { .. },
+            ..
+        }))
+    );
+}
+
+/// A receipt whose combined promise inputs are below the limit executes
+/// normally.
+#[test]
+fn test_promise_input_size_limit_under_limit_succeeds() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-under-1");
+    let data_id_2 = hash(b"promise-input-under-2");
+    let receipt_id = hash(b"promise-input-under-receipt");
+    // Combined ~2 MiB, comfortably below the 4 MiB limit.
+    let quarter = (PROMISE_INPUT_SIZE_LIMIT / 4) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, quarter),
+        promise_data_receipt(alice_account(), data_id_2, quarter),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// Before the feature's protocol version the limit is not enforced: the same
+/// oversized inputs execute successfully.
+#[test]
+fn test_promise_input_size_limit_disabled_before_protocol_version() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version() - 1);
+
+    let data_id_1 = hash(b"promise-input-gated-1");
+    let data_id_2 = hash(b"promise-input-gated-2");
+    let receipt_id = hash(b"promise-input-gated-receipt");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+    let receipts = vec![
+        promise_data_receipt(alice_account(), data_id_1, half),
+        promise_data_receipt(alice_account(), data_id_2, half),
+        action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2]),
+    ];
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// When the received data is already committed to the trie (delivered in an
+/// earlier chunk), the failing receipt reads only the sizes and not the values,
+/// so the rejected receipt does not pull the (multi-MiB) inputs into the
+/// storage proof / state witness.
+#[test]
+fn test_promise_input_size_limit_does_not_bloat_witness() {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    setup_promise_input_limit(&mut apply_state, promise_input_limit_version());
+
+    let data_id_1 = hash(b"promise-input-witness-1");
+    let data_id_2 = hash(b"promise-input-witness-2");
+    let receipt_id = hash(b"promise-input-witness-receipt");
+    let half = (PROMISE_INPUT_SIZE_LIMIT / 2 + 1) as usize;
+
+    // Chunk 1: deliver only the data receipts so the received data is committed
+    // to the trie (no awaiting receipt yet, so nothing executes).
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[
+                promise_data_receipt(alice_account(), data_id_1, half),
+                promise_data_receipt(alice_account(), data_id_2, half),
+            ],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    // Chunk 2: the awaiting receipt arrives and fails the size check. It reads
+    // the input sizes from the trie (recording), but must not deref the values.
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &[action_receipt_awaiting(alice_account(), receipt_id, vec![data_id_1, data_id_2])],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.id == receipt_id)
+        .expect("awaiting receipt should have an execution outcome");
+    assert_matches!(
+        outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::TotalPromiseInputSizeExceeded { .. },
+            ..
+        }))
+    );
+
+    // The storage proof must not contain the (~4 MiB) input values. Assert the
+    // recorded proof is far smaller than a single input, proving the values
+    // were never dereferenced.
+    let partial_storage = apply_result.proof.unwrap();
+    let PartialState::TrieValues(storage_proof) = partial_storage.nodes;
+    let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
+    assert!(
+        (total_size as u64) < PROMISE_INPUT_SIZE_LIMIT / 2,
+        "storage proof of {total_size} bytes unexpectedly large; inputs were likely dereferenced"
+    );
+}
+
+/// A contract that creates an ML-DSA-65 gas key must not leak total supply.
+///
+/// Before this fix, the pre-execution / refund path priced the key on
+/// `trie_id_len()` (33 bytes) while the host path reserved the exec fee on
+/// `len()` (1953); the extra reserved gas was neither burnt nor refunded, so
+/// total supply silently dropped. This guards against that regression: supply
+/// is conserved now that the host exec fee also uses `trie_id_len()`.
+#[test]
+fn test_gas_key_add_key_conserves_supply() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
+        return;
+    }
+    let initial_balance = Balance::from_near(1_000_000);
+    let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let shard_uid = ShardUId::single_shard();
+    let gas_key: PublicKey = SecretKey::from_seed(KeyType::MLDSA65, "gas-key-seed").public_key();
+
+    let alice_amount = |root: CryptoHash| {
+        get_account(&tries.new_trie_update(shard_uid, root), &alice_account())
+            .unwrap()
+            .unwrap()
+            .amount()
+    };
+    let before = alice_amount(root);
+
+    // Single signed tx (deploy + call), so alice is fully debited up front and the
+    // scenario is closed: total supply == alice's amount plus everything burnt.
+    // The contract adds an ML-DSA-65 gas key to alice via a self-promise batch.
+    use near_primitives::serialize::to_base64;
+    let call_promise_args = serde_json::json!([
+        {"batch_create": {"account_id": alice_account()}, "id": 0},
+        {"action_add_gas_key_with_full_access": {
+            "promise_index": 0,
+            "public_key": to_base64(&borsh::to_vec(&gas_key).unwrap()),
+            "num_nonces": 3,
+        }, "id": 0},
+    ]);
+    let tx = SignedTransaction::from_actions(
+        1,
+        alice_account(),
+        alice_account(),
+        &*signers[0],
+        vec![
+            Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&call_promise_args).unwrap(),
+                gas: MAX_ATTACHED_GAS,
+                deposit: Balance::ZERO,
+            })),
+        ],
+        CryptoHash::default(),
+    );
+
+    let mut incoming: Vec<Receipt> = vec![];
+    let mut destroyed = Balance::ZERO;
+    let mut settled = false;
+    for round in 0..12 {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root),
+                &None,
+                &apply_state,
+                &incoming,
+                if round == 0 {
+                    SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true])
+                } else {
+                    SignedValidPeriodTransactions::empty()
+                },
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        // Value that left circulation this round. Receiver/validator rewards stay
+        // in accounts (not counted here); subsidies and gas deficit are minted.
+        let b = &apply_result.stats.balance;
+        destroyed = destroyed
+            .checked_add(b.tx_burnt_amount)
+            .unwrap()
+            .checked_add(b.slashed_burnt_amount)
+            .unwrap()
+            .checked_add(b.other_burnt_amount)
+            .unwrap()
+            .checked_sub(b.subsidized_amount)
+            .unwrap()
+            .checked_sub(b.gas_deficit_amount)
+            .unwrap();
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        incoming = apply_result.outgoing_receipts.clone();
+        apply_state.block_height += 1;
+        if round > 0 && incoming.is_empty() && apply_result.delayed_receipts_count == 0 {
+            settled = true;
+            break;
+        }
+    }
+    // The supply accounting below is only meaningful once the whole receipt
+    // cascade has drained; a run that hit the round cap would measure a partial
+    // state and could mask (or fake) a leak.
+    assert!(settled, "receipt cascade did not settle within the round budget");
+
+    let supply_drop = before.checked_sub(alice_amount(root)).unwrap();
+    assert_eq!(
+        supply_drop.as_yoctonear(),
+        destroyed.as_yoctonear(),
+        "supply leak: alice lost {} yocto but only {} was recorded as destroyed",
+        supply_drop.as_yoctonear(),
+        destroyed.as_yoctonear(),
+    );
+}
+
+/// The gas-key SEND fee prices bytes put on the wire, so it must scale with
+/// `public_key.len()` (1953 for ML-DSA-65), not the on-trie `trie_id_len()`
+/// (33). A "use `trie_id_len` everywhere" fix would leave this wrong; only the
+/// split (send = `len`, exec = `trie_id_len`) is correct, which is what
+/// `config.rs` now does.
+#[test]
+fn test_gas_key_transfer_send_fee_uses_wire_length() {
+    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
+        return;
+    }
+    let config = RuntimeConfig::test();
+    let receiver = alice_account();
+    let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
+    let ml_dsa_65_key = SecretKey::from_seed(KeyType::MLDSA65, "gas-key-seed").public_key();
+
+    let send_fee = |public_key: &PublicKey| -> u64 {
+        let actions = [Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: public_key.clone(),
+            deposit: Balance::ZERO,
+        }))];
+        total_send_fees(&config, false, &actions, &receiver).unwrap().gas.as_gas()
+    };
+    let wire_len = |public_key: &PublicKey| public_key.len() as u64;
+
+    let gas_key_byte_send = config.fees.fee(ActionCosts::gas_key_byte).send_fee(false).gas.as_gas();
+    // Send fee scales with wire length, so the ML-DSA-65 vs ed25519 gap is the
+    // difference in their `len()`; the (equal) base fee cancels.
+    let expected_delta = gas_key_byte_send * (wire_len(&ml_dsa_65_key) - wire_len(&ed25519_key));
+    let measured_delta = send_fee(&ml_dsa_65_key) - send_fee(&ed25519_key);
+    assert_eq!(
+        measured_delta, expected_delta,
+        "gas-key send fee must scale with wire length (len), not trie_id_len",
     );
 }

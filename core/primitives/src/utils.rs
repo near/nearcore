@@ -2,12 +2,14 @@
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::types::{ChunkExecutionResultHash, ShardId};
+use crate::universal_state_init::UniversalStateInit;
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -471,9 +473,21 @@ pub fn derive_near_deterministic_account_id(
     state_init: &DeterministicAccountStateInit,
 ) -> AccountId {
     use sha3::Digest;
-    let data = borsh::to_vec(&state_init).expect("borsh must not fail");
-    let hash = sha3::Keccak256::digest(&data);
+    let mut hasher = sha3::Keccak256::new();
+    borsh::to_writer(&mut hasher, state_init).expect("borsh must not fail");
+    let hash: [u8; 32] = hasher.finalize().into();
     format!("0s{}", hex::encode(&hash[12..32])).parse().unwrap()
+}
+
+// cspell:words UAID
+/// Returns the `0u` universal account id fully defined by `state_init`: SHA3-256
+/// (FIPS-202) over its canonical borsh, encoded with the UAID address codec.
+pub fn derive_universal_account_id(state_init: &UniversalStateInit) -> AccountId {
+    use sha3::Digest;
+    let mut hasher = sha3::Sha3_256::new();
+    borsh::to_writer(&mut hasher, &state_init).expect("borsh must not fail");
+    let hash = hasher.finalize().into();
+    encode_universal_account_id(&hash)
 }
 
 /// Returns the block metadata used to create an optimistic block.
@@ -520,6 +534,43 @@ mod tests {
         let expected: AccountId = "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap();
         let account_id = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
         assert_eq!(account_id, expected);
+    }
+
+    #[test]
+    fn test_derive_universal_account_id() {
+        use crate::universal_state_init::UniversalStateInitV1;
+        use near_crypto::{MlDsa65PublicKeyHandle, PublicKeyHandle};
+        use near_primitives_core::global_contract::GlobalContractIdentifier;
+        use near_primitives_core::universal_account_id::decode_universal_account_id;
+        use sha3::{Digest, Sha3_256};
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: BTreeSet::from([PublicKeyHandle::MlDsa65(MlDsa65PublicKeyHandle(
+                [0x11; 32],
+            ))]),
+        });
+        let contract = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(CryptoHash([0x22; 32]))),
+            data: BTreeMap::from([(b"key".to_vec(), b"value".to_vec())]),
+            access_keys: BTreeSet::new(),
+        });
+
+        // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
+        // on-chain `raw_state_init_to_account_id` host fn's cross-check.
+        for (state_init, expected) in [
+            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g0ep4de"), // cspell:disable-line
+            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0s32b8m"), // cspell:disable-line
+        ] {
+            let id = derive_universal_account_id(state_init);
+            assert_eq!(id.as_str(), expected);
+            // The id decodes back to SHA3-256 of the canonical borsh.
+            let bytes = borsh::to_vec(state_init).unwrap();
+            let hash: [u8; 32] = Sha3_256::digest(&bytes).into();
+            assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
+        }
     }
 
     #[test]

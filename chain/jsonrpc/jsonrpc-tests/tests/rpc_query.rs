@@ -261,7 +261,11 @@ async fn test_query_access_keys() {
     let query_response = client
         .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
             block_reference: BlockReference::latest(),
-            request: QueryRequest::ViewAccessKeyList { account_id: "test1".parse().unwrap() },
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: "test1".parse().unwrap(),
+                after_key: None,
+                limit: None,
+            },
         })
         .await
         .unwrap();
@@ -1223,6 +1227,8 @@ async fn test_experimental_view_access_key_list() {
         .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
             block_reference: BlockReference::latest(),
             account_id: account,
+            after_key: None,
+            limit: None,
         })
         .await
         .unwrap();
@@ -1244,6 +1250,8 @@ async fn test_experimental_view_access_key_list_unknown_block() {
         .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
             block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
             account_id: "test1".parse().unwrap(),
+            after_key: None,
+            limit: None,
         })
         .await;
 

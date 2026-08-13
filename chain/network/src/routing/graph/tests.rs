@@ -176,6 +176,37 @@ async fn expired_edges() {
     g.check(&[]);
 }
 
+#[tokio::test]
+async fn future_nonce_edges_are_rejected() {
+    init_test_logger();
+    let clock = time::FakeClock::default();
+    clock.set_utc(time::Utc::UNIX_EPOCH + time::Duration::days(2));
+    let mut rng = make_rng(87927346);
+    let rng = &mut rng;
+    let node_key = data::make_secret_key(rng);
+    let g = Arc::new(Graph::new(clock.clock(), test_graph_config(peer_id(&node_key))));
+
+    let p1 = data::make_secret_key(rng);
+    let p2 = data::make_secret_key(rng);
+    let p3 = data::make_secret_key(rng);
+    let p4 = data::make_secret_key(rng);
+
+    let now = clock.now_utc();
+    // Within tolerance (1 minute ahead) — accepted.
+    let near_future = data::make_edge(&node_key, &p1, to_active_nonce(now + 60 * SEC));
+    // Far in the future (1 hour ahead) — rejected.
+    let far_future = data::make_edge(&node_key, &p2, to_active_nonce(now + 3600 * SEC));
+    // Present nonce — accepted as a control.
+    let present = data::make_edge(&node_key, &p3, to_active_nonce(now));
+    // Nonce that doesn't map to a valid timestamp (> i64::MAX) — rejected, so it can't
+    // slip past the future-tolerance check and become un-prunable. u64::MAX is odd, so
+    // the edge is Active.
+    let invalid_nonce = data::make_edge(&node_key, &p4, u64::MAX);
+
+    g.simple_update(vec![near_future.clone(), far_future, present.clone(), invalid_nonce]);
+    g.check(&[near_future, present]);
+}
+
 // ======================== Routing graph limit tests ========================
 //
 // All limit tests create edges adjacent to `node_key` so the introduced peers

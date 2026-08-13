@@ -17,8 +17,8 @@ use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_store::trie::AccessOptions;
 use near_store::{
-    KeyLookupMode, StorageError, TrieUpdate, enqueue_promise_yield_timeout,
-    get_promise_yield_indices, set_promise_yield_indices,
+    KeyLookupMode, MissingTrieValue, MissingTrieValueContext, StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_promise_yield_indices, set_promise_yield_indices,
 };
 use near_vm_runner::PreparedContract;
 use near_vm_runner::logic::errors::{
@@ -44,6 +44,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
+    storage_proof_size_before_receipt: Option<usize>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -70,9 +71,11 @@ pub(crate) fn action_function_call(
         apply_state.current_protocol_version,
         config.wasm_config.storage_get_mode,
         Arc::clone(&apply_state.trie_access_tracker_state),
+        storage_proof_size_before_receipt,
     );
     let outcome = execute_function_call(
         contract,
+        contract_id.hash(),
         apply_state,
         &mut runtime_ext,
         receipt.predecessor_id(),
@@ -127,9 +130,6 @@ pub(crate) fn action_function_call(
                     .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
-            FunctionCallError::WasmUnknownError { .. } => {
-                metrics::FUNCTION_CALL_PROCESSED_WASM_UNKNOWN_ERRORS.inc();
-            }
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
@@ -150,7 +150,7 @@ pub(crate) fn action_function_call(
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
         let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
@@ -232,6 +232,7 @@ pub(crate) fn action_function_call(
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     contract: Box<dyn near_vm_runner::PreparedContract>,
+    contract_code_hash: CryptoHash,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
@@ -280,13 +281,31 @@ pub(crate) fn execute_function_call(
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
-    // Most VM runner errors translate to a `RuntimeError` and are propagated
-    // up. `WasmUnknownError` is soft-failed into the function-call outcome
-    // instead of panicking: a consensus failure on one chunk is preferable to
-    // crashing all nodes if a VM bug surfaces post-deploy. User-code errors
-    // are reported via `outcome.aborted` and never reach these arms.
+    // There are many specific errors that the runtime can encounter.
+    // Some can be translated to the more general `RuntimeError`, which allows to pass
+    // the error up to the caller. For all other cases, panicking here is better
+    // than leaking the exact details further up.
+    // Note that this does not include errors caused by user code / input, those are
+    // stored in outcome.aborted.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
+            if runtime_ext.account().contract().is_some() {
+                debug_assert!(
+                    apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
+                    "inconsistent state: contract code is missing from the trie, but the account has a non-empty contract"
+                );
+
+                // A missing body for an account that commits to a code hash is
+                // witness incompleteness, not an execution result. Fail like any
+                // other missing witness value rather than treating it as no-op.
+                if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
+                    return Err(StorageError::MissingTrieValue(MissingTrieValue {
+                        context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                        hash: contract_code_hash,
+                    })
+                    .into());
+                }
+            }
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
             });
@@ -312,12 +331,11 @@ pub(crate) fn execute_function_call(
         Err(VMRunnerError::LoadingError(msg)) => {
             return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
+        Err(VMRunnerError::Nondeterministic(msg)) => {
+            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+        }
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
-            tracing::error!(target: "runtime", "wasm unknown error: {}", debug_message);
-            debug_assert!(false, "wasm unknown error: {}", debug_message);
-            return Ok(VMOutcome::nop_outcome(FunctionCallError::WasmUnknownError {
-                msg: debug_message,
-            }));
+            panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Ok(r) => r,
     };

@@ -1,9 +1,14 @@
 use crate::config::Config;
-use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+use near_async::time::Duration;
+use near_chain_configs::{DumpConfig, ExternalStorageLocation, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
+
+/// Recommended ratio of gc throughput to block production, giving the tail headroom to catch
+/// up rather than merely break even. See the rule of thumb on `GCConfig::default()`.
+pub(crate) const RECOMMENDED_GC_RATE_MULTIPLIER: u128 = 2;
 
 /// Validate Config extracted from config.json.
 /// This function does not panic. It returns the error if any validation fails.
@@ -64,18 +69,7 @@ impl<'a> ConfigValidator<'a> {
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
-        if self.config.gc.gc_blocks_limit == 0
-            || self.config.gc.gc_fork_clean_step == 0
-            || self.config.gc.gc_num_epochs_to_keep == 0
-        {
-            let error_message = format!(
-                "gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.",
-                self.config.gc.gc_blocks_limit,
-                self.config.gc.gc_fork_clean_step,
-                self.config.gc.gc_num_epochs_to_keep
-            );
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
+        self.validate_gc_config();
 
         let tx_routing_height_horizon = self.config.tx_routing_height_horizon;
         if tx_routing_height_horizon < 2 {
@@ -89,6 +83,88 @@ impl<'a> ConfigValidator<'a> {
                 "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
             );
             self.validation_errors.push_config_semantics_error(error_message);
+        }
+    }
+
+    /// Gc reclaims at most `gc_blocks_limit` blocks per `gc_step_period` tick and never catches
+    /// up, so it has to outpace block production or storage grows without bound.
+    fn validate_gc_config(&mut self) {
+        let gc_values_positive = self.config.gc.gc_blocks_limit != 0
+            && self.config.gc.gc_fork_clean_step != 0
+            && self.config.gc.gc_num_epochs_to_keep != 0
+            && self.config.gc.gc_step_period > Duration::ZERO;
+        if !gc_values_positive {
+            let error_message = format!(
+                "gc config values should all be greater than 0, but gc_blocks_limit is {:?}, \
+                 gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}, gc_step_period is {:?}.",
+                self.config.gc.gc_blocks_limit,
+                self.config.gc.gc_fork_clean_step,
+                self.config.gc.gc_num_epochs_to_keep,
+                self.config.gc.gc_step_period
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+
+        // Values below the minimum are silently clamped, so warn about what the node really does.
+        let gc_num_epochs_to_keep = self.config.gc.gc_num_epochs_to_keep();
+        if self.config.gc.gc_num_epochs_to_keep < gc_num_epochs_to_keep {
+            tracing::warn!(
+                target: "config",
+                "gc_num_epochs_to_keep is {}, below the supported minimum of \
+                 {MIN_GC_NUM_EPOCHS_TO_KEEP}; it is silently clamped and the node retains \
+                 {gc_num_epochs_to_keep} epochs of data.",
+                self.config.gc.gc_num_epochs_to_keep,
+            );
+        }
+
+        let min_block_production_delay = self.config.consensus.min_block_production_delay;
+        // Nanoseconds, so sub-millisecond block times are not truncated to zero.
+        let block_delay = min_block_production_delay.whole_nanoseconds();
+        if block_delay <= 0 {
+            // An unbounded block rate that no gc config can keep up with.
+            let error_message = format!(
+                "consensus.min_block_production_delay is {min_block_production_delay}, so blocks \
+                 are produced at an unbounded rate and no gc config can keep up with them."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+            return;
+        }
+        if !gc_values_positive {
+            // The rate below is only meaningful once the values above are sane.
+            return;
+        }
+        let gc_step_period = self.config.gc.gc_step_period;
+        let gc_blocks_limit = self.config.gc.gc_blocks_limit as u128;
+        let chain_time_per_step = gc_step_period.whole_nanoseconds() as u128;
+        let block_delay = block_delay as u128;
+        let required_gc_blocks_limit = chain_time_per_step.div_ceil(block_delay);
+        let recommended_gc_blocks_limit = chain_time_per_step
+            .saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
+            .div_ceil(block_delay);
+        if gc_blocks_limit >= recommended_gc_blocks_limit {
+            return;
+        }
+
+        if gc_blocks_limit < required_gc_blocks_limit {
+            let error_message = format!(
+                "garbage collection cannot keep up with block production: gc_blocks_limit is \
+                 {gc_blocks_limit} per gc_step_period of {gc_step_period}, but a block can be \
+                 produced every min_block_production_delay = {min_block_production_delay}. The \
+                 gc tail would fall permanently behind the chain head and storage would grow \
+                 without bound. Raise gc_blocks_limit to at least \
+                 {recommended_gc_blocks_limit}, or lower gc_step_period."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        } else {
+            tracing::warn!(
+                target: "config",
+                "gc_blocks_limit of {gc_blocks_limit} per gc_step_period of {gc_step_period} \
+                 leaves insufficient headroom over min_block_production_delay = \
+                 {min_block_production_delay}. Garbage collection should run about \
+                 {RECOMMENDED_GC_RATE_MULTIPLIER}x faster than block production so the gc tail \
+                 can catch up after forks and restarts; consider raising gc_blocks_limit to \
+                 {recommended_gc_blocks_limit}."
+            );
         }
     }
 
@@ -187,14 +263,23 @@ impl<'a> ConfigValidator<'a> {
 
     fn validate_cloud_archival_config(&mut self) {
         let Some(cloud_archival_config) = &self.config.cloud_archival else {
-            if self.config.cloud_archival_writer.is_some() {
+            return;
+        };
+        match (&cloud_archival_config.writer, &cloud_archival_config.reader) {
+            (Some(_), Some(_)) => {
                 let error_message =
-                    "`cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
+                    "`cloud_archival` sets both `writer` and `reader`; a node is one or the other."
                         .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
-            return;
-        };
+            (None, None) => {
+                let error_message =
+                    "`cloud_archival` sets neither `writer` nor `reader`; one is required."
+                        .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
+            _ => {}
+        }
         if self.config.state_sync.is_some() {
             let error_message =
                 "State sync/dump cannot be configured when cloud archive is enabled; \
@@ -214,26 +299,20 @@ impl<'a> ConfigValidator<'a> {
             let error_message = "`archive` is false, but `cloud_archival` is enabled.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
-        if self.config.cloud_archival_writer.is_none() && self.config.cold_store.is_none() {
-            let error_message =
-                "Cloud archival is enabled in reader mode, but `cold_store` is missing."
-                    .to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
 
-        let Some(writer_config) = &self.config.cloud_archival_writer else {
+        let Some(writer_config) = &cloud_archival_config.writer else {
             return;
         };
         let tracked_shards = self.config.tracked_shards_config();
         let archives_shards = tracked_shards.tracks_non_empty_subset_of_shards();
         if !archives_shards && !writer_config.archive_block_data {
             let error_message =
-                "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
+                "`cloud_archival.writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
         if writer_config.snapshot_every_n_epochs == 0 {
             let error_message =
-                "`cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
+                "`cloud_archival.writer.snapshot_every_n_epochs` must be greater than 0."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
@@ -241,7 +320,7 @@ impl<'a> ConfigValidator<'a> {
             // `ShardData::transaction_result_for_block` is sourced from `OutcomeIds` and
             // `TransactionResultForBlock`; both are skipped when `save_tx_outcomes` is false.
             if self.config.save_tx_outcomes == Some(false) {
-                let error_message = "`cloud_archival_writer` archives shards but \
+                let error_message = "`cloud_archival.writer` archives shards but \
                     `save_tx_outcomes` is set to false; the writer needs outcome data to \
                     populate `ShardData::transaction_result_for_block`. Set `save_tx_outcomes: \
                     true` or omit it (defaults to true on archival and rpc nodes)."
@@ -251,7 +330,7 @@ impl<'a> ConfigValidator<'a> {
             let save_receipt_to_tx =
                 self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
             if !save_receipt_to_tx {
-                let error_message = "`cloud_archival_writer` archives shards but \
+                let error_message = "`cloud_archival.writer` archives shards but \
                     `save_receipt_to_tx` resolves to false; the writer needs ReceiptToTx data to \
                     populate `ShardData::receipt_to_tx`. Set `save_receipt_to_tx: true`."
                     .to_string();
@@ -295,8 +374,25 @@ impl<'a> ConfigValidator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_chain_configs::{CloudArchivalWriterConfig, StateSyncConfig, TrackedShardsConfig};
-    use near_store::archive::cloud_storage::config::test_cloud_archival_config;
+    use crate::config::{
+        MAINNET_MIN_BLOCK_PRODUCTION_DELAY, TESTNET_MIN_BLOCK_PRODUCTION_DELAY,
+        recommended_gc_blocks_limit_for_block_delay, set_block_production_delay,
+    };
+    use near_chain_configs::{
+        CloudArchivalWriterConfig, GCConfig, MIN_BLOCK_PRODUCTION_DELAY, StateSyncConfig,
+        TrackedShardsConfig,
+    };
+    use near_store::archive::cloud_storage::config::{
+        CloudArchivalConfig, test_cloud_archival_config,
+    };
+
+    /// The fastest block production the given gc config still matches: `gc_blocks_limit` blocks
+    /// reclaim exactly one `gc_step_period` of chain time.
+    fn break_even_block_production_delay(gc: &GCConfig) -> Duration {
+        let block_delay =
+            (gc.gc_step_period.whole_nanoseconds() as u128).div_ceil(gc.gc_blocks_limit as u128);
+        Duration::nanoseconds(block_delay as i64)
+    }
 
     #[test]
     #[should_panic(expected = "and 'config.tracked_shards_config' cannot be both set")]
@@ -313,6 +409,95 @@ mod tests {
         let mut config = Config::default();
         config.gc.gc_blocks_limit = 0;
         validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "gc config values should all be greater than 0")]
+    fn test_gc_step_period_nonzero() {
+        let mut config = Config::default();
+        config.gc.gc_step_period = Duration::ZERO;
+        validate_config(&config).unwrap();
+    }
+
+    /// 5 bps against the default gc: 2 blocks per 500ms reclaims 4/s, 5/s are produced.
+    #[test]
+    #[should_panic(expected = "garbage collection cannot keep up with block production")]
+    fn test_gc_too_slow_for_block_production() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::milliseconds(200);
+        validate_config(&config).unwrap();
+    }
+
+    /// Sub-millisecond block times must not be truncated away before the comparison.
+    #[test]
+    #[should_panic(expected = "garbage collection cannot keep up with block production")]
+    fn test_gc_too_slow_for_sub_millisecond_block_production() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::microseconds(500);
+        validate_config(&config).unwrap();
+    }
+
+    /// A zero delay is an unbounded block rate that no gc config can match.
+    #[test]
+    #[should_panic(expected = "blocks are produced at an unbounded rate")]
+    fn test_zero_block_production_delay_is_rejected() {
+        let mut config = Config::default();
+        config.consensus.min_block_production_delay = Duration::ZERO;
+        validate_config(&config).unwrap();
+    }
+
+    /// The delays we ship, exact break-even, `--fast`, an archival node, a below-minimum
+    /// retention window, and the limit derived for any block delay.
+    #[test]
+    fn test_gc_at_or_above_block_production_is_accepted() {
+        let mut configs: Vec<_> = [
+            Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
+            Duration::milliseconds(MAINNET_MIN_BLOCK_PRODUCTION_DELAY),
+            Duration::milliseconds(TESTNET_MIN_BLOCK_PRODUCTION_DELAY),
+            break_even_block_production_delay(&GCConfig::default()),
+        ]
+        .into_iter()
+        .map(|min_block_production_delay| {
+            let mut config = Config::default();
+            config.consensus.min_block_production_delay = min_block_production_delay;
+            config
+        })
+        .collect();
+
+        let mut fast = Config::default();
+        set_block_production_delay("localnet", true, &mut fast);
+        configs.push(fast);
+
+        let mut archival = Config::default();
+        archival.gc.gc_num_epochs_to_keep = 1000;
+        configs.push(archival);
+
+        let mut clamped = Config::default();
+        clamped.gc.gc_num_epochs_to_keep = 1;
+        configs.push(clamped);
+
+        for min_block_production_delay in
+            [Duration::nanoseconds(1), Duration::microseconds(500), Duration::seconds(10)]
+        {
+            let mut config = Config::default();
+            config.consensus.min_block_production_delay = min_block_production_delay;
+            config.consensus.max_block_production_delay = Duration::MAX;
+            config.consensus.max_block_wait_delay = Duration::MAX;
+            config.gc.gc_blocks_limit = recommended_gc_blocks_limit_for_block_delay(
+                config.gc.gc_step_period,
+                min_block_production_delay,
+            );
+            configs.push(config);
+        }
+
+        for config in configs {
+            validate_config(&config).unwrap_or_else(|err| {
+                panic!(
+                    "rejected a config that meets the gc rate ({}): {err}",
+                    config.consensus.min_block_production_delay
+                )
+            });
+        }
     }
 
     #[test]
@@ -410,53 +595,62 @@ mod tests {
     )]
     fn test_cloud_archival_set_archive_is_false() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         config.archive = false;
         validate_config(&config).unwrap();
     }
 
     #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
-    )]
-    fn test_cloud_archival_writer_set_but_cloud_archival_disabled() {
-        let mut config = Config::default();
-        config.cloud_archival_writer = Some(Default::default());
-        validate_config(&config).unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: Cloud archival is enabled in reader mode, but `cold_store` is missing."
-    )]
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.archive = true;
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    fn test_cloud_archival_reader_with_cold_store() {
+        let mut config = Config::default();
+        config.archive = true;
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
+        config.cold_store = Some(config.store.clone());
+        config.save_trie_changes = Some(true);
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only."
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` must track at least one shard unless it is configured to `archive_block_data` only."
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        config.cloud_archival_writer = Some(Default::default());
+        config.cloud_archival = Some(CloudArchivalConfig {
+            writer: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer.snapshot_every_n_epochs` must be greater than 0."
     )]
     fn test_cloud_archival_writer_snapshot_cadence_nonzero() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        let mut writer_config = CloudArchivalWriterConfig::default();
-        writer_config.archive_block_data = true;
-        writer_config.snapshot_every_n_epochs = 0;
-        config.cloud_archival_writer = Some(writer_config);
+        let mut writer = CloudArchivalWriterConfig::default();
+        writer.archive_block_data = true;
+        writer.snapshot_every_n_epochs = 0;
+        config.cloud_archival =
+            Some(CloudArchivalConfig { writer: Some(writer), ..test_cloud_archival_config("") });
         validate_config(&config).unwrap();
     }
 
@@ -464,7 +658,10 @@ mod tests {
     #[should_panic(expected = "is not a supported cloud storage location")]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
-        let mut cloud_archival_config = test_cloud_archival_config("");
+        let mut cloud_archival_config = CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        };
         cloud_archival_config.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
@@ -477,22 +674,56 @@ mod tests {
     )]
     fn test_cloud_archival_with_state_sync_configured() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         config.state_sync = Some(Default::default());
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival` sets both `writer` and `reader`; a node is one or the other."
+    )]
+    fn test_cloud_archival_writer_and_reader_both_set() {
+        let mut config = Config::default();
+        config.archive = true;
+        let cloud_archival = CloudArchivalConfig {
+            writer: Some(Default::default()),
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        };
+        config.cloud_archival = Some(cloud_archival);
+        config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival` sets neither `writer` nor `reader`; one is required."
+    )]
+    fn test_cloud_archival_writer_and_reader_both_unset() {
+        let mut config = Config::default();
+        config.archive = true;
+        let cloud_archival = test_cloud_archival_config("");
+        config.cloud_archival = Some(cloud_archival);
         validate_config(&config).unwrap();
     }
 
     fn cloud_archival_writer_archiving_shards_config() -> Config {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        config.cloud_archival_writer = Some(CloudArchivalWriterConfig::default());
+        config.cloud_archival = Some(CloudArchivalConfig {
+            writer: Some(CloudArchivalWriterConfig::default()),
+            ..test_cloud_archival_config("")
+        });
         config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
         config
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_tx_outcomes` is set to false"
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` archives shards but `save_tx_outcomes` is set to false"
     )]
     fn test_cloud_archival_writer_save_tx_outcomes_false() {
         let mut config = cloud_archival_writer_archiving_shards_config();
@@ -502,7 +733,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_receipt_to_tx` resolves to false"
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` archives shards but `save_receipt_to_tx` resolves to false"
     )]
     fn test_cloud_archival_writer_save_receipt_to_tx_false() {
         let mut config = cloud_archival_writer_archiving_shards_config();
@@ -516,10 +747,10 @@ mod tests {
     #[test]
     fn test_cloud_archival_writer_block_only_skips_shard_flag_checks() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        let mut writer_config = CloudArchivalWriterConfig::default();
-        writer_config.archive_block_data = true;
-        config.cloud_archival_writer = Some(writer_config);
+        let mut writer = CloudArchivalWriterConfig::default();
+        writer.archive_block_data = true;
+        config.cloud_archival =
+            Some(CloudArchivalConfig { writer: Some(writer), ..test_cloud_archival_config("") });
         config.save_tx_outcomes = Some(false);
         config.save_receipt_to_tx = Some(false);
         let err = validate_config(&config).err().map(|e| e.to_string()).unwrap_or_default();

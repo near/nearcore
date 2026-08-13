@@ -141,6 +141,30 @@ pub fn epoch_config(
     chunk_validator_only_kickout_threshold: u8,
     max_inflation_rate: Rational32,
 ) -> AllEpochConfig {
+    epoch_config_at_version(
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        num_chunk_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        chunk_validator_only_kickout_threshold,
+        max_inflation_rate,
+        PROTOCOL_VERSION,
+    )
+}
+
+pub fn epoch_config_at_version(
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    num_chunk_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
+    max_inflation_rate: Rational32,
+    protocol_version: ProtocolVersion,
+) -> AllEpochConfig {
     let epoch_config = EpochConfigBuilder::default()
         .epoch_length(epoch_length)
         .num_block_producer_seats(num_block_producer_seats)
@@ -164,12 +188,12 @@ pub fn epoch_config(
         .max_inflation_rate(max_inflation_rate)
         .build()
         .expect("config field missing");
-    let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
+    let config_store = EpochConfigStore::test_single_version(protocol_version, epoch_config);
     AllEpochConfig::from_epoch_config_store(
         "test-chain",
         epoch_length,
         config_store,
-        PROTOCOL_VERSION,
+        protocol_version,
     )
 }
 
@@ -258,6 +282,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     chunk_only_producers: Vec<AccountId>,
     num_shards: NumShards,
     epoch_length: BlockHeightDelta,
+    protocol_version: ProtocolVersion,
 ) -> EpochManager {
     let num_block_producers = block_producers.len() as u64;
     let block_producer_stake = Balance::from_yoctonear(1_000_000);
@@ -285,8 +310,17 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake = total_stake.checked_add(stake).unwrap();
     }
-    let config =
-        epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0, Ratio::new(0, 1));
+    let config = epoch_config_at_version(
+        epoch_length,
+        num_shards,
+        num_block_producers,
+        100,
+        0,
+        0,
+        0,
+        Ratio::new(0, 1),
+        protocol_version,
+    );
     let epoch_manager = EpochManager::new(
         store.epoch_store(),
         config,
@@ -305,6 +339,58 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();
     assert_eq!(actual_chunk_producers.len(), block_producers.len() + chunk_only_producers.len());
     epoch_manager
+}
+
+/// Records one block with an explicit per-shard `chunk_mask` (true = produced, false =
+/// missed) and explicit last-final fields. The finals are parameters rather than derived
+/// from the grandparent because a genesis-parented block at a skipped height has no
+/// grandparent and nothing final yet.
+pub fn record_block_with_final_and_mask(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+) {
+    let epoch_id = em.get_epoch_id(&prev).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .enumerate()
+            .map(|(shard_index, shard_id)| {
+                if !chunk_mask[shard_index] {
+                    return vec![];
+                }
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    em.record_block_info(
+        BlockInfo::new(
+            cur,
+            height,
+            last_final_height,
+            last_final_hash,
+            prev,
+            vec![],
+            chunk_mask,
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+        [0; 32],
+    )
+    .unwrap()
+    .commit();
 }
 
 pub fn record_block_with_final_block_hash(

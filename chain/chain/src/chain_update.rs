@@ -1,6 +1,7 @@
-use crate::approval_verification::verify_approvals_and_threshold_orphan;
+use crate::Chain;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
+use crate::metrics;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
@@ -12,8 +13,6 @@ use crate::types::{
     ApplyChunkBlockContext, ApplyChunkShardContext, BlockType, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{Chain, Doomslug};
-use crate::{DoomslugThresholdMode, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -28,10 +27,11 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, SpiceChunkId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreUpdateAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::mem;
 use std::sync::Arc;
@@ -44,7 +44,6 @@ pub struct ChainUpdate<'a> {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
-    doomslug_threshold_mode: DoomslugThresholdMode,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -52,19 +51,17 @@ impl<'a> ChainUpdate<'a> {
         chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        doomslug_threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
+        Self::new_impl(epoch_manager, runtime_adapter, chain_store_update)
     }
 
     fn new_impl(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
     ) -> Self {
-        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
+        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update }
     }
 
     pub fn check_protocol_version(
@@ -355,37 +352,6 @@ impl<'a> ChainUpdate<'a> {
         )
     }
 
-    #[allow(dead_code)]
-    fn verify_orphan_header_approvals(&self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = header.prev_hash();
-        let prev_height = match header.prev_height() {
-            None => {
-                // this will accept orphans of V1 and V2
-                // TODO: reject header V1 and V2 after a certain height
-                return Ok(());
-            }
-            Some(prev_height) => prev_height,
-        };
-        let height = header.height();
-        let epoch_id = header.epoch_id();
-        let approvals = header.approvals();
-        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-        verify_approvals_and_threshold_orphan(
-            &|approvals, stakes| {
-                Doomslug::can_approved_block_be_produced(
-                    self.doomslug_threshold_mode,
-                    approvals,
-                    stakes,
-                )
-            },
-            prev_hash,
-            prev_height,
-            height,
-            approvals,
-            epoch_info,
-        )
-    }
-
     /// Update the header head if this header has most work.
     pub(crate) fn update_header_head(
         &mut self,
@@ -414,11 +380,59 @@ impl<'a> ChainUpdate<'a> {
             };
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(&last_final_block_header);
+            self.record_chunk_certifying_blocks(&last_final_block_header, final_head.height)?;
             self.chain_store_update.save_final_head(&tip)?;
             Ok(Some(tip))
         } else {
             Ok(None)
         }
+    }
+
+    /// For spice, records each newly-final block as the certifying block of the
+    /// chunks it certifies. Finalized blocks never reorg, so entries are write-once.
+    fn record_chunk_certifying_blocks(
+        &mut self,
+        new_final_header: &BlockHeader,
+        previous_final_height: BlockHeight,
+    ) -> Result<(), Error> {
+        if new_final_header.chunk_execution_root().is_none() {
+            return Ok(());
+        }
+        let mut certified: Vec<(SpiceChunkId, CryptoHash)> = Vec::new();
+        let mut hash = *new_final_header.hash();
+        loop {
+            let block = match self.chain_store_update.get_block(&hash) {
+                Ok(block) => block,
+                // Below the retained range, e.g. after a state-sync final-head reset;
+                // a node cannot record certifying blocks it no longer stores.
+                Err(Error::DBNotFoundErr(_)) => break,
+                Err(err) => return Err(err),
+            };
+            if block.header().height() <= previous_final_height {
+                break;
+            }
+            let block_hash = *block.hash();
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                certified.push((chunk_id.clone(), block_hash));
+            }
+            let prev_hash = *block.header().prev_hash();
+            if prev_hash == CryptoHash::default() {
+                break;
+            }
+            hash = prev_hash;
+        }
+        if certified.is_empty() {
+            return Ok(());
+        }
+        let mut store_update = self.chain_store_update.store().store_update();
+        {
+            let mut adapter = ChainStoreUpdateAdapter::new(&mut store_update);
+            for (chunk_id, block_hash) in &certified {
+                adapter.set_chunk_certifying_block(chunk_id, block_hash);
+            }
+        }
+        self.chain_store_update.merge(store_update);
+        Ok(())
     }
 
     /// Directly updates the head if we've just appended a new block to it or handle

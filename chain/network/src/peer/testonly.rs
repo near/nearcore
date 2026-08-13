@@ -36,6 +36,7 @@ impl PeerConfig {
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
+    pub network_state: Arc<NetworkState>,
     actor: AutoStopActor<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
@@ -44,7 +45,9 @@ pub(crate) struct PeerHandle {
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actor
-            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
+            .send_async(
+                SendMessage { message: Arc::new(message), reserved_permit: None }.span_wrap(),
+            )
             .await
             .unwrap();
     }
@@ -113,8 +116,8 @@ impl PeerHandle {
             actor_system.new_future_spawner("peer testonly"),
         );
         let actor = AutoStopActor(
-            PeerActor::spawn(clock, actor_system, stream, network_state, tcp).unwrap().0,
+            PeerActor::spawn(clock, actor_system, stream, network_state.clone(), tcp).unwrap().0,
         );
-        Self { actor, cfg, events: recv, edge: None }
+        Self { actor, cfg, network_state, events: recv, edge: None }
     }
 }

@@ -263,6 +263,14 @@ pub(crate) static EDGE_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub(crate) static ACCOUNT_ANNOUNCEMENT_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_account_announcement_dropped",
+        "Number of AnnounceAccount entries rejected due to per-message limits",
+    )
+    .unwrap()
+});
+
 pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_edge_tombstone_sending_skip",
@@ -465,9 +473,11 @@ pub(crate) enum MessageDropped {
     NoRouteFound,
     UnknownAccount,
     InputTooLong,
+    TooLargeForType,
     MaxCapacityExceeded,
     TransactionsPerBlockExceeded,
     Duplicate,
+    OutgoingQueueLimitExceeded,
 }
 
 impl MessageDropped {
@@ -479,7 +489,7 @@ impl MessageDropped {
         self.inc_msg_type("unknown")
     }
 
-    fn inc_msg_type(self, msg_type: &str) {
+    pub fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
     }

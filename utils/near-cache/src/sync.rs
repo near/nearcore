@@ -1,5 +1,6 @@
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
+use std::borrow::Borrow;
 use std::convert::Infallible;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -81,6 +82,14 @@ where
         self.inner.lock().put(key, value);
     }
 
+    pub fn pop<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.inner.lock().pop(key)
+    }
+
     /// Returns the value of the key in the cache or None if it is not present in the cache.
     /// Moves the key to the head of the LRU list if it exists.
     pub fn get(&self, key: &K) -> Option<V> {
@@ -105,5 +114,15 @@ mod tests {
         assert_eq!(cache.get_or_put(123u64, |key| vec![*key, 123]), vec![123u64, 123]);
         assert_eq!(cache.get(&123u64), Some(vec![123u64, 123]));
         assert_eq!(cache.get(&0u64), None);
+    }
+
+    #[test]
+    fn test_pop() {
+        let cache = SyncLruCache::<u64, Vec<u64>>::new(100);
+
+        cache.put(123u64, vec![123u64, 123]);
+        assert_eq!(cache.pop(&123u64), Some(vec![123u64, 123]));
+        assert_eq!(cache.get(&123u64), None);
+        assert_eq!(cache.pop(&123u64), None);
     }
 }

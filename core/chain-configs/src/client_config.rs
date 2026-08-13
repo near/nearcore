@@ -24,6 +24,11 @@ pub enum LogSummaryStyle {
     Colored,
 }
 
+/// How far above the head a block can be and still be of interest. The client applies this
+/// bound when deciding whether to accept an incoming block while syncing, and the blocks delay
+/// tracker applies it when deciding whether to record one.
+pub const BLOCK_HORIZON: BlockHeightDelta = 500;
+
 /// Minimum number of epochs for which we keep store data
 pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
@@ -186,14 +191,27 @@ pub fn default_archival_writer_polling_interval() -> Duration {
     Duration::seconds(1)
 }
 
+pub fn default_archival_writer_catch_up_throttle() -> Duration {
+    // GCS allows about one mutation per second on a single object, and the writer
+    // rewrites the cloud heads once per batch.
+    // TODO(cloud_archival): consider a faster catch-up, rewriting the heads less
+    // often, or waiting per head object against its own last write.
+    Duration::milliseconds(1100)
+}
+
 pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
 
+// TODO(cloud_archival): the reader has no settings of its own yet.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalReaderConfig {}
+
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
     /// Determines whether block-related data should be written to cloud storage.
@@ -206,6 +224,13 @@ pub struct CloudArchivalWriterConfig {
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
 
+    /// Delay between consecutive batches while the writer is catching up, pacing
+    /// how fast it uploads to the storage backend.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_writer_catch_up_throttle")]
+    pub catch_up_throttle: Duration,
+
     /// Cadence of state snapshots, in epochs. Higher values reduce bucket cost at
     /// the expense of potentially longer delta replay during reader bootstrap.
     #[serde(default = "default_snapshot_every_n_epochs")]
@@ -217,6 +242,7 @@ impl Default for CloudArchivalWriterConfig {
         Self {
             archive_block_data: false,
             polling_interval: default_archival_writer_polling_interval(),
+            catch_up_throttle: default_archival_writer_catch_up_throttle(),
             snapshot_every_n_epochs: default_snapshot_every_n_epochs(),
         }
     }
@@ -477,7 +503,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_external_timeout() -> Duration {
+pub fn default_block_request_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -545,6 +571,11 @@ pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+pub fn default_view_access_keys_limit() -> u32 {
+    100
+}
+
 pub fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
@@ -588,7 +619,7 @@ pub fn default_enable_early_prepare_transactions() -> bool {
 /// Returns the default value for `chunks_cache_height_horizon`.
 /// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
 pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
-    128
+    2
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -668,7 +699,7 @@ pub struct ClientConfig {
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,
@@ -764,6 +795,9 @@ pub struct ClientConfig {
     pub state_request_server_threads: usize,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by a `view_access_key_list`
+    /// query.
+    pub view_access_keys_limit: u32,
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
@@ -832,7 +866,7 @@ pub struct ClientConfig {
     pub enable_early_prepare_transactions: bool,
     /// Height horizon for the chunk cache. A chunk is removed from the cache
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
-    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, SPICE nodes track uncertified transactions in a pending
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy

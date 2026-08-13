@@ -43,6 +43,15 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys {
+        requested_account_id: near_primitives::types::AccountId,
+        limit: u32,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -290,6 +299,10 @@ pub enum Error {
     /// value recomputed from the chain.
     #[error("Invalid spice_chunk_endorsement_stats: {0}")]
     InvalidSpiceChunkEndorsementStats(String),
+    /// `chunk_execution_root` on a spice block header doesn't match the merkle
+    /// root recomputed from the block's certified chunk execution results.
+    #[error("Invalid chunk_execution_root: {0}")]
+    InvalidChunkExecutionRoot(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -386,7 +399,8 @@ impl Error {
             | Error::BadHeaderForProtocolVersion(_)
             | Error::InvalidSpiceCoreStatements(_)
             | Error::InvalidPrevLastCertifiedBlockEpochId(_)
-            | Error::InvalidSpiceChunkEndorsementStats(_) => true,
+            | Error::InvalidSpiceChunkEndorsementStats(_)
+            | Error::InvalidChunkExecutionRoot(_) => true,
         }
     }
 
@@ -480,6 +494,7 @@ impl Error {
                 "invalid_prev_last_certified_block_epoch_id"
             }
             Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
+            Error::InvalidChunkExecutionRoot(_) => "invalid_chunk_execution_root",
         }
     }
 }

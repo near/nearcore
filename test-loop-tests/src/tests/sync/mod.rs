@@ -1,3 +1,4 @@
+mod adversarial_height;
 mod continuous_epoch_sync;
 mod early_kickout_sync;
 mod epoch_sync;
@@ -8,5 +9,5 @@ mod near_horizon;
 mod state_sync;
 mod sync_then_catchup;
 mod syncing;
-mod util;
+pub(crate) mod util;
 mod validator_kickout;

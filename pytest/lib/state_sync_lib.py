@@ -16,7 +16,6 @@ def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
       so no explicit `sync` config is needed.
     """
     config_dump = {
-        "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards_config": 'AllShards',
     }
     config_sync = {
@@ -43,7 +42,6 @@ def get_state_sync_config_combined():
             "secs": 0,
             "nanos": 500000000
         },
-        "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards_config": 'AllShards'
     }
 

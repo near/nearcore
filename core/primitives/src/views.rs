@@ -15,7 +15,7 @@ use crate::action::{
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
-use crate::block_header::BlockHeaderInnerLite;
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerLiteV2};
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
@@ -74,15 +74,21 @@ use validator_stake_view::ValidatorStakeView;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountView {
+    /// Liquid (non-staked) account balance, in yoctoNEAR.
     pub amount: Balance,
+    /// Staked balance locked for validation, in yoctoNEAR.
     pub locked: Balance,
+    /// Hash of the deployed contract code; the all-`1`s hash when no contract is deployed.
     pub code_hash: CryptoHash,
+    /// Total storage used by the account, in bytes.
     pub storage_usage: StorageUsage,
-    /// TODO(2271): deprecated.
+    /// Deprecated and unused. TODO(2271): remove.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    /// Set when the account uses a global contract referenced by code hash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_hash: Option<CryptoHash>,
+    /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
 }
@@ -247,7 +253,9 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyView {
+    /// Current nonce; each transaction signed with this key must use a strictly greater value.
     pub nonce: Nonce,
+    /// Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits.
     pub permission: AccessKeyPermissionView,
 }
 
@@ -281,6 +289,7 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    /// Cursor to resume from: present when more entries remain, absent when the listing is complete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_key: Option<StoreKey>,
 }
@@ -326,11 +335,16 @@ impl AccessKeyInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
+    /// Pagination cursor. When `Some`, the listing was truncated and the caller
+    /// should issue another request with `after_key` set to this handle to fetch
+    /// the next page. `None` means this was the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<PublicKeyHandle>,
 }
 
 impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
-        Self { keys: iter.into_iter().collect() }
+        Self { keys: iter.into_iter().collect(), last_key: None }
     }
 }
 
@@ -408,6 +422,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after_key: Option<PublicKeyHandle>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
     },
     ViewGasKeyNonces {
         account_id: AccountId,
@@ -931,6 +949,8 @@ pub struct BlockHeaderView {
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -981,6 +1001,7 @@ impl From<&BlockHeader> for BlockHeaderView {
             spice_chunk_endorsement_stats: header
                 .spice_chunk_endorsement_stats()
                 .map(<[SpiceChunkEndorsementStats]>::to_vec),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1019,6 +1040,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
             view.spice_chunk_endorsement_stats,
+            view.chunk_execution_root,
         )
     }
 }
@@ -1052,21 +1074,25 @@ pub struct BlockHeaderInnerLiteView {
     pub next_bp_hash: CryptoHash,
     /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results.
+    /// `None` for pre-spice headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = header.inner_lite();
         BlockHeaderInnerLiteView {
-            height: inner_lite.height,
-            epoch_id: inner_lite.epoch_id.0,
-            next_epoch_id: inner_lite.next_epoch_id.0,
-            prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.prev_outcome_root,
-            timestamp: inner_lite.timestamp,
-            timestamp_nanosec: inner_lite.timestamp,
-            next_bp_hash: inner_lite.next_bp_hash,
-            block_merkle_root: inner_lite.block_merkle_root,
+            height: header.height(),
+            epoch_id: header.epoch_id().0,
+            next_epoch_id: header.next_epoch_id().0,
+            prev_state_root: *header.prev_state_root(),
+            outcome_root: *header.outcome_root(),
+            timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
+            next_bp_hash: *header.next_bp_hash(),
+            block_merkle_root: *header.block_merkle_root(),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1082,6 +1108,22 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
             timestamp: view.timestamp_nanosec,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
+        }
+    }
+}
+
+impl From<&BlockHeaderInnerLiteView> for BlockHeaderInnerLiteV2 {
+    fn from(view: &BlockHeaderInnerLiteView) -> Self {
+        BlockHeaderInnerLiteV2 {
+            height: view.height,
+            epoch_id: EpochId(view.epoch_id),
+            next_epoch_id: EpochId(view.next_epoch_id),
+            prev_state_root: view.prev_state_root,
+            prev_outcome_root: view.outcome_root,
+            timestamp: view.timestamp_nanosec,
+            next_bp_hash: view.next_bp_hash,
+            block_merkle_root: view.block_merkle_root,
+            chunk_execution_root: view.chunk_execution_root.unwrap_or_default(),
         }
     }
 }
@@ -2713,12 +2755,15 @@ impl From<BlockHeader> for LightClientBlockLiteView {
 }
 impl LightClientBlockLiteView {
     pub fn hash(&self) -> CryptoHash {
-        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+        let inner_lite_bytes = if self.inner_lite.chunk_execution_root.is_some() {
+            let inner_lite: BlockHeaderInnerLiteV2 = (&self.inner_lite).into();
+            borsh::to_vec(&inner_lite).unwrap()
+        } else {
+            let inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+            borsh::to_vec(&inner_lite).unwrap()
+        };
         combine_hash(
-            &combine_hash(
-                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
-                &self.inner_rest_hash,
-            ),
+            &combine_hash(&hash(&inner_lite_bytes), &self.inner_rest_hash),
             &self.prev_block_hash,
         )
     }

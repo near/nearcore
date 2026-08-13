@@ -149,7 +149,7 @@ pub fn spice_pre_validate_chunk_state_witness(
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::Recorded(PartialStorage {
-                nodes: state_witness.main_state_transition().base_state.clone(),
+                nodes: state_witness.pre_state().clone(),
             }),
             state_patch: Default::default(),
         };
@@ -224,14 +224,6 @@ pub fn spice_validate_chunk_state_witness(
         (chunk_extra, outgoing_receipts)
     };
 
-    if chunk_extra.state_root() != &state_witness.main_state_transition().post_state_root {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Post state root {:?} for main transition does not match expected post state root {:?}",
-            chunk_extra.state_root(),
-            state_witness.main_state_transition().post_state_root,
-        )));
-    }
-
     // TODO(spice-resharding): Handle possible resharding transitions.
 
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -239,15 +231,6 @@ pub fn spice_validate_chunk_state_witness(
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
-    let execution_result_hash = execution_result.compute_hash();
-    if &execution_result_hash != state_witness.execution_result_hash() {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "Execution result hash {:?} does not match expected execution result hash {:?}",
-            execution_result_hash,
-            state_witness.execution_result_hash(),
-        )));
-    }
-
     Ok(execution_result)
 }
 
@@ -405,21 +388,20 @@ mod tests {
     use near_primitives::sharding::{
         EncodedShardChunkBody, ShardChunkHeader, ShardChunkHeaderV3, TransactionReceipt,
     };
-    use near_primitives::spice::state_witness::SpiceChunkStateTransition;
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
+    use near_primitives::stateless_validation::contract_distribution::CodeHash;
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::{
-        AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
-    };
+    use near_primitives::types::{AccountId, BlockHeight, ChunkExecutionResult, SpiceChunkId};
     use near_primitives::validator_signer::ValidatorSigner;
     use near_store::get_genesis_state_roots;
     use reed_solomon_erasure::galois_8::ReedSolomon;
+    use std::collections::BTreeSet;
     use std::str::FromStr as _;
     use tracing::Span;
 
@@ -635,15 +617,11 @@ mod tests {
         let receipts: Vec<Receipt> = Vec::new();
         let invalid_witness = SpiceChunkStateWitness::new(
             SpiceChunkId { block_hash: *genesis.hash(), shard_id },
-            SpiceChunkStateTransition {
-                base_state: PartialState::TrieValues(vec![]),
-                post_state_root: CryptoHash::default(),
-            },
+            PartialState::TrieValues(vec![]),
             HashMap::new(),
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             vec![],
-            ChunkExecutionResultHash(CryptoHash::default()),
-            CryptoHash::default(),
+            BTreeSet::new(),
             None,
         );
 
@@ -681,15 +659,11 @@ mod tests {
         let invalid_source_receipt_proofs = HashMap::from([(shard_id, proof)]);
         let invalid_witness = SpiceChunkStateWitness::new(
             SpiceChunkId { block_hash: *block.hash(), shard_id },
-            SpiceChunkStateTransition {
-                base_state: PartialState::TrieValues(vec![]),
-                post_state_root: CryptoHash::default(),
-            },
+            PartialState::TrieValues(vec![]),
             invalid_source_receipt_proofs,
             hash(&borsh::to_vec(receipts.as_slice()).unwrap()),
             test_chain.transactions(),
-            ChunkExecutionResultHash(CryptoHash::default()),
-            CryptoHash::default(),
+            BTreeSet::new(),
             None,
         );
 
@@ -743,36 +717,6 @@ mod tests {
         let (_, execution_result) =
             test_chain.simulate_chunk_application_for_block_with_missing_chunks();
         assert_eq!(witness_execution_result, execution_result);
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_validation_fails_with_incorrect_post_main_transition_root() {
-        let test_chain = setup();
-        let valid_witness = test_chain.valid_witness();
-        let main_state_transition = SpiceChunkStateTransition {
-            base_state: valid_witness.main_state_transition().base_state.clone(),
-            post_state_root: CryptoHash::default(),
-        };
-        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
-            .main_state_transition(main_state_transition)
-            .build();
-
-        let error_message = unwrap_error_message(test_chain.run_validation(invalid_witness));
-        assert_contains(&error_message, "main transition does not match expected post state root");
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_validation_fails_with_incorrect_execution_result_hash() {
-        let test_chain = setup();
-        let valid_witness = test_chain.valid_witness();
-        let invalid_witness = TestWitnessBuilder::from_default(valid_witness)
-            .execution_result_hash(ChunkExecutionResultHash(CryptoHash::default()))
-            .build();
-
-        let error_message = unwrap_error_message(test_chain.run_validation(invalid_witness));
-        assert_contains(&error_message, "does not match expected execution result hash");
     }
 
     #[test]
@@ -1016,12 +960,11 @@ mod tests {
 
     struct TestWitnessBuilder {
         chunk_id: SpiceChunkId,
-        main_state_transition: SpiceChunkStateTransition,
+        pre_state: PartialState,
         source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
-        execution_result_hash: ChunkExecutionResultHash,
-        contract_accesses_hash: CryptoHash,
+        contract_accesses: BTreeSet<CodeHash>,
         proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
     }
 
@@ -1036,22 +979,19 @@ mod tests {
 
     impl TestWitnessBuilder {
         builder_setter!(chunk_id, SpiceChunkId);
-        builder_setter!(main_state_transition, SpiceChunkStateTransition);
         builder_setter!(source_receipt_proofs, HashMap<ShardId, ReceiptProof>);
         builder_setter!(applied_receipts_hash, CryptoHash);
         builder_setter!(transactions, Vec<SignedTransaction>);
-        builder_setter!(execution_result_hash, ChunkExecutionResultHash);
         builder_setter!(proof_of_invalid_chunk, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
             Self {
                 chunk_id: default.chunk_id().clone(),
-                main_state_transition: default.main_state_transition().clone(),
+                pre_state: default.pre_state().clone(),
                 source_receipt_proofs: default.source_receipt_proofs().clone(),
                 applied_receipts_hash: *default.applied_receipts_hash(),
                 transactions: default.transactions().to_vec(),
-                execution_result_hash: default.execution_result_hash().clone(),
-                contract_accesses_hash: *default.contract_accesses_hash(),
+                contract_accesses: default.contract_accesses().clone(),
                 proof_of_invalid_chunk: default
                     .proof_of_invalid_chunk()
                     .map(|b| Box::new(b.clone())),
@@ -1061,12 +1001,11 @@ mod tests {
         fn build(self) -> SpiceChunkStateWitness {
             SpiceChunkStateWitness::new(
                 self.chunk_id,
-                self.main_state_transition,
+                self.pre_state,
                 self.source_receipt_proofs,
                 self.applied_receipts_hash,
                 self.transactions,
-                self.execution_result_hash,
-                self.contract_accesses_hash,
+                self.contract_accesses,
                 self.proof_of_invalid_chunk,
             )
         }
@@ -1244,15 +1183,11 @@ mod tests {
             let shard_id = self.shard_id();
             SpiceChunkStateWitness::new(
                 SpiceChunkId { block_hash: *block.hash(), shard_id },
-                SpiceChunkStateTransition {
-                    base_state: PartialState::TrieValues(vec![]),
-                    post_state_root: CryptoHash::default(),
-                },
+                PartialState::TrieValues(vec![]),
                 self.source_receipt_proofs(),
                 self.applied_receipts_hash(),
                 vec![],
-                ChunkExecutionResultHash(CryptoHash::default()),
-                CryptoHash::default(),
+                BTreeSet::new(),
                 Some(Box::new(body)),
             )
         }
@@ -1356,15 +1291,14 @@ mod tests {
             let receipts_hash = self.applied_receipts_hash();
             let transactions = self.transactions();
 
-            let (transition, execution_result) = self.simulate_chunk_application();
+            let (transition, _execution_result) = self.simulate_chunk_application();
             SpiceChunkStateWitness::new(
                 SpiceChunkId { block_hash: *block.hash(), shard_id },
                 transition,
                 receipt_proofs,
                 receipts_hash,
                 transactions,
-                execution_result.compute_hash(),
-                CryptoHash::default(),
+                BTreeSet::new(),
                 None,
             )
         }
@@ -1377,7 +1311,7 @@ mod tests {
             let receipts_hash = self.applied_receipts_hash();
             let transactions = vec![];
 
-            let (transition, execution_result) =
+            let (transition, _execution_result) =
                 self.simulate_chunk_application_for_block_with_missing_chunks();
             SpiceChunkStateWitness::new(
                 SpiceChunkId { block_hash: *block.hash(), shard_id },
@@ -1385,8 +1319,7 @@ mod tests {
                 receipt_proofs,
                 receipts_hash,
                 transactions,
-                execution_result.compute_hash(),
-                CryptoHash::default(),
+                BTreeSet::new(),
                 None,
             )
         }
@@ -1447,14 +1380,14 @@ mod tests {
             )
         }
 
-        fn simulate_chunk_application(&self) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
+        fn simulate_chunk_application(&self) -> (PartialState, ChunkExecutionResult) {
             let transactions = self.transactions();
             self.simulate_chunk_application_for_block(&self.block(), transactions)
         }
 
         fn simulate_chunk_application_for_block_with_missing_chunks(
             &self,
-        ) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
+        ) -> (PartialState, ChunkExecutionResult) {
             self.simulate_chunk_application_for_block(&self.block_with_missing_chunks(), vec![])
         }
 
@@ -1462,7 +1395,7 @@ mod tests {
             &self,
             block: &Block,
             transactions: Vec<SignedTransaction>,
-        ) -> (SpiceChunkStateTransition, ChunkExecutionResult) {
+        ) -> (PartialState, ChunkExecutionResult) {
             let prev_execution_results = self.prev_execution_results();
             let receipts = self.receipts_for_shard(self.shard_id());
             let storage_context = StorageContext {
@@ -1529,13 +1462,7 @@ mod tests {
             .unwrap();
             let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
 
-            (
-                SpiceChunkStateTransition {
-                    base_state: apply_result.proof.unwrap().nodes,
-                    post_state_root: apply_result.new_root,
-                },
-                execution_result,
-            )
+            (apply_result.proof.unwrap().nodes, execution_result)
         }
     }
 }

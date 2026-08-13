@@ -2,6 +2,7 @@ use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+    spice_designated_endorsement_dropper,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -34,6 +35,18 @@ pub enum DropCondition {
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
     // Drops Block broadcast messages with height in `self.0`
     BlocksByHeight(HashSet<BlockHeight>),
+    /// Drop every chunk of the given shards produced in any of the listed epoch
+    /// heights. Unlike `ChunksProducedByHeight` (keyed on height-within-epoch),
+    /// this is keyed on the absolute epoch height, so it silences a shard for
+    /// whole specific epochs, including the first block of each such epoch.
+    ChunksForShardsInEpochs {
+        shards: HashSet<ShardId>,
+        epoch_heights: HashSet<u64>,
+    },
+    /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk,
+    /// disabling the designated certification path so chunks can certify only via the all-stake
+    /// fallback.
+    DesignatedSpiceEndorsements,
 }
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
@@ -126,7 +139,54 @@ impl NodeExecutionData {
             DropCondition::BlocksByHeight(heights) => {
                 self.register_drop_blocks_by_height(test_loop_data, heights);
             }
+            DropCondition::ChunksForShardsInEpochs { shards, epoch_heights } => {
+                self.register_drop_chunks_for_shards_in_epochs(
+                    test_loop_data,
+                    chunks_storage,
+                    shards.clone(),
+                    epoch_heights.clone(),
+                );
+            }
+            DropCondition::DesignatedSpiceEndorsements => {
+                self.register_drop_designated_spice_endorsements(test_loop_data);
+            }
         }
+    }
+
+    fn register_drop_chunks_for_shards_in_epochs(
+        &self,
+        test_loop_data: &mut TestLoopData,
+        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+        shards: HashSet<ShardId>,
+        epoch_heights: HashSet<u64>,
+    ) {
+        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+
+        let inner_epoch_manager = epoch_manager.clone();
+        let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
+            if !shards.contains(&chunk.shard_id()) {
+                return false;
+            }
+            let epoch_height = inner_epoch_manager
+                .get_epoch_height_from_prev_block(chunk.prev_block_hash())
+                .unwrap();
+            epoch_heights.contains(&epoch_height)
+        });
+
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+        );
+    }
+
+    fn register_drop_designated_spice_endorsements(&self, test_loop_data: &mut TestLoopData) {
+        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+        self.register_override_handler(
+            test_loop_data,
+            spice_designated_endorsement_dropper(epoch_manager),
+        );
     }
 
     fn register_drop_chunks_validated_by(

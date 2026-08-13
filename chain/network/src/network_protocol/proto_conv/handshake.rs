@@ -1,5 +1,6 @@
 /// Conversion functions for `Handshake` messages.
 use super::*;
+use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
@@ -34,10 +35,18 @@ impl TryFrom<&proto::GenesisId> for GenesisId {
 pub enum ParsePeerChainInfoV2Error {
     #[error("genesis_id {0}")]
     GenesisId(ParseRequiredError<ParseGenesisIdError>),
+    #[error("tracked_shards: {count} > {max} (MAX_TRACKED_SHARDS_PER_PEER)")]
+    TooManyTrackedShards { count: usize, max: usize },
 }
 
 impl From<&PeerChainInfoV2> for proto::PeerChainInfo {
     fn from(x: &PeerChainInfoV2) -> Self {
+        debug_assert!(
+            x.tracked_shards.len() <= MAX_TRACKED_SHARDS_PER_PEER,
+            "tracked_shards length {} exceeds MAX_TRACKED_SHARDS_PER_PEER ({})",
+            x.tracked_shards.len(),
+            MAX_TRACKED_SHARDS_PER_PEER,
+        );
         Self {
             genesis_id: MF::some((&x.genesis_id).into()),
             height: x.height,
@@ -51,6 +60,12 @@ impl From<&PeerChainInfoV2> for proto::PeerChainInfo {
 impl TryFrom<&proto::PeerChainInfo> for PeerChainInfoV2 {
     type Error = ParsePeerChainInfoV2Error;
     fn try_from(p: &proto::PeerChainInfo) -> Result<Self, Self::Error> {
+        if p.tracked_shards.len() > MAX_TRACKED_SHARDS_PER_PEER {
+            return Err(Self::Error::TooManyTrackedShards {
+                count: p.tracked_shards.len(),
+                max: MAX_TRACKED_SHARDS_PER_PEER,
+            });
+        }
         Ok(Self {
             genesis_id: try_from_required(&p.genesis_id).map_err(Self::Error::GenesisId)?,
             height: p.height,

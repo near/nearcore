@@ -26,7 +26,7 @@ pub use near_client_primitives::types::{
     GetReceiptToTxResponse, GetShardChunk, GetSplitStorageInfo, GetStateChanges,
     GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError, TxStatusOutcome,
 };
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
@@ -58,4 +58,5 @@ pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;
+mod verified_peer_heights;
 mod view_client_actor;
