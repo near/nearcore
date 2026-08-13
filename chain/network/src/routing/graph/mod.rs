@@ -44,7 +44,7 @@ pub struct GraphConfig {
 
 #[derive(Default)]
 pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey, Edge>,
+    pub edges: imbl::HashMap<EdgeKey, Edge>,
     pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
     pub distances: Arc<DistanceTable>,
@@ -58,7 +58,7 @@ struct Inner {
     /// Nodes are Peers and edges are active connections.
     graph: bfs::Graph,
 
-    edges: im::HashMap<EdgeKey, Edge>,
+    edges: imbl::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     /// Maps each edge key to the remote peer that first introduced it.
@@ -67,8 +67,8 @@ struct Inner {
     source_edge_count: HashMap<PeerId, usize>,
 }
 
-fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
-    set.get(&edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
+fn has(set: &imbl::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
+    set.get(edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
 }
 
 impl Inner {
