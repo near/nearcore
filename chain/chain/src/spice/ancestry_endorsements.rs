@@ -1,4 +1,4 @@
-use crate::spice::core::fallback_eligible;
+use crate::spice::all_stake_fallback::fallback_eligible;
 use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use std::collections::{HashMap, HashSet};
