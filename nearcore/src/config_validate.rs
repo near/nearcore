@@ -263,14 +263,23 @@ impl<'a> ConfigValidator<'a> {
 
     fn validate_cloud_archival_config(&mut self) {
         let Some(cloud_archival_config) = &self.config.cloud_archival else {
-            if self.config.cloud_archival_writer.is_some() {
+            return;
+        };
+        match (&cloud_archival_config.writer, &cloud_archival_config.reader) {
+            (Some(_), Some(_)) => {
                 let error_message =
-                    "`cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
+                    "`cloud_archival` sets both `writer` and `reader`; a node is one or the other."
                         .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
-            return;
-        };
+            (None, None) => {
+                let error_message =
+                    "`cloud_archival` sets neither `writer` nor `reader`; one is required."
+                        .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
+            _ => {}
+        }
         if self.config.state_sync.is_some() {
             let error_message =
                 "State sync/dump cannot be configured when cloud archive is enabled; \
@@ -291,19 +300,19 @@ impl<'a> ConfigValidator<'a> {
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
-        let Some(writer_config) = &self.config.cloud_archival_writer else {
+        let Some(writer_config) = &cloud_archival_config.writer else {
             return;
         };
         let tracked_shards = self.config.tracked_shards_config();
         let archives_shards = tracked_shards.tracks_non_empty_subset_of_shards();
         if !archives_shards && !writer_config.archive_block_data {
             let error_message =
-                "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
+                "`cloud_archival.writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
         if writer_config.snapshot_every_n_epochs == 0 {
             let error_message =
-                "`cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
+                "`cloud_archival.writer.snapshot_every_n_epochs` must be greater than 0."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
@@ -311,7 +320,7 @@ impl<'a> ConfigValidator<'a> {
             // `ShardData::transaction_result_for_block` is sourced from `OutcomeIds` and
             // `TransactionResultForBlock`; both are skipped when `save_tx_outcomes` is false.
             if self.config.save_tx_outcomes == Some(false) {
-                let error_message = "`cloud_archival_writer` archives shards but \
+                let error_message = "`cloud_archival.writer` archives shards but \
                     `save_tx_outcomes` is set to false; the writer needs outcome data to \
                     populate `ShardData::transaction_result_for_block`. Set `save_tx_outcomes: \
                     true` or omit it (defaults to true on archival and rpc nodes)."
@@ -321,7 +330,7 @@ impl<'a> ConfigValidator<'a> {
             let save_receipt_to_tx =
                 self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
             if !save_receipt_to_tx {
-                let error_message = "`cloud_archival_writer` archives shards but \
+                let error_message = "`cloud_archival.writer` archives shards but \
                     `save_receipt_to_tx` resolves to false; the writer needs ReceiptToTx data to \
                     populate `ShardData::receipt_to_tx`. Set `save_receipt_to_tx: true`."
                     .to_string();
@@ -373,7 +382,9 @@ mod tests {
         CloudArchivalWriterConfig, GCConfig, MIN_BLOCK_PRODUCTION_DELAY, StateSyncConfig,
         TrackedShardsConfig,
     };
-    use near_store::archive::cloud_storage::config::test_cloud_archival_config;
+    use near_store::archive::cloud_storage::config::{
+        CloudArchivalConfig, test_cloud_archival_config,
+    };
 
     /// The fastest block production the given gc config still matches: `gc_blocks_limit` blocks
     /// reclaim exactly one `gc_step_period` of chain time.
@@ -584,18 +595,11 @@ mod tests {
     )]
     fn test_cloud_archival_set_archive_is_false() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         config.archive = false;
-        validate_config(&config).unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
-    )]
-    fn test_cloud_archival_writer_set_but_cloud_archival_disabled() {
-        let mut config = Config::default();
-        config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }
 
@@ -603,7 +607,10 @@ mod tests {
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
         config.archive = true;
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         validate_config(&config).unwrap();
     }
 
@@ -611,7 +618,10 @@ mod tests {
     fn test_cloud_archival_reader_with_cold_store() {
         let mut config = Config::default();
         config.archive = true;
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         config.cold_store = Some(config.store.clone());
         config.save_trie_changes = Some(true);
         validate_config(&config).unwrap();
@@ -619,26 +629,28 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only."
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` must track at least one shard unless it is configured to `archive_block_data` only."
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        config.cloud_archival_writer = Some(Default::default());
+        config.cloud_archival = Some(CloudArchivalConfig {
+            writer: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer.snapshot_every_n_epochs` must be greater than 0."
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer.snapshot_every_n_epochs` must be greater than 0."
     )]
     fn test_cloud_archival_writer_snapshot_cadence_nonzero() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        let mut writer_config = CloudArchivalWriterConfig::default();
-        writer_config.archive_block_data = true;
-        writer_config.snapshot_every_n_epochs = 0;
-        config.cloud_archival_writer = Some(writer_config);
+        let mut writer = CloudArchivalWriterConfig::default();
+        writer.archive_block_data = true;
+        writer.snapshot_every_n_epochs = 0;
+        config.cloud_archival =
+            Some(CloudArchivalConfig { writer: Some(writer), ..test_cloud_archival_config("") });
         validate_config(&config).unwrap();
     }
 
@@ -646,7 +658,10 @@ mod tests {
     #[should_panic(expected = "is not a supported cloud storage location")]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
-        let mut cloud_archival_config = test_cloud_archival_config("");
+        let mut cloud_archival_config = CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        };
         cloud_archival_config.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
@@ -659,22 +674,56 @@ mod tests {
     )]
     fn test_cloud_archival_with_state_sync_configured() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival = Some(CloudArchivalConfig {
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        });
         config.state_sync = Some(Default::default());
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival` sets both `writer` and `reader`; a node is one or the other."
+    )]
+    fn test_cloud_archival_writer_and_reader_both_set() {
+        let mut config = Config::default();
+        config.archive = true;
+        let cloud_archival = CloudArchivalConfig {
+            writer: Some(Default::default()),
+            reader: Some(Default::default()),
+            ..test_cloud_archival_config("")
+        };
+        config.cloud_archival = Some(cloud_archival);
+        config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: `cloud_archival` sets neither `writer` nor `reader`; one is required."
+    )]
+    fn test_cloud_archival_writer_and_reader_both_unset() {
+        let mut config = Config::default();
+        config.archive = true;
+        let cloud_archival = test_cloud_archival_config("");
+        config.cloud_archival = Some(cloud_archival);
         validate_config(&config).unwrap();
     }
 
     fn cloud_archival_writer_archiving_shards_config() -> Config {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        config.cloud_archival_writer = Some(CloudArchivalWriterConfig::default());
+        config.cloud_archival = Some(CloudArchivalConfig {
+            writer: Some(CloudArchivalWriterConfig::default()),
+            ..test_cloud_archival_config("")
+        });
         config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
         config
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_tx_outcomes` is set to false"
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` archives shards but `save_tx_outcomes` is set to false"
     )]
     fn test_cloud_archival_writer_save_tx_outcomes_false() {
         let mut config = cloud_archival_writer_archiving_shards_config();
@@ -684,7 +733,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` archives shards but `save_receipt_to_tx` resolves to false"
+        expected = "\\nconfig.json semantic issue: `cloud_archival.writer` archives shards but `save_receipt_to_tx` resolves to false"
     )]
     fn test_cloud_archival_writer_save_receipt_to_tx_false() {
         let mut config = cloud_archival_writer_archiving_shards_config();
@@ -698,10 +747,10 @@ mod tests {
     #[test]
     fn test_cloud_archival_writer_block_only_skips_shard_flag_checks() {
         let mut config = Config::default();
-        config.cloud_archival = Some(test_cloud_archival_config(""));
-        let mut writer_config = CloudArchivalWriterConfig::default();
-        writer_config.archive_block_data = true;
-        config.cloud_archival_writer = Some(writer_config);
+        let mut writer = CloudArchivalWriterConfig::default();
+        writer.archive_block_data = true;
+        config.cloud_archival =
+            Some(CloudArchivalConfig { writer: Some(writer), ..test_cloud_archival_config("") });
         config.save_tx_outcomes = Some(false);
         config.save_receipt_to_tx = Some(false);
         let err = validate_config(&config).err().map(|e| e.to_string()).unwrap_or_default();
