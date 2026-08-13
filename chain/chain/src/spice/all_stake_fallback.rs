@@ -37,8 +37,8 @@ pub fn all_stake_fallback_assignment(
 }
 
 /// Epoch validators that may endorse the chunk only through the all-stake fallback: every validator
-/// of the epoch that is not designated for it. Ordered by the epoch's validator order, so callers
-/// building block content stay deterministic.
+/// of the epoch that is not designated for it. Keeps the epoch's validator order, the same order
+/// [`all_stake_fallback_assignment`] has, so callers building block content stay deterministic.
 pub fn fallback_endorsers(
     epoch_manager: &dyn EpochManagerAdapter,
     epoch_id: &EpochId,
@@ -47,12 +47,10 @@ pub fn fallback_endorsers(
 ) -> Result<Vec<AccountId>, EpochError> {
     let designated =
         epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, chunk_height_created)?;
-    let all_validators = all_stake_fallback_assignment(epoch_manager, epoch_id)?;
-    Ok(all_validators
-        .assignments()
-        .iter()
-        .map(|(account_id, _)| account_id)
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+    Ok(epoch_info
+        .validators_iter()
+        .map(|validator| validator.take_account_id())
         .filter(|account_id| !designated.contains(account_id))
-        .cloned()
         .collect())
 }
