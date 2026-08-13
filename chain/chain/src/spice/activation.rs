@@ -47,16 +47,21 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
     spice_enabled_for_block(chain_store, &head.last_block_hash)
 }
 
-/// [`spice_enabled_at_head`] for actor startup, where there is no caller to return an
-/// error to.
+/// Whether spice is active at the head, for actor startup, where there is no caller to
+/// return an error to.
 ///
-/// A store with no head yet is reported as pre-spice. Any other storage error is
-/// fatal: the recovery paths this gates already panic on a store they cannot read, so
-/// skipping them would trade a crash for a node that silently skipped recovery.
+/// A store with no head at all is reported as pre-spice. Every other storage error,
+/// including a head whose header is missing, is fatal: the recovery paths this gates
+/// already panic on a store they cannot read, so skipping them would trade a crash for a
+/// node that silently skipped recovery.
 pub fn spice_enabled_at_head_on_startup(chain_store: &ChainStoreAdapter) -> bool {
-    match spice_enabled_at_head(chain_store) {
+    let head = match chain_store.head() {
+        Ok(head) => head,
+        Err(Error::DBNotFoundErr(_)) => return false,
+        Err(err) => panic!("failed to read the chain head: {err}"),
+    };
+    match spice_enabled_for_block(chain_store, &head.last_block_hash) {
         Ok(enabled) => enabled,
-        Err(Error::DBNotFoundErr(_)) => false,
         Err(err) => panic!("failed to determine whether spice is active at head: {err}"),
     }
 }
@@ -133,5 +138,45 @@ impl SpiceMessageGate {
     #[cfg(feature = "test_features")]
     pub fn dropped_count(&self, kind: SpiceMessageKind) -> u64 {
         self.dropped.get(&kind).copied().unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spice_enabled_at_head_on_startup;
+    use near_primitives::block::Tip;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::EpochId;
+    use near_store::adapter::StoreAdapter as _;
+    use near_store::test_utils::create_test_store;
+    use near_store::{DBCol, HEAD_KEY};
+
+    /// A node that has not synced anything yet is pre-spice rather than a panic.
+    #[test]
+    fn no_head_is_pre_spice() {
+        let store = create_test_store();
+        assert!(!spice_enabled_at_head_on_startup(&store.chain_store()));
+    }
+
+    /// A head whose header is missing is a corrupt store, not a pre-spice chain.
+    #[test]
+    #[should_panic(expected = "failed to determine whether spice is active at head")]
+    fn head_without_a_header_panics() {
+        let store = create_test_store();
+        let mut update = store.store_update();
+        update.set_ser(
+            DBCol::BlockMisc,
+            HEAD_KEY,
+            &Tip {
+                height: 1,
+                last_block_hash: CryptoHash::hash_bytes(b"a block with no header"),
+                prev_block_hash: CryptoHash::default(),
+                epoch_id: EpochId(CryptoHash::default()),
+                next_epoch_id: EpochId(CryptoHash::default()),
+            },
+        );
+        update.commit();
+
+        spice_enabled_at_head_on_startup(&store.chain_store());
     }
 }
