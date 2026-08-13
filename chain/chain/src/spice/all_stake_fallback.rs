@@ -4,7 +4,7 @@
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::errors::EpochError;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::types::{BlockHeight, EpochId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId, SpiceUncertifiedChunkInfo};
 
 /// Blocks a chunk must stay certifiable-but-uncertified before the all-stake fallback opens for it.
 /// Well below epoch length (to rescue liveness before the one-epoch lag guard stalls consensus).
@@ -34,4 +34,25 @@ pub fn all_stake_fallback_assignment(
     let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
     let assignments = epoch_info.validators_iter().map(|validator| validator.account_and_stake());
     Ok(ChunkValidatorAssignments::new(assignments.collect()))
+}
+
+/// Epoch validators that may endorse the chunk only through the all-stake fallback: every validator
+/// of the epoch that is not designated for it. Ordered by the epoch's validator order, so callers
+/// building block content stay deterministic.
+pub fn fallback_endorsers(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    shard_id: ShardId,
+    chunk_height_created: BlockHeight,
+) -> Result<Vec<AccountId>, EpochError> {
+    let designated =
+        epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, chunk_height_created)?;
+    let all_validators = all_stake_fallback_assignment(epoch_manager, epoch_id)?;
+    Ok(all_validators
+        .assignments()
+        .iter()
+        .map(|(account_id, _)| account_id)
+        .filter(|account_id| !designated.contains(account_id))
+        .cloned()
+        .collect())
 }
