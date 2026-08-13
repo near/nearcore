@@ -44,6 +44,15 @@ impl fmt::Debug for GCMode {
     }
 }
 
+/// What the invalid chunk sweep does with the receipts of the chunk it deletes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InvalidChunkReceipts {
+    Delete,
+    /// `clear_redundant_chunk_data` drops partial chunks without releasing their receipts, so a
+    /// node on that path keeps every receipt. Nothing else can recompute them.
+    KeepForLegacyArchival,
+}
+
 /// A convenient wrapper that allows correctness integration testing without
 /// having to fully spin up GCActor.
 impl Chain {
@@ -153,7 +162,7 @@ impl ChainStore {
 
         // After the height loops: `chunk_tail` is current and the chunks they handled are gone.
         #[allow(clippy::or_fun_call)]
-        result.and(self.clear_invalid_chunks_data())
+        result.and(self.clear_invalid_chunks_data(InvalidChunkReceipts::Delete))
     }
 
     fn clear_old_blocks_data(
@@ -418,7 +427,7 @@ impl ChainStore {
         Ok(())
     }
 
-    /// Deletes invalid chunks created below `chunk_tail`, with their partial chunks and receipts.
+    /// Deletes invalid chunks created below `chunk_tail`, with their partial chunks.
     ///
     /// An invalid chunk gets no `Chunks` row, so `ChunkHashesByHeight` does not list it and the
     /// height loops cannot reach it. `InvalidChunks` is keyed by chunk hash and holds the encoded
@@ -427,7 +436,10 @@ impl ChainStore {
     /// Must run after the height loops: they advance `chunk_tail` and they release the partial
     /// chunk and receipts of a chunk the node produced itself.
     #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
-    fn clear_invalid_chunks_data(&self) -> Result<(), Error> {
+    fn clear_invalid_chunks_data(
+        &self,
+        receipts_cleanup: InvalidChunkReceipts,
+    ) -> Result<(), Error> {
         // Use binary version to determine whether Spice related GC should run.
         if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
             return Ok(());
@@ -447,7 +459,9 @@ impl ChainStore {
             let chunk_hash = chunk.chunk_hash();
             // The producer of a bad chunk keeps it in `Chunks` too, so the height loops already
             // released its receipts. A missing partial chunk row means that happened.
-            if let Ok(partial_chunk) = self.get_partial_chunk(chunk_hash) {
+            if let (InvalidChunkReceipts::Delete, Ok(partial_chunk)) =
+                (receipts_cleanup, self.get_partial_chunk(chunk_hash))
+            {
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
                         store_update
@@ -489,7 +503,11 @@ impl ChainStore {
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit);
         metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail() as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
-        chain_store_update.commit()
+        chain_store_update.commit()?;
+
+        // `clear_redundant_chunk_data` reaches only the chunks in `ChunkHashesByHeight`, which
+        // never lists an invalid chunk.
+        self.clear_invalid_chunks_data(InvalidChunkReceipts::KeepForLegacyArchival)
     }
 
     fn clear_forks_data(
