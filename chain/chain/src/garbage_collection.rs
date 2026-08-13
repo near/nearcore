@@ -1,6 +1,7 @@
 use crate::spice::core::get_last_certified_block_header;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_chain_configs::GCConfig;
 use near_chain_primitives::Error;
@@ -11,7 +12,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
@@ -143,12 +144,16 @@ impl ChainStore {
             .and(self.clear_witnesses_data());
 
         #[allow(clippy::or_fun_call)]
-        result.and(self.clear_old_blocks_data(
+        let result = result.and(self.clear_old_blocks_data(
             gc_config,
             runtime_adapter,
             epoch_manager,
             shard_tracker,
-        ))
+        ));
+
+        // After the height loops: `chunk_tail` is current and the chunks they handled are gone.
+        #[allow(clippy::or_fun_call)]
+        result.and(self.clear_invalid_chunks_data())
     }
 
     fn clear_old_blocks_data(
@@ -413,6 +418,50 @@ impl ChainStore {
         Ok(())
     }
 
+    /// Deletes invalid chunks created below `chunk_tail`, with their partial chunks and receipts.
+    ///
+    /// An invalid chunk gets no `Chunks` row, so `ChunkHashesByHeight` does not list it and the
+    /// height loops cannot reach it. `InvalidChunks` is keyed by chunk hash and holds the encoded
+    /// chunk, so a scan of the column yields the creation height without a separate index.
+    ///
+    /// Must run after the height loops: they advance `chunk_tail` and they release the partial
+    /// chunk and receipts of a chunk the node produced itself.
+    #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
+    fn clear_invalid_chunks_data(&self) -> Result<(), Error> {
+        // Use binary version to determine whether Spice related GC should run.
+        if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            return Ok(());
+        }
+
+        let chunk_tail = self.chunk_tail();
+        let mut store_update = self.store().store_update();
+        for (key, value) in self.store().iter(DBCol::InvalidChunks) {
+            let chunk = EncodedShardChunk::try_from_slice(&value).map_err(|err| {
+                Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
+                    "invalid chunk row: {err:?}"
+                )))
+            })?;
+            if chunk.height_created() >= chunk_tail {
+                continue;
+            }
+            let chunk_hash = chunk.chunk_hash();
+            // The producer of a bad chunk keeps it in `Chunks` too, so the height loops already
+            // released its receipts. A missing partial chunk row means that happened.
+            if let Ok(partial_chunk) = self.get_partial_chunk(chunk_hash) {
+                for receipts in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in &receipts.0 {
+                        store_update
+                            .decrement_refcount(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                    }
+                }
+            }
+            store_update.delete(DBCol::PartialChunks, chunk_hash.as_ref());
+            store_update.delete(DBCol::InvalidChunks, &key);
+        }
+        store_update.commit();
+        Ok(())
+    }
+
     /// Garbage collect data which archival node doesn't need to keep.
     ///
     /// Normally, archival nodes keep all the data from the genesis block and
@@ -534,37 +583,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    /// Deletes the evidence for invalid chunks created at `height`, and the index row.
-    /// A producer stores its own bad chunk in `Chunks`, so its hash is in `ChunkHashesByHeight`
-    /// too. The caller deletes those: a key must not be deleted twice in one store update.
-    fn clear_invalid_chunk_data_at_height(
-        &mut self,
-        height: BlockHeight,
-        chunk_hashes_deleted_by_caller: &HashSet<ChunkHash>,
-    ) {
-        // Only spice has invalid chunks, and only spice builds have the column to index them.
-        if !cfg!(feature = "protocol_feature_spice") {
-            return;
-        }
-        let invalid_chunk_hashes =
-            self.store().chunk_store().get_all_invalid_chunk_hashes_by_height(height);
-        if invalid_chunk_hashes.is_empty() {
-            return;
-        }
-        for chunk_hash in invalid_chunk_hashes.difference(chunk_hashes_deleted_by_caller) {
-            if let Ok(partial_chunk) = self.get_partial_chunk(chunk_hash) {
-                for receipts in partial_chunk.prev_outgoing_receipts() {
-                    for receipt in &receipts.0 {
-                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
-                    }
-                }
-            }
-            self.gc_col(DBCol::PartialChunks, chunk_hash.as_bytes());
-            self.gc_col(DBCol::InvalidChunks, chunk_hash.as_bytes());
-        }
-        self.gc_col(DBCol::invalid_chunk_hashes_by_height(), &index_to_bytes(height));
-    }
-
     pub(crate) fn clear_chunk_data_and_headers(
         &mut self,
         min_chunk_height: BlockHeight,
@@ -572,7 +590,6 @@ impl<'a> ChainStoreUpdate<'a> {
         let chunk_tail = self.chunk_tail();
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
-            self.clear_invalid_chunk_data_at_height(height, &chunk_hashes);
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?;
@@ -645,10 +662,6 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
-            // This sweep never decrements receipt refcounts, and the call below skips the hashes
-            // it deletes, so a producer's own invalid chunk would keep its receipts. That needs a
-            // legacy archival node that produced the invalid chunk itself, which is very unlikely.
-            self.clear_invalid_chunk_data_at_height(height, &chunk_hashes);
             height += 1;
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
@@ -1001,7 +1014,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
         let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
-        self.clear_invalid_chunk_data_at_height(height, &chunk_hashes);
         for chunk_hash in chunk_hashes {
             // 1. Delete chunk-related data
             let chunk = self.get_chunk(&chunk_hash)?;

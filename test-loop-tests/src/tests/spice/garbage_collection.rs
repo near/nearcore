@@ -1,8 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients_with_rpc};
 use crate::utils::node::TestLoopNode;
-#[cfg(feature = "test_features")]
-use borsh::BorshDeserialize;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
 #[cfg(feature = "test_features")]
@@ -12,8 +10,11 @@ use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+#[cfg(feature = "test_features")]
 use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
-use near_primitives::types::{BlockHeight, ShardId};
+#[cfg(feature = "test_features")]
+use near_primitives::types::BlockHeight;
+use near_primitives::types::ShardId;
 use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
 use near_store::DBCol;
 #[cfg(feature = "test_features")]
@@ -199,10 +200,6 @@ fn test_spice_invalid_chunks_are_collected() {
 
     for height in stored_invalid_chunks(&node).into_values() {
         assert!(height >= chunk_tail, "invalid chunk at height {height}, chunk_tail {chunk_tail}");
-    }
-    for (key, _) in node.store().iter(DBCol::invalid_chunk_hashes_by_height()) {
-        let height = BlockHeight::try_from_slice(&key).unwrap();
-        assert!(height >= chunk_tail, "index row at height {height}, chunk_tail {chunk_tail}");
     }
 }
 

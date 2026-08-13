@@ -2053,29 +2053,6 @@ impl<'a> ChainStoreUpdate<'a> {
         for (chunk_hash, chunk) in &self.chain_store_cache_update.invalid_chunks {
             store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk);
         }
-        // Only spice has invalid chunks, and only spice builds have the column to index them.
-        if cfg!(feature = "protocol_feature_spice") {
-            let mut invalid_chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
-                HashMap::new();
-            for chunk in self.chain_store_cache_update.invalid_chunks.values() {
-                let height_created = chunk.height_created();
-                invalid_chunk_hashes_by_height
-                    .entry(height_created)
-                    .or_insert_with(|| {
-                        self.chain_store
-                            .chunk_store()
-                            .get_all_invalid_chunk_hashes_by_height(height_created)
-                    })
-                    .insert(chunk.chunk_hash().clone());
-            }
-            for (height, hash_set) in invalid_chunk_hashes_by_height {
-                store_update.set_ser(
-                    DBCol::invalid_chunk_hashes_by_height(),
-                    &index_to_bytes(height),
-                    &hash_set,
-                );
-            }
-        }
         for block_height in &self.chain_store_cache_update.processed_block_heights {
             store_update.set_ser(DBCol::ProcessedBlockHeights, &index_to_bytes(*block_height), &());
         }

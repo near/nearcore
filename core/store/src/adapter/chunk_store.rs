@@ -69,16 +69,6 @@ impl ChunkStoreAdapter {
         self.store.get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
-    /// Returns a HashSet of hashes of the invalid chunks created at the given height.
-    pub fn get_all_invalid_chunk_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> HashSet<ChunkHash> {
-        self.store
-            .get_ser(DBCol::invalid_chunk_hashes_by_height(), &index_to_bytes(height))
-            .unwrap_or_default()
-    }
-
     /// Returns encoded chunk if it's invalid otherwise None.
     pub fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
         self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref())
