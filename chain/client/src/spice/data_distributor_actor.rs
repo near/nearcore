@@ -1388,9 +1388,9 @@ impl SpiceDataDistributorActor {
     }
 }
 
-/// Requesters start at different indices, so requests for the same data spread over the producers
-/// instead of all landing on one. Each round moves along, so an unresponsive producer is not asked
-/// forever.
+/// The starting producer index is derived from a hash of (data_id, requester), so requests for the
+/// same data are spread across producers instead of all landing on one. Adding `round` advances the
+/// index each tick, so retries move along rather than repeatedly targeting an unresponsive producer.
 fn producer_index_to_request_from(
     num_producers: usize,
     data_id: &SpiceDataIdentifier,
