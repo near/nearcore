@@ -144,7 +144,7 @@ impl CloudStorage {
     async fn download(&self, file_id: &CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
         let path = self.file_path(file_id);
         self.external
-            .get(&path)
+            .get_authenticated(&path)
             .await
             .map_err(|error| CloudRetrievalError::GetError { file_id: file_id.clone(), error })
     }

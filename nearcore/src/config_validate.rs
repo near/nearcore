@@ -290,12 +290,6 @@ impl<'a> ConfigValidator<'a> {
             let error_message = "`archive` is false, but `cloud_archival` is enabled.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
-        if self.config.cloud_archival_writer.is_none() && self.config.cold_store.is_none() {
-            let error_message =
-                "Cloud archival is enabled in reader mode, but `cold_store` is missing."
-                    .to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
 
         let Some(writer_config) = &self.config.cloud_archival_writer else {
             return;
@@ -606,12 +600,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: Cloud archival is enabled in reader mode, but `cold_store` is missing."
-    )]
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
+        config.archive = true;
         config.cloud_archival = Some(test_cloud_archival_config(""));
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    fn test_cloud_archival_reader_with_cold_store() {
+        let mut config = Config::default();
+        config.archive = true;
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cold_store = Some(config.store.clone());
+        config.save_trie_changes = Some(true);
         validate_config(&config).unwrap();
     }
 

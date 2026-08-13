@@ -50,7 +50,7 @@ use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
-use near_store::{NodeStorage, Store, StoreOpenerError};
+use near_store::{NodeStorage, Store, StoreOpenerError, is_cloud_reader_store};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
@@ -394,6 +394,13 @@ pub async fn start_with_config_and_synchronization_impl(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
+    // Before any actor is spawned, so the GC actor never starts on this store.
+    if is_cloud_reader_store(&storage.get_hot_store()) {
+        anyhow::bail!(
+            "this store was written by a cloud-archive reader and cannot be used by a running \
+             node; point the cloud-archive tool at it instead"
+        );
+    }
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
