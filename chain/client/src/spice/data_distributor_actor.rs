@@ -23,7 +23,7 @@ use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
-use near_chain::spice::all_stake_fallback::fallback_eligible;
+use near_chain::spice::all_stake_fallback::{fallback_eligible, fallback_endorsers};
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -63,6 +63,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::types::AccountId;
+use near_primitives::types::BlockHeight;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
@@ -154,6 +155,16 @@ impl ReceiveDataError {
     }
 }
 
+/// Blocks between the all-stake fallback opening for a chunk and a non-designated validator
+/// starting to request its witness. The producers push the witness when the fallback opens, so the
+/// request only covers a push that did not arrive.
+pub(crate) const FALLBACK_WITNESS_PULL_GRACE: BlockHeight = 2;
+
+/// A producer pushes the moment it sees the fallback open for a chunk. A receiver whose head is a
+/// few blocks behind does not see it open yet, so it accepts a push for a chunk that becomes
+/// fallback eligible within this many blocks. Only decides whether to buffer the parts.
+pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
+
 /// Bundles channels for all SPICE-related messages that the network layer dispatches to.
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
 /// message types (contract-{accesses,response}) to validator via injected senders.
@@ -178,7 +189,7 @@ pub struct SpiceDataDistributorActor {
     pending_partial_data: LruCache<CryptoHash, Vec<SpiceVerifiedPartialData>>,
 
     // TODO(spice): Populate data we are waiting on during actor start.
-    waiting_on_data: HashMap<SpiceDataIdentifier, HashMap<SpiceDataCommitment, DataPartsEntry>>,
+    waiting_on_data: HashMap<SpiceDataIdentifier, WaitingOnDataEntry>,
     // Purpose of this cache is to help make sure we don't decode the same data over and over.
     // TODO(spice): Once we remove data from waiting_on_data when it's saved (either relevant
     // endorsement or receipts are validated and saved), we should get rid of this cache and rely
@@ -190,6 +201,12 @@ pub struct SpiceDataDistributorActor {
     processed_contract_code_requests: LruCache<(SpiceChunkId, AccountId), ()>,
 
     spice_gate: SpiceMessageGate,
+
+    /// Chunks whose witness we already pushed for the all-stake fallback. A chunk stays eligible
+    /// for many blocks, so we push each once and leave a lost push to the recipients' request.
+    /// Only the oldest uncertified block's chunks are ever eligible, and entries go away once the
+    /// chunk certifies, so this holds at most one block's worth of chunks.
+    pushed_fallback_witnesses: HashSet<SpiceChunkId>,
 
     /// Rounds of [`Self::request_waiting_on_data`], so each retry moves to another producer.
     request_round: u64,
@@ -224,6 +241,24 @@ pub struct SpiceDataDistributorAdapter {
 
 struct DataPartsEntry {
     tracker: ReedSolomonPartsTracker<SpiceData>,
+}
+
+/// Data we still miss: the parts received so far, and when we may start requesting it.
+struct WaitingOnDataEntry {
+    parts_by_commitment: HashMap<SpiceDataCommitment, DataPartsEntry>,
+    /// Head height from which we send requests for this data. Designated recipients are allowed to
+    /// request right away; fallback recipients hold back so the producers' push can arrive first.
+    request_from_height: BlockHeight,
+}
+
+impl WaitingOnDataEntry {
+    fn request_immediately() -> Self {
+        Self { parts_by_commitment: HashMap::new(), request_from_height: 0 }
+    }
+
+    fn request_from_height(request_from_height: BlockHeight) -> Self {
+        Self { parts_by_commitment: HashMap::new(), request_from_height }
+    }
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
@@ -386,6 +421,9 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
                 return;
             }
         }
+        if let Err(err) = self.push_fallback_witnesses(&block_hash) {
+            tracing::error!(target: "spice_data_distribution", ?err, "failed pushing fallback witnesses");
+        }
         if let Err(err) = self.contribute_fallback_endorsements(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, "failed contributing fallback endorsements");
         }
@@ -437,6 +475,7 @@ impl SpiceDataDistributorActor {
                 PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE,
             ),
             spice_gate: SpiceMessageGate::default(),
+            pushed_fallback_witnesses: HashSet::new(),
             request_round: 0,
         }
     }
@@ -635,15 +674,18 @@ impl SpiceDataDistributorActor {
         // It's possible that waiting_on_data wasn't populated yet if we received data after block
         // became available but before we processed it.
         self.start_waiting_on_data(block.hash())?;
+        if !self.waiting_on_data.contains_key(&id) {
+            self.start_waiting_on_pushed_fallback_witness(&id, block)?;
+        }
 
-        let Some(data_parts) = self.waiting_on_data.get_mut(&id) else {
+        let Some(waiting) = self.waiting_on_data.get_mut(&id) else {
             return Err(Error::DataIsIrrelevant(id));
         };
 
         // TODO(spice): Check that encoded_length isn't too large.
         let encoded_length = commitment.encoded_length;
         let total_parts = producers.len();
-        let entry = data_parts.entry(commitment.clone()).or_insert_with(|| {
+        let entry = waiting.parts_by_commitment.entry(commitment.clone()).or_insert_with(|| {
             let encoder = self.rs_encoders.entry(total_parts);
             DataPartsEntry {
                 tracker: ReedSolomonPartsTracker::new(encoder, encoded_length as usize),
@@ -954,8 +996,101 @@ impl SpiceDataDistributorActor {
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
             // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
             if !tracks_shard {
-                self.start_waiting_on_fallback_witness(chunk_id, &chunk_block, me)?;
+                self.start_waiting_on_fallback_witness(
+                    chunk_id,
+                    &chunk_block,
+                    me,
+                    block.header().height() + FALLBACK_WITNESS_PULL_GRACE,
+                )?;
             }
+        }
+        Ok(())
+    }
+
+    /// As a chunk producer, push an overdue chunk's witness to the epoch validators that did not
+    /// receive it in the initial distribution, so they can endorse it via the all-stake fallback.
+    /// Every producer of the shard holds the witness and sees the same eligibility, so each sends
+    /// its own part to the wider set exactly as it did in the initial distribution.
+    fn push_fallback_witnesses(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let Some(signer) = self.validator_signer.get() else {
+            return Ok(());
+        };
+        let me = signer.validator_id();
+        let block = self.chain_store.get_block(block_hash)?;
+        let carrying_height = block.header().height() + 1;
+
+        let uncertified_chunks = self.core_reader.get_uncertified_chunks(block_hash)?;
+        let still_uncertified: HashSet<&SpiceChunkId> =
+            uncertified_chunks.iter().map(|chunk_info| &chunk_info.chunk_id).collect();
+        self.pushed_fallback_witnesses.retain(|chunk_id| still_uncertified.contains(chunk_id));
+
+        for chunk_info in &uncertified_chunks {
+            let chunk_id = &chunk_info.chunk_id;
+            if !fallback_eligible(carrying_height, chunk_info) {
+                continue;
+            }
+            if self.pushed_fallback_witnesses.contains(chunk_id) {
+                continue;
+            }
+            let data_id = SpiceDataIdentifier::Witness {
+                block_hash: chunk_id.block_hash,
+                shard_id: chunk_id.shard_id,
+            };
+            let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            // The designated recipients of the initial distribution are not needed here:
+            // fallback_endorsers already excludes every designated validator.
+            let (_, producers) = self.recipients_and_producers(&data_id, &chunk_block)?;
+            let Some(my_producer_index) = producers.iter().position(|producer| producer == me)
+            else {
+                continue;
+            };
+            let recipients: HashSet<AccountId> = fallback_endorsers(
+                self.epoch_manager.as_ref(),
+                chunk_block.header().epoch_id(),
+                chunk_id.shard_id,
+                chunk_block.header().height(),
+            )?
+            .into_iter()
+            .filter(|account_id| !producers.contains(account_id))
+            .collect();
+            debug_assert!(!recipients.contains(me));
+            if recipients.is_empty() {
+                continue;
+            }
+            let Some(mut distribution_data) = self.get_distribution_data(&data_id, producers.len())
+            else {
+                tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
+                continue;
+            };
+            let my_part = distribution_data.parts.swap_remove(my_producer_index);
+
+            // Sent before the witness for the same reason as in the initial distribution: the
+            // recipient can check its compiled contract cache while the parts arrive.
+            let accesses = get_contract_accesses(
+                self.chain_store.store_ref(),
+                &chunk_id.block_hash,
+                chunk_id.shard_id,
+            )
+            .expect("contract accesses should have been written atomically with witness");
+            let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, &signer);
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceChunkContractAccesses(
+                    recipients.iter().cloned().collect(),
+                    accesses_msg,
+                ),
+            ));
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpicePartialData {
+                    partial_data: SpicePartialData::new(
+                        data_id,
+                        distribution_data.commitment,
+                        vec![my_part],
+                        &signer,
+                    ),
+                    recipients,
+                },
+            ));
+            self.pushed_fallback_witnesses.insert(chunk_id.clone());
         }
         Ok(())
     }
@@ -1003,6 +1138,7 @@ impl SpiceDataDistributorActor {
         chunk_id: &SpiceChunkId,
         chunk_block: &Block,
         me: &AccountId,
+        request_from_height: BlockHeight,
     ) -> Result<(), Error> {
         let id = SpiceDataIdentifier::Witness {
             block_hash: chunk_id.block_hash,
@@ -1016,8 +1152,60 @@ impl SpiceDataDistributorActor {
         {
             return Ok(());
         }
-        self.waiting_on_data.insert(id, HashMap::new());
+        self.waiting_on_data
+            .insert(id, WaitingOnDataEntry::request_from_height(request_from_height));
         Ok(())
+    }
+
+    /// A producer pushes an overdue chunk's witness as soon as the fallback opens, which can be
+    /// before we processed the block that opened it. Start waiting on the witness now, so the
+    /// pushed parts have somewhere to go, if we are a validator the fallback expects to endorse it.
+    fn start_waiting_on_pushed_fallback_witness(
+        &mut self,
+        id: &SpiceDataIdentifier,
+        chunk_block: &Block,
+    ) -> Result<(), Error> {
+        let SpiceDataIdentifier::Witness { block_hash, shard_id } = id else {
+            return Ok(());
+        };
+        let Some(signer) = self.validator_signer.get() else {
+            return Ok(());
+        };
+        let me = signer.validator_id();
+        let epoch_id = chunk_block.header().epoch_id();
+        if self.epoch_manager.get_validator_by_account_id(epoch_id, me).is_err() {
+            return Ok(());
+        }
+        let assignments = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            *shard_id,
+            chunk_block.header().height(),
+        )?;
+        if assignments.contains(me) {
+            return Ok(());
+        }
+        if self.shard_tracker.should_apply_chunk(
+            ApplyChunksMode::IsCaughtUp,
+            chunk_block.header().prev_hash(),
+            *shard_id,
+        ) {
+            return Ok(());
+        }
+        let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
+        let head = self.chain_store.head()?;
+        if !self.core_reader.fallback_eligible_in_carrying_block(
+            head.height + 1 + FALLBACK_WITNESS_PUSH_LOOKAHEAD,
+            &head.last_block_hash,
+            &chunk_id,
+        )? {
+            return Ok(());
+        }
+        self.start_waiting_on_fallback_witness(
+            &chunk_id,
+            chunk_block,
+            me,
+            head.height + FALLBACK_WITNESS_PULL_GRACE,
+        )
     }
 
     fn start_waiting_on_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -1104,7 +1292,7 @@ impl SpiceDataDistributorActor {
                 tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
                 continue;
             }
-            self.waiting_on_data.insert(id, HashMap::new());
+            self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
         Ok(())
     }
@@ -1130,9 +1318,19 @@ impl SpiceDataDistributorActor {
             return;
         };
         let me = signer.validator_id();
+        let head_height = match self.chain_store.head() {
+            Ok(head) => head.height,
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, "no head to request data at");
+                return;
+            }
+        };
         // TODO(spice): Stop waiting on witnesses past final certification head.
 
-        for (id, _data_parts) in &self.waiting_on_data {
+        for (id, waiting) in &self.waiting_on_data {
+            if head_height < waiting.request_from_height {
+                continue;
+            }
             let block = self
                 .chain_store
                 .get_block(id.block_hash())

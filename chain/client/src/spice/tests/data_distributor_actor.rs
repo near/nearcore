@@ -3,8 +3,8 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, ReceiveDataError, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
-    SpiceDistributorStateWitness,
+    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, ReceiveDataError,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
@@ -2577,9 +2577,18 @@ fn test_contract_code_request_happy_path() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
-/// Grows the chain until the all-stake fallback is open for a chunk of `shard_id`, and returns it.
-/// Takes the shard's first uncertified chunk, the oldest one, since every block appends its own.
 fn grow_chain_until_fallback_opens(chain: &mut Chain, shard_id: ShardId) -> SpiceChunkId {
+    grow_chain_toward_fallback_opening(chain, shard_id, 0)
+}
+
+/// Grows the chain until the all-stake fallback is `blocks_short` blocks away from opening for a
+/// chunk of `shard_id`, and returns it. Takes the shard's first uncertified chunk, the oldest one,
+/// since every block appends its own.
+fn grow_chain_toward_fallback_opening(
+    chain: &mut Chain,
+    shard_id: ShardId,
+    blocks_short: BlockHeight,
+) -> SpiceChunkId {
     let head = chain.chain_store.head().unwrap();
     let chunk_info = chain
         .spice_core_reader
@@ -2591,7 +2600,7 @@ fn grow_chain_until_fallback_opens(chain: &mut Chain, shard_id: ShardId) -> Spic
     let certifiable_since =
         chunk_info.certifiable_since_height.expect("the oldest chunk is not certifiable yet");
 
-    while chain.chain_store.head().unwrap().height + 1
+    while chain.chain_store.head().unwrap().height + 1 + blocks_short
         < certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY
     {
         produce_block(chain, &latest_block(chain));
@@ -2688,4 +2697,220 @@ fn test_fallback_endorsement_is_broadcast_on_every_block_until_it_is_on_chain() 
         produce_block_carrying_endorsement(&mut chain, &block, &chunk_id, &validator);
     actor.handle(ProcessedBlock { block_hash: *carrying_block.hash() });
     assert!(!broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
+}
+
+fn save_test_witness_for_chunk(chain: &Chain, chunk_id: &SpiceChunkId) -> SpiceChunkStateWitness {
+    let block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
+    let chunks = block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == chunk_id.shard_id).unwrap();
+    let witness = new_test_witness_for_chunk(&block, chunk_header);
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        chunk_id.shard_id,
+        &witness,
+        &HashSet::new(),
+    );
+    witness
+}
+
+/// What the push targets: the fallback endorsers of `chunk_id`, less its producers, who already
+/// hold the witness.
+fn fallback_witness_recipients(chain: &Chain, chunk_id: &SpiceChunkId) -> HashSet<AccountId> {
+    let block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
+    let epoch_id = block.header().epoch_id();
+    let producers: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(epoch_id, chunk_id.shard_id)
+        .unwrap()
+        .into_iter()
+        .collect();
+    fallback_endorsers(
+        chain.epoch_manager.as_ref(),
+        epoch_id,
+        chunk_id.shard_id,
+        block.header().height(),
+    )
+    .unwrap()
+    .into_iter()
+    .filter(|account_id| !producers.contains(account_id))
+    .collect()
+}
+
+fn requested_witness_chunk_ids(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) -> HashSet<SpiceChunkId> {
+    drain_outgoing_data_requests(outgoing_rc)
+        .into_iter()
+        .filter_map(|request| match request.data_id {
+            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
+                Some(SpiceChunkId { block_hash, shard_id })
+            }
+            SpiceDataIdentifier::ReceiptProof { .. } => None,
+        })
+        .collect()
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_is_pushed_when_fallback_opens() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+    let witness = save_test_witness_for_chunk(&chain, &chunk_id);
+
+    let head_block = latest_block(&chain);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), shard_id)
+        .unwrap()
+        .swap_remove(0);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+
+    let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
+    assert_eq!(pushes.len(), 1);
+    let (partial_data, recipients) = pushes.swap_remove(0);
+    assert_eq!(partial_data.block_hash(), &witness.chunk_id().block_hash);
+    assert_eq!(recipients, fallback_witness_recipients(&chain, &chunk_id));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_is_pushed_only_once() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+    save_test_witness_for_chunk(&chain, &chunk_id);
+
+    let head_block = latest_block(&chain);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), shard_id)
+        .unwrap()
+        .swap_remove(0);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    assert_eq!(drain_outgoing_partial_data(&mut outgoing_rc).len(), 1);
+
+    let next_block = produce_block(&mut chain, &head_block);
+    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fallback_witness_is_requested_only_after_the_pull_grace() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+
+    let head_block = latest_block(&chain);
+    save_final_execution_head(&chain, &head_block);
+    let validator =
+        fallback_witness_recipients(&chain, &chunk_id).into_iter().sorted().next().unwrap();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+
+    fake_runner.run_queued_actions(&mut actor);
+    assert!(!requested_witness_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
+
+    let mut block = head_block;
+    for _ in 0..FALLBACK_WITNESS_PULL_GRACE {
+        block = produce_block(&mut chain, &block);
+    }
+    fake_runner.run_queued_actions(&mut actor);
+    assert!(requested_witness_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
+}
+
+/// A producer's own part of `chunk_id`'s witness, the same content a fallback push carries.
+fn pushed_witness_data(chain: &Chain, chunk_id: &SpiceChunkId) -> SpicePartialData {
+    let block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
+    let chunks = block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == chunk_id.shard_id).unwrap();
+    let state_witness = new_test_witness_for_chunk(&block, chunk_header);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), chunk_id.shard_id)
+        .unwrap()
+        .swap_remove(0);
+    let (incoming, _) = get_incoming_data(
+        &producer,
+        chain,
+        SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness },
+    );
+    incoming.data
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_fallback_witness_is_kept_when_head_is_within_the_lookahead() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    // The producer pushes as soon as it sees the fallback open. This receiver is still short of
+    // that height, so it has no entry waiting for the witness.
+    let chunk_id =
+        grow_chain_toward_fallback_opening(&mut chain, shard_id, FALLBACK_WITNESS_PUSH_LOOKAHEAD);
+    let data = pushed_witness_data(&chain, &chunk_id);
+    let validator = fallback_witness_recipients(&chain, &chunk_id)
+        .into_iter()
+        .sorted()
+        .next()
+        .expect("no non-designated validator; increase the validator count");
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
+    actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
+
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::ChunkStateWitnessMessage(SpiceChunkStateWitnessMessage {
+        witness, ..
+    }) = message
+    else {
+        panic!("expected the pushed witness to be reassembled");
+    };
+    assert_eq!(witness.chunk_id(), &chunk_id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_fallback_witness_is_dropped_when_head_is_beyond_the_lookahead() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_toward_fallback_opening(
+        &mut chain,
+        shard_id,
+        FALLBACK_WITNESS_PUSH_LOOKAHEAD + 1,
+    );
+    let data = pushed_witness_data(&chain, &chunk_id);
+    let validator = fallback_witness_recipients(&chain, &chunk_id)
+        .into_iter()
+        .sorted()
+        .next()
+        .expect("no non-designated validator; increase the validator count");
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
+    let result = actor.receive_data(data);
+
+    assert_matches!(
+        result,
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsIrrelevant(_)))
+    );
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
