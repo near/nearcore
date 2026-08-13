@@ -53,6 +53,9 @@ pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
 /// Set once a cloud-archive reader has written into this store. A running node refuses
 /// such a store; only the cloud-archive tool may use it.
+// TODO(cloud_archival): consider supporting a normal node on a store that was a recent
+// reader's. It is missing at least the epoch info for the epoch after the head; what else
+// it needs is unknown.
 pub const CLOUD_READER_STORE_KEY: &[u8] = b"CLOUD_READER_STORE";
 
 pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {

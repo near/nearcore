@@ -5,6 +5,7 @@ mod proto_conv;
 mod state_sync;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
+use bytesize::{KIB, MIB};
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
@@ -76,6 +77,12 @@ use tracing::Span;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
+// Per-message-type limits on the size of an incoming message
+const MAX_SMALL_MESSAGE_SIZE: usize = (512 * KIB) as usize;
+const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
+const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
+const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -485,6 +492,82 @@ impl PeerMessage {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
+        }
+    }
+
+    /// Maximum allowed size (in bytes) of the encoded form of a message of this type.
+    /// Incoming messages larger than this are dropped before being processed.
+    pub(crate) fn max_size(&self) -> usize {
+        use T1MessageBody::*;
+        use T2MessageBody::*;
+        use TieredMessageBody::{T1, T2};
+
+        match self {
+            PeerMessage::BlockRequest(_)
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::StateRequestHeader(_, _)
+            | PeerMessage::StateRequestPart(_, _, _)
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_)
+            | PeerMessage::Disconnect(_)
+            | PeerMessage::HandshakeFailure(_, _)
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::PeersRequest(_)
+            | PeerMessage::Challenge(_) // challenges are disabled
+            | PeerMessage::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
+
+            PeerMessage::PeersResponse(_)
+            | PeerMessage::Transaction(_)
+            | PeerMessage::SyncRoutingTable(_)
+            | PeerMessage::SyncAccountsData(_)
+            | PeerMessage::SyncSnapshotHosts(_)
+            | PeerMessage::BlockHeaders(_)
+            | PeerMessage::Block(_)
+            | PeerMessage::OptimisticBlock(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+            PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
+            PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,
+            PeerMessage::Routed(msg) => match msg.body() {
+                T1(body) => match body.as_ref() {
+                    BlockApproval(_) | VersionedChunkEndorsement(_) | SpiceChunkEndorsement(_) => {
+                        MAX_SMALL_MESSAGE_SIZE
+                    }
+
+                    PartialEncodedChunkForward(_)
+                    | ChunkContractAccesses(_)
+                    | ContractCodeRequest(_)
+                    | SpicePartialDataRequest(_)
+                    | SpiceChunkContractAccesses(_)
+                    | SpiceContractCodeRequest(_)
+                    | VersionedPartialEncodedChunk(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+                    PartialEncodedStateWitness(_)
+                    | PartialEncodedStateWitnessForward(_)
+                    | VersionedPartialEncodedStateWitness(_)
+                    | VersionedPartialEncodedStateWitnessForward(_)
+                    | ContractCodeResponse(_)
+                    | SpicePartialData(_)
+                    | SpiceContractCodeResponse(_) => MAX_LARGE_MESSAGE_SIZE,
+                },
+                T2(body) => match body.as_ref() {
+                    TxStatusRequest(_, _)
+                    | Ping(_)
+                    | Pong(_)
+                    | ChunkStateWitnessAck(_)
+                    | StatePartRequest(_)
+                    | StateHeaderRequest(_)
+                    | StateRequestAck(_) => MAX_SMALL_MESSAGE_SIZE,
+
+                    ForwardTx(_)
+                    | PartialEncodedChunkRequest(_)
+                    | TxStatusResponse(_)
+                    | PartialEncodedChunkResponse(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+                    | PartialEncodedContractDeploys(_) => MAX_LARGE_MESSAGE_SIZE,
+                },
+            },
         }
     }
 }

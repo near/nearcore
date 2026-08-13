@@ -349,6 +349,7 @@ impl PeerActor {
             stream,
             stats.clone(),
             network_state.incoming_message_semaphore.clone(),
+            network_state.config.max_write_buffer_capacity_bytes,
         );
         let actor = Self {
             closing_reason: None,
@@ -443,7 +444,7 @@ impl PeerActor {
                 None => {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
                         .inc_msg_type(msg.msg_variant());
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "network",
                         msg_type = msg.msg_variant(),
                         bytes_len,
@@ -1661,6 +1662,22 @@ impl messaging::Handler<IncomingFrame> for PeerActor {
                     return;
                 }
             };
+
+            // Enforce a per-message-type size limit.
+            let max_size = peer_msg.max_size();
+            if msg.len() > max_size {
+                let msg_variant = peer_msg.msg_variant();
+                metrics::MessageDropped::TooLargeForType.inc_msg_type(msg_variant);
+                tracing::debug!(
+                    target: "network",
+                    peer_info = %this.peer_info,
+                    %msg_variant,
+                    msg_len = msg.len(),
+                    max_size,
+                    "received a message exceeding the size limit for its type, dropping it",
+                );
+                return;
+            }
 
             tracing::trace!(target: "network", %peer_msg, "received message");
 

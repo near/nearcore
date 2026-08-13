@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.93.0"
+rust-version = "1.94.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -197,7 +197,7 @@ genesis-populate = { path = "genesis-tools/genesis-populate" }
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
-im = "15"
+imbl = "7.0.1"
 indicatif = { version = "0.18.3", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
@@ -331,7 +331,6 @@ sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
 smart-default = "0.7"
-smartstring = "1.0.1"
 strum = { version = "0.24", features = ["derive"] }
 stun = "0.7"
 subtle = "2.2"
