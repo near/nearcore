@@ -3,9 +3,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::spice::activation::{
-    SpiceMessageKind, accept_spice_network_message, spice_enabled_for_block,
-};
+use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -69,6 +67,8 @@ pub struct SpiceChunkValidatorActor {
 
     /// Per-chunk state accumulating till it can be applied.
     partial_chunk_data: LruCache<SpiceChunkId, PartialChunkData>,
+
+    spice_gate: SpiceMessageGate,
 }
 
 /// The currently trusted contract accesses sender and the set of contracts
@@ -167,7 +167,14 @@ impl SpiceChunkValidatorActor {
             core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
             partial_chunk_data: LruCache::new(NonZeroUsize::new(MAX_PENDING_CHUNKS).unwrap()),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 }
 
@@ -222,7 +229,7 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceChunkContractAccessesMessage(accesses, _recv_permit): SpiceChunkContractAccessesMessage,
     ) {
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::ContractAccesses,
             &accesses.chunk_id().block_hash,
@@ -240,7 +247,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceContractCodeResponseMessage(response, _recv_permit): SpiceContractCodeResponseMessage,
     ) {
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::ContractCodeResponse,
             &response.chunk_id().block_hash,
@@ -262,7 +269,7 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::StateWitness,
             &witness.chunk_id().block_hash,

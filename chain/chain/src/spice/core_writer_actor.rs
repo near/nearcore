@@ -1,6 +1,4 @@
-use crate::spice::activation::{
-    SpiceMessageKind, accept_spice_network_message, spice_enabled_for_block,
-};
+use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -55,6 +53,7 @@ pub struct SpiceCoreWriterActor {
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
     pending_endorsements: SyncLruCache<SpiceChunkId, HashMap<AccountId, SpiceVerifiedEndorsement>>,
+    spice_gate: SpiceMessageGate,
 }
 
 impl near_async::messaging::Actor for SpiceCoreWriterActor {}
@@ -69,7 +68,7 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::ChunkEndorsement,
             msg.0.block_hash(),
@@ -100,7 +99,14 @@ impl SpiceCoreWriterActor {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 
     fn save_endorsement(

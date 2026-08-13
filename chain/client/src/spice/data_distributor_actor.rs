@@ -21,8 +21,7 @@ use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
-    SpiceMessageKind, accept_spice_network_message, spice_enabled_at_head_on_startup,
-    spice_enabled_for_block,
+    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
 use near_chain::spice::core::{SpiceCoreReader, fallback_eligible};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
@@ -191,6 +190,8 @@ pub struct SpiceDataDistributorActor {
     /// at most once.
     /// TODO(spice): re-broadcast until the endorsement appears on chain rather than once.
     broadcast_own_fallback_endorsements: LruCache<SpiceChunkId, ()>,
+
+    spice_gate: SpiceMessageGate,
 }
 
 struct DistributionData {
@@ -303,11 +304,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
     ) {
         let block_hash = *data.block_hash();
-        if !accept_spice_network_message(
-            &self.chain_store,
-            SpiceMessageKind::PartialData,
-            &block_hash,
-        ) {
+        if !self.spice_gate.accept(&self.chain_store, SpiceMessageKind::PartialData, &block_hash) {
             return;
         }
         let sender = data.sender().clone();
@@ -327,7 +324,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
 
 impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::PartialDataRequest,
             msg.request.data_id.block_hash(),
@@ -345,7 +342,7 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
         &mut self,
         SpiceContractCodeRequestMessage(request, _recv_permit): SpiceContractCodeRequestMessage,
     ) {
-        if !accept_spice_network_message(
+        if !self.spice_gate.accept(
             &self.chain_store,
             SpiceMessageKind::ContractCodeRequest,
             &request.chunk_id().block_hash,
@@ -439,7 +436,14 @@ impl SpiceDataDistributorActor {
             broadcast_own_fallback_endorsements: LruCache::new(
                 BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE,
             ),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 
     // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.

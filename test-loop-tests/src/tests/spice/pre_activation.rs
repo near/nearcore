@@ -1,6 +1,7 @@
 //! A spice-channel binary must run a chain whose protocol version predates spice
 //! activation. In a spice build the four spice actors are spawned unconditionally,
 //! so on a pre-spice chain they must stay inert at runtime.
+#![cfg(feature = "test_features")] // required for the actors' drop tallies
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -10,7 +11,6 @@ use crate::utils::account::create_account_id;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED;
 use near_chain::spice::activation::SpiceMessageKind;
 use near_client::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -41,6 +41,7 @@ use near_store::DBCol;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use strum::IntoEnumIterator as _;
 
 const EPOCH_LENGTH: u64 = 5;
 
@@ -145,10 +146,6 @@ impl SpiceTrafficCounter {
     }
 }
 
-fn dropped_count(kind: SpiceMessageKind) -> u64 {
-    SPICE_PRE_ACTIVATION_MESSAGES_DROPPED.with_label_values(&[kind.as_str()]).get()
-}
-
 /// A pre-spice chain produces, validates, executes and garbage-collects normally under a
 /// spice build, and the spice actors neither write a spice column nor emit any traffic.
 #[test]
@@ -227,9 +224,8 @@ fn test_pre_spice_chain_survives_node_restart() {
 /// Every spice message kind a peer can route to us is dropped, counted, and leaves no
 /// trace while spice is not active.
 ///
-/// All eight injections live in one test because the drop counters are process-global.
-/// CI runs nextest, which gives each test its own process, but under `cargo test` a
-/// second test injecting the same kind concurrently would break the deltas below.
+/// The drop counts are read off each actor's own gate, so the assertions also pin down
+/// *which* actor gated each kind.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
@@ -244,9 +240,6 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
     let block = env.node(0).head_block();
     let shard_id = block.chunks()[0].shard_id();
     let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id };
-
-    let before: HashMap<SpiceMessageKind, u64> =
-        SpiceMessageKind::ALL.into_iter().map(|kind| (kind, dropped_count(kind))).collect();
 
     node_data.spice_core_writer_sender.send(SpiceChunkEndorsementMessage(
         SpiceChunkEndorsement::new(chunk_id.clone(), new_test_execution_result(), &signer),
@@ -314,20 +307,26 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
     // Let the loop deliver everything, including the distributor's forwarding hops.
     env.node_runner(0).run_for_number_of_blocks(2);
 
-    for (kind, before) in before {
-        // `chunk_endorsement` is injected twice: once naming a known pre-spice block and
-        // once naming an unknown one.
-        let expected = match kind {
-            SpiceMessageKind::ChunkEndorsement => before + 2,
-            _ => before + 1,
+    let core_writer = env.test_loop.data.get(&node_data.spice_core_writer_sender.actor_handle());
+    let distributor =
+        env.test_loop.data.get(&node_data.spice_data_distributor_sender.actor_handle());
+    let validator = env.test_loop.data.get(&node_data.spice_chunk_validator_sender.actor_handle());
+
+    for kind in SpiceMessageKind::iter() {
+        let (dropped, expected) = match kind {
+            // Injected twice, once naming a known pre-spice block and once an unknown one.
+            SpiceMessageKind::ChunkEndorsement => (core_writer.spice_dropped_count(kind), 2),
+            SpiceMessageKind::PartialData
+            | SpiceMessageKind::PartialDataRequest
+            | SpiceMessageKind::ContractCodeRequest => (distributor.spice_dropped_count(kind), 1),
+            // Gated at the validator, at the far end of the distributor's forwarding hop.
+            SpiceMessageKind::ContractAccesses
+            | SpiceMessageKind::ContractCodeResponse
+            | SpiceMessageKind::StateWitness => (validator.spice_dropped_count(kind), 1),
         };
-        assert_eq!(
-            dropped_count(kind),
-            expected,
-            "unexpected drop count for {} messages",
-            kind.as_str(),
-        );
+        assert_eq!(dropped, expected, "unexpected drop count for {} messages", kind.as_str());
     }
+
     traffic.assert_no_spice_traffic();
     assert_spice_columns_empty(&env);
 }
