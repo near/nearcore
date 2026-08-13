@@ -217,7 +217,7 @@ fn apply_distribution_current_shard(
     };
     if ProtocolFeature::GlobalContractSameChunkCallFix.enabled(apply_state.current_protocol_version)
     {
-        state_update.record_contract_deploy(ContractCode::new(
+        state_update.record_global_contract_deploy(ContractCode::new(
             global_contract_data.code().to_vec(),
             code_hash,
         ));

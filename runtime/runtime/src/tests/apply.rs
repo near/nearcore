@@ -5210,11 +5210,11 @@ fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
         "same-chunk call to a just-distributed global contract must succeed with a cold cache"
     );
 
-    // The recorded deploy must also reach the witness side channel, so chunk
-    // validators receive the code via contract deploys distribution.
-    assert_eq!(
-        apply_result.contract_updates.contract_deploy_hashes(),
-        HashSet::from([CodeHash(*code.hash())]),
-        "distribution must record the global contract deploy"
+    // The body is fetched from the contract tracker so the call succeeds, but the global contract
+    // is deliberately not broadcast to chunk validators as a deploy: the global contract
+    // distribution protocol already delivers the code network-wide.
+    assert!(
+        apply_result.contract_updates.contract_deploy_hashes().is_empty(),
+        "global contracts must not be re-broadcast as deploys"
     );
 }
