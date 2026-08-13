@@ -387,7 +387,7 @@ impl ChainStore {
             Ok(true) => {}
             Ok(false) => return Ok(()),
             Err(err) => {
-                tracing::debug!(
+                tracing::warn!(
                     target: "garbage_collection",
                     ?err,
                     "could not resolve the final head's spice-ness, skipping witness GC",

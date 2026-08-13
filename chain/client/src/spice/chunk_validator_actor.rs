@@ -229,7 +229,7 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceChunkContractAccessesMessage(accesses, _recv_permit): SpiceChunkContractAccessesMessage,
     ) {
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::ContractAccesses,
             &accesses.chunk_id().block_hash,
@@ -247,7 +247,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceContractCodeResponseMessage(response, _recv_permit): SpiceContractCodeResponseMessage,
     ) {
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::ContractCodeResponse,
             &response.chunk_id().block_hash,
@@ -269,7 +269,7 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::StateWitness,
             &witness.chunk_id().block_hash,

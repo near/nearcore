@@ -29,7 +29,7 @@ impl SpiceMessageKind {
 /// Whether the block `block_hash` is a spice block.
 ///
 /// Errors when the header is not on disk; callers that can be handed an
-/// arbitrary block hash by a peer should use [`SpiceMessageGate::accept`], which folds
+/// arbitrary block hash by a peer should use [`SpiceMessageGate::should_process`], which folds
 /// that case into a drop decision.
 pub fn spice_enabled_for_block(
     chain_store: &ChainStoreAdapter,
@@ -41,10 +41,9 @@ pub fn spice_enabled_for_block(
 /// Whether spice is active at the current head.
 ///
 /// For startup work, which has no particular block to key on, and as the
-/// fallback in [`SpiceMessageGate::accept`].
+/// fallback in [`SpiceMessageGate::should_process`].
 pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Error> {
-    let head = chain_store.head()?;
-    spice_enabled_for_block(chain_store, &head.last_block_hash)
+    Ok(chain_store.head_header()?.is_spice())
 }
 
 /// Whether spice is active at the head, for actor startup, where there is no caller to
@@ -92,7 +91,7 @@ impl SpiceMessageGate {
     /// TODO(spice): around the activation boundary this drops data about the first spice
     /// block that arrives before we hold that block's header, because the head is
     /// still pre-spice.
-    pub fn accept(
+    pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
         kind: SpiceMessageKind,
@@ -105,7 +104,7 @@ impl SpiceMessageGate {
                 // Neither the block nor the head is readable: we know nothing about
                 // this chain, so we cannot claim spice is active on it.
                 Err(err) => {
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "spice_activation",
                         ?err,
                         kind = kind.as_str(),

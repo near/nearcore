@@ -1346,7 +1346,8 @@ pub fn pre_spice_protocol_version() -> ProtocolVersion {
 
 /// Build a minimal `ShardChunkHeaderV3` for use in tests that only need
 /// an object with a valid signature, `prev_block_hash`, and `shard_id`
-/// (everything else is zeroed).
+/// (everything else is zeroed). Takes an explicit `protocol_version` so
+/// callers can pin the header inner variant.
 pub fn test_chunk_header(
     prev_block_hash: CryptoHash,
     signer: &ValidatorSigner,

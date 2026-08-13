@@ -304,7 +304,11 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
     ) {
         let block_hash = *data.block_hash();
-        if !self.spice_gate.accept(&self.chain_store, SpiceMessageKind::PartialData, &block_hash) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            SpiceMessageKind::PartialData,
+            &block_hash,
+        ) {
             return;
         }
         let sender = data.sender().clone();
@@ -324,7 +328,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
 
 impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::PartialDataRequest,
             msg.request.data_id.block_hash(),
@@ -342,7 +346,7 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
         &mut self,
         SpiceContractCodeRequestMessage(request, _recv_permit): SpiceContractCodeRequestMessage,
     ) {
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::ContractCodeRequest,
             &request.chunk_id().block_hash,

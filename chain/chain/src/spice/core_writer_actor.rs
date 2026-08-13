@@ -68,7 +68,7 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
-        if !self.spice_gate.accept(
+        if !self.spice_gate.should_process(
             &self.chain_store,
             SpiceMessageKind::ChunkEndorsement,
             msg.0.block_hash(),

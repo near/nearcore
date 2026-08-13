@@ -94,8 +94,9 @@ pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(||
 pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_spice_pre_activation_messages_dropped_total",
-        "Number of spice messages dropped because the block they reference is not a spice \
-         block, by message kind",
+        "Number of spice messages dropped because spice is not active for them, either \
+         because the block they reference is not a spice block or because that block \
+         could not be resolved, by message kind",
         &["kind"],
     )
     .unwrap()

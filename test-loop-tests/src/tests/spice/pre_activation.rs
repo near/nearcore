@@ -1,6 +1,6 @@
-//! A spice-channel binary must run a chain whose protocol version predates spice
-//! activation. In a spice build the four spice actors are spawned unconditionally,
-//! so on a pre-spice chain they must stay inert at runtime.
+//! A spice-enabled binary must be able to run a chain whose protocol version predates
+//! spice activation. In a spice build the spice actors are spawned unconditionally, so
+//! before spice is enabled, they must stay inert at runtime.
 #![cfg(feature = "test_features")] // required for the actors' drop tallies
 
 use crate::setup::builder::TestLoopBuilder;
@@ -53,6 +53,8 @@ fn setup_pre_spice_chain(num_validators: usize, gc_num_epochs_to_keep: u64) -> T
         .validators(num_validators, 0)
         .epoch_length(EPOCH_LENGTH)
         .protocol_version(pre_spice_protocol_version())
+        // Without pinning the schedule the nodes vote straight up to the binary's
+        // PROTOCOL_VERSION and the chain crosses into spice mid-test.
         .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
             pre_spice_protocol_version(),
         ))
@@ -96,10 +98,43 @@ fn assert_spice_columns_empty(env: &TestLoopEnv) {
     }
 }
 
-/// Whether a network request carries spice traffic. Keyed on the variant name so that a
-/// spice request variant added later is counted without touching this test.
+/// Whether a network request carries spice traffic.
 fn is_spice_request(request: &NetworkRequests) -> bool {
-    request.as_ref().starts_with("Spice")
+    match request {
+        NetworkRequests::SpicePartialData { .. }
+        | NetworkRequests::SpiceChunkEndorsement { .. }
+        | NetworkRequests::SpicePartialDataRequest { .. }
+        | NetworkRequests::SpiceChunkContractAccesses { .. }
+        | NetworkRequests::SpiceContractCodeRequest { .. }
+        | NetworkRequests::SpiceContractCodeResponse { .. } => true,
+        NetworkRequests::Block { .. }
+        | NetworkRequests::OptimisticBlock { .. }
+        | NetworkRequests::Approval { .. }
+        | NetworkRequests::BlockRequest { .. }
+        | NetworkRequests::BlockHeadersRequest { .. }
+        | NetworkRequests::StateRequestHeader { .. }
+        | NetworkRequests::StateRequestPart { .. }
+        | NetworkRequests::StateRequestAck { .. }
+        | NetworkRequests::BanPeer { .. }
+        | NetworkRequests::AnnounceAccount { .. }
+        | NetworkRequests::SnapshotHostEvent { .. }
+        | NetworkRequests::PartialEncodedChunkRequest { .. }
+        | NetworkRequests::PartialEncodedChunkResponse { .. }
+        | NetworkRequests::PartialEncodedChunkMessage { .. }
+        | NetworkRequests::PartialEncodedChunkForward { .. }
+        | NetworkRequests::ForwardTx { .. }
+        | NetworkRequests::TxStatus { .. }
+        | NetworkRequests::ChunkStateWitnessAck { .. }
+        | NetworkRequests::ChunkEndorsement { .. }
+        | NetworkRequests::PartialEncodedStateWitness { .. }
+        | NetworkRequests::PartialEncodedStateWitnessForward { .. }
+        | NetworkRequests::EpochSyncRequest { .. }
+        | NetworkRequests::EpochSyncResponse { .. }
+        | NetworkRequests::ChunkContractAccesses { .. }
+        | NetworkRequests::ContractCodeRequest { .. }
+        | NetworkRequests::ContractCodeResponse { .. }
+        | NetworkRequests::PartialEncodedContractDeploys { .. } => false,
+    }
 }
 
 /// Counts the network requests the nodes emit, spice ones separately.
@@ -127,6 +162,7 @@ impl SpiceTrafficCounter {
             if is_spice_request(&request) {
                 counter.spice.fetch_add(1, Ordering::Relaxed);
             }
+            // Unhandled passes the request on to the real handler.
             HandlerResult::Unhandled(request)
         }));
     }
@@ -282,6 +318,8 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
         RecvMessagePermit::none(),
     ));
 
+    // SpiceChunkStateWitnessMessage is internal, so it goes to the validator directly
+    // rather than through the distributor.
     node_data.spice_chunk_validator_sender.send(
         SpiceChunkStateWitnessMessage { witness: new_test_witness(chunk_id), raw_witness_size: 0 }
             .span_wrap(),
