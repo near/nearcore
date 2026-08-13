@@ -5170,14 +5170,14 @@ fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
         user.clone(),
         user_signer.clone(),
         vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
-            contract_identifier: GlobalContractIdentifier::AccountId(owner.clone()),
+            contract_identifier: GlobalContractIdentifier::AccountId(owner),
         }))],
     );
 
     // 3) Call the global contract from the user account, in the same chunk.
     let call_receipt = create_receipt_with_actions(
-        user.clone(),
-        user_signer.clone(),
+        user,
+        user_signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
