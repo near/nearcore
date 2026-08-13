@@ -1,5 +1,5 @@
-//! The all-stake fallback: a chunk its designated validators did not certify in time may instead
-//! certify on 2/3 of total epoch stake.
+//! The all-stake fallback: if a chunk's designated validators do not certify it in time, it may instead
+//! be certified by 2/3 of total epoch stake.
 
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::errors::EpochError;
