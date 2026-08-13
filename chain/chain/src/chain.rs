@@ -85,6 +85,8 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+#[cfg(feature = "test_features")]
+use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
@@ -329,7 +331,7 @@ pub struct Chain {
     #[cfg(feature = "test_features")]
     pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
     #[cfg(feature = "test_features")]
-    pub adv_corrupt_state_sync_state_root: bool,
+    pub adv_corrupt_state_sync_chunk_extra: bool,
 }
 
 impl Drop for Chain {
@@ -472,7 +474,7 @@ impl Chain {
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
             #[cfg(feature = "test_features")]
-            adv_corrupt_state_sync_state_root: false,
+            adv_corrupt_state_sync_chunk_extra: false,
         })
     }
 
@@ -659,7 +661,7 @@ impl Chain {
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
             #[cfg(feature = "test_features")]
-            adv_corrupt_state_sync_state_root: false,
+            adv_corrupt_state_sync_chunk_extra: false,
         })
     }
 
@@ -2757,7 +2759,7 @@ impl Chain {
             }
         }
 
-        self.validate_state_sync_state_root(shard_id, sync_hash, shard_uid)?;
+        self.validate_state_sync_chunk_extra(shard_id, sync_hash, shard_uid)?;
 
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
@@ -2768,10 +2770,10 @@ impl Chain {
         Ok(())
     }
 
-    /// Checks the state reconstructed through finalization against the root committed by the
+    /// Checks the data reconstructed through finalization against the values committed by the
     /// sync block's chunk. A missing chunk repeats an older header and therefore does not commit
     /// the post-state reconstructed at the sync boundary.
-    fn validate_state_sync_state_root(
+    fn validate_state_sync_chunk_extra(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -2786,23 +2788,63 @@ impl Chain {
             return Ok(());
         }
 
+        let prev_block = self.get_block(sync_block.header().prev_hash())?;
+        let prev_chunk_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
         let chunk_extra = self.get_chunk_extra(sync_block.header().prev_hash(), &shard_uid)?;
-        let expected = chunk_header.prev_state_root();
-        let mut actual = *chunk_extra.state_root();
         #[cfg(feature = "test_features")]
-        if self.adv_corrupt_state_sync_state_root {
-            actual.0[0] ^= 1;
+        let chunk_extra = if self.adv_corrupt_state_sync_chunk_extra {
+            let mut extra = chunk_extra.as_ref().clone();
+            match &mut extra {
+                ChunkExtra::V1(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V2(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V3(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V4(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V5(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+            }
+            Arc::new(extra)
+        } else {
+            chunk_extra
+        };
+        let validation_result = validate_chunk_with_chunk_extra(
+            self.chain_store(),
+            self.epoch_manager.as_ref(),
+            sync_block.header().prev_hash(),
+            chunk_extra.as_ref(),
+            prev_chunk_header.height_included(),
+            chunk_header,
+        );
+        match validation_result {
+            Ok(_) => Ok(()),
+            Err(
+                err @ (Error::InvalidStateRoot
+                | Error::InvalidOutcomesProof
+                | Error::InvalidValidatorProposals
+                | Error::InvalidGasLimit
+                | Error::InvalidGasUsed
+                | Error::InvalidBalanceBurnt
+                | Error::InvalidReceiptsProof
+                | Error::InvalidCongestionInfo(_)
+                | Error::InvalidBandwidthRequests(_)
+                | Error::InvalidChunkHeaderShardSplit(_)),
+            ) => panic!(
+                "state sync reconstructed chunk data for shard {shard_id} before block \
+                 {sync_hash} that does not match the chain commitment: {err}. this node executed \
+                 the chunk differently from the network. the data directory is intact; report \
+                 this with the node's config, binary version, and hardware. then restart the node \
+                 with an empty data directory."
+            ),
+            Err(err) => Err(err),
         }
-        if actual != expected {
-            panic!(
-                "state sync reconstructed state root {actual} for shard {shard_id} before block \
-                 {sync_hash}, but the chain commits to {expected}. this node executed the chunk \
-                 differently from the network. the data directory is intact; report this with the \
-                 node's config, binary version, and hardware. then restart the node with an empty \
-                 data directory."
-            );
-        }
-        Ok(())
     }
 
     pub fn clear_downloaded_parts(

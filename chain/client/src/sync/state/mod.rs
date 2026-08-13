@@ -303,8 +303,7 @@ impl StateSync {
             shard_tracker,
             self.epoch_manager.as_ref(),
         );
-        let shard_result = self.run_with_shards(sync_status, &tracking_shards)?;
-        match shard_result {
+        match self.run_with_shards(sync_status, &tracking_shards)? {
             StateSyncShardResult::Completed => {
                 tracing::info!(target: "sync", "state sync: all shards are done");
                 let mut block_processing_artifacts = BlockProcessingArtifact::default();

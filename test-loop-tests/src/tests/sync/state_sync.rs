@@ -216,10 +216,10 @@ fn test_state_sync_simple_five_node() {
 }
 
 #[test]
-#[should_panic(expected = "this node executed the chunk differently from the network")]
+#[should_panic(expected = "Invalid Gas Used")]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_state_sync_state_root_divergence_stops_the_node() {
+fn test_state_sync_chunk_extra_divergence_stops_the_node() {
     init_test_logger();
     let validators_spec = create_validators_spec(5, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -240,7 +240,7 @@ fn test_state_sync_state_root_divergence_stops_the_node() {
         .build();
 
     let handle = env.node_datas[4].client_sender.actor_handle();
-    env.test_loop.data.get_mut(&handle).client.chain.adv_corrupt_state_sync_state_root = true;
+    env.test_loop.data.get_mut(&handle).client.chain.adv_corrupt_state_sync_chunk_extra = true;
 
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
     env.node_runner(0).run_for_number_of_blocks(40);
