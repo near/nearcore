@@ -48,4 +48,13 @@ ignore = [
     # `Bitmap::try_from(&[u8])` and `AsMut<[u8]>` of RUSTSEC-2025-0167, and imbl
     # calls neither. Do not bump it without re-checking that advisory.
     "RUSTSEC-2026-0247",
+
+    # RUSTSEC-2026-0253: lru `pop()` leaves dangling list pointers if the key's
+    # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped, so
+    # the only affected copy left is lru 0.7.8 under reed-solomon-erasure 6.0.0,
+    # which requires `^0.7.8` and is unmaintained (last release 2022-09-23).
+    # Not triggerable: the bug needs unwinding plus a key with a panicking
+    # `Drop`, and that cache is keyed by `Vec<usize>`
+    # (reed-solomon-erasure `src/core.rs:349`).
+    "RUSTSEC-2026-0253",
 ]
