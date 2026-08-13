@@ -1663,6 +1663,22 @@ impl messaging::Handler<IncomingFrame> for PeerActor {
                 }
             };
 
+            // Enforce a per-message-type size limit.
+            let max_size = peer_msg.max_size();
+            if msg.len() > max_size {
+                let msg_variant = peer_msg.msg_variant();
+                metrics::MessageDropped::TooLargeForType.inc_msg_type(msg_variant);
+                tracing::debug!(
+                    target: "network",
+                    peer_info = %this.peer_info,
+                    %msg_variant,
+                    msg_len = msg.len(),
+                    max_size,
+                    "received a message exceeding the size limit for its type, dropping it",
+                );
+                return;
+            }
+
             tracing::trace!(target: "network", %peer_msg, "received message");
 
             let now = this.clock.now();

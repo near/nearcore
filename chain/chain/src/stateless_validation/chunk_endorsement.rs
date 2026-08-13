@@ -220,3 +220,78 @@ pub fn validate_chunk_endorsements_in_header(
     }
     Ok(())
 }
+
+// Needs `near-primitives/test_features` for `ChunkEndorsement::new_with_differentiator`. Under
+// spice `TestBlockBuilder` produces a block with no legacy chunk endorsements, so the test would
+// stop at the chunks/endorsements count check above instead of at signature verification.
+#[cfg(all(test, feature = "test_features", not(feature = "protocol_feature_spice")))]
+mod tests {
+    use super::*;
+    use crate::test_utils::setup;
+    use near_async::time::Clock;
+    use near_crypto::Signature;
+    use near_primitives::sharding::ShardChunkHeader;
+    use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::types::ShardId;
+    use near_primitives::validator_signer::ValidatorSigner;
+    use std::sync::Arc;
+
+    /// Builds a single-shard block at the next height carrying `chunk` and a single endorsement
+    /// signature for the only chunk validator.
+    fn build_block(
+        clock: Clock,
+        prev_block: &Block,
+        chunk: &ShardChunkHeader,
+        signature: Signature,
+        signer: Arc<ValidatorSigner>,
+    ) -> Block {
+        TestBlockBuilder::from_prev_block(clock, prev_block, signer)
+            .chunks([chunk.clone()])
+            .chunk_endorsements(vec![vec![Some(Box::new(signature))]])
+            .build_owned()
+    }
+
+    /// Documents the impact of an endorsement with a non-canonical `signature_differentiator`: the
+    /// signature does not match the bytes block validation derives from `chunk_hash`, so the whole
+    /// block is rejected. This passes both before and after the `verify` fix, since block
+    /// validation already reconstructed the canonical bytes; it is not a regression guard.
+    #[test]
+    fn poisoned_endorsement_rejects_whole_block() {
+        let clock = Clock::real();
+        let (chain, epoch_manager, _runtime, signer) = setup(clock.clone());
+        let genesis = chain.genesis_block();
+        let height = genesis.header().height() + 1;
+
+        // `new_dummy` leaves `height_included` at zero, and a chunk that is not new in this block
+        // skips endorsement checks entirely.
+        let mut chunk = ShardChunkHeader::new_dummy(height, ShardId::new(0), *genesis.hash());
+        *chunk.height_included_mut() = height;
+
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(genesis.hash()).unwrap();
+
+        let poisoned = ChunkEndorsement::new_with_differentiator(
+            epoch_id,
+            &chunk,
+            signer.as_ref(),
+            "POISONED".to_owned(),
+        )
+        .signature();
+        let block = build_block(clock.clone(), &genesis, &chunk, poisoned, signer.clone());
+        assert!(
+            matches!(
+                validate_chunk_endorsements_in_block(epoch_manager.as_ref(), &block),
+                Err(Error::InvalidChunkEndorsement)
+            ),
+            "poisoned endorsement must make validate_chunk_endorsements_in_block reject the block"
+        );
+
+        // Control: the same block with a canonical signature is accepted, so the rejection above
+        // is caused by the differentiator and nothing else.
+        let honest = ChunkEndorsement::new(epoch_id, &chunk, signer.as_ref()).signature();
+        let block = build_block(clock, &genesis, &chunk, honest, signer);
+        assert!(
+            validate_chunk_endorsements_in_block(epoch_manager.as_ref(), &block).is_ok(),
+            "canonical endorsement must be accepted"
+        );
+    }
+}
