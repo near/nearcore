@@ -19,21 +19,25 @@ use std::sync::Arc;
 const EPOCH_LENGTH: u64 = 6;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
-/// Verifies that resharding trie nodes are copied to cold storage.
+/// Verifies that resharding data keyed by child shard UIDs is copied to cold storage.
 ///
 /// During resharding, `retain_split_shard` creates intermediate trie nodes stored
 /// under the parent shard's prefix. Without persisting TrieChanges for the child
 /// shards, the cold store copy loop has no way to discover these nodes.
 ///
+/// Resharding also writes `ChunkExtra` for each child shard at the last block of
+/// the parent epoch. The cold copy must discover those child-layout keys instead
+/// of deriving keys from the block's parent layout.
+///
 /// Eventually `gc_parent_shard_after_resharding` range-deletes the parent prefix
-/// from hot store, and the nodes are lost from hot. Cold store uses a permanent
+/// from hot store, and block GC removes `ChunkExtra`. Cold store uses a permanent
 /// `shard_uid_mapping` (child -> parent prefix), so if the nodes were never
 /// copied there, historical queries eventually fail.
 ///
 /// This test:
-/// 1. Runs resharding and captures the child shard TrieChanges (before GC).
+/// 1. Runs resharding and captures the child shard TrieChanges and ChunkExtra keys (before GC).
 /// 2. Waits for the cold store loop to process past the resharding boundary.
-/// 3. Verifies the cold store's State column contains all resharding trie nodes.
+/// 3. Verifies cold State contains the trie nodes and cold ChunkExtra contains the child rows.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

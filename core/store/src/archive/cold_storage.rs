@@ -57,10 +57,10 @@ pub trait ColdMigrationStore {
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
 /// The `get_keys_from_store` path derives the `ShardId` component from the copied block's own
-/// epoch layout. If a column may hold rows keyed by a different layout (e.g. `ChunkProducers`
-/// in DBs written before the own-epoch seeder, where reshard-boundary rows use the next
-/// epoch's layout), that derivation misses those rows. Copy such a column by prefix-scanning
-/// the block hash instead (see `maybe_copy_chunk_producers` and
+/// epoch layout. If a column may hold rows keyed by a different layout (e.g. `ChunkExtra` at a
+/// resharding boundary, or `ChunkProducers` in DBs written before the own-epoch seeder), that
+/// derivation misses those rows. Copy such a column by prefix-scanning the block hash instead
+/// (see `copy_column_by_prefix`, `maybe_copy_chunk_producers`, and
 /// `copy_state_changes_from_store`).
 /// When `resharding_block_hash` is `Some`, it indicates a resharding boundary:
 /// the shard UID mapping is updated for cold store and the TrieChanges from
@@ -114,6 +114,8 @@ pub fn update_cold_db(
                         )
                     } else if col == DBCol::StateChanges {
                         copy_state_changes_from_store(cold_db, &hot_store, block_hash_key)
+                    } else if col == DBCol::ChunkExtra {
+                        copy_column_by_prefix(cold_db, &hot_store, col, block_hash_key)
                     } else if let Some(res) =
                         maybe_copy_chunk_producers(col, cold_db, &hot_store, block_hash_key)
                     {
@@ -139,6 +141,23 @@ pub fn update_cold_db(
     Ok(())
 }
 
+fn copy_column_by_prefix(
+    cold_db: &ColdDB,
+    hot_store: &Store,
+    col: DBCol,
+    block_hash_key: &[u8],
+) -> io::Result<()> {
+    debug_assert!(col.is_cold() && !col.is_rc());
+
+    let mut transaction = DBTransaction::new();
+    for (key, value) in hot_store.iter_prefix(col, block_hash_key) {
+        metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
+        transaction.set(col, key.into_vec(), value.into_vec());
+    }
+    cold_db.write(transaction);
+    Ok(())
+}
+
 // Copy ChunkProducers by prefix-scan on the block hash. Returns Some(result) if it
 // handled `col`, else None. The nightly-only DBCol variant is confined to this fn.
 #[cfg(feature = "nightly")]
@@ -151,20 +170,13 @@ fn maybe_copy_chunk_producers(
     if col != DBCol::ChunkProducers {
         return None;
     }
+
     // Keyed (anchor_hash, shard_id). The live seeder uses the anchor's own epoch layout
     // (matching `shard_layout`), but DBs written before the own-epoch seeder hold
     // reshard-boundary rows keyed by the NEXT epoch's layout. Prefix-scan by block hash so
     // rows are copied whatever layout wrote them; the layout-derived key path would miss
     // those legacy boundary rows.
-    // ChunkProducers is not rc, so write values straight from the scan (no re-read), mirroring
-    // `copy_state_changes_from_store`. `into_vec` avoids copying the boxed slices.
-    let mut transaction = DBTransaction::new();
-    for (key, value) in hot_store.iter_prefix(col, block_hash_key) {
-        metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
-        transaction.set(col, key.into_vec(), value.into_vec());
-    }
-    cold_db.write(transaction);
-    Some(Ok(()))
+    Some(copy_column_by_prefix(cold_db, hot_store, col, block_hash_key))
 }
 
 #[cfg(not(feature = "nightly"))]
