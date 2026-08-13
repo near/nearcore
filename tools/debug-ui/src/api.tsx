@@ -186,7 +186,7 @@ export interface DebugChunkStatus {
 }
 
 export interface ShardSizeAndParts {
-    memory_usage: number;
+    shard_size: number;
     state_parts_count: number;
     state_header_exists: boolean;
 }
@@ -221,10 +221,10 @@ export function normalizeShardsSizeAndParts(
     if (Array.isArray(value)) {
         return {
             entries: new Map(
-                value.map(([memoryUsage, statePartsCount, stateHeaderExists], shardIndex) => [
+                value.map(([shardSize, statePartsCount, stateHeaderExists], shardIndex) => [
                     shardIndex,
                     {
-                        memory_usage: memoryUsage,
+                        shard_size: shardSize,
                         state_parts_count: statePartsCount,
                         state_header_exists: stateHeaderExists,
                     },

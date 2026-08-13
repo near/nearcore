@@ -59,7 +59,7 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
     let maxShardSize = 0;
     for (const sizes of shardSizesByEpoch) {
         for (const entry of sizes.entries.values()) {
-            maxShardSize = Math.max(maxShardSize, entry.memory_usage);
+            maxShardSize = Math.max(maxShardSize, entry.shard_size);
         }
     }
     return (
@@ -95,7 +95,7 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
                                             className={`shard-cell ${
                                                 entry.state_header_exists ? 'requested' : ''
                                             }`}>
-                                            {drawShardSizeBar(entry.memory_usage, maxShardSize)}
+                                            {drawShardSizeBar(entry.shard_size, maxShardSize)}
                                             <div className="shard-parts">
                                                 {entry.state_parts_count} parts
                                             </div>
