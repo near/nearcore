@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchEpochInfoLight } from './api';
+import { fetchEpochInfoLight, normalizeShardsSizeAndParts } from './api';
 import './EpochShardsView.scss';
 
 function humanFileSize(bytes: number, si = false, dp = 1): string {
@@ -41,13 +41,25 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
         return <div className="error">{(epochError as Error).stack}</div>;
     }
     const epochs = epochData!.status_response.EpochInfo;
+    const displayedEpochs = epochs.slice(1);
 
-    let numShards = 0;
+    const shardSizesByEpoch = displayedEpochs.map((epoch) =>
+        normalizeShardsSizeAndParts(epoch.shards_size_and_parts)
+    );
+    // A single response comes from a single node, so the shape is uniform across epochs.
+    const keyedByShardId = shardSizesByEpoch.some((sizes) => sizes.keyedByShardId);
+
+    // One row per shard id (or per shard index on older nodes). Taking the union across
+    // epochs rather than the largest count means a shard split or merged partway through
+    // the window still gets its own row, populated only for the epochs it existed in.
+    const shardKeys = [
+        ...new Set(shardSizesByEpoch.flatMap((sizes) => [...sizes.entries.keys()])),
+    ].sort((a, b) => a - b);
+
     let maxShardSize = 0;
-    for (const epoch of epochs.slice(1)) {
-        numShards = Math.max(epoch.shards_size_and_parts.length, numShards);
-        for (const [size] of epoch.shards_size_and_parts) {
-            maxShardSize = Math.max(maxShardSize, size);
+    for (const sizes of shardSizesByEpoch) {
+        for (const entry of sizes.entries.values()) {
+            maxShardSize = Math.max(maxShardSize, entry.memory_usage);
         }
     }
     return (
@@ -60,29 +72,33 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
                 </tr>
                 <tr>
                     <th></th>
-                    {epochs.slice(1).map((epoch) => {
+                    {displayedEpochs.map((epoch) => {
                         return <th key={epoch.epoch_id}>{epoch.epoch_id.substring(0, 6)}...</th>;
                     })}
                 </tr>
             </thead>
             <tbody>
-                {[...Array(numShards).keys()].map((i) => {
+                {shardKeys.map((shardKey) => {
                     return (
-                        <tr key={i}>
-                            <td>Shard {i}</td>
-                            {epochs.slice(1).map((epoch) => {
-                                if (epoch.shards_size_and_parts.length <= i) {
-                                    return <></>;
+                        <tr key={shardKey}>
+                            <td>{keyedByShardId ? 'Shard' : 'Index'} {shardKey}</td>
+                            {displayedEpochs.map((epoch, epochIndex) => {
+                                const entry = shardSizesByEpoch[epochIndex].entries.get(
+                                    shardKey
+                                );
+                                if (entry === undefined) {
+                                    return <td key={epoch.epoch_id} />;
                                 }
-                                const [size, parts, requested] = epoch.shards_size_and_parts[i];
                                 return (
                                     <td key={epoch.epoch_id}>
                                         <div
                                             className={`shard-cell ${
-                                                requested ? 'requested' : ''
+                                                entry.state_header_exists ? 'requested' : ''
                                             }`}>
-                                            {drawShardSizeBar(size, maxShardSize)}
-                                            <div className="shard-parts">{parts} parts</div>
+                                            {drawShardSizeBar(entry.memory_usage, maxShardSize)}
+                                            <div className="shard-parts">
+                                                {entry.state_parts_count} parts
+                                            </div>
                                         </div>
                                     </td>
                                 );

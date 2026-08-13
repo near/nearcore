@@ -185,6 +185,12 @@ export interface DebugChunkStatus {
     endorsement_ratio?: number;
 }
 
+export interface ShardSizeAndParts {
+    memory_usage: number;
+    state_parts_count: number;
+    state_header_exists: boolean;
+}
+
 export interface EpochInfoView {
     epoch_height: number;
     epoch_id: string;
@@ -195,7 +201,44 @@ export interface EpochInfoView {
     chunk_validators: string[];
     validator_info: EpochValidatorInfo;
     protocol_version: number;
-    shards_size_and_parts: [number, number, boolean][];
+    // Newer nodes send an object keyed by shard id. Older nodes send an array indexed by
+    // shard index, which does not identify the shards after a resharding.
+    shards_size_and_parts: Record<string, ShardSizeAndParts> | [number, number, boolean][];
+}
+
+export type NormalizedShardSizes = {
+    // Keyed by shard id when `keyedByShardId` is set, otherwise by shard index.
+    entries: Map<number, ShardSizeAndParts>;
+    keyedByShardId: boolean;
+};
+
+// Accepts either payload shape and converts the old tuple form to the new one, reporting
+// which shape it got so callers can label shards accurately instead of silently presenting
+// a shard index as a shard id.
+export function normalizeShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): NormalizedShardSizes {
+    if (Array.isArray(value)) {
+        return {
+            entries: new Map(
+                value.map(([memoryUsage, statePartsCount, stateHeaderExists], shardIndex) => [
+                    shardIndex,
+                    {
+                        memory_usage: memoryUsage,
+                        state_parts_count: statePartsCount,
+                        state_header_exists: stateHeaderExists,
+                    },
+                ])
+            ),
+            keyedByShardId: false,
+        };
+    }
+    return {
+        entries: new Map(
+            Object.entries(value).map(([shardId, entry]) => [Number(shardId), entry])
+        ),
+        keyedByShardId: true,
+    };
 }
 
 export interface EpochValidatorInfo {
@@ -601,4 +644,3 @@ export interface MessageStatsForType {
     c: number;
     t: number;
 }
-
