@@ -189,11 +189,6 @@ pub struct SpiceDataDistributorActor {
     /// to avoid redundant storage lookups and network responses for repeated requests.
     processed_contract_code_requests: LruCache<(SpiceChunkId, AccountId), ()>,
 
-    /// Fallback endorsements we already broadcast from a locally recorded result, so we send each
-    /// at most once.
-    /// TODO(spice): re-broadcast until the endorsement appears on chain rather than once.
-    broadcast_own_fallback_endorsements: LruCache<SpiceChunkId, ()>,
-
     spice_gate: SpiceMessageGate,
 
     /// Rounds of [`Self::request_waiting_on_data`], so each retry moves to another producer.
@@ -421,8 +416,6 @@ impl SpiceDataDistributorActor {
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
-        const BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE: NonZeroUsize =
-            NonZeroUsize::new(100).unwrap();
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -442,9 +435,6 @@ impl SpiceDataDistributorActor {
             recently_decoded_data: LruCache::new(RECENTLY_DECODED_DATA_CACHE_SIZE),
             processed_contract_code_requests: LruCache::new(
                 PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE,
-            ),
-            broadcast_own_fallback_endorsements: LruCache::new(
-                BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE,
             ),
             spice_gate: SpiceMessageGate::default(),
             request_round: 0,
@@ -944,22 +934,25 @@ impl SpiceDataDistributorActor {
             if assignments.contains(me) {
                 continue;
             }
+            if self.core_reader.endorsement_exists(&chunk_id.block_hash, chunk_id.shard_id, me) {
+                // Recorded at apply time by a tracker, or on witness validation by a non-tracker.
+                // Broadcast once per block until it is on chain: a first broadcast can reach
+                // producers before they see the fallback open for the chunk, and is dropped there
+                // as irrelevant.
+                let on_chain =
+                    chunk_info.all_present_endorsements().any(|(account_id, _)| account_id == me);
+                if !on_chain {
+                    self.broadcast_own_fallback_endorsement(chunk_id, &signer);
+                }
+                continue;
+            }
             let tracks_shard = self.shard_tracker.should_apply_chunk(
                 ApplyChunksMode::IsCaughtUp,
                 chunk_block.header().prev_hash(),
                 chunk_id.shard_id,
             );
-
-            if self.core_reader.endorsement_exists(&chunk_id.block_hash, chunk_id.shard_id, me) {
-                // Trackers recorded their endorsement at apply time without broadcasting (not yet
-                // eligible); broadcast now. Non-trackers already broadcast via the witness path.
-                if tracks_shard {
-                    self.broadcast_own_fallback_endorsement(chunk_id, &signer);
-                }
-                continue;
-            }
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
-            // broadcasts once applied. A non-tracker pulls the witness so it can produce one.
+            // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
             if !tracks_shard {
                 self.start_waiting_on_fallback_witness(chunk_id, &chunk_block, me)?;
             }
@@ -967,27 +960,27 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    /// Rebuild the wire endorsement from our recorded result and broadcast it once, so producers
-    /// can include it in the all-stake fallback tally. The result was persisted when we recorded
-    /// the endorsement at apply time.
+    /// Rebuild the wire endorsement from our recorded result and broadcast it, so producers can
+    /// include it in the all-stake fallback tally. The result was persisted when we recorded the
+    /// endorsement at apply time.
     fn broadcast_own_fallback_endorsement(
-        &mut self,
+        &self,
         chunk_id: &SpiceChunkId,
         signer: &ValidatorSigner,
     ) {
-        if self.broadcast_own_fallback_endorsements.contains(chunk_id) {
-            return;
-        }
         let Some(stored) = self.core_reader.get_endorsement(
             &chunk_id.block_hash,
             chunk_id.shard_id,
             signer.validator_id(),
         ) else {
+            // The caller just checked that it exists.
+            debug_assert!(false, "no recorded endorsement to broadcast for {chunk_id:?}");
             return;
         };
         let Some(execution_result) =
             self.core_reader.get_uncertified_execution_result(&stored.execution_result_hash)
         else {
+            tracing::debug!(target: "spice_data_distribution", ?chunk_id, result_hash = ?stored.execution_result_hash, "no execution result for the recorded endorsement");
             return;
         };
         let endorsement = SpiceChunkEndorsement::new(
@@ -1001,7 +994,6 @@ impl SpiceDataDistributorActor {
             &self.network_adapter.clone().into_sender(),
             signer,
         );
-        self.broadcast_own_fallback_endorsements.put(chunk_id.clone(), ());
     }
 
     /// Pull a chunk's witness (not received by non-designated validators in the initial

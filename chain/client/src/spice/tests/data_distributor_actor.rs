@@ -14,6 +14,9 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::ChainStoreAccess;
+use near_chain::spice::all_stake_fallback::{
+    SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers,
+};
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
@@ -37,6 +40,7 @@ use near_network::types::{
 };
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
@@ -45,7 +49,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
-use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::chunk_endorsement::{
+    SpiceChunkEndorsement, SpiceEndorsementSignedData, testonly_create_endorsement_core_statement,
+};
 use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
     SpiceVerifiedPartialData, testonly_create_spice_partial_data,
@@ -73,13 +79,21 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> Arc<Block> {
+    build_block_with_core_statements(epoch_manager, prev_block, vec![])
+}
+
+fn build_block_with_core_statements(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_block: &Block,
+    spice_core_statements: Vec<SpiceCoreStatement>,
+) -> Arc<Block> {
     let block_producer = epoch_manager
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, epoch_manager))
-        .spice_core_statements(vec![])
+        .spice_core_statements(spice_core_statements)
         .build()
 }
 
@@ -2561,4 +2575,117 @@ fn test_contract_code_request_happy_path() {
     assert_eq!(decoded_contracts.len(), 1);
     assert_eq!(&*decoded_contracts[0].0, contract_bytes.as_slice());
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+/// Grows the chain until the all-stake fallback is open for a chunk of `shard_id`, and returns it.
+/// Takes the shard's first uncertified chunk, the oldest one, since every block appends its own.
+fn grow_chain_until_fallback_opens(chain: &mut Chain, shard_id: ShardId) -> SpiceChunkId {
+    let head = chain.chain_store.head().unwrap();
+    let chunk_info = chain
+        .spice_core_reader
+        .get_uncertified_chunks(&head.last_block_hash)
+        .unwrap()
+        .into_iter()
+        .find(|chunk_info| chunk_info.chunk_id.shard_id == shard_id)
+        .expect("no uncertified chunk for the shard");
+    let certifiable_since =
+        chunk_info.certifiable_since_height.expect("the oldest chunk is not certifiable yet");
+
+    while chain.chain_store.head().unwrap().height + 1
+        < certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY
+    {
+        produce_block(chain, &latest_block(chain));
+    }
+    chunk_info.chunk_id
+}
+
+fn broadcast_endorsement_chunk_ids(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) -> HashSet<SpiceChunkId> {
+    let mut chunk_ids = HashSet::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceChunkEndorsement(_target, endorsement),
+        } = message
+        else {
+            continue;
+        };
+        chunk_ids.insert(SpiceChunkId {
+            block_hash: *endorsement.block_hash(),
+            shard_id: endorsement.shard_id(),
+        });
+    }
+    chunk_ids
+}
+
+/// Produces a block whose core statements carry `validator`'s stored endorsement of `chunk_id`.
+fn produce_block_carrying_endorsement(
+    chain: &mut Chain,
+    prev_block: &Block,
+    chunk_id: &SpiceChunkId,
+    validator: &AccountId,
+) -> Arc<Block> {
+    let stored = chain
+        .spice_core_reader
+        .get_endorsement(&chunk_id.block_hash, chunk_id.shard_id, validator)
+        .unwrap();
+    let core_statement =
+        SpiceCoreStatement::Endorsement(testonly_create_endorsement_core_statement(
+            validator.clone(),
+            stored.signature.clone(),
+            SpiceEndorsementSignedData {
+                execution_result_hash: stored.execution_result_hash,
+                chunk_id: chunk_id.clone(),
+            },
+        ));
+    let block = build_block_with_core_statements(
+        chain.epoch_manager.as_ref(),
+        prev_block,
+        vec![core_statement],
+    );
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    block
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fallback_endorsement_is_broadcast_on_every_block_until_it_is_on_chain() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+
+    let chunk_block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
+    let validator = fallback_endorsers(
+        chain.epoch_manager.as_ref(),
+        chunk_block.header().epoch_id(),
+        chunk_id.shard_id,
+        chunk_block.header().height(),
+    )
+    .unwrap()
+    .into_iter()
+    .next()
+    .expect("no non-designated validator; increase the validator count");
+    record_endorsement(&chain, chunk_id.clone(), &validator);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
+
+    let mut block = latest_block(&chain);
+    for _ in 0..3 {
+        actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        assert!(broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
+        block = produce_block(&mut chain, &block);
+    }
+
+    let carrying_block =
+        produce_block_carrying_endorsement(&mut chain, &block, &chunk_id, &validator);
+    actor.handle(ProcessedBlock { block_hash: *carrying_block.hash() });
+    assert!(!broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
 }
