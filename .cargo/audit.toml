@@ -50,11 +50,10 @@ ignore = [
     "RUSTSEC-2026-0247",
 
     # RUSTSEC-2026-0253: lru `pop()` leaves dangling list pointers if the key's
-    # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped, so
-    # the only affected copy left is lru 0.7.8 under reed-solomon-erasure 6.0.0,
-    # which requires `^0.7.8` and is unmaintained (last release 2022-09-23).
-    # Not triggerable: the bug needs unwinding plus a key with a panicking
-    # `Drop`, and that cache is keyed by `Vec<usize>`
-    # (reed-solomon-erasure `src/core.rs:349`).
+    # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped. The
+    # copy left is lru 0.7.8 under reed-solomon-erasure, which requires `^0.7.8`
+    # in its latest release, 6.0.0 (2022-09-23). Not triggerable there anyway:
+    # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
+    # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
     "RUSTSEC-2026-0253",
 ]
