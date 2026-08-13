@@ -1212,8 +1212,8 @@ fn record_input_info(fx: &EpochSyncFixture, hash: CryptoHash, prev: CryptoHash) 
 }
 
 // A failed record must not leave the block in `blocks_info`: the caller drops the store
-// update, and a surviving entry makes `has_block_info` skip the retry, so no row is ever
-// written. Reachable after epoch sync, where the seeder fails with `MissingBlock`.
+// update, so a surviving entry serves other readers a block that was never written.
+// Reachable after epoch sync, where the seeder fails with `MissingBlock`.
 #[cfg(feature = "nightly")]
 #[test]
 fn record_block_info_failure_does_not_poison_block_info_cache() {
@@ -1234,7 +1234,6 @@ fn record_block_info_failure_does_not_poison_block_info_cache() {
     );
     assert_eq!(err, EpochError::MissingBlock(sibling), "unexpected error: {err:?}");
 
-    // The actual bug: without the eviction this second call returns an empty update.
     let err = fx
         .em
         .record_block_info(record_input_info(&fx, sibling, fx.second_last), [0; 32])
