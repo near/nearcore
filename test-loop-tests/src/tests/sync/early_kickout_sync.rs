@@ -59,11 +59,18 @@ mod nightly {
     /// to the same producer. This is what makes "green" load-bearing: a same-epoch
     /// anchor with a missing row would be `ChunkProducerNotInDB`, so a present row
     /// is the thing under test.
+    ///
+    /// Scope: the walk starts at head, so the anchor it lands on sits near the tip,
+    /// ABOVE the GC tail. Green therefore says nothing about garbage collection —
+    /// below-boundary GC of `DBCol::ChunkProducers` is covered by
+    /// `near_chain::tests::chunk_producers`. The horizon is asserted below so a
+    /// reader cannot mistake this probe for GC coverage.
     fn assert_same_epoch_anchor_row_present(node: &TestLoopNode) {
         let client = node.client();
         let chain = &client.chain;
         let epoch_manager = client.epoch_manager.as_ref();
         let head = node.head();
+        let tail = node.tail();
         let store = chain.chain_store.store();
         let genesis_height = chain.genesis().height();
 
@@ -86,6 +93,15 @@ mod nightly {
                 // no row is required. Keep looking for a same-epoch anchor.
                 continue;
             }
+
+            // The probe is only meaningful above the GC horizon: below the tail a
+            // missing row is expected (GC removed it), not a bug.
+            let anchor_height = chain.get_block_header(&anchor_hash).unwrap().height();
+            assert!(
+                anchor_height > tail,
+                "probed anchor at height {anchor_height} is at or below the GC tail {tail}; \
+                 this probe only covers the retained window, not garbage collection"
+            );
 
             let shard_layout = epoch_manager.get_shard_layout(&chunk_epoch_id).unwrap();
             for shard_id in shard_layout.shard_ids() {
