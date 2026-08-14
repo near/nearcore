@@ -33,8 +33,7 @@ mod earliest_available;
 mod early_kickout_boundary;
 #[cfg(all(feature = "nightly", feature = "test_features"))]
 mod early_kickout_e2e;
-// Gated on `nightly` only: shared by `early_kickout_e2e` and `sync::early_kickout_sync`,
-// which do not carry the same feature gates.
+// `nightly` only, not `test_features`: shared with `sync::early_kickout_sync`.
 #[cfg(feature = "nightly")]
 mod early_kickout_probe;
 mod early_prepare_transactions;

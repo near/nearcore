@@ -17,8 +17,7 @@
 //! * `slow_test_early_kickout_state_sync_under_active_kickout` — a validator
 //!   state-syncs a newly assigned shard while a blacklist is active, and the rows
 //!   it then holds still deviate from the plain schedule in exactly the slots they
-//!   should. `tests::sync::early_kickout_sync` covers the sync pipeline with the
-//!   blacklist provably empty; this is the other side of that scope line.
+//!   should.
 //!
 //! All three require `nightly` (feature gate) and `test_features` (adversarial
 //! messages, plus the threshold override below).
@@ -94,9 +93,8 @@ fn shrink_early_kickout_gate(
 }
 
 /// A chunk producer on a shard that holds at least one other producer, so blacklisting it
-/// always leaves a clean replacement. That keeps the all-blacklisted safety valve
-/// (`compute_chunk_producer_blacklist`) out of the picture — it would suppress the
-/// reassignment these tests are about — and keeps the shard producing chunks.
+/// leaves a clean replacement. Keeps the all-blacklisted safety valve out of the picture; it
+/// would suppress the reassignment these tests are about.
 fn pick_target_with_replacement(
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
     epoch_id: &EpochId,
@@ -739,43 +737,28 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
 
 /// State sync under an ACTIVE early kickout.
 ///
-/// Shard shuffling forces a validator to state-sync a newly assigned shard while a
-/// chunk producer is blacklisted, then the probe checks that the `DBCol::ChunkProducers`
-/// rows that validator ends up holding still deviate from the plain schedule in exactly
-/// the slots they should.
+/// Shard shuffling forces a validator to state-sync a newly assigned shard while a producer is
+/// blacklisted; the probe then checks the `DBCol::ChunkProducers` rows it ends up holding.
 ///
-/// This is the half of the sync × EarlyKickout matrix that
-/// `tests::sync::early_kickout_sync` cannot reach: there the epoch is 10 blocks against
-/// the 1000-block production grace window, so every anchor is inside the grace and the
-/// blacklist is unconditionally empty (those cases now assert exactly that). Here the
-/// grace is shrunk, so the blacklist is live on both sides of a boundary and the
-/// reassignment write path is exercised.
-///
-/// The chain has to clear the grace window in every epoch it crosses. The blacklist resets
-/// at each boundary — `blacklist_for_epoch` returns empty when the aggregator's epoch
-/// differs from the anchor's, and the grace restarts — so the first epoch builds the
-/// blacklist, each boundary shuffles shards and triggers a state sync, and the epoch after
-/// it has to rebuild the blacklist from its own stats before the probe runs.
+/// This is the half `tests::sync::early_kickout_sync` cannot reach: there every anchor is
+/// inside the grace window, so the blacklist is always empty and the reassignment write path
+/// never runs. Here the grace is shrunk, and the blacklist has to rebuild from each epoch's own
+/// stats since it resets at every boundary.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_state_sync_under_active_kickout() {
     init_test_logger();
 
-    // A tighter gate than the other two tests use. This test needs SHORT epochs, because it
-    // needs many epoch boundaries (see the shuffling comment below) and each epoch has to
-    // clear its own grace window and rebuild the blacklist. Nothing here depends on the
-    // absolute values; the mid-epoch math is the same at any of them.
-    const CASE_D_GRACE_BLOCKS: u64 = 5;
-    const CASE_D_MIN_MISSES: u64 = 3;
-    let _thresholds = shrink_early_kickout_gate(CASE_D_MIN_MISSES, CASE_D_GRACE_BLOCKS);
+    // Tighter than the other two tests: this one needs many boundaries (see below), so epochs
+    // must be short, and every epoch has to clear its own grace window.
+    const GRACE_BLOCKS: u64 = 5;
+    const MIN_MISSES: u64 = 3;
+    let _thresholds = shrink_early_kickout_gate(MIN_MISSES, GRACE_BLOCKS);
 
-    // Clears the 5-block grace, accumulates the miss floor a few blocks later, and still
-    // leaves a post-blacklist runway, all inside one epoch.
+    // Fits grace, miss accumulation and a post-blacklist runway in one epoch.
     let epoch_length = 30;
-    // 6 validators over 3 shards, i.e. 2 producers per shard. Two producers per shard is
-    // needed twice over: the stopped target always has a healthy replacement, so the safety
-    // valve never fires and the shard never stalls (the same topology test A relies on, and
-    // the reason case B's one-producer-per-shard shape is left alone); and the schedule
+    // 2 producers per shard, needed twice over: the stopped target always has a healthy
+    // replacement, so the safety valve never fires and the shard never stalls; and the schedule
     // rotates with height, so the anchor-offset half of the oracle can bite.
     let validators_spec = create_validators_spec(6, 0);
     let clients = validators_spec_clients(&validators_spec);
@@ -786,13 +769,10 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
         .build();
-    // Deliberately no `kickouts_standard_80_percent()`: `from_genesis` leaves all
-    // end-of-epoch kickout thresholds at 0, so the stopped target survives the boundary and
-    // keeps missing chunks in the second epoch. With the standard kickout on it would be
-    // removed at the end of the first epoch and nobody would be left missing chunks to
-    // rebuild the blacklist. The mid-epoch math is independent of those thresholds
-    // (`compute_chunk_producer_blacklist` compares against its own constants), so leaving
-    // them at 0 costs no coverage here.
+    // Deliberately no `kickouts_standard_80_percent()`: `from_genesis` leaves the end-of-epoch
+    // thresholds at 0, so the stopped target survives each boundary and keeps missing chunks.
+    // With standard kickout on it would be removed after the first epoch, leaving nobody to
+    // rebuild the blacklist. The mid-epoch math ignores those thresholds anyway.
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
@@ -814,19 +794,12 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::StopProduce),
     );
 
-    // First epoch: clear the grace window, accumulate the miss floor, form the blacklist.
     run_until_target_blacklisted(&mut env.node_runner(0), &epoch_manager, &target_account, None);
 
-    // Then cross several boundaries. One would be enough for the state sync itself, but the
-    // shard shuffle only redraws at a boundary, and `shuffle` over a handful of producer
-    // groups returns the identity permutation often enough to matter: measured with one real
-    // draw it did, and `assert_shard_shuffling_happened` then reports "shuffling didn't
-    // happen". Worse, the genesis epoch and the first epoch both carry an all-zero
-    // `rng_seed`, so the first boundaries do not even draw. Four crossings put the chance of
-    // never moving a shard out of reach. Each crossing also re-tests that the blacklist
-    // rebuilds from the new epoch's own stats: it resets at every boundary
-    // (`blacklist_for_epoch` returns empty when the aggregator's epoch differs from the
-    // anchor's) and the grace window restarts.
+    // One boundary would be enough for the state sync, but four are needed for the shuffle to
+    // provably move a shard: the genesis and first epochs carry an all-zero `rng_seed` so the
+    // earliest boundaries do not redraw at all, and a redraw over a few producer groups can
+    // return the identity permutation, which reads as "shuffling didn't happen" (measured).
     let mut probe_epoch = env.node(0).head().epoch_id;
     for boundary in 1..=4 {
         assert_eq!(
@@ -838,10 +811,9 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         );
         env.node_runner(0).run_until_new_epoch();
         probe_epoch = env.node(0).head().epoch_id;
-        // Pinning the wait to the new epoch is essential — right after the boundary the
-        // trailing final head still sits in the previous epoch, where the target is already
-        // blacklisted, so an unpinned wait would return immediately, before this epoch has
-        // cleared its own grace window.
+        // Pinning to the new epoch is essential: right after the boundary the trailing final
+        // head still sits in the previous one, where the target is already blacklisted, so an
+        // unpinned wait would return before this epoch clears its own grace window.
         run_until_target_blacklisted(
             &mut env.node_runner(0),
             &epoch_manager,
@@ -850,8 +822,8 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         );
     }
 
-    // Runway, so rows whose anchor was produced after this epoch's blacklist formed exist to
-    // probe. Still inside the same epoch (5 grace + a few misses + 10 < 30).
+    // Runway, so rows anchored after this epoch's blacklist formed exist to probe. Still inside
+    // the same epoch (5 grace + a few misses + 10 < 30).
     env.node_runner(0).run_for_number_of_blocks(10);
     assert_eq!(
         env.node(0).head().epoch_id,
@@ -867,14 +839,10 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         let label = format!("active-kickout probe on node {idx}");
         let walk = probe_block_region(&env.node(idx), epoch_length);
         assert_walk_window(&walk, epoch_length / 2, &label);
-        // Every anchor here came from block processing, so the live accessor always has the
-        // `BlockInfo` it needs and no row falls back to an assumed-empty exclude set.
         assert_blacklist_read_everywhere(&walk, &label);
-        // Both directions are needed. Reassigned rows prove a row that deviates from the
-        // plain schedule survived on a node that state-synced under an active blacklist;
-        // plain rows prove the probe is not blanket-accepting deviation. Each side is
-        // recomputed from this node's own blacklist accessor, never compared against another
-        // node's copy of the same row, so neither collapses into cross-node parity.
+        // Both directions: reassigned rows prove a deviating row survived the state sync, plain
+        // rows prove the probe is not blanket-accepting deviation. Each side is recomputed from
+        // this node's own accessor, never from another node's copy of the row.
         assert!(
             walk.reassigned_rows > 0,
             "{label}: no row was reassigned away from a blacklisted plain pick, so the \

@@ -2,14 +2,12 @@
 //! hold the `DBCol::ChunkProducers` rows their catch-up reads depend on, and those rows
 //! must name the right producer.
 //!
-//! The oracle is the canonical schedule rather than a second read of the same key, and
-//! lives in `tests::early_kickout_probe`. The blacklist is empty throughout all three
-//! cases — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10, so no
-//! anchor ever clears the grace window — which every case now *asserts*
-//! (`blacklisted_rows() == 0`) rather than assumes. The offset half of the oracle bites
-//! only where a shard has more than one chunk producer, since the sampler ignores the
-//! height when the settlement holds a single entry; cases A and C run more validators
-//! than shards for that reason.
+//! The oracle lives in `tests::early_kickout_probe`. The blacklist is empty throughout all
+//! three cases — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10, so no
+//! anchor clears the grace window — which every case asserts rather than assumes. The offset
+//! half of the oracle bites only where a shard has more than one chunk producer, since the
+//! sampler ignores the height when the settlement holds a single entry; cases A and C run
+//! more validators than shards for that reason.
 //!
 //! Adjacent coverage: the epoch-manager unit tests own "seeding writes rows" and
 //! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
@@ -42,12 +40,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::Balance;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
 
-/// Every anchor these three cases touch sits inside the start-of-epoch grace window
-/// (`EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10), so the blacklist
-/// is empty everywhere and the plain-schedule half of the oracle is exact. Asserting that
-/// rather than assuming it is what makes the scope limit visible without measuring it: a
-/// row written under an active blacklist here means the grace logic regressed.
-/// `tests::early_kickout_e2e` owns the other side, where the blacklist is live.
+/// A row written under an active blacklist here means the grace logic regressed: every anchor
+/// these cases touch is inside the grace window. `tests::early_kickout_e2e` owns the other
+/// side, where the blacklist is live.
 fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
     assert_eq!(
         walk.blacklisted_rows(),
@@ -133,13 +128,10 @@ fn slow_test_early_kickout_far_horizon_observer() {
             "header-only probe never reached the synced epoch's opening heights ({walk:?})"
         );
         assert_inside_grace_window(&walk, "header-only probe");
-        // The one region where the live blacklist accessor cannot always run: it needs the
-        // anchor's `BlockInfo`, and the headers the epoch-sync proof installs around its sync
-        // point arrive without one (`apply_validated_proof` writes `BlockInfo` for its own
-        // boundary blocks only). Measured: 2 anchors. Those rows are still checked, against
-        // the plain schedule with an empty exclude set, which is exact here — the whole case
-        // is inside the grace window. Bounded by the proof's boundary-header count rather
-        // than pinned to the measured value, so a regression that lost `BlockInfo` for
+        // The one region where the accessor cannot always run: the headers around the
+        // epoch-sync point arrive without a `BlockInfo` (`apply_validated_proof` writes one
+        // for its own boundary blocks only). Measured: 2. Bounded by the proof's
+        // boundary-header count rather than pinned to that, so losing `BlockInfo` for
         // header-synced heights trips it while proof-shape drift does not.
         assert!(
             walk.blacklist_unavailable <= 3,
