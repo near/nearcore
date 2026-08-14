@@ -81,7 +81,7 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
                 {shardKeys.map((shardKey) => {
                     return (
                         <tr key={shardKey}>
-                            <td>{keyedByShardId ? 'Shard' : 'Index'} {shardKey}</td>
+                            <td>{keyedByShardId ? 'Shard Id' : 'Shard Index'} {shardKey}</td>
                             {displayedEpochs.map((epoch, epochIndex) => {
                                 const entry = shardSizesByEpoch[epochIndex].entries.get(
                                     shardKey
