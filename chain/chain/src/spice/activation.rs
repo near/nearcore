@@ -13,7 +13,7 @@ use strum::{EnumIter, IntoStaticStr};
 pub enum SpiceMessageKind {
     ChunkEndorsement,
     PartialData,
-    PartialDataRequest,
+    DataRequest,
     ContractAccesses,
     ContractCodeRequest,
     ContractCodeResponse,
@@ -79,8 +79,9 @@ pub struct SpiceMessageGate {
 }
 
 impl SpiceMessageGate {
-    /// Whether an inbound spice message referencing `block_hash` should be processed. A
-    /// dropped message is counted under `kind`.
+    /// Whether an inbound spice message referencing `block_hash` should be processed. A drop is
+    /// counted under `kind` once per call, so a caller gating each entry of a batched message
+    /// counts entries rather than messages.
     ///
     /// The authoritative answer is the referenced block itself. When that block is
     /// not on disk we cannot ask it, and we must not simply drop: spice legitimately

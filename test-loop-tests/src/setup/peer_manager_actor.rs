@@ -23,9 +23,7 @@ use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage,
 };
-use near_network::spice::data_distribution::{
-    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
-};
+use near_network::spice::data_distribution::{SpiceDataRequestMessage, SpiceIncomingPartialData};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -81,7 +79,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
-    pub data_requests: Sender<SpicePartialDataRequestMessage>,
+    pub data_requests: Sender<SpiceDataRequestMessage>,
     pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
     pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
@@ -1045,15 +1043,12 @@ fn network_message_to_spice_data_distributor_handler(
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        NetworkRequests::SpicePartialDataRequest { producer, request } => {
+        NetworkRequests::SpiceDataRequest { producer, request } => {
             assert!(producer != my_account_id, "Sending message to self not supported.");
             shared_state
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
-                .send(SpicePartialDataRequestMessage {
-                    request,
-                    recv_permit: RecvMessagePermit::none(),
-                });
+                .send(SpiceDataRequestMessage { request, recv_permit: RecvMessagePermit::none() });
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {
