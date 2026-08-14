@@ -23,6 +23,7 @@ use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
+use near_chain::spice::all_stake_fallback::fallback_eligible;
 use near_chain::spice::core::{SpiceCoreReader, fallback_eligible};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -75,6 +76,8 @@ use near_store::{TrieDBStorage, TrieStorage};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -192,6 +195,9 @@ pub struct SpiceDataDistributorActor {
     broadcast_own_fallback_endorsements: LruCache<SpiceChunkId, ()>,
 
     spice_gate: SpiceMessageGate,
+
+    /// Rounds of [`Self::request_waiting_on_data`], so each retry moves to another producer.
+    request_round: u64,
 }
 
 struct DistributionData {
@@ -441,6 +447,7 @@ impl SpiceDataDistributorActor {
                 BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE,
             ),
             spice_gate: SpiceMessageGate::default(),
+            request_round: 0,
         }
     }
 
@@ -1110,8 +1117,9 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn schedule_data_fetching(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.request_waiting_on_data();
+        self.request_round = self.request_round.wrapping_add(1);
 
         ctx.run_later(
             "SpiceDataDistributorActor request waiting on data",
@@ -1147,10 +1155,12 @@ impl SpiceDataDistributorActor {
             // producers.
             // TODO(spice): Request data only we know may be available. (For example based on
             // execution and certification heads.)
+            let producer_index =
+                producer_index_to_request_from(producers.len(), id, me, self.request_round);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpicePartialDataRequest {
                     request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
-                    producer: producers.swap_remove(0),
+                    producer: producers.swap_remove(producer_index),
                 },
             ));
         }
@@ -1425,4 +1435,19 @@ impl SpiceDataDistributorActor {
         }
         Ok(())
     }
+}
+
+/// The starting producer index is derived from a hash of (data_id, requester), so requests for the
+/// same data are spread across producers instead of all landing on one. Adding `round` advances the
+/// index each tick, so retries move along rather than repeatedly targeting an unresponsive producer.
+fn producer_index_to_request_from(
+    num_producers: usize,
+    data_id: &SpiceDataIdentifier,
+    requester: &AccountId,
+    round: u64,
+) -> usize {
+    let mut hasher = DefaultHasher::new();
+    data_id.hash(&mut hasher);
+    requester.hash(&mut hasher);
+    (hasher.finish().wrapping_add(round) % num_producers as u64) as usize
 }

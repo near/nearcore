@@ -4,7 +4,7 @@ use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
-use near_store::{DBCol, Store, StoreUpdate};
+use near_store::{DBCol, Store, StoreUpdate, set_cloud_reader_store};
 use std::collections::HashSet;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -93,6 +93,11 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
+    // Before the first write, so an interrupted bootstrap leaves the store marked too.
+    let mut update = store.store_update();
+    set_cloud_reader_store(&mut update);
+    update.commit();
+
     let mut saved_epochs = HashSet::<EpochId>::new();
 
     // Backfill blocks from the first epoch's start up to `start_height` so the

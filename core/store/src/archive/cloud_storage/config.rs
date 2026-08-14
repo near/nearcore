@@ -1,7 +1,9 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
-use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+use near_chain_configs::{
+    CloudArchivalReaderConfig, CloudArchivalWriterConfig, DumpConfig, ExternalStorageLocation,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,6 +15,12 @@ pub struct CloudArchivalConfig {
     /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
+    /// Writer configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writer: Option<CloudArchivalWriterConfig>,
+    /// Reader configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reader: Option<CloudArchivalReaderConfig>,
 }
 
 /// Default dumper config used by cloud archive writers to upload state snapshots.
@@ -27,18 +35,21 @@ impl CloudArchivalConfig {
     }
 }
 
-/// Configures the external storage used by the archival node.
+/// What the store layer needs to reach the bucket: where it is, how to authenticate, and
+/// which chain's prefix to read and write under.
 #[derive(Clone)]
 pub struct CloudStorageContext {
-    pub cloud_archive: CloudArchivalConfig,
+    pub location: ExternalStorageLocation,
+    pub credentials_file: Option<PathBuf>,
     pub chain_id: String,
 }
 
-/// Creates a test cloud archival configuration using a local filesystem path.
+/// Creates a test cloud archival configuration using a local filesystem path. Neither role
+/// is set; a caller whose config reaches validation sets `writer` or `reader` itself.
 pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchivalConfig {
     let storage_dir = root_dir.into().join("cloud_archival");
     let location = ExternalStorageLocation::Filesystem { root_dir: storage_dir };
-    CloudArchivalConfig { location, credentials_file: None }
+    CloudArchivalConfig { location, credentials_file: None, writer: None, reader: None }
 }
 
 /// Creates a test cloud storage context.
@@ -46,7 +57,12 @@ pub fn test_cloud_storage_context(
     root_dir: impl Into<PathBuf>,
     chain_id: String,
 ) -> CloudStorageContext {
-    CloudStorageContext { cloud_archive: test_cloud_archival_config(root_dir), chain_id }
+    let config = test_cloud_archival_config(root_dir);
+    CloudStorageContext {
+        location: config.location,
+        credentials_file: config.credentials_file,
+        chain_id,
+    }
 }
 
 /// Initializes a test cloud storage instance with the given bucket config.
