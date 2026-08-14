@@ -90,10 +90,11 @@ impl PeerScore {
 /// The engine's whole dependency on scoring — faults in, sources out. Injected as
 /// `Box<dyn ReputationPolicy>`, so the model is swappable and tests can script it.
 pub(crate) trait ReputationPolicy {
-    /// Misbehavior funnel; attribution resolved by the caller.
-    fn report(&mut self, who: &[AccountId], what: Misbehavior, about: &DataId);
-    /// A peer left a request unanswered past `request_timeout`.
-    fn note_timeout(&mut self, who: &AccountId, now: Instant);
+    /// Misbehavior funnel; attribution resolved by the caller. `now` because every write
+    /// must decay first — both channels share one anchor.
+    fn report(&mut self, accounts: &[AccountId], what: Misbehavior, about: &DataId, now: Instant);
+    /// A source left a pull unanswered past `request_timeout`.
+    fn note_timeout(&mut self, source: &AccountId, now: Instant);
     /// Pick `n` pull sources from `pool`, excluding `outstanding`.
     fn select_sources(
         &self,
@@ -118,13 +119,20 @@ impl ReputationPolicy for Reputation {
     /// `touch` + `score -= weight`, then export to the network scorer (enforcement is
     /// the export, at report time — decay never weakens it). Called for engine-immediate
     /// faults, consumer `FailedEvent`s, and the certification comparator.
-    fn report(&mut self, _who: &[AccountId], _what: Misbehavior, _about: &DataId) {}
+    fn report(
+        &mut self,
+        _accounts: &[AccountId],
+        _what: Misbehavior,
+        _about: &DataId,
+        _now: Instant,
+    ) {
+    }
 
     /// `touch` + `timeout_load += 1` — the only other write path. Success and NAKs are
     /// deliberate no-ops (rewards invite credit-banking; the fast half-life restores a
     /// recovered peer anyway). Possible later tweak: a fractional bump for producers
     /// whose pushed part never arrived — needs load data.
-    fn note_timeout(&mut self, _who: &AccountId, _now: Instant) {}
+    fn note_timeout(&mut self, _source: &AccountId, _now: Instant) {}
 
     /// Weighted-sample `n` from `pool` (minus `outstanding`) by
     /// `w = exp(α·score) / (1 + timeout_load)`: neutral ⇒ w = 1; weights never reach

@@ -1,10 +1,12 @@
 //! Per-item identity, lifecycle state, assembly buffers, and sender attribution.
 
 use super::AdmitError;
-use super::QosClass;
+use super::Lane;
 use super::scheduler::Backoff;
+use crate::spice::data_distributor_actor::SpiceData;
 use near_async::time::Instant;
 use near_primitives::hash::CryptoHash;
+use near_primitives::reed_solomon::ReedSolomonPartsTracker;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
@@ -78,8 +80,9 @@ pub(crate) enum ProduceState {
     /// Artifact in store; serve any requested units. `codes` (witness items only, empty
     /// otherwise) is the set of contract hashes the chunk accessed — the serve-side index
     /// for code pulls claiming this chunk (`WantUnits::Blob { chunk }`). Filled by
-    /// `on_produced`, re-read from the store by `seed_block` on restart.
-    ReadyToServe { codes: HashSet<CodeHash> },
+    /// `on_produced`, re-read from the store by `seed_block` on restart. `served` counts the
+    /// outbound budget per requester (`Budgets::per_item_requester_serve_bytes`).
+    ReadyToServe { codes: HashSet<CodeHash>, served: HashMap<AccountId, u64> },
 }
 
 /// The consume-side lifecycle. `Have` is absent by construction: the terminal signal is a
@@ -87,19 +90,18 @@ pub(crate) enum ProduceState {
 /// proof, or produced data — not the raw data. A `Verified` verdict shrinks the item to
 /// its `DataAttribution` (`ProcessedLocally`); removal happens only via head-driven
 /// expiry.
-#[derive(Debug)]
 pub(crate) enum FetchState {
     /// Wanted (seeded from chain) but the existence gate is closed and no unit has
-    /// arrived. Registered in `gated_by_frontier`; on a recent block we just wait for the
-    /// push here.
+    /// arrived. On a recent block we just wait for the push here.
     Need,
     /// At least one unit obtained (⇒ it exists), or the gate opened and we're
     /// speculatively pulling. On completion, coded kinds move to `Delivered`; a blob is
     /// verified on arrival and terminal (delivered to the validator actor, item removed).
     Collecting(Assembly),
     /// Assembled bytes handed to the consumer; parked until it reports `Verified`/
-    /// `Failed`. Coded kinds only. The winning tracker's part bytes are dropped, leaving a
-    /// small [`DataAttribution`]; without this state a re-pushed part would re-deliver.
+    /// `Failed`. Coded kinds only. The winning tracker's part bytes are dropped (and their
+    /// budget released) here, leaving a small [`DataAttribution`]; without this state a
+    /// re-pushed part would re-deliver.
     /// Non-winning trackers are kept as `residual` until the verdict (empty without
     /// equivocation). A semantic `Failed` blames the winning senders only, bans `winning`,
     /// and resumes `Collecting` from `residual` (deliver at once if a tracker already
@@ -121,10 +123,10 @@ pub(crate) enum FetchState {
 /// Identity is the map key, not duplicated here.
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
-    /// QoS lane, fixed at item creation (max over the causes present then). Drives the
+    /// Lane, fixed at item creation (max over the causes present then). Drives the
     /// scheduler tie-break and which byte budget the buffers count against. No mid-life
     /// updates: a validator-key hot-swap tolerates a stale lane until expiry.
-    pub(crate) qos: QosClass,
+    pub(crate) lane: Lane,
     /// Lifetime field (all kinds), captured at seed time so expiry and the admission
     /// window read a scalar, never a store lookup. For contract code it's the
     /// denormalized height of `anchor`'s block, kept in sync on anchor bumps.
@@ -146,7 +148,7 @@ pub(crate) struct FetchItem {
     /// Outstanding pull requests — a snapshot of what's on the wire now, not history
     /// (failure memory is global, in [`super::Reputation`]). An entry is removed on
     /// response/NAK, or, once older than `request_timeout`, converted into
-    /// `note_timeout(who)` and removed (its ordinals become requestable again). While it
+    /// `note_timeout(source)` and removed (its ordinals become requestable again). While it
     /// lives it suppresses duplicate requests.
     pub(crate) in_flight: Vec<InFlightRequest>,
     /// Retry/backoff bookkeeping — the single copy (the scheduler owns only deadlines).
@@ -160,7 +162,7 @@ pub(crate) struct FetchItem {
 
 /// One outstanding pull request to one peer.
 pub(crate) struct InFlightRequest {
-    pub(crate) who: AccountId,
+    pub(crate) source: AccountId,
     pub(crate) sent_at: Instant,
     /// Requested ordinals; empty ⇒ the whole blob.
     pub(crate) ordinals: Vec<u32>,
@@ -176,7 +178,6 @@ pub(crate) struct InFlightRequest {
 ///   once (equivocation) — the per-commitment machinery exists to disambiguate it.
 /// - Blob: the id is the hash, so there's one known commitment; non-matching bytes are
 ///   rejected on arrival and none of that machinery applies.
-#[derive(Debug)]
 pub(crate) enum Assembly {
     /// One tracker per commitment, so a fake commitment can't block the honest one; first
     /// to K wins, and a bad decode blames only that commitment's senders. Unsolicited
@@ -193,11 +194,18 @@ pub(crate) enum Assembly {
 
 /// Accumulates parts toward decoding under one claimed commitment, and — the same struct,
 /// folded in — records who sent each ordinal.
-#[derive(Debug)]
+///
+/// Byte accounting for [`super::AdmissionControl::release`] needs no extra field: parts are
+/// fixed-length (`reed_solomon_part_length` = `ceil(encoded_length / K)`), so a sender's
+/// charge is its count in `senders` × that length, and the lane total is
+/// `parts.total_parts_size()`.
+// No `Debug`: `ReedSolomonPartsTracker` has none.
 pub(crate) struct CodedTracker {
-    // Holds the part bytes and decodes on K, sized from the commitment (encoded_length)
-    // and producer count (N). The decoded payload type is erased here (a generic would
-    // climb Assembly → FetchState → FetchItem → Item and break the one-map premise).
+    /// Holds the part bytes and decodes on K. `SpiceData` (an enum over the two coded
+    /// payloads, as today) keeps this monomorphic, so no generic climbs into `Item`. Also
+    /// the byte accounting: `total_parts_size()` is what we hold, `encoded_length()` the
+    /// expected total.
+    pub(crate) parts: ReedSolomonPartsTracker<SpiceData>,
     /// Per-ordinal sender: `Some` ⇒ we hold that ordinal (so `missing_ordinals` reads it
     /// without touching part buffers) and records the sender for attribution. This is the
     /// transport sender — used directly for Merkle faults and collectively (all `Some`)

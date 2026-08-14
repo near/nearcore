@@ -18,8 +18,8 @@ pub(crate) enum Interest {
     NotNeeded,
     /// Needed, but the existence gate is closed: the shard's certified frontier hasn't
     /// reached `height - witness_pull_margin` yet, so the chunk is likely not executed.
-    /// Seed as `Need`, register the (shard, height) gate in `gated_by_frontier`, and wait
-    /// for the push rather than pulling.
+    /// Seed as `Need` and wait for the push rather than pulling; the frontier pass over
+    /// `items_by_height` opens it.
     WaitForPush,
     /// Needed and plausibly produced (catch-up, or contract code). Seed straight into
     /// `Collecting` and arm the speculative pull.
@@ -51,9 +51,6 @@ pub(crate) trait DataKind {
         id: &DataId,
         claimed_chunk: Option<&SpiceChunkId>,
     ) -> Result<Vec<AccountId>, near_chain::Error>;
-
-    /// Erasure-coded (K-of-N) vs whole blob (K=1, content-addressed).
-    fn transfer_unit(&self) -> TransferUnit;
 
     /// Does this node need the item, and is its existence gate open? Consulted once, at
     /// seed time (see [`Interest`]); afterwards the gate is event-driven.

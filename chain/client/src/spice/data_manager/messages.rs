@@ -6,14 +6,13 @@
 //! in-flight dedup. The request is batched: `wants` carries several entries for one peer
 //! under a single requester/lane/signature.
 
-use super::QosClass;
+use super::Lane;
 use super::item::DataId;
 use super::reputation::Misbehavior;
 use near_primitives::types::{AccountId, SpiceChunkId};
 
-/// Which units of `data_id` the requester wants — always explicit (see module docs). On
-/// escalation the missing set is striped disjointly across the fanned-out sources, so
-/// each source gets its own subset (their union covers the hole once).
+/// Which units of `data_id` the requester wants — always explicit (see module docs). A pull
+/// splits the missing set between its sources, so each gets its own subset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WantUnits {
     /// Specific RS ordinals (targeted recovery). Empty is invalid; admission dedups, caps
@@ -50,27 +49,27 @@ pub(crate) struct SpiceDataRequest {
     /// resolves or NAKs independently in the response.
     pub(crate) wants: Vec<(DataId, WantUnits)>,
     pub(crate) requester: Requester,
-    /// Requested QoS lane, granted iff identity + entitlement allow: `Priority` ⇔
-    /// `Validator` ∧ `recipients(id).contains(who)` ∧ requested, else `Background`.
+    /// Requested lane, granted iff identity + entitlement allow: `Priority` ⇔
+    /// `Validator` ∧ `recipients(id).contains(requester)` ∧ requested, else `Background`.
     /// Self-declaration can only downgrade, so it is not a DoS lever.
-    pub(crate) lane: QosClass,
+    pub(crate) lane: Lane,
     // signature omitted in the sketch (present for `Validator`).
 }
 
-/// A served unit coming back (pushed parts arrive with the same shape). Carries no lane
-/// tag: the receiver derives the lane from its own state, so budget attribution is never
-/// sender-controlled. A batched request fans out into per-id responses, so `data_id` is
-/// singular here.
+/// Units for one item moving between two nodes — a push, a pull response, or what
+/// `serve_request` returns, all the same shape. Carries no lane tag: the receiver derives the
+/// lane from its own state, so budget attribution is never sender-controlled. A batched
+/// request fans out into one of these per id.
 #[derive(Debug)]
-pub(crate) struct DataResponse {
+pub(crate) struct DataMessage {
     pub(crate) data_id: DataId,
     pub(crate) sender: AccountId,
-    pub(crate) payload: ResponsePayload,
+    pub(crate) payload: DataPayload,
 }
 
-/// What came back.
+/// The units, or a refusal.
 #[derive(Debug)]
-pub(crate) enum ResponsePayload {
+pub(crate) enum DataPayload {
     /// Coded parts (+ commitment/Merkle proofs) or a blob — concrete payload types
     /// (`SpiceDataPart` / `CodeBytes`) omitted in the sketch.
     Units,
@@ -97,11 +96,13 @@ pub(crate) struct VerifiedEvent {
 /// `proof_of_invalid_chunk`, execution erroring on the recorded state) — the witness
 /// carries no claimed result to mismatch; a divergent computed result surfaces at
 /// certification, not here. For a receipt: the `outgoing_receipts_root` check; for
-/// accesses: consistency with the witness's embedded list. The manager attributes via the
-/// retained `DataAttribution` (the winning commitment's senders; blob ⇒ the responder) and
-/// funnels `kind` into reputation — this is why decode is not terminal. Also carries the
-/// retroactive `Failed(CertifiedResultMismatch)` from the comparator. Arriving after the
-/// item expired is a tolerated no-op.
+/// accesses: consistency with the witness's embedded list. Coded kinds only — a blob has no
+/// deferred verdict (verified on arrival, item removed), so a bad one is reported
+/// synchronously as `BadCodeBytes`, never through here. The manager attributes via the
+/// retained `DataAttribution` (the winning commitment's senders) and funnels `kind` into
+/// reputation — this is why decode is not terminal. Also carries the retroactive
+/// `Failed(CertifiedResultMismatch)` from the comparator. Arriving after the item expired is
+/// a tolerated no-op.
 #[derive(Debug)]
 pub(crate) struct FailedEvent {
     pub(crate) data_id: DataId,

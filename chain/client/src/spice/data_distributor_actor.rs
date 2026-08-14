@@ -216,7 +216,7 @@ struct DataPartsEntry {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-enum SpiceData {
+pub(crate) enum SpiceData {
     ReceiptProof(ReceiptProof),
     StateWitness(Box<SpiceChunkStateWitness>),
 }

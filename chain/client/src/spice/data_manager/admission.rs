@@ -1,24 +1,26 @@
 //! SKETCH. Centralized admission control: one gate every received unit passes before any
 //! buffering/allocation, so all size/DoS bounds live here instead of per-buffer.
 
-use super::QosClass;
+use super::Lane;
 use super::item::DataId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AdmitError {
     #[error("declared encoded_length exceeds the per-type cap")]
     OversizedDeclared,
-    #[error("part/blob size exceeds the per-type cap")]
+    #[error(
+        "part length is not the one the declared encoded_length implies, or blob exceeds its cap"
+    )]
     OversizedUnit,
-    #[error("block is outside [final head, head + speculative_allowance]")]
+    #[error("block is outside [final head, head + max_heights_above_head]")]
     OutOfWindow,
     #[error("sender's unsolicited byte budget for this block exhausted")]
     SenderBudgetExhausted,
     #[error("global byte budget for the {0:?} lane exhausted")]
-    ClassBudgetExhausted(QosClass),
+    ClassBudgetExhausted(Lane),
     #[error("sender's orphan byte budget exhausted")]
     OrphanBudgetExhausted,
     #[error("we neither need nor produce this item")]
@@ -35,10 +37,10 @@ pub(crate) enum AdmitError {
     MalformedWant,
 }
 
-/// Byte budgets (not entry counts — one entry can be arbitrarily large). Enforced per QoS
+/// Byte budgets (not entry counts — one entry can be arbitrarily large). Enforced per
 /// lane (so `Background` is shed first and can't starve `Priority`), per (block, sender),
-/// and on the orphan pool. These bound memory only; scheduling isolation is the priority
-/// pool's job (see [`super::QosClass`]).
+/// per (item, requester) on the serve side, and on the orphan pool. These bound memory only;
+/// scheduling isolation is the priority pool's job (see [`super::Lane`]).
 ///
 /// Invariant: budgets are DoS bounds, sized above worst-case legitimate traffic. A
 /// validator-lane unit bouncing off a budget is a liveness bug — tie the values to
@@ -53,18 +55,21 @@ pub(crate) struct Budgets {
     /// parts still fit. The per-block total is implied (≤ #producers × this), so it needs
     /// no knob. Solicited traffic is accounted against its `in_flight` request instead.
     pub(crate) per_block_sender_bytes: u64,
+    /// Serve-side cap on bytes sent per (`Produce` item, requester), ~2× `encoded_length`.
+    /// The only outbound bound: the priority pool separates lanes, not requesters within a
+    /// lane. Per-block total is implied, as with `per_block_sender_bytes`. Counted on
+    /// `ProduceState::ReadyToServe`; exhausted ⇒ NAK.
+    pub(crate) per_item_requester_serve_bytes: u64,
     /// Orphan pool cap, per sender — pre-block, the authenticated sender is the only
     /// scarce resource, so it is the only cap. Eligible senders are bounded, so the pool
     /// total is derived (≤ |eligible| × this); size it so that total is acceptable.
     pub(crate) per_sender_orphan_bytes: u64,
-    /// How far above the head we accept speculative/orphan data (distance-to-head bound).
-    pub(crate) speculative_allowance: BlockHeight,
 }
 
-/// Per-type maximum declared/encoded sizes, checked before allocating. For coded kinds the
-/// cap is on total `encoded_length` (≈ data_len · N / K, so it must account for the RS
-/// ratio at max producer count); the implied per-part cap is `encoded cap / N`, so an
-/// oversized single part is `OversizedUnit` even within the declared total.
+/// Per-type maximum declared sizes, checked before allocating. For coded kinds the cap is on
+/// the commitment's `encoded_length` — the serialized data length, so it needs no RS-ratio
+/// adjustment. A part is not capped but fixed: exactly `ceil(encoded_length / K)` bytes, so
+/// any other length is `OversizedUnit` even within the declared total.
 #[derive(Debug, Clone)]
 pub(crate) struct SizeCaps {
     pub(crate) max_witness_encoded_len: u64,
@@ -88,6 +93,8 @@ pub(crate) struct OrphanPool {
 pub(crate) struct AdmissionControl {
     budgets: Budgets,
     caps: SizeCaps,
+    /// How far above the head a block may be for its data to be admitted.
+    max_heights_above_head: BlockHeightDelta,
     orphans: OrphanPool,
     used_priority: u64,
     used_background: u64,
@@ -104,7 +111,7 @@ impl AdmissionControl {
     pub(crate) fn admit(
         &mut self,
         _id: &DataId,
-        _qos: QosClass,
+        _lane: Lane,
         _sender: &AccountId,
         _declared_len: u64,
         _unit_len: u64,
@@ -130,7 +137,11 @@ impl AdmissionControl {
         Ok(()) // sketch
     }
 
-    /// Release the reservation when an item completes or expires; drops the block's
-    /// `used_per_block_sender` entries once it has no buffered bytes left.
-    pub(crate) fn release(&mut self, _id: &DataId, _bytes: u64, _qos: QosClass) {}
+    /// Give back what a charge took. Per-sender, because `used_per_block_sender` is keyed
+    /// that way and a single total can't decrement it; the lane refund is the sum. The
+    /// caller derives `charges` from the tracker (fixed part length × each sender's count).
+    /// Called at delivery for the winning tracker, at the verdict for `residual`, on
+    /// rejected trackers, and at expiry for whatever is left. Drops the block's
+    /// `used_per_block_sender` entries once nothing is buffered for it.
+    pub(crate) fn release(&mut self, _id: &DataId, _lane: Lane, _charges: &[(AccountId, u64)]) {}
 }

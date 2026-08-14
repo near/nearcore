@@ -2,7 +2,7 @@
 //! Most "timing" is event-gated: arming is a condition (the existence gate), expiry is
 //! head-driven. Fetch-side only — produce items are reactive and never arm deadlines.
 
-use super::QosClass;
+use super::Lane;
 use super::item::DataId;
 use near_async::time::{Duration, Instant};
 use near_primitives::types::BlockHeightDelta;
@@ -21,7 +21,7 @@ pub(crate) struct TimingConfig {
     /// ordinals (~1–2·T_rtt).
     pub(crate) first_unit_pull_delay: Duration,
     /// How long an in_flight request may go unanswered before it converts into
-    /// `note_timeout(who)` + removal. Distinct from backoff (when to retry the *item*):
+    /// `note_timeout(source)` + removal. Distinct from backoff (when to retry the *item*):
     /// enforced via the arming rule (see `on_deadline`), so detection never waits out a
     /// longer backoff interval. Default ~1·T_b.
     pub(crate) request_timeout: Duration,
@@ -32,12 +32,10 @@ pub(crate) struct TimingConfig {
     /// ± jitter fraction, decorrelating items and nodes. The rng (like the clock) is
     /// injected at construction for deterministic test schedules.
     pub(crate) jitter_frac: f64, // 0.25
-    /// On decode-timeout, contact this many producers (weighted sampling, excluding
-    /// in-flight peers) and stripe the missing ordinals disjointly across them — the
-    /// union covers the hole once, not the full set to each. At least 3: the full missing
-    /// set is `~1/0.6` redundant, so losing one of three stripes still leaves enough parts
-    /// to decode the same round, while two stripes would not. Default 3.
-    pub(crate) escalation_fanout: u8,
+    /// Producers contacted per pull, with the missing ordinals split disjointly between
+    /// them. At least 3: the missing set is `~1/0.6` redundant, so two of three stripes
+    /// still decode. Default 3.
+    pub(crate) pull_fanout: u8,
     /// How many heights above a shard's certified frontier we speculatively pull a
     /// witness for. Kept small: too large pulls not-yet-executed heights and times out
     /// against innocent producers; too small just waits for the push. See
@@ -55,7 +53,7 @@ impl Default for TimingConfig {
             backoff_multiplier: 2,
             backoff_cap: Duration::seconds(2),
             jitter_frac: 0.25,
-            escalation_fanout: 3,
+            pull_fanout: 3,
             witness_pull_margin: 2,
         }
     }
@@ -66,15 +64,15 @@ impl Default for TimingConfig {
 struct Deadline {
     at: Instant,
     id: DataId,
-    qos: QosClass,
+    lane: Lane,
 }
 
 // Ordered so `BinaryHeap` (a max-heap) yields the earliest deadline first, and within one
 // instant the higher-priority (`Priority`) lane first. Both comparisons are flipped
-// (`other` on the left): earliest `at` and lowest `QosClass` discriminant must be the max.
+// (`other` on the left): earliest `at` and lowest `Lane` discriminant must be the max.
 impl Ord for Deadline {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.at.cmp(&self.at).then_with(|| other.qos.cmp(&self.qos))
+        other.at.cmp(&self.at).then_with(|| other.lane.cmp(&self.lane))
     }
 }
 impl PartialOrd for Deadline {
@@ -83,11 +81,9 @@ impl PartialOrd for Deadline {
     }
 }
 
-/// Per-item retry-ladder position, advanced on each retry *decision* (escalate first, then
-/// back off) — never by a timeout-triggered wake (see `on_deadline`). Separate from the
-/// one-shot timing anchors (`FetchItem::first_unit_at`) and the armed deadline
-/// (`next_deadline`): those are facts, this is a progression (advances on miss; reset on
-/// progress — exact rule TBD). Lives on the `FetchItem`; the scheduler owns only deadlines.
+/// Per-item retry-ladder position, advanced on each retry decision, never by a
+/// timeout-triggered wake (see `on_deadline`). Advances on a miss; reset on progress — exact
+/// rule TBD. Lives on the `FetchItem`; the scheduler owns only deadlines.
 #[derive(Debug, Default)]
 pub(crate) struct Backoff {
     attempts: u32,
@@ -108,7 +104,7 @@ pub(crate) struct DeadlineScheduler {
 }
 
 impl DeadlineScheduler {
-    pub(crate) fn arm(&mut self, _id: DataId, _at: Instant, _qos: QosClass) {}
+    pub(crate) fn arm(&mut self, _id: DataId, _at: Instant, _lane: Lane) {}
 
     /// Pop everything due at/before `now`. Heap entries can't be removed, so completed/
     /// expired/re-armed items leave stale entries behind — the engine must validate each

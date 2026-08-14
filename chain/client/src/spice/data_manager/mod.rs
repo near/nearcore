@@ -10,7 +10,7 @@
 //!   global (the reputation table), the item keeps only transient `in_flight`.
 //! - [`admission`]: one gate before buffering, plus the bounded [`admission::OrphanPool`].
 //! - [`reputation`]: fault funnel → two-channel score → network export.
-//! - [`messages`]: unified `SpiceDataRequest`; QoS lanes for non-validator (RPC) fetches.
+//! - [`messages`]: unified `SpiceDataRequest`; lanes for non-validator (RPC) fetches.
 //! - contract code is just a third [`fetchable::DataKind`] config.
 //!
 //! Semantic validation (state-transition / receipt-root / accesses↔witness consistency)
@@ -40,16 +40,15 @@ pub(crate) use item::{
     TransferUnit,
 };
 pub(crate) use messages::{
-    DataResponse, FailedEvent, Requester, ResponsePayload, SpiceDataRequest, VerifiedEvent,
-    WantUnits,
+    DataMessage, DataPayload, FailedEvent, Requester, SpiceDataRequest, VerifiedEvent, WantUnits,
 };
 pub(crate) use reputation::{Misbehavior, Reputation, ReputationConfig, ReputationPolicy};
 pub(crate) use scheduler::{Backoff, DeadlineScheduler, TimingConfig};
 
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::BlockHeight;
 use std::collections::{BTreeMap, HashMap};
 
-/// QoS lane — a manager-computed attribute, not an ingress-routable label. It attaches to
+/// Fetch/serve lane — a manager-computed attribute, not an ingress-routable label. It attaches to
 /// the fetch *cause*, not the data (the same witness can be wanted by our validator duty
 /// and an RPC subscriber, so the item takes the max lane), so a pre-manager queue can't
 /// classify it.
@@ -60,7 +59,7 @@ use std::collections::{BTreeMap, HashMap};
 /// before it piles up. Ingress may pre-filter locally-checkable facts (drop unsigned; route
 /// self-declared `Background`, which can only downgrade) but never *grants* `Priority`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum QosClass {
+pub(crate) enum Lane {
     /// Consensus-critical: we are an assigned validator / next-block producer for it.
     Priority,
     /// RPC / state-sync / catch-up fetch or serve — including a validator catching up a
@@ -89,25 +88,21 @@ pub(crate) struct SpiceDataManager {
     /// the source of truth for `Have`.
     items: HashMap<DataId, Item>,
 
-    /// Head-driven expiry index: `on_heads_advanced` drains the range at/below the final
-    /// execution head instead of scanning every item. Heights are captured at seed time
-    /// (`FetchItem::height`). Entries are never removed early — a contract-code anchor
-    /// change can leave a stale bucket entry, which the drain validates lazily (item
-    /// exists, `FetchItem::height` matches the bucket).
+    /// Height index, serving both of `on_heads_advanced`'s passes so neither scans every
+    /// item. Heights are captured at seed time (`FetchItem::height`).
+    /// - expiry drains and removes at/below the final execution head.
+    /// - the witness arm gate range-*scans* the band a shard's certified frontier just
+    ///   opened, `(old + margin, new + margin]`, flipping that shard's `Need` items to
+    ///   `Collecting`. Read-only, since the entries are still expiry's. The shard comes from
+    ///   the `DataId`, so it needs no key of its own; other shards' entries in the band are
+    ///   skipped and scanned again when their own frontier moves. Receipt proofs are not
+    ///   gated — the executor's apply attempt triggers their pull.
+    ///
+    /// Entries are never removed early, so a contract-code anchor change leaves a stale one;
+    /// both passes validate lazily (item exists, `FetchItem::height` matches the bucket).
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
 
-    /// The gate-side twin of `items_by_height`: witness items in `FetchState::Need`
-    /// behind the existence gate, keyed by the (shard, height) that opens them. A witness
-    /// recipient does not apply the shard, so it can't see the shard's execution locally;
-    /// the gate opens off the shard's *certified* frontier, which is globally visible. An
-    /// item at height `h` opens once the frontier reaches `h - witness_pull_margin`, i.e.
-    /// the chunk is likely executed but not yet certified. Drained per shard as the
-    /// frontier advances (`Need` → `Collecting`, arm after `push_grace`); same lazy
-    /// validation on drain. Frontiers only advance, so there is no re-closing. Receipt
-    /// proofs don't gate here — their pull is triggered by the executor's apply attempt.
-    gated_by_frontier: BTreeMap<(ShardId, BlockHeight), Vec<DataId>>,
-
-    /// Fires per-item retry/escalation deadlines. Owns `when` only; retry state lives on
+    /// Fires per-item retry deadlines. Owns `when` only; retry state lives on
     /// items.
     scheduler: DeadlineScheduler,
 
@@ -163,16 +158,15 @@ impl SpiceDataManager {
     /// - blob ⇒ verified on arrival, so terminal: hand `(code_hash, bytes)` to the
     ///   validator actor and remove the item. No `Delivered`, no verdict.
     /// The first accepted unit is the availability signal.
-    pub(crate) fn on_data_received(&mut self, _resp: DataResponse) -> Result<(), AdmitError> {
+    pub(crate) fn on_data_received(&mut self, _resp: DataMessage) -> Result<(), AdmitError> {
         Ok(())
     }
 
     /// A due deadline fired (after `drain_due`'s validation against `next_deadline`). First
-    /// converts `in_flight` entries older than `request_timeout` into `note_timeout(who)`;
-    /// then (re)issues the pull to `select_sources`-sampled producers. A first pull sends
-    /// the full missing-ordinal set to one producer; escalation stripes the missing set
-    /// disjointly across `escalation_fanout` producers (union covers the hole once), so
-    /// each ordinal goes to exactly one peer. Then re-arms at `min(backoff next interval,
+    /// converts `in_flight` entries older than `request_timeout` into `note_timeout(source)`;
+    /// then (re)issues the pull: the missing ordinals are split disjointly between
+    /// `pull_fanout` producers from `select_sources`, so each ordinal goes to one peer.
+    /// Then re-arms at `min(backoff next interval,
     /// oldest in_flight + request_timeout)`, so a peer timeout is detected when it elapses,
     /// not when a later backoff deadline fires. A timeout-triggered wake re-requests
     /// without advancing the backoff ladder.
@@ -188,12 +182,12 @@ impl SpiceDataManager {
 
     /// Chain heads / per-shard certified frontiers advanced. The executor coordinator,
     /// which advances the heads, supplies the final execution head and the per-shard
-    /// certified frontier (only the shards that moved). Two range drains over the
-    /// seed-time indexes, never a full scan or per-item chain query:
-    /// - expiry: drain `items_by_height` at/below the final execution head;
-    /// - witness gate: for each moved shard, drain `gated_by_frontier` up to
-    ///   `new_frontier + witness_pull_margin` — each still-`Need` item flips to
-    ///   `Collecting` and arms its speculative pull after `push_grace`.
+    /// certified frontier (only the shards that moved). Two range passes over
+    /// `items_by_height`, never a full scan or per-item chain query:
+    /// - expiry: drain at/below the final execution head;
+    /// - witness gate: for each moved shard, scan the newly opened band up to
+    ///   `new_frontier + witness_pull_margin` — each still-`Need` item of that shard flips
+    ///   to `Collecting` and arms its speculative pull after `push_grace`.
     /// Runs after `on_certified` by causality (the final head only advances because
     /// certified results were processed).
     pub(crate) fn on_heads_advanced(&mut self) {}
@@ -205,8 +199,9 @@ impl SpiceDataManager {
     /// source chunk executed, so any residual not-yet-produced skew is covered by backoff.
     pub(crate) fn on_receipt_apply_attempt(&mut self, _missing: &[DataId]) {}
 
-    /// Consumer reported the outcome of *semantic* validation. `Verified` releases budgets
-    /// and shrinks the item to its `DataAttribution` (`FetchState::ProcessedLocally`), kept
+    /// Consumer reported the outcome of *semantic* validation. `Verified` releases
+    /// `residual`'s budget (the winning tracker's went at delivery) and shrinks the item to
+    /// its `DataAttribution` (`FetchState::ProcessedLocally`), kept
     /// until expiry (a later `CertifiedResultMismatch` must still attribute). `Failed`
     /// funnels into reputation via the retained attribution — the winning commitment's
     /// senders only (after expiry: a no-op) — then splits by state:
@@ -224,7 +219,7 @@ impl SpiceDataManager {
     /// expired".
     /// 0. Validate every want-list (dedup, cap the count, ordinals < N) before any work;
     ///    batch entries resolve independently (entitlement/lane per entry).
-    /// 1. Authorize + grant the lane: `Priority` iff `Validator` ∧ `who ∈
+    /// 1. Authorize + grant the lane: `Priority` iff `Validator` ∧ `requester ∈
     ///    DataKind::recipients(..)` ∧ requested — else `Background` (`Anonymous`
     ///    route-back only). For code the recipient rule is the witness rule on the claimed
     ///    chunk plus `hash ∈ codes`.
@@ -234,12 +229,14 @@ impl SpiceDataManager {
     ///    the live window). Blob ⇒ look up our `Witness{claimed chunk}` item, require
     ///    `hash ∈ codes`, read the code from the store. `Producing`, unknown id, or a
     ///    chunk we did not execute ⇒ signed `NotAvailable` NAK, never an error.
-    /// 3. Respond on the granted lane; heavy work is offloaded to the priority pool. See
-    ///    [`QosClass`].
+    /// 3. Charge the bytes to the item's per-requester serve budget
+    ///    ([`Budgets::per_item_requester_serve_bytes`]); over budget ⇒ NAK.
+    /// 4. Respond on the granted lane; heavy work is offloaded to the priority pool. See
+    ///    [`Lane`].
     pub(crate) fn serve_request(
         &mut self,
         _req: SpiceDataRequest,
-    ) -> Result<DataResponse, AdmitError> {
+    ) -> Result<DataMessage, AdmitError> {
         Err(AdmitError::Irrelevant) // sketch
     }
 
