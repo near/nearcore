@@ -186,6 +186,8 @@ export interface DebugChunkStatus {
 }
 
 export interface ShardSizeAndParts {
+    shard_id: number;
+    shard_index: number;
     shard_size: number;
     state_parts_count: number;
     state_header_exists: boolean;
@@ -201,44 +203,47 @@ export interface EpochInfoView {
     chunk_validators: string[];
     validator_info: EpochValidatorInfo;
     protocol_version: number;
-    // Newer nodes send an object keyed by shard id. Older nodes send an array indexed by
-    // shard index, which does not identify the shards after a resharding.
-    shards_size_and_parts: Record<string, ShardSizeAndParts> | [number, number, boolean][];
+    // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
+    // index, which does not identify the shards after a resharding.
+    // TODO: get rid of the tuples variant once all nodes are updated and return the entries
+    // in the new format.
+    shards_size_and_parts: ShardSizeAndParts[] | [number, number, boolean][];
 }
 
 export type NormalizedShardSizes = {
-    // Keyed by shard id when `keyedByShardId` is set, otherwise by shard index.
-    entries: Map<number, ShardSizeAndParts>;
+    entries: ShardSizeAndParts[];
     keyedByShardId: boolean;
 };
 
-// Accepts either payload shape and converts the old tuple form to the new one, reporting
-// which shape it got so callers can label shards accurately instead of silently presenting
-// a shard index as a shard id.
+// Both payload shapes are arrays, so they are told apart by their elements: the legacy one
+// holds tuples. An empty array is identical either way, so it can take either branch.
+function isLegacyShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): value is [number, number, boolean][] {
+    return Array.isArray(value[0]);
+}
+
+// Accepts either payload shape, reporting which one it got so callers can label shards
+// accurately instead of silently presenting a shard index as a shard id. Legacy entries get
+// `shard_id: -1`, which is only ever meaningful to read when `keyedByShardId` is set.
 export function normalizeShardsSizeAndParts(
     value: EpochInfoView['shards_size_and_parts']
 ): NormalizedShardSizes {
-    if (Array.isArray(value)) {
+    if (isLegacyShardsSizeAndParts(value)) {
         return {
-            entries: new Map(
-                value.map(([shardSize, statePartsCount, stateHeaderExists], shardIndex) => [
-                    shardIndex,
-                    {
-                        shard_size: shardSize,
-                        state_parts_count: statePartsCount,
-                        state_header_exists: stateHeaderExists,
-                    },
-                ])
+            entries: value.map(
+                ([shardSize, statePartsCount, stateHeaderExists], shardIndex) => ({
+                    shard_id: -1,
+                    shard_index: shardIndex,
+                    shard_size: shardSize,
+                    state_parts_count: statePartsCount,
+                    state_header_exists: stateHeaderExists,
+                })
             ),
             keyedByShardId: false,
         };
     }
-    return {
-        entries: new Map(
-            Object.entries(value).map(([shardId, entry]) => [Number(shardId), entry])
-        ),
-        keyedByShardId: true,
-    };
+    return { entries: value, keyedByShardId: true };
 }
 
 export interface EpochValidatorInfo {

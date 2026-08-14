@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchEpochInfoLight, normalizeShardsSizeAndParts } from './api';
+import { ShardSizeAndParts, fetchEpochInfoLight, normalizeShardsSizeAndParts } from './api';
 import './EpochShardsView.scss';
 
 function humanFileSize(bytes: number, si = false, dp = 1): string {
@@ -47,15 +47,20 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
         normalizeShardsSizeAndParts(epoch.shards_size_and_parts)
     );
     // A single response comes from a single node, so the shape is uniform across epochs.
-    const keyedByShardId = shardSizesByEpoch.some((sizes) => sizes.keyedByShardId);
+    // Epochs with no entries are indistinguishable, so take the shape from one that has some.
+    const keyedByShardId =
+        shardSizesByEpoch.find((sizes) => sizes.entries.length > 0)?.keyedByShardId ?? true;
+    // Older nodes leave `shard_id` unset, so their shards are only identifiable by index.
+    const shardKeyOf = (entry: ShardSizeAndParts) =>
+        keyedByShardId ? entry.shard_id : entry.shard_index;
 
     const shardKeys = [
-        ...new Set(shardSizesByEpoch.flatMap((sizes) => [...sizes.entries.keys()])),
+        ...new Set(shardSizesByEpoch.flatMap((sizes) => sizes.entries.map(shardKeyOf))),
     ].sort((a, b) => a - b);
 
     let maxShardSize = 0;
     for (const sizes of shardSizesByEpoch) {
-        for (const entry of sizes.entries.values()) {
+        for (const entry of sizes.entries) {
             maxShardSize = Math.max(maxShardSize, entry.shard_size);
         }
     }
@@ -80,8 +85,8 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
                         <tr key={shardKey}>
                             <td>{keyedByShardId ? 'Shard Id' : 'Shard Index'} {shardKey}</td>
                             {displayedEpochs.map((epoch, epochIndex) => {
-                                const entry = shardSizesByEpoch[epochIndex].entries.get(
-                                    shardKey
+                                const entry = shardSizesByEpoch[epochIndex].entries.find(
+                                    (entry) => shardKeyOf(entry) === shardKey
                                 );
                                 if (entry === undefined) {
                                     return <td key={epoch.epoch_id} />;
