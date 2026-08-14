@@ -2784,6 +2784,80 @@
         "title": "ChunkDistributionUris",
         "type": "object"
       },
+      "ChunkExecutionProofView": {
+        "description": "Proof that a chunk's certified execution roots are committed by a spice block\nthat a light client can trust via its `light_client_head`.\n\n`roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;\n`certifying_block_proof` places the certifying block into the head's block merkle tree.",
+        "properties": {
+          "certifying_block_header_lite": {
+            "$ref": "#/components/schemas/LightClientBlockLiteView"
+          },
+          "certifying_block_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ChunkExecutionRoots"
+          },
+          "roots_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "roots",
+          "roots_proof",
+          "certifying_block_header_lite",
+          "certifying_block_proof"
+        ],
+        "title": "ChunkExecutionProofView",
+        "type": "object"
+      },
+      "ChunkExecutionRoots": {
+        "description": "Merkle leaf committing to a single chunk's certified execution roots.\nThe `chunk_execution_root` in a spice block header is the merkle root over\nthese leaves, sorted by `chunk_id`.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/ChunkExecutionRootsV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "title": "V1",
+            "type": "object"
+          }
+        ],
+        "title": "ChunkExecutionRoots"
+      },
+      "ChunkExecutionRootsV1": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "outcome_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "outgoing_receipts_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "state_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "state_root",
+          "outcome_root",
+          "outgoing_receipts_root"
+        ],
+        "title": "ChunkExecutionRootsV1",
+        "type": "object"
+      },
       "ChunkHeaderView": {
         "description": "Contains main info about the chunk.",
         "properties": {
@@ -8927,6 +9001,34 @@
         "title": "RpcLightClientBlockProofResponse",
         "type": "object"
       },
+      "RpcLightClientChunkExecutionProofRequest": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "light_client_head"
+        ],
+        "title": "RpcLightClientChunkExecutionProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientChunkExecutionProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof"
+        ],
+        "title": "RpcLightClientChunkExecutionProofResponse",
+        "type": "object"
+      },
       "RpcLightClientExecutionProofRequest": {
         "oneOf": [
           {
@@ -11272,6 +11374,23 @@
           "expected"
         ],
         "title": "SpiceChunkEndorsementStats",
+        "type": "object"
+      },
+      "SpiceChunkId": {
+        "description": "In spice missing chunks and equivalent to empty chunks so block hash and shard id always\nuniquely identifies chunks.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          }
+        },
+        "required": [
+          "block_hash",
+          "shard_id"
+        ],
+        "title": "SpiceChunkId",
         "type": "object"
       },
       "StakeAction": {
@@ -14162,6 +14281,41 @@
         }
       },
       "summary": "Returns block proof for light clients",
+      "tags": [
+        {
+          "name": "light_client"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_light_client_chunk_execution_proof",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "chunk_id",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          }
+        },
+        {
+          "name": "light_client_head",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcLightClientChunkExecutionProofResponse"
+        }
+      },
+      "summary": "Returns a proof of a chunk's certified execution roots for light clients",
       "tags": [
         {
           "name": "light_client"

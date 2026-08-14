@@ -27,6 +27,7 @@ use near_jsonrpc_primitives::types::congestion::{
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceResponse};
 use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
     RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
     RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
 };
@@ -1220,6 +1221,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut all_schemas,
         "EXPERIMENTAL_light_client_block_proof",
         "Returns block proof for light clients",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_chunk_execution_proof",
+        "Returns a proof of a chunk's certified execution roots for light clients",
         false,
         &["light_client", "experimental"],
     );
