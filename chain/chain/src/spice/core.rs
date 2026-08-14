@@ -1,5 +1,7 @@
 use crate::metrics;
-use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, fallback_eligible};
+use crate::spice::all_stake_fallback::{
+    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers,
+};
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
@@ -380,21 +382,19 @@ impl SpiceCoreReader {
         let chunk_id = &chunk_info.chunk_id;
         let chunk_block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block_header.epoch_id();
-        let designated = self.epoch_manager.get_chunk_validator_assignments(
+        let endorsers = fallback_endorsers(
+            self.epoch_manager.as_ref(),
             epoch_id,
             chunk_id.shard_id,
             chunk_block_header.height(),
         )?;
-        let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
         let on_chain: HashSet<&AccountId> = chunk_info
             .present_fallback_endorsements
             .iter()
             .map(|(account_id, _)| account_id)
             .collect();
         let fallback_accounts =
-            all_validators.assignments().iter().map(|(account_id, _)| account_id).filter(
-                |account_id| !designated.contains(account_id) && !on_chain.contains(*account_id),
-            );
+            endorsers.iter().filter(|account_id| !on_chain.contains(account_id));
         Ok(self.stored_endorsements(chunk_id, fallback_accounts).collect())
     }
 
