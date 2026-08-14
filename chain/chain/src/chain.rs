@@ -2740,7 +2740,8 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
+        let chunk_height_included = shard_state_header.chunk_height_included();
+        let mut height = chunk_height_included;
         let mut chain_update = self.chain_update();
         let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -2759,7 +2760,12 @@ impl Chain {
             }
         }
 
-        self.validate_state_sync_chunk_extra(shard_id, sync_hash, shard_uid)?;
+        self.validate_state_sync_chunk_extra(
+            shard_id,
+            sync_hash,
+            shard_uid,
+            chunk_height_included,
+        )?;
 
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
@@ -2771,15 +2777,25 @@ impl Chain {
     }
 
     /// Checks the data reconstructed through finalization against the values committed by the
-    /// sync block's chunk. A missing chunk repeats an older header and therefore does not commit
-    /// the post-state reconstructed at the sync boundary.
+    /// sync block's chunk. The check is skipped if garbage collection removed the full sync block
+    /// because its block header does not contain the individual chunk headers. A missing chunk
+    /// repeats an older header and therefore does not commit the post-state reconstructed at the
+    /// sync boundary.
     fn validate_state_sync_chunk_extra(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_uid: ShardUId,
+        chunk_height_included: BlockHeight,
     ) -> Result<(), Error> {
-        let sync_block = self.get_block(&sync_hash)?;
+        let sync_block = match self.get_block(&sync_hash) {
+            Ok(sync_block) => sync_block,
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(target: "sync", %shard_id, %sync_hash, "skip chunk commitment validation because the sync block was removed");
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        };
         let shard_layout = self.epoch_manager.get_shard_layout(sync_block.header().epoch_id())?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunks = sync_block.chunks();
@@ -2788,8 +2804,6 @@ impl Chain {
             return Ok(());
         }
 
-        let prev_block = self.get_block(sync_block.header().prev_hash())?;
-        let prev_chunk_header = self.epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
         let chunk_extra = self.get_chunk_extra(sync_block.header().prev_hash(), &shard_uid)?;
         #[cfg(feature = "test_features")]
         let chunk_extra = if self.adv_corrupt_state_sync_chunk_extra {
@@ -2820,7 +2834,7 @@ impl Chain {
             self.epoch_manager.as_ref(),
             sync_block.header().prev_hash(),
             chunk_extra.as_ref(),
-            prev_chunk_header.height_included(),
+            chunk_height_included,
             chunk_header,
         );
         match validation_result {
