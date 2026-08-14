@@ -19,21 +19,25 @@ use std::sync::Arc;
 const EPOCH_LENGTH: u64 = 6;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
-/// Verifies that resharding trie nodes are copied to cold storage.
+/// Verifies that resharding data keyed by child shard UIDs is copied to cold storage.
 ///
 /// During resharding, `retain_split_shard` creates intermediate trie nodes stored
 /// under the parent shard's prefix. Without persisting TrieChanges for the child
 /// shards, the cold store copy loop has no way to discover these nodes.
 ///
+/// Resharding also writes `ChunkExtra` for each child shard at the last block of
+/// the parent epoch. The cold copy must discover those child-layout keys instead
+/// of deriving keys from the block's parent layout.
+///
 /// Eventually `gc_parent_shard_after_resharding` range-deletes the parent prefix
-/// from hot store, and the nodes are lost from hot. Cold store uses a permanent
+/// from hot store, and block GC removes `ChunkExtra`. Cold store uses a permanent
 /// `shard_uid_mapping` (child -> parent prefix), so if the nodes were never
 /// copied there, historical queries eventually fail.
 ///
 /// This test:
-/// 1. Runs resharding and captures the child shard TrieChanges (before GC).
+/// 1. Runs resharding and captures the child shard TrieChanges and ChunkExtra keys (before GC).
 /// 2. Waits for the cold store loop to process past the resharding boundary.
-/// 3. Verifies the cold store's State column contains all resharding trie nodes.
+/// 3. Verifies cold State contains the trie nodes and cold ChunkExtra contains the child rows.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -75,8 +79,8 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
         Duration::seconds((4 * EPOCH_LENGTH) as i64),
     );
 
-    // --- 4. Find resharding block and capture TrieChanges BEFORE GC cleans them up ---
-    let (all_insertions, post_resharding_height) = {
+    // --- 4. Find resharding block and capture data BEFORE GC cleans it up ---
+    let (all_insertions, child_chunk_extra_keys, post_resharding_height) = {
         let node = env.archival_node();
         let client = node.client();
         let epoch_manager = &client.epoch_manager;
@@ -99,9 +103,15 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
 
         // Read TrieChanges now, before GC removes them from hot store.
         let hot_store = node.store();
+        let mut child_chunk_extra_keys = Vec::new();
         let mut all_insertions: Vec<(ShardUId, CryptoHash)> = vec![];
         for child_shard_uid in &child_shard_uids {
             let key = get_block_shard_uid(&resharding_block_hash, child_shard_uid);
+            assert!(
+                hot_store.get(DBCol::ChunkExtra, &key).is_some(),
+                "child ChunkExtra should exist in hot store before GC"
+            );
+            child_chunk_extra_keys.push(key.clone());
             let trie_changes: TrieChanges = hot_store.get_ser(DBCol::TrieChanges, &key).unwrap();
             assert!(trie_changes.deletions().is_empty());
             for op in trie_changes.insertions() {
@@ -109,7 +119,7 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
             }
         }
         assert!(!all_insertions.is_empty());
-        (all_insertions, head.height)
+        (all_insertions, child_chunk_extra_keys, head.height)
     };
 
     // --- 5. Wait for cold store loop to process past the resharding boundary ---
@@ -129,5 +139,10 @@ fn test_resharding_trie_nodes_copied_to_cold_store() {
         let state_key = join_two_keys(&mapped_shard_uid.to_bytes(), node_hash.as_bytes());
         let value = cold_db.get_raw_bytes(DBCol::State, &state_key);
         assert!(value.is_some());
+    }
+
+    for key in child_chunk_extra_keys {
+        let value = cold_db.get_raw_bytes(DBCol::ChunkExtra, &key);
+        assert!(value.is_some(), "child ChunkExtra should be copied to cold store");
     }
 }
