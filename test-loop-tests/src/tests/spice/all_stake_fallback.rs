@@ -164,6 +164,32 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
+    init_test_logger();
+
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
+    // Every request for partial data is dropped, so a non-designated validator can endorse only if
+    // the producers pushed the witness to it when the fallback opened.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements)
+        .drop(DropCondition::SpicePartialDataRequests);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    let target = env.node(0).last_certified_block_header().height() + 4;
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= target,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     init_test_logger();
 

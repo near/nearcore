@@ -84,6 +84,16 @@ pub fn spice_designated_endorsement_dropper(
     })
 }
 
+/// Handler to drop every request for spice partial data, leaving only pushed data to arrive.
+pub fn spice_partial_data_request_dropper() -> Box<dyn Fn(NetworkRequests) -> HandlerResult> {
+    Box::new(move |request| match &request {
+        NetworkRequests::SpicePartialDataRequest { .. } => {
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        _ => HandlerResult::Unhandled(request),
+    })
+}
+
 /// Handler to drop all network messages containing chunk endorsements sent
 /// from a given chunk-validator account.
 pub fn chunk_endorsement_dropper(
