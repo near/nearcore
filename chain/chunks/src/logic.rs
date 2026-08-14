@@ -244,6 +244,7 @@ mod test {
     use assert_matches::assert_matches;
     use near_primitives::sharding::ShardChunkHeader;
     use near_primitives::types::EpochId;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn make_outgoing_receipts_proofs_returns_err_on_root_mismatch() {
@@ -255,7 +256,8 @@ mod test {
             .shard_ids()
             .next()
             .unwrap();
-        let header = ShardChunkHeader::new_dummy(0, shard_id, CryptoHash::default());
+        let header =
+            ShardChunkHeader::new_dummy(0, shard_id, CryptoHash::default(), PROTOCOL_VERSION);
 
         let result = make_outgoing_receipts_proofs(&header, vec![], &fixture.epoch_manager);
 

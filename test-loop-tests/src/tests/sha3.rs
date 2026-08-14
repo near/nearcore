@@ -139,7 +139,6 @@ fn test_sha3_matches_known_digest() {
 /// imports a `env.sha3_*` host function must fail at call time (the import can't
 /// be linked against a runtime that doesn't expose it).
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sha3_pre_activation_call_fails() {
     init_test_logger();
     if !sha3_enabled() {
