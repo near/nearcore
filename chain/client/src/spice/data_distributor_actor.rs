@@ -20,7 +20,11 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
-use near_chain::spice::core::{SpiceCoreReader, fallback_eligible};
+use near_chain::spice::activation::{
+    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
+};
+use near_chain::spice::all_stake_fallback::fallback_eligible;
+use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
@@ -72,6 +76,8 @@ use near_store::{TrieDBStorage, TrieStorage};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -187,6 +193,11 @@ pub struct SpiceDataDistributorActor {
     /// at most once.
     /// TODO(spice): re-broadcast until the endorsement appears on chain rather than once.
     broadcast_own_fallback_endorsements: LruCache<SpiceChunkId, ()>,
+
+    spice_gate: SpiceMessageGate,
+
+    /// Rounds of [`Self::request_waiting_on_data`], so each retry moves to another producer.
+    request_round: u64,
 }
 
 struct DistributionData {
@@ -199,8 +210,13 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        self.start_waiting_on_missing_data()
-            .expect("we should be able to figure out missing data on startup");
+        // `start_waiting_on_missing_data` reads the spice final execution head,
+        // which only exists once spice is active, so it is skipped while the head
+        // is still pre-spice
+        if spice_enabled_at_head_on_startup(&self.chain_store) {
+            self.start_waiting_on_missing_data()
+                .expect("we should be able to figure out missing data on startup");
+        }
         self.schedule_data_fetching(ctx);
     }
 }
@@ -294,6 +310,13 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
     ) {
         let block_hash = *data.block_hash();
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            SpiceMessageKind::PartialData,
+            &block_hash,
+        ) {
+            return;
+        }
         let sender = data.sender().clone();
         if let Err(err) = self.receive_data(data) {
             if let Some(Error::DataIsIrrelevant(data_id)) = err.inner() {
@@ -311,6 +334,13 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
 
 impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            SpiceMessageKind::PartialDataRequest,
+            msg.request.data_id.block_hash(),
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_partial_data_request(msg.request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling partial data request");
         }
@@ -322,6 +352,13 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
         &mut self,
         SpiceContractCodeRequestMessage(request, _recv_permit): SpiceContractCodeRequestMessage,
     ) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            SpiceMessageKind::ContractCodeRequest,
+            &request.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_code_request(request) {
             tracing::error!(target: "spice_data_distribution", ?err, "failure when handling contract code request");
         }
@@ -344,6 +381,16 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+        // A pre-spice block distributes no receipts or witnesses and produces no
+        // endorsements, so there is nothing to wait on or contribute for it.
+        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to get block header");
+                return;
+            }
+        }
         if let Err(err) = self.contribute_fallback_endorsements(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, "failed contributing fallback endorsements");
         }
@@ -399,7 +446,15 @@ impl SpiceDataDistributorActor {
             broadcast_own_fallback_endorsements: LruCache::new(
                 BROADCAST_FALLBACK_ENDORSEMENTS_CACHE_SIZE,
             ),
+            spice_gate: SpiceMessageGate::default(),
+            request_round: 0,
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 
     // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
@@ -1062,8 +1117,9 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn schedule_data_fetching(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
+    fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.request_waiting_on_data();
+        self.request_round = self.request_round.wrapping_add(1);
 
         ctx.run_later(
             "SpiceDataDistributorActor request waiting on data",
@@ -1099,10 +1155,12 @@ impl SpiceDataDistributorActor {
             // producers.
             // TODO(spice): Request data only we know may be available. (For example based on
             // execution and certification heads.)
+            let producer_index =
+                producer_index_to_request_from(producers.len(), id, me, self.request_round);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpicePartialDataRequest {
                     request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
-                    producer: producers.swap_remove(0),
+                    producer: producers.swap_remove(producer_index),
                 },
             ));
         }
@@ -1377,4 +1435,19 @@ impl SpiceDataDistributorActor {
         }
         Ok(())
     }
+}
+
+/// The starting producer index is derived from a hash of (data_id, requester), so requests for the
+/// same data are spread across producers instead of all landing on one. Adding `round` advances the
+/// index each tick, so retries move along rather than repeatedly targeting an unresponsive producer.
+fn producer_index_to_request_from(
+    num_producers: usize,
+    data_id: &SpiceDataIdentifier,
+    requester: &AccountId,
+    round: u64,
+) -> usize {
+    let mut hasher = DefaultHasher::new();
+    data_id.hash(&mut hasher);
+    requester.hash(&mut hasher);
+    (hasher.finish().wrapping_add(round) % num_producers as u64) as usize
 }

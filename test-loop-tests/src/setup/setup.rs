@@ -511,7 +511,7 @@ pub fn setup_client(
         )),
     );
 
-    test_loop.data.register_actor(
+    let spice_chunk_validator_sender = test_loop.data.register_actor(
         identifier,
         spice_chunk_validator_actor,
         Some(spice_chunk_validator_adapter),
@@ -611,6 +611,7 @@ pub fn setup_client(
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
+        spice_chunk_validator_sender,
         spice_core_writer_sender,
         cold_store_sender,
         cloud_storage_sender,

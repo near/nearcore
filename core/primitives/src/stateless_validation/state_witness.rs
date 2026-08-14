@@ -6,6 +6,7 @@ use crate::state::PartialState;
 use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::utils::compression::CompressedData;
+use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
@@ -189,8 +190,14 @@ impl ChunkStateWitness {
     }
 
     /// Used for testing.
-    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let header = ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash);
+    pub fn new_dummy(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        let header =
+            ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash, protocol_version);
         Self::new(
             EpochId::default(),
             header,

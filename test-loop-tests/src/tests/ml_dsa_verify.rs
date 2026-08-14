@@ -169,8 +169,6 @@ fn test_ml_dsa_verify_invalid_returns_0() {
 /// imports `env.ml_dsa_verify` must fail at call time (the import can't be
 /// linked against a runtime that doesn't expose it).
 #[test]
-// Pinning a pre-spice protocol version is not supported by the spice build.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_ml_dsa_verify_pre_activation_call_fails() {
     init_test_logger();
     if !ml_dsa_verify_enabled() {

@@ -1,4 +1,6 @@
-use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
+use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use crate::spice::all_stake_fallback::all_stake_fallback_assignment;
+use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
@@ -52,6 +54,7 @@ pub struct SpiceCoreWriterActor {
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
     pending_endorsements: SyncLruCache<SpiceChunkId, HashMap<AccountId, SpiceVerifiedEndorsement>>,
+    spice_gate: SpiceMessageGate,
 }
 
 impl near_async::messaging::Actor for SpiceCoreWriterActor {}
@@ -66,6 +69,13 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            SpiceMessageKind::ChunkEndorsement,
+            msg.0.block_hash(),
+        ) {
+            return;
+        }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
         }
@@ -90,7 +100,14 @@ impl SpiceCoreWriterActor {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 
     fn save_endorsement(
@@ -555,6 +572,11 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
+        // A pre-spice block carries no core statements and needs no certification,
+        // so there is nothing to record for it.
+        if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            return Ok(());
+        }
         let block = self.chain_store.get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;

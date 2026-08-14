@@ -4,7 +4,7 @@ use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::spice::core::all_stake_fallback_assignment;
+use near_chain::spice::all_stake_fallback::all_stake_fallback_assignment;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
