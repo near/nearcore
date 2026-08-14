@@ -23,6 +23,7 @@
 // - Manual genesis pattern: required because `TestEpochConfigBuilder::from_genesis(&genesis)` needs
 //   the genesis to derive the epoch config with shuffling enabled. Can't use the auto-setup path.
 
+use super::util::collect_distinct_epoch_ids;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -35,8 +36,9 @@ use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
@@ -97,19 +99,8 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
     let head = client.chain.head().unwrap();
-    let genesis_height = client.chain.genesis().height();
     let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
-
-    // Collect distinct epoch IDs by walking the chain.
-    let mut epoch_ids = Vec::new();
-    for height in (genesis_height + 1)..=head.height {
-        if let Ok(hash) = client.chain.get_block_hash_by_height(height) {
-            let epoch_id = client.epoch_manager.get_epoch_id(&hash).unwrap();
-            if epoch_ids.last() != Some(&epoch_id) {
-                epoch_ids.push(epoch_id);
-            }
-        }
-    }
+    let epoch_ids = collect_distinct_epoch_ids(client);
 
     assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
 
@@ -137,6 +128,81 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
         "no validator's shard assignment changed between any consecutive epochs — \
          shuffling didn't happen, so state sync was never exercised"
     );
+}
+
+/// Validators that provably *acquired state* for a newly assigned shard, by index.
+///
+/// `assert_shard_shuffling_happened` only proves an assignment changed; holding
+/// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
+///
+/// Callers are nightly-only, but this module is not gated, so the stable build would
+/// see this as dead code under `-D warnings`.
+#[cfg_attr(not(feature = "nightly"), allow(dead_code))]
+pub(crate) fn assert_state_synced_for_reassigned_shard(
+    env: &TestLoopEnv,
+    validators: &[AccountId],
+) -> Vec<usize> {
+    let mut synced_validators = Vec::new();
+    for (idx, validator) in validators.iter().enumerate() {
+        let node = env.node(idx);
+        let client = node.client();
+        let epoch_manager = client.epoch_manager.as_ref();
+        let chain = &client.chain;
+        let head = node.head();
+        let genesis_height = chain.genesis().height();
+        let epoch_ids = collect_distinct_epoch_ids(client);
+
+        'validator: for window in epoch_ids.windows(2) {
+            let (prev_epoch, new_epoch) = (&window[0], &window[1]);
+            let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
+            for shard_id in shard_layout.shard_ids() {
+                // The shard came from `new_epoch`'s own layout, so an error here is a bug.
+                let cared_now = epoch_manager
+                    .cares_about_shard_in_epoch(new_epoch, validator, shard_id)
+                    .unwrap();
+                // In `prev_epoch` the shard may not exist (resharding) — a genuine "did
+                // not care". Swallowing every error would instead fabricate a
+                // reassignment and make the `ChunkExtra` check pass trivially on a shard
+                // the validator held all along.
+                let cared_before = match epoch_manager
+                    .cares_about_shard_in_epoch(prev_epoch, validator, shard_id)
+                {
+                    Ok(cared) => cared,
+                    Err(EpochError::ShardingError(_)) => false,
+                    Err(err) => panic!(
+                        "shard tracking lookup failed for {validator} shard {shard_id} \
+                         in epoch {prev_epoch:?}: {err:?}"
+                    ),
+                };
+                if !(cared_now && !cared_before) {
+                    continue;
+                }
+
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                for height in (genesis_height + 1)..=head.height {
+                    let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
+                    if epoch_manager.get_epoch_id(&hash).unwrap() != *new_epoch {
+                        continue;
+                    }
+                    if chain.get_chunk_extra(&hash, &shard_uid).is_ok() {
+                        tracing::info!(
+                            target: "test",
+                            node = idx,
+                            ?shard_id,
+                            "verified state synced for reassigned shard"
+                        );
+                        synced_validators.push(idx);
+                        break 'validator;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        !synced_validators.is_empty(),
+        "no validator held state for a newly reassigned shard; state sync not exercised"
+    );
+    synced_validators
 }
 
 /// Verify all nodes advanced their head past the given minimum height.
