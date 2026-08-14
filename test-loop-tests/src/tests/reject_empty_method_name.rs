@@ -44,7 +44,6 @@ fn empty_method_tx(
 /// empty-method FunctionCall transactions while the network updates to new protocol and check the
 /// results.
 // TODO(spice-test): This test can be removed once the RejectEmptyMethodName feature is stabilized.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_reject_empty_method_name_protocol_upgrade() {
     init_test_logger();

@@ -646,21 +646,19 @@ mod tests {
             }
         }
 
-        // Re-syncing the headers must keep the header-only rows valid (cache-independent: the
-        // rows were never deleted). Do not assert the body head re-seeds in-process:
-        // record_block_info_impl gates on has_block_info, which reads the epoch-manager
-        // blocks_info LRU cache before the store; clear_head_block_data deletes BlockInfo only
-        // from the store, so has_block_info(body_head) may still be true and the seeder is
-        // skipped. tools/undo-block runs a fresh EpochManager (empty cache) and re-seeds
-        // correctly.
+        // Re-syncing the headers restores the deleted body-head row and keeps the header-only
+        // ones. The body head re-seeds in-process only because has_block_info asks the store:
+        // clear_head_block_data deletes its BlockInfo there but not from the epoch manager's
+        // blocks_info cache, so a cache-based guard would report it as still recorded and skip
+        // the seeder, leaving the row orphaned until a restart.
         chain
             .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
             .unwrap();
-        for anchor in [blocks[4].hash(), blocks[5].hash()] {
+        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(
                     row(&chain, anchor, shard_id).is_some(),
-                    "header re-sync must keep ChunkProducers for header-only anchor {anchor}"
+                    "header re-sync must leave ChunkProducers in place for anchor {anchor}"
                 );
             }
         }

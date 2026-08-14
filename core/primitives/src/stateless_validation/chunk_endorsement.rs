@@ -189,6 +189,7 @@ mod tests {
     use super::*;
     use crate::hash::CryptoHash;
     use crate::test_utils::create_test_signer;
+    use crate::version::PROTOCOL_VERSION;
     use near_primitives_core::types::ShardId;
 
     /// An endorsement carrying a non-canonical `signature_differentiator` must be rejected by both
@@ -198,7 +199,12 @@ mod tests {
     #[test]
     fn poisoned_differentiator_is_rejected_by_verify() {
         let signer = create_test_signer("test0");
-        let chunk_header = ShardChunkHeader::new_dummy(42, ShardId::new(0), CryptoHash::default());
+        let chunk_header = ShardChunkHeader::new_dummy(
+            42,
+            ShardId::new(0),
+            CryptoHash::default(),
+            PROTOCOL_VERSION,
+        );
 
         let endorsement = ChunkEndorsement::new_with_differentiator(
             EpochId::default(),

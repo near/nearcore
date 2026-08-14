@@ -267,6 +267,7 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
                             key.height_created,
                             key.shard_id,
                             CryptoHash::default(),
+                            PROTOCOL_VERSION,
                         );
                         let part_ord = witness.part_ord();
                         let part = witness.into_part().into_vec();

@@ -1,4 +1,4 @@
-use crate::spice::core::SPICE_FALLBACK_CERTIFICATION_DELAY;
+use crate::spice::all_stake_fallback::SPICE_FALLBACK_CERTIFICATION_DELAY;
 use crate::spice::tests::core::{
     block_certification_core_statements, build_block, endorsement_into_core_statement,
     process_block, setup, setup_with_validators, test_chunk_endorsement,

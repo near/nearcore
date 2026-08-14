@@ -61,6 +61,9 @@ impl StateSyncConnection {
         Self { connection }
     }
 
+    // TODO(cloud_archival): state parts come through here, and `get_file` below reads with no
+    // credentials, which a private bucket refuses. Give them a `CloudStorageFileID` and
+    // retrieve them like every other archive object.
     pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
         Self { connection: cloud_storage.connection().clone() }
     }

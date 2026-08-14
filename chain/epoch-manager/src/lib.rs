@@ -1250,9 +1250,20 @@ impl EpochManager {
         block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
-        self.record_block_info_impl(block_info, rng_seed)
+        let current_hash = *block_info.hash();
+        let result = self.record_block_info_impl(block_info, rng_seed);
+        if result.is_err() {
+            // Callers drop the store update on error, so the entries cached alongside it must
+            // go too, or other readers see values that were never written. Popping a key that
+            // does hold a committed value is harmless: both caches are read-through, so the
+            // next read loads it from the store again.
+            self.blocks_info.pop(&current_hash);
+            self.epochs_info.pop(&EpochId(current_hash));
+        }
+        result
     }
 
+    /// Call through `record_block_info`: it undoes the cache writes when this fails.
     fn record_block_info_impl(
         &mut self,
         mut block_info: BlockInfo,
@@ -1314,14 +1325,6 @@ impl EpochManager {
                     *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
                 }
 
-                if is_epoch_start {
-                    self.save_epoch_start(
-                        &mut store_update,
-                        block_info.epoch_id(),
-                        block_info.height(),
-                    )?;
-                }
-
                 let block_info = Arc::new(block_info);
                 // Save current block info.
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
@@ -1363,6 +1366,16 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+                }
+
+                // Deliberately after every fallible step, so a failed record leaves no stale
+                // `epoch_id_to_start` entry. Safe here because nothing above reads it back.
+                if is_epoch_start {
+                    self.save_epoch_start(
+                        &mut store_update,
+                        block_info.epoch_id(),
+                        block_info.height(),
+                    )?;
                 }
             }
         }
@@ -2081,8 +2094,14 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Whether the block was already recorded, asked of the store rather than the
+    /// `blocks_info` cache: callers can drop the returned update even after a successful
+    /// record, so a cache hit does not mean the rows were written. Trade-off: a second
+    /// recorder of the same block between a record returning and its caller committing is
+    /// no longer deduplicated. Recording is deterministic and the writes are insert-only,
+    /// so that costs duplicate work, not correctness.
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        match self.get_block_info(hash) {
+        match self.store.get_block_info(hash) {
             Ok(_) => Ok(true),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => Err(err),

@@ -782,6 +782,50 @@ fn drain_outgoing_data_requests(
     requests
 }
 
+fn drain_outgoing_witness_request_producers(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    block_hash: &CryptoHash,
+) -> Vec<AccountId> {
+    let mut asked_producers = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpicePartialDataRequest { request, producer },
+        } = message
+        else {
+            continue;
+        };
+        let SpiceDataIdentifier::Witness { block_hash: requested_block_hash, .. } = request.data_id
+        else {
+            continue;
+        };
+        if &requested_block_hash == block_hash {
+            asked_producers.push(producer);
+        }
+    }
+    asked_producers
+}
+
+/// Uses the same assignment lookup as `start_waiting_on_data`, so the sets match.
+fn witness_requesters(chain: &Chain, block: &Block, shard_id: ShardId) -> Vec<AccountId> {
+    let epoch_id = block.header().epoch_id();
+    let producers: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)
+        .unwrap()
+        .into_iter()
+        .collect();
+    chain
+        .epoch_manager
+        .get_chunk_validator_assignments(&epoch_id, shard_id, block.header().height())
+        .unwrap()
+        .assignments()
+        .iter()
+        .map(|(account_id, _)| account_id)
+        .filter(|account_id| !producers.contains(*account_id))
+        .cloned()
+        .collect()
+}
+
 fn get_incoming_data<T>(
     producer: &AccountId,
     chain: &Chain,
@@ -1446,6 +1490,77 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
     assert_eq!(actor.pending_partial_data_size(), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_requests_from_different_validators_reach_different_producers() {
+    let num_chunk_producers = 4;
+    let (_genesis, mut chain) =
+        setup_with_shard_layout(num_chunk_producers, 8, ShardLayout::single_shard());
+    let block = latest_block(&chain);
+    let next_block = produce_block(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
+
+    let shard_id = witness_shard_id(&next_block);
+    let requesters = witness_requesters(&chain, &next_block, shard_id);
+    assert!(requesters.len() > 1);
+
+    let asked_producers: HashSet<_> = requesters
+        .iter()
+        .map(|requester| {
+            let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+            let mut actor = new_actor_for_account(outgoing_sc, &chain, requester);
+            let mut fake_runner = FakeDelayedActionRunner::default();
+            actor.start_actor(&mut fake_runner);
+
+            let asked =
+                drain_outgoing_witness_request_producers(&mut outgoing_rc, next_block.hash());
+            assert_eq!(asked.len(), 1);
+            asked.into_iter().next().unwrap()
+        })
+        .collect();
+
+    assert!(
+        asked_producers.len() > 1,
+        "{} requesters all asked {asked_producers:?}",
+        requesters.len()
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_request_retries_cycle_through_all_producers() {
+    let num_chunk_producers = 4;
+    let (_genesis, mut chain) =
+        setup_with_shard_layout(num_chunk_producers, 8, ShardLayout::single_shard());
+    let block = latest_block(&chain);
+    let next_block = produce_block(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
+
+    let shard_id = witness_shard_id(&next_block);
+    let requester = witness_requesters(&chain, &next_block, shard_id).into_iter().next().unwrap();
+    let producers: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(&next_block.header().epoch_id(), shard_id)
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &requester);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+
+    let mut asked_producers =
+        drain_outgoing_witness_request_producers(&mut outgoing_rc, next_block.hash());
+    for _ in 1..producers.len() {
+        fake_runner.run_queued_actions(&mut actor);
+        asked_producers
+            .extend(drain_outgoing_witness_request_producers(&mut outgoing_rc, next_block.hash()));
+    }
+
+    assert_eq!(asked_producers.into_iter().collect::<HashSet<_>>(), producers);
 }
 
 #[test]

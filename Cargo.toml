@@ -197,7 +197,7 @@ genesis-populate = { path = "genesis-tools/genesis-populate" }
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
-im = "15"
+imbl = "7.0.1"
 indicatif = { version = "0.18.3", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures::TryStreamExt;
 use near_chain_configs::ExternalStorageLocation;
+use object_store::path::Path as ObjectStorePath;
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -16,9 +17,9 @@ pub enum ExternalConnection {
     S3 { bucket: Arc<s3::Bucket> },
     /// Local filesystem root directory.
     Filesystem { root_dir: PathBuf },
-    /// GCS client (upload/list via SDK, anonymous downloads via HTTP).
+    /// GCS client (SDK for signed calls, plain HTTP for anonymous downloads).
     GCS {
-        // May be used for uploading and listing state parts. Requires valid credentials
+        // Uploads, listing, and signed downloads. Requires valid credentials
         // to be specified through env variable.
         gcs_client: Arc<object_store::gcp::GoogleCloudStorage>,
         // May be used for anonymously downloading state parts.
@@ -104,7 +105,8 @@ impl ExternalConnection {
         }
     }
 
-    /// Download an object at `path` as bytes.
+    /// Download an object at `path` as bytes. GCS reads go out with no credentials,
+    /// so a GCS bucket must grant anonymous read for this to succeed.
     pub async fn get(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
@@ -123,8 +125,7 @@ impl ExternalConnection {
                 Ok(data)
             }
             ExternalConnection::GCS { reqwest_client, bucket, .. } => {
-                // Download should be handled anonymously, therefore we are not using cloud-storage crate.
-                // TODO(cloud_archival) Consider the case of cloud archival
+                // A bare HTTP client, so the request goes out with no credentials.
                 let url = format!(
                     "https://storage.googleapis.com/storage/v1/b/{}/o/{}?alt=media",
                     percent_encoding::percent_encode(bucket.as_bytes(), GCS_ENCODE_SET),
@@ -141,6 +142,23 @@ impl ExternalConnection {
                 }
             }
         }
+    }
+
+    /// Download an object at `path` as bytes, signing GCS reads with the connection's
+    /// credentials. A bucket with `public_access_prevention` enforced requires them.
+    ///
+    /// S3 and filesystem reads already carry whatever access the connection was built with,
+    /// so they take the same path as [`Self::get`].
+    pub async fn get_authenticated(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
+        let ExternalConnection::GCS { gcs_client, .. } = self else {
+            return self.get(path).await;
+        };
+        let parsed_path = ObjectStorePath::parse(path)
+            .with_context(|| format!("{path} isn't a valid path for GCP"))?;
+        tracing::debug!(target: "external", ?parsed_path, "reading from GCS with credentials");
+        let response = gcs_client.get(&parsed_path).await?;
+        let bytes = response.bytes().await?.to_vec();
+        Ok(bytes)
     }
 
     /// Upload/overwrite an object at `path` with `value`.
