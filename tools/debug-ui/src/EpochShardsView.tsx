@@ -49,9 +49,6 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
     // A single response comes from a single node, so the shape is uniform across epochs.
     const keyedByShardId = shardSizesByEpoch.some((sizes) => sizes.keyedByShardId);
 
-    // One row per shard id (or per shard index on older nodes). Taking the union across
-    // epochs rather than the largest count means a shard split or merged partway through
-    // the window still gets its own row, populated only for the epochs it existed in.
     const shardKeys = [
         ...new Set(shardSizesByEpoch.flatMap((sizes) => [...sizes.entries.keys()])),
     ].sort((a, b) => a - b);
