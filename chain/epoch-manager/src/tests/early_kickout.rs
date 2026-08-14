@@ -62,9 +62,8 @@ fn single_shard_epoch(num_producers: u64) -> (EpochInfo, ShardLayout, ShardId) {
     (epoch_info, shard_layout, shard_id)
 }
 
-/// Builds an `EpochInfo` matching `layout`: `num_producers` chunk producers (ids
-/// `0..num_producers`) settled identically on EVERY shard. Used by the resharding
-/// test, where parent and child layouts need distinct shard counts.
+/// Like `single_shard_epoch`, but for an arbitrary `layout`: the same
+/// `0..num_producers` settlement on every shard.
 fn epoch_info_for_layout(layout: &ShardLayout, num_producers: u64) -> EpochInfo {
     let accounts: Vec<_> =
         (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
@@ -1420,25 +1419,19 @@ fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-// 13. The blacklist is keyed by `ShardId` and resolved against the layout it is
-//     computed for. Split one shard of a 2-shard parent into two children, then feed
-//     a single `shard_tracker` that carries BOTH the retired parent shard id and a
-//     child shard id. Against the parent layout the child id is dropped; against the
-//     child layout the retired parent id is dropped. The unchanged (surviving) shard
-//     resolves in both. This proves per-shard stats map to the correct parent/child
-//     `ShardId` and never leak across the split.
+// 13. Stats are resolved against the layout the blacklist is computed for. One
+//     `shard_tracker` carrying both a retired parent shard id and a child shard id is
+//     fed to both layouts: each drops the id that has no shard index there, and the
+//     shard that survived the split resolves in both.
 #[test]
 fn blacklist_resharding_maps_to_current_layout_shard_ids() {
     let num_producers = 4u64;
-    // Parent layout with two (non-contiguous) shard ids.
     let parent = ShardLayout::multi_shard(2, 0);
     let parent_ids: Vec<ShardId> = parent.shard_ids().collect();
-    // Split one shard on a fresh boundary account -> three shards.
     let child = ShardLayout::derive_shard_layout(&parent, "aaa".parse().unwrap());
     let child_ids: Vec<ShardId> = child.shard_ids().collect();
     assert_eq!(child.num_shards(), 3, "split must add exactly one shard");
 
-    // Classify the parent shards: exactly one is retired (split), one survives.
     let split_parent = *parent_ids
         .iter()
         .find(|id| !child_ids.contains(id))
@@ -1450,8 +1443,6 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
     let children = child.get_children_shards_ids(split_parent).expect("split parent has children");
     assert_eq!(children.len(), 2, "a split yields two children");
 
-    // Child ids are brand new (not reused from the parent layout), and each maps back
-    // to the retired parent.
     for c in &children {
         assert!(!parent_ids.contains(c), "child id {c} must not reuse a parent shard id");
         assert_eq!(
@@ -1464,8 +1455,8 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
     let parent_ei = epoch_info_for_layout(&parent, num_producers);
     let child_ei = epoch_info_for_layout(&child, num_producers);
 
-    // One failing producer per shard; the rest healthy (single candidate -> no valve).
-    // 0/100 clears both gates: missed 100 >= EARLY_KICKOUT_MIN_MISSES and ratio 0 < 80%.
+    // 0/100 clears both gates (100 misses, 0% ratio). Exactly one bad producer per
+    // shard, so the keep-one valve never fires and the expected maps stay exact.
     let one_bad = |bad_id: ValidatorId| -> HashMap<ValidatorId, ChunkStats> {
         (0..num_producers)
             .map(|id| {
@@ -1478,15 +1469,12 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
             })
             .collect()
     };
-    // Distinct bad producer per shard so results are unambiguous.
     let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::from([
         (surviving, one_bad(0)),
         (split_parent, one_bad(1)),
         (children[0], one_bad(2)),
     ]);
 
-    // Against the PARENT layout: the child id has no shard index and is dropped; the
-    // surviving and retired-parent ids resolve.
     let bl_parent = blacklist(&st, &parent_ei, &parent);
     assert_eq!(
         bl_parent,
@@ -1495,8 +1483,6 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
     assert!(!bl_parent.contains_key(&children[0]), "child id must not resolve on parent layout");
     assert!(!bl_parent.contains_key(&children[1]), "child id must not resolve on parent layout");
 
-    // Against the CHILD layout: the retired parent id has no shard index and is
-    // dropped; the surviving and child ids resolve.
     let bl_child = blacklist(&st, &child_ei, &child);
     assert_eq!(
         bl_child,
@@ -1512,11 +1498,9 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
     );
 }
 
-/// Drives `count` blocks descending from `fork_point` (at height `fork_point_height`)
-/// with **blacklist-aware** assignment, exactly like `drive_down_node`: at each height
-/// the chunk goes to `sample_chunk_producer_excluding(current_blacklist)` and is missed
-/// only when that producer is `target`. `salt` disambiguates block hashes so sibling
-/// forks never collide. Returns the tip.
+/// `drive_down_node` starting from an arbitrary `fork_point`: blacklist-aware
+/// assignment, chunk missed only when the sampler picks `target`. `salt` keeps sibling
+/// forks' block hashes distinct. Returns the tip.
 #[cfg(feature = "nightly")]
 fn drive_fork(
     handle: &EpochManagerHandle,
@@ -1552,38 +1536,29 @@ fn drive_fork(
     prev
 }
 
-// 14. v152+ protocol: two forks share a common prefix, then diverge with different
-//     miss stats (canonical starves producer 0, abandoned fork starves producer 1).
-//     The accessor is keyed on the anchor block hash and aggregates only along that
-//     anchor's own chain, so each anchor resolves to ITS OWN chain's blacklist. The
-//     abandoned fork's blacklisted producer never appears on the canonical anchor and
-//     vice versa. The epoch-manager harness DOES support real forks (arbitrary
-//     prev/cur in `record_block_info`), so this exercises the real production path.
+// 14. v152+ protocol: two sibling forks off a shared prefix starve different producers.
+//     The accessor is keyed on the anchor hash and aggregates only along that anchor's
+//     own chain, so each fork resolves to its own blacklist. `record_block_info` takes
+//     arbitrary prev/cur, so these are real forks, not a harness approximation.
 #[cfg(feature = "nightly")]
 #[test]
 fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    // Large epoch length so both forks stay inside epoch 0 (no boundary reset).
+    // Epoch length large enough that both forks stay inside epoch 0 (no boundary reset).
     let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
 
-    // Common prefix: genesis + a single shared epoch-0 first block to fork from.
     let genesis = hash(&0u64.to_le_bytes());
     let common = hash(&1u64.to_le_bytes());
     record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
     record_block_with_mask(&mut handle.write(), genesis, common, 1, vec![true]);
 
-    // Each fork must run past the 1000-block start-of-epoch grace for its blacklist to
-    // become non-empty at the tip.
+    // Past the 1000-block start-of-epoch grace, so each tip has a non-empty blacklist.
     let depth = 1200;
-    // Two sibling chains fork from `common`. Build the canonical one first; each block
-    // finalizes only its own parent, so the chains' aggregations stay independent.
     let canonical_tip = drive_fork(&handle, common, 1, depth, 0, 1);
-    // Snapshot the canonical anchor's aggregated stats before the sibling fork exists.
     // Isolation holds by construction (the aggregator walks only the anchor's own chain,
     // and its monotone `largest_final_height` watermark rejects sibling mutation), so
-    // this pins that construction rather than detecting a live leak. Worth pinning
-    // because a leak would be invisible in the post-valve blacklist below: the keep-one
-    // valve would simply drop the least-bad extra candidate.
+    // this snapshot pins that construction. Worth pinning because a leak would not show
+    // up in the blacklists below: the keep-one valve would drop the extra candidate.
     let canonical_stats_before =
         handle.read().get_epoch_info_aggregator_upto_last(&canonical_tip).unwrap().shard_tracker;
     let fork_tip = drive_fork(&handle, common, 1, depth, 1, 2);
@@ -1595,12 +1570,9 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
     let fork_bl = handle.get_chunk_producer_blacklist(&fork_tip).unwrap();
 
-    // Each anchor resolves to its own chain's starved producer.
     assert_eq!(canonical_bl, HashMap::from([(shard_id, HashSet::from([0]))]));
     assert_eq!(fork_bl, HashMap::from([(shard_id, HashSet::from([1]))]));
 
-    // The pinned half of the snapshot above: the canonical anchor's aggregated stats
-    // must be untouched by the abandoned fork.
     let canonical_stats_after =
         handle.read().get_epoch_info_aggregator_upto_last(&canonical_tip).unwrap().shard_tracker;
     assert_eq!(
