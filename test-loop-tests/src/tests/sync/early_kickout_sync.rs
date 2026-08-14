@@ -11,7 +11,7 @@
 //! sampler ignores the height when the settlement holds a single entry; cases A and C
 //! run more validators than shards for that reason.
 //!
-//! Neighbouring coverage: the epoch-manager unit tests own "seeding writes rows" and
+//! Adjacent coverage: the epoch-manager unit tests own "seeding writes rows" and
 //! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
 //! `test_resolution_errors_on_anchor_db_miss`); `tests::early_kickout_e2e` owns sync
 //! under an *active* kickout, where rows deviate from the plain schedule.
