@@ -7,7 +7,8 @@ mod far_horizon;
 mod gc;
 mod migration_epoch_sync_proof;
 mod near_horizon;
-mod state_sync;
+// `pub(crate)` for the shuffling/state-sync assertions, reused by `tests::early_kickout_e2e`.
+pub(crate) mod state_sync;
 mod sync_then_catchup;
 mod syncing;
 pub(crate) mod util;

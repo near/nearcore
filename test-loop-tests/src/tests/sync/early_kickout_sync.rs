@@ -2,14 +2,14 @@
 //! hold the `DBCol::ChunkProducers` rows their catch-up reads depend on, and those rows
 //! must name the right producer.
 //!
-//! The oracle is the canonical schedule rather than a second read of the same key: a
-//! same-epoch anchor's row must equal `sample_chunk_producer(layout, shard,
-//! anchor_height + 2)`. Exact only because the blacklist is unconditionally empty here
-//! — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10 — so
-//! `sample_chunk_producer_excluding(∅) == sample_chunk_producer`. The offset half of
-//! the oracle bites only where a shard has more than one chunk producer, since the
-//! sampler ignores the height when the settlement holds a single entry; cases A and C
-//! run more validators than shards for that reason.
+//! The oracle is the canonical schedule rather than a second read of the same key, and
+//! lives in `tests::early_kickout_probe`. The blacklist is empty throughout all three
+//! cases — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10, so no
+//! anchor ever clears the grace window — which every case now *asserts*
+//! (`blacklisted_rows() == 0`) rather than assumes. The offset half of the oracle bites
+//! only where a shard has more than one chunk producer, since the sampler ignores the
+//! height when the settlement holds a single entry; cases A and C run more validators
+//! than shards for that reason.
 //!
 //! Adjacent coverage: the epoch-manager unit tests own "seeding writes rows" and
 //! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
@@ -29,202 +29,32 @@ use super::util::{
     verify_balances_on_synced_node,
 };
 use crate::setup::builder::TestLoopBuilder;
+use crate::tests::early_kickout_probe::{
+    AnchorWalk, assert_blacklist_read_everywhere, assert_walk_window,
+    lowest_epoch_start_in_headers, probe_block_region, walk_anchor_rows,
+};
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_epoch_manager::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_info::EpochInfo;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{Balance, BlockHeight, EpochId};
-use near_primitives::utils::get_block_shard_id;
+use near_primitives::types::Balance;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
-use near_store::DBCol;
-use std::cmp::max;
-use std::sync::Arc;
 
-/// What one [`walk_anchor_rows`] pass checked. Call sites assert on these so a walk
-/// that silently checked nothing cannot pass.
-#[derive(Debug, Default)]
-struct AnchorWalk {
-    heights_walked: u64,
-    lowest_height: BlockHeight,
-    highest_height: BlockHeight,
-    /// One per (height, shard), not per height.
-    same_epoch_rows: u64,
-    cross_epoch_heights: u64,
-    pre_activation_heights: u64,
-    /// Lowest walked height whose chunk epoch has EarlyKickout enabled.
-    first_kickout_height: Option<BlockHeight>,
-}
-
-/// Walk `node`'s headers down from `start_hash` while the height is at least `low`,
-/// asserting the `DBCol::ChunkProducers` state each height's chunk resolution needs.
-///
-/// Headers rather than the height index: header-only heights below the tail have no
-/// index entry, and that region is exactly where epoch-sync seeding has to be checked.
-/// The walk also ends on the first missing header, so `low` may be genesis to mean "as
-/// far down as this node goes".
-///
-/// The branch per height mirrors `EpochManagerAdapter::get_chunk_producer_info_anchored`.
-fn walk_anchor_rows(node: &TestLoopNode, start_hash: CryptoHash, low: BlockHeight) -> AnchorWalk {
-    let client = node.client();
-    let chain = &client.chain;
-    let epoch_manager = client.epoch_manager.as_ref();
-    let store = node.store();
-
-    let mut walk = AnchorWalk::default();
-    // Monotone in epochs, so a single entry caches exactly.
-    let mut cached: Option<(EpochId, ShardLayout, Arc<EpochInfo>)> = None;
-    let mut hash = start_hash;
-
-    loop {
-        let Ok(header) = chain.get_block_header(&hash) else { break };
-        let height = header.height();
-        if height < low {
-            break;
-        }
-        // The chunk considered here is the one at this height: its parent carries the
-        // production key, its grandparent is the anchor.
-        let prev_hash = *header.prev_hash();
-        let Ok(prev_header) = chain.get_block_header(&prev_hash) else { break };
-        let anchor_hash = *prev_header.prev_hash();
-        if anchor_hash == CryptoHash::default() {
-            break; // genesis + 1, no grandparent
-        }
-        let Ok(anchor_header) = chain.get_block_header(&anchor_hash) else { break };
-
-        let chunk_epoch_id = *header.epoch_id();
-        let (shard_layout, epoch_info) = match &cached {
-            Some((id, layout, info)) if *id == chunk_epoch_id => (layout.clone(), info.clone()),
-            _ => {
-                let layout = epoch_manager.get_shard_layout(&chunk_epoch_id).unwrap();
-                let info = epoch_manager.get_epoch_info(&chunk_epoch_id).unwrap();
-                cached = Some((chunk_epoch_id, layout.clone(), info.clone()));
-                (layout, info)
-            }
-        };
-
-        if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
-            walk.pre_activation_heights += 1;
-            for shard_id in shard_layout.shard_ids() {
-                epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "pre-activation resolution failed at height {height} shard {shard_id}: {err:?}"
-                        )
-                    });
-            }
-        } else {
-            // Descending walk, so the last write wins as the lowest active height.
-            walk.first_kickout_height = Some(height);
-            if anchor_header.epoch_id() == &chunk_epoch_id {
-                let anchor_height = anchor_header.height();
-                // The seeder samples at the anchor offset, not at the chunk's
-                // `height_created`; those differ wherever a height was skipped.
-                let sample_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-                for shard_id in shard_layout.shard_ids() {
-                    let key = get_block_shard_id(&anchor_hash, shard_id);
-                    let row: ValidatorStake =
-                        store.get_ser(DBCol::ChunkProducers, &key).unwrap_or_else(|| {
-                            panic!(
-                                "missing DBCol::ChunkProducers row for same-epoch anchor \
-                                 {anchor_hash} (height {anchor_height}) shard {shard_id}, needed \
-                                 by the chunk at height {height}"
-                            )
-                        });
-                    let expected = epoch_info
-                        .sample_chunk_producer(&shard_layout, shard_id, sample_height)
-                        .map(|id| epoch_info.get_validator(id).take_account_id())
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "canonical schedule has no producer for shard {shard_id} at \
-                                 height {sample_height}"
-                            )
-                        });
-                    assert_eq!(
-                        row.account_id(),
-                        &expected,
-                        "row for anchor {anchor_hash} (height {anchor_height}) shard {shard_id} \
-                         disagrees with the canonical schedule at height {sample_height}"
-                    );
-                    walk.same_epoch_rows += 1;
-                }
-            } else {
-                walk.cross_epoch_heights += 1;
-                // No row required, but the sampler fallthrough can still fail with
-                // `EpochOutOfBounds` if the anchor's epoch info was never retained.
-                for shard_id in shard_layout.shard_ids() {
-                    epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
-                        .unwrap_or_else(|err| {
-                            panic!(
-                                "cross-epoch anchored read failed at height {height} shard {shard_id}: {err:?}"
-                            )
-                        });
-                }
-            }
-        }
-
-        if walk.heights_walked == 0 {
-            walk.highest_height = height;
-        }
-        walk.heights_walked += 1;
-        walk.lowest_height = height;
-        hash = prev_hash;
-    }
-
-    tracing::info!(target: "test", ?walk, "anchor row walk complete");
-    walk
-}
-
-fn assert_walk_window(walk: &AnchorWalk, min_width: u64, label: &str) {
-    assert!(walk.heights_walked > 0, "{label}: walked nothing");
-    let width = walk.highest_height - walk.lowest_height + 1;
-    assert_eq!(walk.heights_walked, width, "{label}: header walk skipped heights ({walk:?})");
-    assert!(width >= min_width, "{label}: window too narrow to be meaningful ({walk:?})");
-}
-
-/// Lowest height in `node`'s header chain that starts an epoch, walking down from
-/// `start_hash`.
-///
-/// Floor of the header-only probe. An epoch-synced node keeps a few headers below the
-/// synced epoch, carried by the epoch-sync proof: they arrive through
-/// `apply_validated_proof`, never the seeder, so they hold no rows — and need none,
-/// since the synced epoch's opening chunks anchor into that previous epoch and take
-/// the cross-epoch arm.
-fn lowest_epoch_start_in_headers(node: &TestLoopNode, start_hash: CryptoHash) -> BlockHeight {
-    let chain = &node.client().chain;
-    let mut lowest = None;
-    let mut hash = start_hash;
-    loop {
-        let Ok(header) = chain.get_block_header(&hash) else { break };
-        let prev_hash = *header.prev_hash();
-        let Ok(prev_header) = chain.get_block_header(&prev_hash) else { break };
-        if prev_header.epoch_id() != header.epoch_id() {
-            lowest = Some(header.height());
-        }
-        hash = prev_hash;
-    }
-    lowest.unwrap_or_else(|| panic!("no epoch start in the node's header chain"))
-}
-
-/// Floor is `tail + 3`, not `tail + 1`: the anchor sits two heights below the walked
-/// height, and GC removes rows for every cleared height.
-fn probe_block_region(node: &TestLoopNode, epoch_length: u64) -> AnchorWalk {
-    let head = node.head();
-    let tail = node.tail();
-    let low = max(tail + 3, head.height.saturating_sub(3 * epoch_length));
-    let walk = walk_anchor_rows(node, head.last_block_hash, low);
-    assert!(
-        walk.lowest_height > tail,
-        "block-region probe reached height {} at or below the tail {tail} ({walk:?})",
-        walk.lowest_height
+/// Every anchor these three cases touch sits inside the start-of-epoch grace window
+/// (`EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10), so the blacklist
+/// is empty everywhere and the plain-schedule half of the oracle is exact. Asserting that
+/// rather than assuming it is what makes the scope limit visible without measuring it: a
+/// row written under an active blacklist here means the grace logic regressed.
+/// `tests::early_kickout_e2e` owns the other side, where the blacklist is live.
+fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
+    assert_eq!(
+        walk.blacklisted_rows(),
+        0,
+        "{label}: rows written under an active blacklist, but every anchor here is inside \
+         the start-of-epoch grace window ({walk:?})"
     );
-    walk
 }
 
 // Case A — far horizon (epoch → header → state → block sync), observer node.
@@ -302,6 +132,21 @@ fn slow_test_early_kickout_far_horizon_observer() {
             walk.cross_epoch_heights > 0,
             "header-only probe never reached the synced epoch's opening heights ({walk:?})"
         );
+        assert_inside_grace_window(&walk, "header-only probe");
+        // The one region where the live blacklist accessor cannot always run: it needs the
+        // anchor's `BlockInfo`, and the headers the epoch-sync proof installs around its sync
+        // point arrive without one (`apply_validated_proof` writes `BlockInfo` for its own
+        // boundary blocks only). Measured: 2 anchors. Those rows are still checked, against
+        // the plain schedule with an empty exclude set, which is exact here — the whole case
+        // is inside the grace window. Bounded by the proof's boundary-header count rather
+        // than pinned to the measured value, so a regression that lost `BlockInfo` for
+        // header-synced heights trips it while proof-shape drift does not.
+        assert!(
+            walk.blacklist_unavailable <= 3,
+            "header-only probe: blacklist unreadable for {} anchors, more than the epoch-sync \
+             proof's boundary headers can explain ({walk:?})",
+            walk.blacklist_unavailable
+        );
         walk
     };
 
@@ -312,6 +157,8 @@ fn slow_test_early_kickout_far_horizon_observer() {
     let probe_b = probe_block_region(&env.node(new_node_idx), epoch_length);
     assert_walk_window(&probe_b, epoch_length, "block-region probe");
     assert!(probe_b.same_epoch_rows > 0, "block-region probe checked no anchor row ({probe_b:?})");
+    assert_inside_grace_window(&probe_b, "block-region probe");
+    assert_blacklist_read_everywhere(&probe_b, "block-region probe");
 
     tracing::info!(target: "test", ?probe_h, ?probe_b, "far-horizon observer probes complete");
 
@@ -361,9 +208,12 @@ fn slow_test_early_kickout_state_sync_shuffling() {
     tracing::info!(target: "test", ?state_synced, "validators that state-synced a reassigned shard");
 
     for idx in 0..clients.len() {
+        let label = format!("block-region probe on node {idx}");
         let walk = probe_block_region(&env.node(idx), epoch_length);
-        assert_walk_window(&walk, epoch_length / 2, &format!("block-region probe on node {idx}"));
+        assert_walk_window(&walk, epoch_length / 2, &label);
         assert!(walk.same_epoch_rows > 0, "node {idx} probe checked no anchor row ({walk:?})");
+        assert_inside_grace_window(&walk, &label);
+        assert_blacklist_read_everywhere(&walk, &label);
     }
 }
 
@@ -466,6 +316,8 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
         walk.same_epoch_rows > 0,
         "no same-epoch anchor row checked after activation ({walk:?})"
     );
+    assert_inside_grace_window(&walk, "activation-edge probe");
+    assert_blacklist_read_everywhere(&walk, "activation-edge probe");
 
     assert_shard_shuffling_happened(&env, &clients);
     tracing::info!(target: "test", activation_height, ?walk, "activation edge probe complete");
