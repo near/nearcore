@@ -29,13 +29,14 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 pub fn initialize_sharded_genesis_state(
     store: Store,
     genesis: &Genesis,
-    genesis_epoch_config: &EpochConfig,
+    // The layout genesis state is built under. Callers that have an EpochManager must pass the
+    // layout recorded in the genesis EpochInfo, so the two cannot disagree; `initialize_genesis_state`
+    // resolves it the same way the EpochManager would.
+    shard_layout: &ShardLayout,
     home_dir: Option<&Path>,
 ) {
-    let shard_layout = genesis_epoch_config
-        .static_shard_layout()
-        .unwrap_or_else(|| genesis.config.shard_layout.clone());
     let state_roots = if let Some(state_roots) = get_genesis_state_roots(&store) {
+        check_state_roots_match_layout(&state_roots, shard_layout, "already stored");
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
@@ -50,14 +51,18 @@ pub fn initialize_sharded_genesis_state(
         state_roots
     } else {
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
-        let state_roots = if has_dump {
+        let (state_roots, source) = if has_dump {
             if let GenesisContents::Records { .. } = &genesis.contents {
                 tracing::warn!(target: "store", "found both records in genesis config and the state dump file, will ignore the records");
             }
-            genesis_state_from_dump(store.clone(), home_dir.unwrap())
+            (genesis_state_from_dump(store.clone(), home_dir.unwrap()), "from the state dump")
         } else {
-            genesis_state_from_genesis(store.clone(), genesis, &shard_layout)
+            (genesis_state_from_genesis(store.clone(), genesis, shard_layout), "in genesis")
         };
+        // Before committing, not after: the genesis EpochInfo has already been written by the
+        // EpochManager by the time we get here, so failing after `set_genesis_state_roots` would
+        // leave a half-initialized DB that is never re-derived on restart and can only be wiped.
+        check_state_roots_match_layout(&state_roots, shard_layout, source);
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
@@ -75,8 +80,37 @@ pub fn initialize_sharded_genesis_state(
     }
 }
 
+/// The shard layout and the genesis state roots have to agree on how many shards there are.
+///
+/// This is a real cross-check only where the roots do not come from the layout: state roots given
+/// directly in genesis, or loaded from a state dump. When they are computed from records they are
+/// derived per shard uid and the counts agree by construction.
+///
+/// It is worth checking on every path regardless, because `genesis_chunks` silently replicates a
+/// single root across every shard when the counts disagree, which yields a chain that starts and
+/// is wrong rather than one that refuses to start.
+fn check_state_roots_match_layout(
+    state_roots: &[StateRoot],
+    shard_layout: &ShardLayout,
+    source: &str,
+) {
+    assert_eq!(
+        state_roots.len(),
+        shard_layout.num_shards() as usize,
+        "genesis state has {} state roots ({source}) but the genesis shard layout has {} shards. \
+         If the epoch config for the genesis protocol version declares no static shard layout, \
+         genesis.config.shard_layout must describe the state - note it defaults to a single shard \
+         when the field is omitted.",
+        state_roots.len(),
+        shard_layout.num_shards(),
+    );
+}
+
 pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
-    initialize_sharded_genesis_state(store, genesis, &EpochConfig::from(&genesis.config), home_dir);
+    let epoch_config = EpochConfig::from(&genesis.config);
+    let shard_layout =
+        epoch_config.static_shard_layout().unwrap_or_else(|| genesis.config.shard_layout.clone());
+    initialize_sharded_genesis_state(store, genesis, &shard_layout, home_dir);
 }
 
 fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
@@ -180,4 +214,86 @@ fn genesis_state_from_genesis(
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initialize_sharded_genesis_state;
+    use crate::genesis::initialization::get_genesis_state_roots;
+    use crate::test_utils::create_test_store;
+    use near_chain_configs::{Genesis, GenesisConfig, GenesisContents};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
+
+    /// Genesis whose state roots are given directly, so they are independent of the shard layout
+    /// and the two can actually disagree. This is the shape a forknet image uses.
+    fn genesis_with_state_roots(num_roots: usize) -> Genesis {
+        let mut config = GenesisConfig::default();
+        config.chain_id = "test-dynamic-genesis".to_string();
+        config.genesis_height = 1;
+        Genesis {
+            config,
+            contents: GenesisContents::StateRoots {
+                state_roots: (0..num_roots).map(|i| CryptoHash::hash_bytes(&[i as u8])).collect(),
+            },
+        }
+    }
+
+    /// A layout the epoch config does not declare - it can only have come from genesis - is
+    /// accepted when it describes the state that is actually there.
+    #[test]
+    fn genesis_shard_layout_matching_state_roots_is_accepted() {
+        let shard_layout = ShardLayout::multi_shard(4, 3);
+        let genesis = genesis_with_state_roots(shard_layout.num_shards() as usize);
+        let store = create_test_store();
+
+        initialize_sharded_genesis_state(store.clone(), &genesis, &shard_layout, None);
+
+        let roots = get_genesis_state_roots(&store).unwrap();
+        assert_eq!(roots.len(), shard_layout.num_shards() as usize);
+    }
+
+    /// The case the check exists for: `genesis.config.shard_layout` is `#[serde(default)]`, so a
+    /// genesis file that omits it silently claims a single shard. Against real multi-shard state
+    /// that must fail loudly rather than start a wrong chain.
+    #[test]
+    #[should_panic(expected = "state roots")]
+    fn defaulted_single_shard_layout_against_multi_shard_state_is_rejected() {
+        let genesis = genesis_with_state_roots(4);
+        let store = create_test_store();
+
+        initialize_sharded_genesis_state(store, &genesis, &ShardLayout::single_shard(), None);
+    }
+
+    /// Nothing is written when validation fails, so a corrected config works on the next attempt
+    /// instead of needing the DB wiped.
+    #[test]
+    fn nothing_is_committed_when_validation_fails() {
+        let genesis = genesis_with_state_roots(4);
+        let store = create_test_store();
+
+        // AssertUnwindSafe: the store is only read after the unwind, to check nothing landed.
+        let bad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            initialize_sharded_genesis_state(
+                store.clone(),
+                &genesis,
+                &ShardLayout::single_shard(),
+                None,
+            )
+        }));
+        assert!(bad.is_err(), "mismatched layout should have been rejected");
+        assert!(
+            get_genesis_state_roots(&store).is_none(),
+            "genesis state roots must not be committed when the layout does not match"
+        );
+
+        // Same store, corrected layout: succeeds without any manual cleanup.
+        initialize_sharded_genesis_state(
+            store.clone(),
+            &genesis,
+            &ShardLayout::multi_shard(4, 3),
+            None,
+        );
+        assert_eq!(get_genesis_state_roots(&store).unwrap().len(), 4);
+    }
 }
