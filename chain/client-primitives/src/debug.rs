@@ -1,7 +1,7 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
 use near_primitives::congestion_info::CongestionInfo;
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::types::{EpochId, ShardId, ShardIndex};
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
     SyncStatusView,
@@ -24,6 +24,14 @@ pub struct TrackedShardsView {
     pub shards_tracked_next_epoch: Vec<bool>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq)]
+pub struct ShardSizeAndParts {
+    pub shard_index: ShardIndex,
+    pub shard_size: u64,
+    pub state_parts_count: u64,
+    pub state_header_exists: bool,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct EpochInfoView {
     pub epoch_height: u64,
@@ -36,7 +44,7 @@ pub struct EpochInfoView {
     pub validator_info: Option<EpochValidatorInfo>,
     pub protocol_version: u32,
     pub sync_hash: Option<CryptoHash>,
-    pub shards_size_and_parts: Vec<(u64, u64, bool)>,
+    pub shards_size_and_parts: HashMap<ShardId, ShardSizeAndParts>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
