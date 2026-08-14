@@ -399,15 +399,13 @@ impl ClientActor {
                     })
                     .unwrap_or_default();
 
-                (
-                    shard_info.shard_id(),
-                    ShardSizeAndParts {
-                        shard_index: shard_info.shard_index(),
-                        shard_size,
-                        state_parts_count: get_num_state_parts(shard_size),
-                        state_header_exists,
-                    },
-                )
+                ShardSizeAndParts {
+                    shard_id: shard_info.shard_id(),
+                    shard_index: shard_info.shard_index(),
+                    shard_size,
+                    state_parts_count: get_num_state_parts(shard_size),
+                    state_header_exists,
+                }
             })
             .collect();
 
@@ -474,7 +472,7 @@ impl ClientActor {
                 .epoch_manager
                 .get_epoch_protocol_version(next_epoch_id)?,
             sync_hash: None,
-            shards_size_and_parts: HashMap::default(),
+            shards_size_and_parts: vec![],
         })
     }
 
