@@ -519,9 +519,17 @@ impl ViewClientActor {
             }
             QueryRequest::ViewGlobalContractCode { .. }
             | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
-                // for global contract queries we can use any shard_id, so just take the first one
                 let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
-                Ok(*shard_ids.iter().next().expect("at least one shard should always exist"))
+                for shard_id in &shard_ids {
+                    // Global contract code is replicated to all shards, so use one this node tracks.
+                    if self.shard_tracker.rpc_tracks_shard_at_epoch(*shard_id, &epoch_id)? {
+                        return Ok(*shard_id);
+                    }
+                }
+
+                // Preserve UnavailableShard for nodes that track no shards so the RPC coordinator
+                // can retry the request on another node.
+                Ok(*shard_ids.first().expect("at least one shard should always exist"))
             }
         }
     }
