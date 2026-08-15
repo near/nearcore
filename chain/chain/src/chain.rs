@@ -2777,10 +2777,8 @@ impl Chain {
     }
 
     /// Checks the data reconstructed through finalization against the values committed by the
-    /// sync block's chunk. The check is skipped if garbage collection removed the full sync block
-    /// because its block header does not contain the individual chunk headers. A missing chunk
-    /// repeats an older header and therefore does not commit the post-state reconstructed at the
-    /// sync boundary.
+    /// sync block's chunk. A missing chunk repeats an older header and therefore does not commit
+    /// the post-state reconstructed at the sync boundary.
     fn validate_state_sync_chunk_extra(
         &self,
         shard_id: ShardId,
@@ -2789,10 +2787,14 @@ impl Chain {
         chunk_height_included: BlockHeight,
     ) -> Result<(), Error> {
         let sync_block = match self.get_block(&sync_hash) {
-            Ok(sync_block) => sync_block,
-            Err(Error::DBNotFoundErr(_)) => {
-                tracing::debug!(target: "sync", %shard_id, %sync_hash, "skip chunk commitment validation because the sync block was removed");
-                return Ok(());
+            Ok(block) => block,
+            Err(err @ Error::DBNotFoundErr(_)) => {
+                // The sync block is held in the orphan pool until every shard finishes, so it is
+                // not in the store yet when finalization runs.
+                let Some(orphan) = self.orphans.get(&sync_hash) else {
+                    return Err(err);
+                };
+                Arc::clone(orphan.block.get_inner())
             }
             Err(err) => return Err(err),
         };
