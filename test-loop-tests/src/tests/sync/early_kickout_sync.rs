@@ -1,6 +1,6 @@
 //! Sync × EarlyKickout integration coverage: nodes joining via the sync pipeline must
-//! hold the `DBCol::ChunkProducers` rows their catch-up reads depend on, and those rows
-//! must name the right producer.
+//! hold the `DBCol::ChunkProducers` rows their block-validation reads while syncing
+//! depend on, and those rows must name the right producer.
 //!
 //! The oracle lives in `tests::early_kickout_probe`. The blacklist is empty throughout all
 //! three cases — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10, so no
@@ -28,17 +28,20 @@ use super::util::{
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::tests::early_kickout_probe::{
-    AnchorWalk, assert_blacklist_read_everywhere, assert_walk_window,
-    lowest_epoch_start_in_headers, probe_block_region, walk_anchor_rows,
+    AnchorWalk, assert_blacklist_read_everywhere, assert_walk_window, probe_block_region,
+    walk_anchor_rows,
 };
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
+use borsh::BorshDeserialize;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, BlockHeight, EpochId};
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
+use near_store::DBCol;
 
 /// A row written under an active blacklist here means the grace logic regressed: every anchor
 /// these cases touch is inside the grace window. `tests::early_kickout_e2e` owns the other
@@ -108,13 +111,40 @@ fn slow_test_early_kickout_far_horizon_observer() {
         let node = env.node(new_node_idx);
         let tail = node.tail();
         let start = node.client().chain.get_block_hash_by_height(tail + 2).unwrap();
-        let low = lowest_epoch_start_in_headers(&node, start);
-        let walk = walk_anchor_rows(&node, start, low);
-        assert_walk_window(&walk, epoch_length / 2, "header-only probe");
+        // Floor of the walk: the synced epoch's start, from the follower's own
+        // `DBCol::EpochStart` rows — independent of the header traversal under test. A
+        // fresh node has no row before epoch sync, `apply_validated_proof` writes exactly
+        // one, and header sync only adds rows for later epochs, so the min non-genesis row
+        // is the synced epoch's. Cross-checked against the source so a wrong row cannot
+        // silently move the floor.
+        let (low_epoch_id, low) = node
+            .store()
+            .iter(DBCol::EpochStart)
+            .map(|(key, value)| {
+                let epoch_id = EpochId(CryptoHash::try_from(&key[..]).unwrap());
+                let height = BlockHeight::try_from_slice(&value).unwrap();
+                (epoch_id, height)
+            })
+            .filter(|(_, height)| *height > 0)
+            .min_by_key(|(_, height)| *height)
+            .expect("epoch sync wrote no EpochStart row");
+        let source_low: Option<BlockHeight> =
+            env.node(0).store().get_ser(DBCol::EpochStart, low_epoch_id.as_ref());
+        assert_eq!(
+            source_low,
+            Some(low),
+            "seeded EpochStart height disagrees with the source for epoch {low_epoch_id:?}"
+        );
+        let walk = walk_anchor_rows(&node, start, low).unwrap_or_else(|err| {
+            panic!("header-only probe failed before reaching the floor {low}: {err:?}")
+        });
+        // The walk's own postcondition, re-asserted so a walker regression that returns
+        // `Ok` early cannot silently narrow the probe.
         assert_eq!(
             walk.lowest_height, low,
             "header-only probe stopped above the synced epoch start ({walk:?})"
         );
+        assert_walk_window(&walk, epoch_length / 2, "header-only probe");
         assert!(
             walk.lowest_height < tail,
             "header-only probe never reached below the tail {tail} ({walk:?}); \

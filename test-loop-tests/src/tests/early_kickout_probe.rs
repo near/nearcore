@@ -9,13 +9,14 @@
 //! Gated on `nightly` only, not `test_features`, so both callers can reach it.
 
 use crate::utils::node::TestLoopNode;
+use near_chain::Error as ChainError;
 use near_epoch_manager::CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{BlockHeight, EpochId, ValidatorId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, ValidatorId};
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::ProtocolFeature;
 use near_store::DBCol;
@@ -56,20 +57,49 @@ impl AnchorWalk {
     }
 }
 
-/// Walk `node`'s headers down from `start_hash` while the height is at least `low`,
-/// asserting the `DBCol::ChunkProducers` state each height's chunk resolution needs.
+/// Which of the three headers a walked height resolves through failed to load.
+#[derive(Debug)]
+pub(crate) enum HeaderRole {
+    Current,
+    Parent,
+    Anchor,
+}
+
+/// Why [`walk_anchor_rows`] could not reach its floor. Every variant is an error: a bounded
+/// walk that stops early must never read as a pass.
+// The fields reach the test failure output through the derived `Debug`, which dead-code
+// analysis deliberately ignores.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) enum WalkError {
+    /// A header lookup failed while the floor was still uncovered. For
+    /// [`HeaderRole::Current`] the missing header's own height is unknown, so `chunk_height`
+    /// is the last processed height (zero when the very first lookup fails).
+    Header { role: HeaderRole, hash: CryptoHash, chunk_height: BlockHeight, source: ChainError },
+    /// The walk stepped below the floor without ever processing it: a skipped height
+    /// straddled `low`, so the row at `low` went unchecked. Skipped-height support would
+    /// redefine coverage over visited headers; until then this is an error.
+    PassedFloor { requested: BlockHeight, next_height: BlockHeight },
+    /// The chunk at `chunk_height` has a defaulted grandparent hash (genesis or genesis + 1),
+    /// a real absence rather than a missing header. No current caller targets genesis; a
+    /// future "walk to genesis" needs its own walk target, not a weakening of bounded walks.
+    NoGrandparent { chunk_height: BlockHeight },
+}
+
+/// Walk `node`'s headers down from `start_hash` to exactly height `low`, asserting the
+/// `DBCol::ChunkProducers` state each height's chunk resolution needs.
 ///
 /// Headers rather than the height index: header-only heights below the tail have no index
 /// entry, and that region is exactly where epoch-sync seeding has to be checked. The walk
-/// ends on the first missing header, so `low` may be genesis to mean "as far as this node
-/// goes".
+/// succeeds only after fully processing height `low` — any lookup failure or floor straddle
+/// before that is a [`WalkError`], so a truncated walk cannot read as a pass.
 ///
 /// The branch per height mirrors `EpochManagerAdapter::get_chunk_producer_info_anchored`.
 pub(crate) fn walk_anchor_rows(
     node: &TestLoopNode,
     start_hash: CryptoHash,
     low: BlockHeight,
-) -> AnchorWalk {
+) -> Result<AnchorWalk, WalkError> {
     let client = node.client();
     let chain = &client.chain;
     let epoch_manager = client.epoch_manager.as_ref();
@@ -82,20 +112,37 @@ pub(crate) fn walk_anchor_rows(
     let mut hash = start_hash;
 
     loop {
-        let Ok(header) = chain.get_block_header(&hash) else { break };
+        let header = chain.get_block_header(&hash).map_err(|source| WalkError::Header {
+            role: HeaderRole::Current,
+            hash,
+            chunk_height: walk.lowest_height,
+            source,
+        })?;
         let height = header.height();
         if height < low {
-            break;
+            return Err(WalkError::PassedFloor { requested: low, next_height: height });
         }
         // The chunk at this height: its parent carries the production key, its grandparent is
         // the anchor.
         let prev_hash = *header.prev_hash();
-        let Ok(prev_header) = chain.get_block_header(&prev_hash) else { break };
+        let prev_header =
+            chain.get_block_header(&prev_hash).map_err(|source| WalkError::Header {
+                role: HeaderRole::Parent,
+                hash: prev_hash,
+                chunk_height: height,
+                source,
+            })?;
         let anchor_hash = *prev_header.prev_hash();
         if anchor_hash == CryptoHash::default() {
-            break; // genesis + 1, no grandparent
+            return Err(WalkError::NoGrandparent { chunk_height: height });
         }
-        let Ok(anchor_header) = chain.get_block_header(&anchor_hash) else { break };
+        let anchor_header =
+            chain.get_block_header(&anchor_hash).map_err(|source| WalkError::Header {
+                role: HeaderRole::Anchor,
+                hash: anchor_hash,
+                chunk_height: height,
+                source,
+            })?;
 
         let chunk_epoch_id = *header.epoch_id();
         let (shard_layout, epoch_info) = match &cached {
@@ -107,16 +154,28 @@ pub(crate) fn walk_anchor_rows(
                 (layout, info)
             }
         };
+        // The resolver derives the chunk's `height_created` from the parent `BlockInfo`, so
+        // where it falls through to the canonical sampler the sample height is the parent's
+        // height + 1 — equal to `height` only while skipped heights are rejected.
+        let fallthrough_sample_height = prev_header.height() + 1;
 
         if !ProtocolFeature::EarlyKickout.enabled(epoch_info.protocol_version()) {
             walk.pre_activation_heights += 1;
             for shard_id in shard_layout.shard_ids() {
-                epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
+                let resolved = epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
                     .unwrap_or_else(|err| {
                         panic!(
                             "pre-activation resolution failed at height {height} shard {shard_id}: {err:?}"
                         )
                     });
+                assert_matches_canonical_sample(
+                    &epoch_info,
+                    &shard_layout,
+                    shard_id,
+                    fallthrough_sample_height,
+                    &resolved,
+                    "pre-activation",
+                );
             }
         } else {
             // Descending walk, so the last write wins as the lowest active height.
@@ -154,27 +213,80 @@ pub(crate) fn walk_anchor_rows(
                         .as_ref()
                         .and_then(|blacklist| blacklist.get(&shard_id))
                         .unwrap_or(&no_exclusions);
-                    let expected = epoch_info
+                    let expected_id = epoch_info
                         .sample_chunk_producer_excluding(
                             &shard_layout,
                             shard_id,
                             sample_height,
                             exclude,
                         )
-                        .map(account_of)
                         .unwrap_or_else(|| {
                             panic!(
                                 "canonical schedule has no producer for shard {shard_id} at \
                                  height {sample_height} excluding {exclude:?}"
                             )
                         });
+                    let expected = epoch_info.get_validator(expected_id);
                     assert_eq!(
-                        row.account_id(),
-                        &expected,
+                        row, expected,
                         "row for anchor {anchor_hash} (height {anchor_height}) shard {shard_id} \
                          disagrees with the canonical schedule at height {sample_height} \
                          (exclude {exclude:?})"
                     );
+                    if blacklist.is_some() {
+                        // The production resolver must consume exactly this row.
+                        let resolved = epoch_manager
+                            .get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
+                            .unwrap_or_else(|err| {
+                                panic!(
+                                    "same-epoch anchored resolver failed at height {height} \
+                                     shard {shard_id}: {err:?}"
+                                )
+                            });
+                        assert_eq!(
+                            resolved, expected,
+                            "resolver disagrees with the canonical schedule at height {height} \
+                             shard {shard_id}"
+                        );
+                    } else {
+                        // Classify the accessor's `MissingBlock` instead of loosely counting
+                        // it. It hides two shapes: the anchor's own `BlockInfo` is missing
+                        // (proof-omitted header — the resolver fails on the same read), or
+                        // only the blacklist basis is missing (the aggregator walk from the
+                        // anchor's last-final block — the resolver still consumes the row).
+                        let resolver_result = epoch_manager
+                            .get_chunk_producer_info_from_prev_block(&prev_hash, shard_id);
+                        match epoch_manager.get_epoch_id(&anchor_hash) {
+                            Ok(_) => {
+                                let resolved = resolver_result.unwrap_or_else(|err| {
+                                    panic!(
+                                        "resolver failed at height {height} shard {shard_id} \
+                                         though the anchor {anchor_hash} has a BlockInfo: \
+                                         {err:?}"
+                                    )
+                                });
+                                assert_eq!(
+                                    resolved, expected,
+                                    "resolver disagrees with the canonical schedule at height \
+                                     {height} shard {shard_id}"
+                                );
+                            }
+                            Err(EpochError::MissingBlock(_)) => {
+                                let err = resolver_result.expect_err(
+                                    "resolver cannot succeed where the anchor has no BlockInfo",
+                                );
+                                assert!(
+                                    matches!(err, EpochError::MissingBlock(_)),
+                                    "resolver failed with {err:?} at height {height} shard \
+                                     {shard_id}, expected MissingBlock"
+                                );
+                            }
+                            Err(err) => panic!(
+                                "anchor epoch lookup failed for {anchor_hash} (height \
+                                 {anchor_height}): {err:?}"
+                            ),
+                        }
+                    }
                     let plain_id =
                         epoch_info.sample_chunk_producer(&shard_layout, shard_id, sample_height);
                     if exclude.is_empty() {
@@ -200,12 +312,20 @@ pub(crate) fn walk_anchor_rows(
                 // No row required, but the sampler fallthrough still fails with
                 // `EpochOutOfBounds` if the anchor's epoch info was never retained.
                 for shard_id in shard_layout.shard_ids() {
-                    epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
+                    let resolved = epoch_manager.get_chunk_producer_info_from_prev_block(&prev_hash, shard_id)
                         .unwrap_or_else(|err| {
                             panic!(
                                 "cross-epoch anchored read failed at height {height} shard {shard_id}: {err:?}"
                             )
                         });
+                    assert_matches_canonical_sample(
+                        &epoch_info,
+                        &shard_layout,
+                        shard_id,
+                        fallthrough_sample_height,
+                        &resolved,
+                        "cross-epoch",
+                    );
                 }
             }
         }
@@ -215,11 +335,38 @@ pub(crate) fn walk_anchor_rows(
         }
         walk.heights_walked += 1;
         walk.lowest_height = height;
+        if height == low {
+            tracing::info!(target: "test", ?walk, "anchor row walk complete");
+            return Ok(walk);
+        }
         hash = prev_hash;
     }
+}
 
-    tracing::info!(target: "test", ?walk, "anchor row walk complete");
-    walk
+/// Pins a resolution that fell through to the canonical sampler to the full
+/// `ValidatorStake` the schedule names, not just its account id.
+fn assert_matches_canonical_sample(
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+    shard_id: ShardId,
+    sample_height: BlockHeight,
+    resolved: &ValidatorStake,
+    label: &str,
+) {
+    let expected_id = epoch_info
+        .sample_chunk_producer(shard_layout, shard_id, sample_height)
+        .unwrap_or_else(|| {
+            panic!(
+                "canonical schedule has no producer for shard {shard_id} at height \
+                 {sample_height}"
+            )
+        });
+    assert_eq!(
+        *resolved,
+        epoch_info.get_validator(expected_id),
+        "{label}: resolved producer for shard {shard_id} disagrees with the canonical \
+         schedule at height {sample_height}"
+    );
 }
 
 pub(crate) fn assert_walk_window(walk: &AnchorWalk, min_width: u64, label: &str) {
@@ -240,38 +387,20 @@ pub(crate) fn assert_blacklist_read_everywhere(walk: &AnchorWalk, label: &str) {
     );
 }
 
-/// Lowest height in `node`'s header chain that starts an epoch, walking down from
-/// `start_hash`.
-///
-/// Floor of the header-only probe. The headers an epoch-synced node keeps below the synced
-/// epoch arrive through `apply_validated_proof`, never the seeder, so they hold no rows — and
-/// need none, since the synced epoch's opening chunks take the cross-epoch arm.
-pub(crate) fn lowest_epoch_start_in_headers(
-    node: &TestLoopNode,
-    start_hash: CryptoHash,
-) -> BlockHeight {
-    let chain = &node.client().chain;
-    let mut lowest = None;
-    let mut hash = start_hash;
-    loop {
-        let Ok(header) = chain.get_block_header(&hash) else { break };
-        let prev_hash = *header.prev_hash();
-        let Ok(prev_header) = chain.get_block_header(&prev_hash) else { break };
-        if prev_header.epoch_id() != header.epoch_id() {
-            lowest = Some(header.height());
-        }
-        hash = prev_hash;
-    }
-    lowest.unwrap_or_else(|| panic!("no epoch start in the node's header chain"))
-}
-
 /// Floor is `tail + 3`, not `tail + 1`: the anchor sits two heights below the walked height,
 /// and GC removes rows for every cleared height.
 pub(crate) fn probe_block_region(node: &TestLoopNode, epoch_length: u64) -> AnchorWalk {
     let head = node.head();
     let tail = node.tail();
     let low = max(tail + 3, head.height.saturating_sub(3 * epoch_length));
-    let walk = walk_anchor_rows(node, head.last_block_hash, low);
+    let walk = walk_anchor_rows(node, head.last_block_hash, low)
+        .unwrap_or_else(|err| panic!("block-region walk failed before reaching {low}: {err:?}"));
+    // The walk's own postcondition, re-asserted here so a walker regression that returns
+    // `Ok` early cannot silently narrow the probe.
+    assert_eq!(
+        walk.lowest_height, low,
+        "block-region walk returned without reaching its floor ({walk:?})"
+    );
     assert!(
         walk.lowest_height > tail,
         "block-region probe reached height {} at or below the tail {tail} ({walk:?})",

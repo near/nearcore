@@ -36,7 +36,6 @@ use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
@@ -96,10 +95,13 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 /// Note: we check ALL consecutive epoch pairs, not just first vs last, because with few
 /// validators/shards the first and last epoch can coincidentally have the same assignment
 /// even though shuffling occurred in intermediate epochs.
+///
+/// Fixed-layout helper: it asserts consecutive epochs share one shard layout, which is what
+/// makes the shard ids directly comparable and every tracking lookup below infallible. A
+/// resharding caller must map a shard to its prior parent instead
+/// (`get_prev_shard_id_from_prev_hash`, `cared_about_shard_prev_epoch_from_prev_block`).
 pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
-    let head = client.chain.head().unwrap();
-    let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
     let epoch_ids = collect_distinct_epoch_ids(client);
 
     assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
@@ -107,16 +109,19 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
     // Check any pair of consecutive epochs for a shard assignment change.
     for window in epoch_ids.windows(2) {
         let (epoch_a, epoch_b) = (&window[0], &window[1]);
+        let layout_a = client.epoch_manager.get_shard_layout(epoch_a).unwrap();
+        let layout_b = client.epoch_manager.get_shard_layout(epoch_b).unwrap();
+        assert_eq!(layout_a, layout_b, "fixed-layout helper used across a layout transition");
         for account_id in validators {
-            for &shard_id in &shard_ids {
+            for shard_id in layout_a.shard_ids() {
                 let cared_a = client
                     .epoch_manager
                     .cares_about_shard_in_epoch(epoch_a, account_id, shard_id)
-                    .unwrap_or(false);
+                    .unwrap();
                 let cared_b = client
                     .epoch_manager
                     .cares_about_shard_in_epoch(epoch_b, account_id, shard_id)
-                    .unwrap_or(false);
+                    .unwrap();
                 if cared_a != cared_b {
                     return; // Found a change — shuffling happened.
                 }
@@ -134,6 +139,9 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
 ///
 /// `assert_shard_shuffling_happened` only proves an assignment changed; holding
 /// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
+///
+/// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
+/// resharding caller must map a shard to its prior parent instead.
 ///
 /// Callers are nightly-only, but this module is not gated, so the stable build would
 /// see this as dead code under `-D warnings`.
@@ -154,26 +162,23 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
 
         'validator: for window in epoch_ids.windows(2) {
             let (prev_epoch, new_epoch) = (&window[0], &window[1]);
+            let prev_layout = epoch_manager.get_shard_layout(prev_epoch).unwrap();
             let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
+            assert_eq!(
+                prev_layout, shard_layout,
+                "fixed-layout helper used across a layout transition"
+            );
             for shard_id in shard_layout.shard_ids() {
-                // The shard came from `new_epoch`'s own layout, so an error here is a bug.
+                // With equal layouts both lookups are infallible; converting an error to
+                // "did not care" here could fabricate a reassignment and make the
+                // `ChunkExtra` check pass trivially on a shard the validator held all
+                // along.
                 let cared_now = epoch_manager
                     .cares_about_shard_in_epoch(new_epoch, validator, shard_id)
                     .unwrap();
-                // In `prev_epoch` the shard may not exist (resharding) — a genuine "did
-                // not care". Swallowing every error would instead fabricate a
-                // reassignment and make the `ChunkExtra` check pass trivially on a shard
-                // the validator held all along.
-                let cared_before = match epoch_manager
+                let cared_before = epoch_manager
                     .cares_about_shard_in_epoch(prev_epoch, validator, shard_id)
-                {
-                    Ok(cared) => cared,
-                    Err(EpochError::ShardingError(_)) => false,
-                    Err(err) => panic!(
-                        "shard tracking lookup failed for {validator} shard {shard_id} \
-                         in epoch {prev_epoch:?}: {err:?}"
-                    ),
-                };
+                    .unwrap();
                 if !(cared_now && !cared_before) {
                     continue;
                 }

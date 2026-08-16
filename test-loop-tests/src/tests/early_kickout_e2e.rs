@@ -14,10 +14,10 @@
 //!   into a network that ALREADY has an active reassignment and must resolve
 //!   chunk producers consistently with the full validators, with no
 //!   `ChunkProducerNotInDB` errors.
-//! * `slow_test_early_kickout_state_sync_under_active_kickout` — a validator
-//!   state-syncs a newly assigned shard while a blacklist is active, and the rows
-//!   it then holds still deviate from the plain schedule in exactly the slots they
-//!   should.
+//! * `slow_test_early_kickout_state_sync_under_active_kickout` — one scenario, two
+//!   independently verified properties: a validator state-syncs a newly assigned
+//!   shard while a blacklist is active, and the rows it holds deviate from the
+//!   plain schedule in exactly the slots they should.
 //!
 //! All three require `nightly` (feature gate) and `test_features` (adversarial
 //! messages, plus the threshold override below).
@@ -737,8 +737,9 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
 
 /// State sync under an ACTIVE early kickout.
 ///
-/// Shard shuffling forces a validator to state-sync a newly assigned shard while a producer is
-/// blacklisted; the probe then checks the `DBCol::ChunkProducers` rows it ends up holding.
+/// Two independently verified properties in one scenario: shard shuffling forces a validator
+/// to state-sync a newly assigned shard while a producer is blacklisted, and the probe checks
+/// the `DBCol::ChunkProducers` rows that validator holds.
 ///
 /// This is the half `tests::sync::early_kickout_sync` cannot reach: there every anchor is
 /// inside the grace window, so the blacklist is always empty and the reassignment write path
@@ -782,7 +783,7 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         .clients(clients.clone())
         .build();
 
-    // Real state, so a reassigned shard has something worth syncing.
+    // Create nontrivial user state before the multi-epoch scenario.
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
 
     let epoch_manager = env.node(0).client().epoch_manager.clone();
@@ -828,7 +829,7 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
     assert_eq!(
         env.node(0).head().epoch_id,
         probe_epoch,
-        "probe window left the epoch whose state sync it is supposed to cover"
+        "probe window left the active-blacklist epoch"
     );
 
     assert_shard_shuffling_happened(&env, &clients);
@@ -840,9 +841,10 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
         let walk = probe_block_region(&env.node(idx), epoch_length);
         assert_walk_window(&walk, epoch_length / 2, &label);
         assert_blacklist_read_everywhere(&walk, &label);
-        // Both directions: reassigned rows prove a deviating row survived the state sync, plain
-        // rows prove the probe is not blanket-accepting deviation. Each side is recomputed from
-        // this node's own accessor, never from another node's copy of the row.
+        // Both directions: reassigned rows prove this node exercised the active-blacklist
+        // row-seeding path, plain rows prove the probe is not blanket-accepting deviation. Each
+        // side is recomputed from this node's own accessor, never from another node's copy of
+        // the row.
         assert!(
             walk.reassigned_rows > 0,
             "{label}: no row was reassigned away from a blacklisted plain pick, so the \
