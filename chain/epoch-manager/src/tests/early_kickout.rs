@@ -61,6 +61,14 @@ fn epoch_info_for_layout(
         layout.num_shards() as usize,
         "one chunk-producer settlement per shard",
     );
+    for settlement in &settlements {
+        for id in settlement {
+            assert!(
+                *id < num_producers,
+                "settlement id {id} out of range for {num_producers} producers"
+            );
+        }
+    }
     let accounts: Vec<_> =
         (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
     let block_producers: Vec<ValidatorId> = (0..num_producers).collect();
@@ -346,12 +354,19 @@ fn keep_one_fewer_expected_tiebreak() {
 // a set, so a `[0, 0, 1]` settlement has two distinct producers, and two all-bad candidates
 // trip the valve. Were the duplicate counted, the denominator would be 3, the valve would
 // not fire, and both would be blacklisted. `EpochInfo::new` neither rejects nor dedups the
-// duplicate.
+// duplicate — pinned below, so a future constructor normalization fails this test loudly
+// instead of silently draining it of the duplicate it exists to exercise.
 #[test]
 fn blacklist_dedups_duplicate_settlement_entries() {
     let layout = ShardLayout::single_shard();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = epoch_info_for_layout(&layout, vec![vec![0, 0, 1]], 2);
+    let shard_index = layout.get_shard_index(shard_id).unwrap();
+    assert_eq!(
+        epoch_info.chunk_producers_settlement()[shard_index],
+        vec![0, 0, 1],
+        "fixture must reach the math with the duplicate intact",
+    );
     let st = tracker(shard_id, &[(0, 0, 100), (1, 0, 100)]);
     let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
     let stats = &res.shard_stats[&shard_id];
@@ -377,7 +392,9 @@ fn blacklist_valve_ignores_endorsement_only_entry() {
     let stats = &res.shard_stats[&shard_id];
     assert_eq!(stats.raw_candidate_count, 2, "endorsement-only id must not be a candidate");
     assert!(stats.safety_valve_fired());
-    assert_ne!(stats.kept, Some(2), "endorsement-only id must never be the kept producer");
+    // Deterministic: the two all-bad candidates tie on every level down to lower-id, which
+    // keeps 0 — strictly stronger than only asserting the endorsement-only id is not kept.
+    assert_eq!(stats.kept, Some(0), "equal all-bad candidates must resolve to the lower id");
     let bl = &res.blacklist[&shard_id];
     assert_eq!(bl.len(), 1, "keep-one must leave exactly one survivor");
     assert!(!bl.contains(&2), "endorsement-only id must never be blacklisted");
@@ -391,12 +408,25 @@ fn blacklist_valve_ignores_endorsement_only_entry() {
 fn blacklist_u128_arithmetic_no_overflow() {
     let big = u64::MAX;
     // Ratio check: id 0 misses ~2^63 with produced*100 (~9.2e20) < expected*80 (~1.5e21), so
-    // it is a candidate; ids 1, 2 are healthy so the valve does not fire.
+    // it is a candidate; ids 1, 2 are healthy so the valve does not fire. This case is
+    // protected by the `overflow-checks` panic alone: its wrapped-u64 comparison happens to
+    // reach the same verdict.
     let (epoch_info, layout, shard_id) = single_shard_epoch(3);
     let st = tracker(shard_id, &[(0, big / 2, big), (1, 100, 100), (2, 100, 100)]);
     assert_eq!(
         blacklist(&st, &epoch_info, &layout),
         HashMap::from([(shard_id, HashSet::from([0]))]),
+    );
+
+    // Value-level wrap guard for the ratio comparison: wrapped u64 `expected * 80`
+    // (80 * 2^62 = 5 * 2^66) is 0 mod 2^64 while `produced * 100` (100 * 2^57) does not
+    // wrap, so a u64 regression drops id 0's candidacy and fails this assert in any build
+    // profile, with or without `overflow-checks`.
+    let (epoch_info3, layout3, shard3) = single_shard_epoch(3);
+    let st3 = tracker(shard3, &[(0, 1 << 57, 1 << 62), (1, 100, 100), (2, 100, 100)]);
+    assert_eq!(
+        blacklist(&st3, &epoch_info3, &layout3),
+        HashMap::from([(shard3, HashSet::from([0]))]),
     );
 
     // Safety-valve comparator cross-multiply (pa*eb vs pb*ea) with operands near 2^127
@@ -1584,16 +1614,21 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
         child.get_shard_index(split_parent).is_err(),
         "retired parent {split_parent} must have no shard index in the child layout",
     );
-    assert!(
-        parent.get_shard_index(children[0]).is_err(),
-        "child {} must have no shard index in the parent layout",
-        children[0],
-    );
+    for c in &children {
+        assert!(
+            parent.get_shard_index(*c).is_err(),
+            "child {c} must have no shard index in the parent layout",
+        );
+    }
 
     // One bad producer per shard plus a shared healthy producer (id 4). The settlement Vec
     // is indexed by ShardIndex, so build it through `shard_infos()` (the API's index-order
     // contract) rather than `shard_ids()`, and never through `get_shard_index` (the mechanism
-    // under test). Each valid shard's bad producer sits in that shard's own settlement.
+    // under test). Each valid shard's bad producer sits in that shard's own settlement, and
+    // every settlement also carries the bad producers of the shards foreign to that layout:
+    // their stats live only under foreign tracker keys, so valid-shard results are unchanged,
+    // but a foreign id wrongly resolved to any in-range index then surfaces as a foreign
+    // blacklist entry instead of dropping out for want of a settlement match.
     const HEALTHY: ValidatorId = 4;
     let num_producers = 5u64;
     let bad_producer = |shard: ShardId| -> ValidatorId {
@@ -1609,10 +1644,24 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
             panic!("unexpected shard id {shard}")
         }
     };
-    let settlement_for =
-        |shard: ShardId| -> Vec<ValidatorId> { vec![bad_producer(shard), HEALTHY] };
+    let all_shards: HashSet<ShardId> = parent_ids.iter().chain(child_ids.iter()).copied().collect();
     let settlements = |layout: &ShardLayout| -> Vec<Vec<ValidatorId>> {
-        layout.shard_infos().map(|info| settlement_for(info.shard_id())).collect()
+        let own_ids: Vec<ShardId> = layout.shard_ids().collect();
+        let mut foreign_bad: Vec<ValidatorId> = all_shards
+            .iter()
+            .filter(|id| !own_ids.contains(id))
+            .map(|&id| bad_producer(id))
+            .collect();
+        foreign_bad.sort_unstable();
+        layout
+            .shard_infos()
+            .map(|info| {
+                let mut settlement = vec![bad_producer(info.shard_id())];
+                settlement.extend(foreign_bad.iter().copied());
+                settlement.push(HEALTHY);
+                settlement
+            })
+            .collect()
     };
     let parent_ei = epoch_info_for_layout(parent, settlements(parent), num_producers);
     let child_ei = epoch_info_for_layout(child, settlements(child), num_producers);
@@ -1626,7 +1675,6 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
             (HEALTHY, ChunkStats::new_with_production(100, 100)),
         ])
     };
-    let all_shards: HashSet<ShardId> = parent_ids.iter().chain(child_ids.iter()).copied().collect();
     let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> =
         all_shards.iter().map(|&shard| (shard, candidate_shard(shard))).collect();
 
@@ -1675,10 +1723,12 @@ fn fork_block_hash(branch: u8, height: u64) -> CryptoHash {
 }
 
 /// Records one block on `branch` at `height`, extending `prev`, using the same
-/// blacklist-aware assignment as `drive_down_node`: the chunk is missed exactly when
-/// `target` is the scheduled producer, so `target` accrues misses while its slots
-/// reassign to producers that actually produce. Returns the new tip. Shared by the two
-/// fork tests below (their only genuine overlap).
+/// blacklist-aware assignment as `drive_down_node`: the chunk is missed when the test's
+/// model schedules `target`, sampling with the accessor blacklist at `prev`. The stored
+/// row consensus reads anchors one block earlier, so at the single height per blacklist
+/// flip the two can disagree and credit `target` one spurious `produced` — harmless at
+/// these thresholds (a flip needs 10 fresh misses and `target` never recovers). Returns
+/// the new tip. Shared by the two fork tests below.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
 fn fork_step(
     handle: &EpochManagerHandle,
@@ -2150,7 +2200,8 @@ fn assert_branch_seeds_own_blacklist(
     // at the anchor offset picks the blacklisted producer — only such an anchor proves the
     // seeder rerouted away from a blacklisted canonical pick. With one blacklisted producer
     // of three, the anchors the drive happened to leave need not contain one.
-    for _ in 0..128 {
+    const PLAIN_PICK_CAP: u64 = 128;
+    for attempt in 0..PLAIN_PICK_CAP {
         let blacklist = handle.get_chunk_producer_blacklist(&tip).unwrap();
         let shard_blacklist = blacklist.get(&shard_id).cloned().unwrap_or_default();
         assert_eq!(
@@ -2174,11 +2225,16 @@ fn assert_branch_seeds_own_blacklist(
             );
             return;
         }
-        height += 1;
-        tip = fork_step(handle, epoch_info, layout, shard_id, tip, branch, height, target);
+        // Do not step past the last inspected tip: the panic below reports `tip`, which must
+        // be a tip whose row was actually scanned.
+        if attempt + 1 < PLAIN_PICK_CAP {
+            height += 1;
+            tip = fork_step(handle, epoch_info, layout, shard_id, tip, branch, height, target);
+        }
     }
     panic!(
-        "branch {branch}: no anchor whose plain pick is the blacklisted producer within 128 blocks"
+        "branch {branch}: no anchor whose plain pick is the blacklisted producer within \
+         {PLAIN_PICK_CAP} blocks: tip {tip} at height {height}"
     );
 }
 
