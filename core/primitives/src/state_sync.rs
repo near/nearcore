@@ -25,16 +25,16 @@ pub struct StatePartKey(pub CryptoHash, pub ShardId, pub StatePartIndex);
 #[derive(
     Copy, PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize, ProtocolSchema,
 )]
-pub enum PartIdOrHeader {
+pub enum PartOrHeader {
     Part { part_idx: StatePartIndex },
     Header,
 }
 
-impl Into<&'static str> for PartIdOrHeader {
+impl Into<&'static str> for PartOrHeader {
     fn into(self) -> &'static str {
         match self {
-            PartIdOrHeader::Part { .. } => "part",
-            PartIdOrHeader::Header => "header",
+            PartOrHeader::Part { .. } => "part",
+            PartOrHeader::Header => "header",
         }
     }
 }
@@ -62,8 +62,8 @@ pub struct StateRequestAck {
     pub shard_id: ShardId,
     /// Sync block hash
     pub sync_hash: CryptoHash,
-    /// Requested header or part id
-    pub part_id_or_header: PartIdOrHeader,
+    /// Requested part or header
+    pub part_or_header: PartOrHeader,
     /// Ack contents
     pub body: StateRequestAckBody,
 }

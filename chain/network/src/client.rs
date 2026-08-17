@@ -13,7 +13,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state_part::StatePartIndex;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
+use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId};
@@ -95,12 +95,12 @@ impl StateResponse {
         }
     }
 
-    pub fn part_id_or_header(&self) -> PartIdOrHeader {
+    pub fn part_or_header(&self) -> PartOrHeader {
         match self {
-            Self::Ack(ack) => ack.part_id_or_header,
+            Self::Ack(ack) => ack.part_or_header,
             Self::State(state) => match state.part_idx() {
-                Some(part_idx) => PartIdOrHeader::Part { part_idx },
-                None => PartIdOrHeader::Header,
+                Some(part_idx) => PartOrHeader::Part { part_idx },
+                None => PartOrHeader::Header,
             },
         }
     }

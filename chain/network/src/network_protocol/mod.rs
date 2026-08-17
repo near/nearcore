@@ -968,8 +968,8 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::StateRequestAck(ack) => write!(
                 f,
-                "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
-                ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
+                "StateRequestAck(sync_hash={:?}, shard_id={:?}, part_or_header={:?}, body={:?})",
+                ack.sync_hash, ack.shard_id, ack.part_or_header, ack.body,
             ),
             RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
                 f,

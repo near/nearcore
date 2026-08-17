@@ -42,7 +42,7 @@ use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
@@ -992,7 +992,7 @@ impl PeerManagerActor {
             NetworkRequests::StateRequestAck {
                 shard_id,
                 sync_hash,
-                part_id_or_header,
+                part_or_header,
                 body,
                 peer_id,
             } => {
@@ -1003,7 +1003,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StateRequestAck(StateRequestAck {
                             shard_id,
                             sync_hash,
-                            part_id_or_header,
+                            part_or_header,
                             body,
                         })
                         .into(),
@@ -1019,7 +1019,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
@@ -1602,7 +1602,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Header,
+                                part_or_header: PartOrHeader::Header,
                                 body: ack,
                             }).into(),
                             response
@@ -1634,7 +1634,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Part { part_idx },
+                                part_or_header: PartOrHeader::Part { part_idx },
                                 body: ack,
                             }).into(),
                             response
