@@ -18,7 +18,7 @@ const PART_SIZE_LIMIT: u64 = 512 * MIB;
 /// Index of a state part, in the range `0..num_parts`.
 pub type StatePartIndex = u64;
 
-// to specify a part we always specify both part_id and num_parts together
+/// Identifies a state part.
 #[derive(Copy, Clone, Debug)]
 pub struct StatePartId {
     pub index: StatePartIndex,
