@@ -102,13 +102,13 @@ pub(super) async fn run_state_sync_for_shard(
     while !parts_to_download.is_empty() {
         return_if_cancelled!(cancel);
         let results = tokio_stream::iter(parts_to_download.clone())
-            .map(|part_id| {
+            .map(|part_idx| {
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
                     shard_id,
                     sync_hash,
                     state_root,
                     num_parts,
-                    part_id,
+                    part_idx,
                     cancel.clone(),
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
@@ -150,8 +150,8 @@ pub(super) async fn run_state_sync_for_shard(
     // the progress made so far.
     let flat_storage_manager = runtime.get_flat_storage_manager();
     let flat_storage_exists = flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
-    let apply_parts_started = any(0..num_parts, |part_id| {
-        let key = StatePartKey(sync_hash, shard_id, part_id);
+    let apply_parts_started = any(0..num_parts, |part_idx| {
+        let key = StatePartKey(sync_hash, shard_id, part_idx);
         let key_bytes = borsh::to_vec(&key).unwrap();
         store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
@@ -168,8 +168,8 @@ pub(super) async fn run_state_sync_for_shard(
         flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
         // Also clear StatePartsApplied markers so the parts are re-applied.
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id);
+        for part_idx in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_idx);
             let key_bytes = borsh::to_vec(&key).unwrap();
             store_update.delete(DBCol::StatePartsApplied, &key_bytes);
         }
@@ -179,7 +179,7 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     let mut parts_done: u64 = 0;
     tokio_stream::iter(0..num_parts)
-        .map(|part_id| {
+        .map(|part_idx| {
             let store = store.clone();
             let runtime = runtime.clone();
             let computation_task_tracker = computation_task_tracker.clone();
@@ -191,7 +191,7 @@ pub(super) async fn run_state_sync_for_shard(
                 cancel,
                 sync_hash,
                 shard_id,
-                part_id,
+                part_idx,
                 num_parts,
                 state_root,
                 epoch_id,
@@ -396,14 +396,14 @@ mod tests {
         // Some arbitrary values for use in the test
         let sync_hash = CryptoHash::default();
         let shard_id = ShardLayout::single_shard().get_shard_id(0).unwrap();
-        let part_id = 0;
+        let part_idx = 0;
         let num_parts = 1;
         let state_root = CryptoHash::default();
         let epoch_id = EpochId::default();
 
         // Create and store a state part
         let state_part = create_dummy_state_part();
-        let key = StatePartKey(sync_hash, shard_id, part_id);
+        let key = StatePartKey(sync_hash, shard_id, part_idx);
         let key_bytes = borsh::to_vec(&key).unwrap();
         let part_bytes = state_part.to_bytes();
 
@@ -419,7 +419,7 @@ mod tests {
             cancel.clone(),
             sync_hash,
             shard_id,
-            part_id,
+            part_idx,
             num_parts,
             state_root,
             epoch_id,
@@ -441,7 +441,7 @@ mod tests {
             cancel.clone(),
             sync_hash,
             shard_id,
-            part_id,
+            part_idx,
             num_parts,
             state_root,
             epoch_id,

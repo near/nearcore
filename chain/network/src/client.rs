@@ -66,7 +66,7 @@ pub struct StateRequestHeader {
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: StatePartIndex,
+    pub part_idx: StatePartIndex,
 }
 
 /// Outgoing response to received state request.
@@ -99,7 +99,7 @@ impl StateResponse {
         match self {
             Self::Ack(ack) => ack.part_id_or_header,
             Self::State(state) => match state.part_idx() {
-                Some(part_id) => PartIdOrHeader::Part { part_id },
+                Some(part_idx) => PartIdOrHeader::Part { part_idx },
                 None => PartIdOrHeader::Header,
             },
         }

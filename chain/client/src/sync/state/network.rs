@@ -159,12 +159,12 @@ impl StateSyncDownloadSourcePeer {
             .prev_hash();
 
         let network_request = match &key.part_id_or_header {
-            PartIdOrHeader::Part { part_id } => {
+            PartIdOrHeader::Part { part_idx } => {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
                     sync_prev_prev_hash: prev_prev_hash,
-                    part_id: *part_id,
+                    part_idx: *part_idx,
                 })
             }
             PartIdOrHeader::Header => {
@@ -313,7 +313,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         let key = PendingPeerRequestKey {
             shard_id,
             sync_hash,
-            part_id_or_header: PartIdOrHeader::Part { part_id: part_idx },
+            part_id_or_header: PartIdOrHeader::Part { part_idx },
         };
         let fut = Self::try_download(
             self.clock.clone(),

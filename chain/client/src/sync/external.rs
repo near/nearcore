@@ -12,7 +12,7 @@ use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub enum StateFileType {
-    StatePart { part_id: StatePartIndex, num_parts: u64 },
+    StatePart { part_idx: StatePartIndex, num_parts: u64 },
     StateHeader,
 }
 
@@ -36,8 +36,8 @@ impl StateFileType {
 
     pub fn filename(&self) -> String {
         match self {
-            StateFileType::StatePart { part_id, num_parts } => {
-                format!("state_part_{:06}_of_{:06}", part_id, num_parts)
+            StateFileType::StatePart { part_idx, num_parts } => {
+                format!("state_part_{:06}_of_{:06}", part_idx, num_parts)
             }
             StateFileType::StateHeader => "header".to_string(),
         }
@@ -238,7 +238,7 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
     None
 }
 
-pub fn get_part_id_from_filename(s: &str) -> Option<StatePartIndex> {
+pub fn get_part_idx_from_filename(s: &str) -> Option<StatePartIndex> {
     if let Some(captures) = match_filename(s) {
         if let Some(part_idx) = captures.get(1) {
             if let Ok(part_idx) = part_idx.as_str().parse::<StatePartIndex>() {
@@ -262,7 +262,7 @@ pub async fn list_state_parts(
         epoch_id,
         epoch_height,
         shard_id,
-        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+        &StateFileType::StatePart { part_idx: 0, num_parts: 0 },
     );
     let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     anyhow::ensure!(!part_file_names.is_empty(), "no state parts found in {}", directory_path);
@@ -304,8 +304,8 @@ pub async fn download_and_apply_state_parts_sequentially(
     let timer = Instant::now();
     for part_idx in state_part_indices {
         let timer = Instant::now();
-        assert!(part_idx < num_parts, "part_id: {}, num_parts: {}", part_idx, num_parts);
-        let file_type = StateFileType::StatePart { part_id: part_idx, num_parts };
+        assert!(part_idx < num_parts, "part_idx: {}, num_parts: {}", part_idx, num_parts);
+        let file_type = StateFileType::StatePart { part_idx, num_parts };
         let location =
             external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
         let bytes = external.get_file(shard_id, &location, &file_type).await?;
@@ -335,7 +335,7 @@ pub async fn download_and_apply_state_parts_sequentially(
 mod test {
     use crate::sync::external::{
         ExternalConnection, StateFileType, StateSyncConnection, get_num_parts_from_filename,
-        get_part_id_from_filename, is_part_filename,
+        get_part_idx_from_filename, is_part_filename,
     };
     use near_chain_configs::ExternalStorageLocation;
     use near_o11y::testonly::init_test_logger;
@@ -348,15 +348,15 @@ mod test {
 
     #[test]
     fn test_match_filename() {
-        let filename = StateFileType::StatePart { part_id: 5, num_parts: 15 }.filename();
+        let filename = StateFileType::StatePart { part_idx: 5, num_parts: 15 }.filename();
         assert!(is_part_filename(&filename));
         assert!(!is_part_filename("123123"));
 
         assert_eq!(get_num_parts_from_filename(&filename), Some(15));
         assert_eq!(get_num_parts_from_filename("123123"), None);
 
-        assert_eq!(get_part_id_from_filename(&filename), Some(5));
-        assert_eq!(get_part_id_from_filename("123123"), None);
+        assert_eq!(get_part_idx_from_filename(&filename), Some(5));
+        assert_eq!(get_part_idx_from_filename("123123"), None);
     }
 
     /// This test should be ignored by default, as it requires gcloud credentials to run.
@@ -385,7 +385,7 @@ mod test {
         // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
-        let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
+        let file_type = StateFileType::StatePart { part_idx: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
         let files =

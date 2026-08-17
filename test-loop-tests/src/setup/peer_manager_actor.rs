@@ -914,7 +914,7 @@ fn network_message_to_state_sync_handler(
 
             HandlerResult::Handled(NetworkResponses::SelectedDestination(target_peer_id))
         }
-        NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, .. } => {
+        NetworkRequests::StateRequestPart { shard_id, sync_hash, part_idx, .. } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             let Some(target_peer_id) = shared_state.select_snapshot_host(&my_account_id, shard_id)
             else {
@@ -927,7 +927,7 @@ fn network_message_to_state_sync_handler(
             let request_future = senders
                 .state_request_sender
                 .state_request_part
-                .send_async(StateRequestPart { shard_id, sync_hash, part_id });
+                .send_async(StateRequestPart { shard_id, sync_hash, part_idx });
 
             future_spawner.spawn("handle StateRequestPart", async move {
                 let Ok(Some(state_part_or_header)) = request_future.await else {

@@ -948,8 +948,8 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::StatePartRequest(request) => write!(
                 f,
-                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
-                request.sync_hash, request.shard_id, request.part_id,
+                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_idx={:?})",
+                request.sync_hash, request.shard_id, request.part_idx,
             ),
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())

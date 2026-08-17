@@ -253,7 +253,7 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
-        part_id: StatePartIndex,
+        part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
     StateRequestAck {
@@ -595,7 +595,7 @@ pub enum Tier3RequestBody {
 pub struct StatePartRequestBody {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: StatePartIndex,
+    pub part_idx: StatePartIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

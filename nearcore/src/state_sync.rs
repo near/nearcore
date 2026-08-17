@@ -10,7 +10,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_client::sync::external::{StateFileType, external_storage_location};
 use near_client::sync::external::{
-    StateSyncConnection, external_storage_location_directory, get_part_id_from_filename,
+    StateSyncConnection, external_storage_location_directory, get_part_idx_from_filename,
     is_part_filename,
 };
 use near_epoch_manager::EpochManagerAdapter;
@@ -128,12 +128,12 @@ impl StateSyncDumpHandle {
     }
 }
 
-pub fn extract_part_id_from_part_file_name(file_name: &String) -> StatePartIndex {
+pub fn extract_part_idx_from_part_file_name(file_name: &String) -> StatePartIndex {
     assert!(is_part_filename(file_name));
-    return get_part_id_from_filename(file_name).unwrap();
+    return get_part_idx_from_filename(file_name).unwrap();
 }
 
-async fn get_missing_part_ids_for_epoch(
+async fn get_missing_part_indices_for_epoch(
     shard_id: ShardId,
     chain_id: &str,
     epoch_id: &EpochId,
@@ -149,13 +149,13 @@ async fn get_missing_part_ids_for_epoch(
         epoch_id,
         epoch_height,
         shard_id,
-        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+        &StateFileType::StatePart { part_idx: 0, num_parts: 0 },
     );
     let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
             .iter()
-            .map(|file_name| extract_part_id_from_part_file_name(file_name))
+            .map(|file_name| extract_part_idx_from_part_file_name(file_name))
             .collect();
         let missing_nums: HashSet<_> =
             (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
@@ -203,7 +203,7 @@ impl DumpState {
     /// to contain the parts that haven't yet been uploaded, so that we only try to generate those.
     async fn set_missing_parts(&self, external: &StateSyncConnection, chain_id: &str) {
         for (shard_id, s) in &self.dump_state {
-            match get_missing_part_ids_for_epoch(
+            match get_missing_part_indices_for_epoch(
                 *shard_id,
                 chain_id,
                 &self.epoch_id,
@@ -379,7 +379,7 @@ impl PartUploader {
             }
         };
 
-        let file_type = StateFileType::StatePart { part_id: part_idx, num_parts: self.num_parts };
+        let file_type = StateFileType::StatePart { part_idx, num_parts: self.num_parts };
         let location = external_storage_location(
             &self.chain_id,
             &self.epoch_id,
@@ -429,9 +429,9 @@ impl PartUploader {
         parts.shuffle(&mut thread_rng());
 
         let mut tasks = tokio_stream::iter(parts)
-            .map(|part_id| {
+            .map(|part_idx| {
                 let me = self.clone();
-                let task = me.upload_state_part(part_id);
+                let task = me.upload_state_part(part_idx);
                 respawn_for_parallelism(&*future_spawner, "upload part", task)
             })
             .buffer_unordered(5);

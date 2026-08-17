@@ -147,8 +147,8 @@ pub struct StatePartRequest {
     pub shard_id: ShardId,
     /// Sync block hash
     pub sync_hash: CryptoHash,
-    /// Requested part id
-    pub part_id: StatePartIndex,
+    /// Requested part idx
+    pub part_idx: StatePartIndex,
     /// Public address of the node making the request
     pub addr: std::net::SocketAddr,
 }

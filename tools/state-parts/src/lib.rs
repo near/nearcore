@@ -36,14 +36,14 @@ fn handle_message(
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
-            let part_id = state_response.part_idx();
+            let part_idx = state_response.part_idx();
             let now = Instant::now();
-            let duration = if let Some(part_id) = part_id {
-                let duration = app_info.requests_sent.get(&part_id).map(|sent| {
+            let duration = if let Some(part_idx) = part_idx {
+                let duration = app_info.requests_sent.get(&part_idx).map(|sent| {
                     (now.signed_duration_since(*sent) - now.signed_duration_since(received_at))
                         .as_seconds_f64()
                 });
-                app_info.requests_sent.remove(&part_id);
+                app_info.requests_sent.remove(&part_idx);
                 duration
             } else {
                 None
@@ -62,7 +62,7 @@ fn handle_message(
             tracing::info!(
                 %shard_id,
                 ?sync_hash,
-                ?part_id,
+                ?part_idx,
                 ?duration,
                 ?part_hash,
                 "received versioned state response",
@@ -85,10 +85,10 @@ async fn state_parts_from_node(
     ttl: u8,
     request_frequency_millis: u64,
     recv_timeout_seconds: u32,
-    start_part_id: StatePartIndex,
+    start_part_idx: StatePartIndex,
     num_parts: u64,
 ) -> anyhow::Result<()> {
-    assert!(start_part_id < num_parts && num_parts > 0, "{}/{}", start_part_id, num_parts);
+    assert!(start_part_idx < num_parts && num_parts > 0, "{}/{}", start_part_idx, num_parts);
     let mut app_info = AppInfo::new();
 
     let clock = near_time::Clock::real();
@@ -136,21 +136,21 @@ async fn state_parts_from_node(
     tokio::pin!(next_request);
 
     let mut result = Ok(());
-    let mut part_id = start_part_id;
+    let mut part_idx = start_part_idx;
     loop {
         tokio::select! {
             _ = &mut next_request => {
                 let target = &peer_id;
-                let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
-                tracing::info!(target: "state-parts", ?target, %shard_id, ?block_hash, part_id, ttl, "sending a request");
+                let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_idx);
+                tracing::info!(target: "state-parts", ?target, %shard_id, ?block_hash, part_idx, ttl, "sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
-                app_info.requests_sent.insert(part_id, near_time::Instant::now());
+                app_info.requests_sent.insert(part_idx, near_time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);
                 if result.is_err() {
                     break;
                 }
                 next_request.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(request_frequency_millis));
-                part_id = (part_id + 1) % num_parts;
+                part_idx = (part_idx + 1) % num_parts;
             }
             res = peer.recv() => {
                 let (msg, first_byte_time) = match res {

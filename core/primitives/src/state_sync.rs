@@ -26,7 +26,7 @@ pub struct StatePartKey(pub CryptoHash, pub ShardId, pub StatePartIndex);
     Copy, PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize, ProtocolSchema,
 )]
 pub enum PartIdOrHeader {
-    Part { part_id: StatePartIndex },
+    Part { part_idx: StatePartIndex },
     Header,
 }
 

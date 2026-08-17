@@ -501,7 +501,7 @@ impl NightshadeRuntime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_id.index,
+            part_idx = part_id.index,
             %shard_id,
             %prev_hash,
             num_parts = part_id.total)
@@ -1486,7 +1486,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_id.index,
+            part_idx = part_id.index,
             %shard_id,
             %prev_hash,
             ?state_root,

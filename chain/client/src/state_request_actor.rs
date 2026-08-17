@@ -259,11 +259,11 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
 
 impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor {
     fn handle(&mut self, msg: StateRequestPart) -> Option<StatePartOrHeader> {
-        let StateRequestPart { shard_id, sync_hash, part_id } = msg;
+        let StateRequestPart { shard_id, sync_hash, part_idx } = msg;
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
         let _span =
-            tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_id)
+            tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_idx)
                 .entered();
 
         tracing::debug!(target: "sync", "handle state request part");
@@ -279,7 +279,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         }
 
         tracing::debug!(target: "sync", "computing state request part");
-        let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
+        let part = self.state_sync_adapter.get_state_response_part(shard_id, part_idx, sync_hash);
         let Ok(part) = part else {
             tracing::warn!(target: "sync", ?part, "cannot build state part");
             metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
@@ -288,7 +288,7 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         tracing::trace!(target: "sync", "finished computation for state request part");
 
         metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
-        let response = new_part_response(shard_id, sync_hash, part_id, Some(part));
+        let response = new_part_response(shard_id, sync_hash, part_idx, Some(part));
         Some(response)
     }
 }

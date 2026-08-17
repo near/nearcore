@@ -126,7 +126,7 @@ impl Trie {
             target: "state-parts",
             "get_state_part_boundaries",
             %shard_id,
-            part_id = part_id.index,
+            part_idx = part_id.index,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
@@ -157,7 +157,7 @@ impl Trie {
 
     /// Creates state part using only the flat storage (i.e. FlatState).
     ///
-    /// * part_id - number of the state part, mainly for metrics.
+    /// * part_id - id of the state part, mainly for metrics.
     /// * state_trie - provides access to State for random lookups of values by hash.
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
@@ -173,7 +173,7 @@ impl Trie {
             target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
             %shard_id,
-            part_id = part_id.index,
+            part_idx = part_id.index,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::GET_STATE_PART_NODES_WITH_FS_ELAPSED
@@ -545,8 +545,9 @@ mod tests {
 
         // Check that all boundaries correspond to some state key by calling `Trie::get`.
         // Note that some state parts can be trivial, which is not a concern.
-        for part_id in 1..num_parts {
-            let key_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap().unwrap();
+        for boundary_idx in 1..num_parts {
+            let key_boundary =
+                trie.find_state_part_boundary(boundary_idx, num_parts).unwrap().unwrap();
             assert_matches!(trie.get(&key_boundary, AccessOptions::DEFAULT), Ok(Some(_)));
         }
 
@@ -582,10 +583,12 @@ mod tests {
         );
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
-        for part_id in 1..num_parts {
-            let key_boundary =
-                trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap().unwrap();
-            assert_eq!(key_boundary, trie_changes[part_id - 1].0);
+        for boundary_idx in 1..num_parts {
+            let key_boundary = trie
+                .find_state_part_boundary(boundary_idx as u64, num_parts as u64)
+                .unwrap()
+                .unwrap();
+            assert_eq!(key_boundary, trie_changes[boundary_idx - 1].0);
         }
     }
 
@@ -813,13 +816,13 @@ mod tests {
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
             let part_size_limit = (memory_size + num_parts - 1) / num_parts;
 
-            for part_id in 0..num_parts {
+            for part_idx in 0..num_parts {
                 // Compute proof with size and check that it doesn't exceed theoretical boundary for
                 // the path with full set of left siblings of maximal possible size.
                 let trie_recording = trie.recording_reads_new_recorder();
                 let left_key_boundary =
-                    trie_recording.find_state_part_boundary(part_id, num_parts).unwrap().unwrap();
-                if part_id != 0 {
+                    trie_recording.find_state_part_boundary(part_idx, num_parts).unwrap().unwrap();
+                if part_idx != 0 {
                     assert_matches!(
                         trie.get(&left_key_boundary, AccessOptions::DEFAULT),
                         Ok(Some(_))
@@ -831,7 +834,7 @@ mod tests {
                 assert!(
                     proof_size <= max_proof_overhead,
                     "For part {}/{} left boundary proof size {} exceeds limit {}",
-                    part_id,
+                    part_idx,
                     num_parts,
                     proof_size,
                     max_proof_overhead
@@ -839,7 +842,7 @@ mod tests {
 
                 let PartialState::TrieValues(part_nodes) = trie
                     .get_trie_nodes_for_part_without_flat_storage(StatePartId::new(
-                        part_id, num_parts,
+                        part_idx, num_parts,
                     ))
                     .unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
@@ -848,7 +851,7 @@ mod tests {
                 assert!(
                     total_size <= part_size_limit + proof_size + max_part_overhead,
                     "Part {}/{} is too big. Size: {}, size limit: {}",
-                    part_id,
+                    part_idx,
                     num_parts,
                     total_size,
                     part_size_limit + proof_size + max_part_overhead,
@@ -888,9 +891,9 @@ mod tests {
                 // Test that combining all parts gets all nodes
                 let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
-                    .map(|part_id| {
+                    .map(|part_idx| {
                         trie.get_trie_nodes_for_part_without_flat_storage(StatePartId::new(
-                            part_id, num_parts,
+                            part_idx, num_parts,
                         ))
                         .unwrap()
                     })
@@ -971,11 +974,11 @@ mod tests {
 
         let trie_changes_new = {
             let changes = (0..num_parts)
-                .map(|part_id| {
+                .map(|part_idx| {
                     Trie::apply_state_part(
                         state_root,
-                        StatePartId::new(part_id, num_parts),
-                        parts[part_id as usize].clone(),
+                        StatePartId::new(part_idx, num_parts),
+                        parts[part_idx as usize].clone(),
                     )
                     .trie_changes
                 })
@@ -1086,16 +1089,16 @@ mod tests {
             for _ in 0..10 {
                 // Test that creating and validating are consistent
                 let num_parts: u64 = rng.gen_range(1..10);
-                let part_id = rng.gen_range(0..num_parts);
+                let part_idx = rng.gen_range(0..num_parts);
                 let trie_nodes = trie
                     .get_trie_nodes_for_part_without_flat_storage(StatePartId::new(
-                        part_id, num_parts,
+                        part_idx, num_parts,
                     ))
                     .unwrap();
                 assert_eq!(
                     Trie::validate_state_part(
                         trie.get_root(),
-                        StatePartId::new(part_id, num_parts),
+                        StatePartId::new(part_idx, num_parts),
                         trie_nodes,
                     ),
                     Ok(())
