@@ -176,7 +176,7 @@ impl StateSyncDownloader {
                     runtime_adapter.validate_state_part(
                         shard_id,
                         &state_root,
-                        StatePartRef { state_part_index, total: num_state_parts },
+                        StatePartRef { index: state_part_index, total: num_state_parts },
                         &part,
                     ),
                     StatePartValidationResult::Valid

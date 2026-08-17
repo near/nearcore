@@ -335,7 +335,7 @@ async fn apply_state_part(
     runtime.apply_state_part(
         shard_id,
         &state_root,
-        StatePartRef { state_part_index, total: num_parts },
+        StatePartRef { index: state_part_index, total: num_parts },
         &state_part,
         &epoch_id,
     )?;

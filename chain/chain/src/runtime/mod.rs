@@ -501,7 +501,7 @@ impl NightshadeRuntime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_ref.state_part_index,
+            part_id = part_ref.index,
             %shard_id,
             %prev_hash,
             num_parts = part_ref.total)
@@ -525,11 +525,11 @@ impl NightshadeRuntime {
             Ok(partial_state) => partial_state,
             // Expected while a snapshot is being created; the caller retries.
             Err(err @ SnapshotError::LockWouldBlock) => {
-                tracing::debug!(target: "runtime", %shard_id, part_ref.state_part_index, part_ref.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
+                tracing::debug!(target: "runtime", %shard_id, part_ref.index, part_ref.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
                 return Err(StorageError::from(err).into());
             }
             Err(err) => {
-                tracing::error!(target: "runtime", ?err, part_ref.state_part_index, part_ref.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
+                tracing::error!(target: "runtime", ?err, part_ref.index, part_ref.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
                 return Err(StorageError::from(err).into());
             }
         };
@@ -1486,7 +1486,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_ref.state_part_index,
+            part_id = part_ref.index,
             %shard_id,
             %prev_hash,
             ?state_root,

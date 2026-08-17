@@ -21,14 +21,14 @@ pub type StatePartIndex = u64;
 // to specify a part we always specify both part_id and num_parts together
 #[derive(Copy, Clone, Debug)]
 pub struct StatePartRef {
-    pub state_part_index: StatePartIndex,
+    pub index: StatePartIndex,
     pub total: u64,
 }
 
 impl StatePartRef {
     pub fn new(state_part_index: StatePartIndex, num_parts: u64) -> StatePartRef {
         assert!(state_part_index < num_parts);
-        StatePartRef { state_part_index, total: num_parts }
+        StatePartRef { index: state_part_index, total: num_parts }
     }
 }
 

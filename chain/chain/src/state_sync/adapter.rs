@@ -557,8 +557,7 @@ impl ChainStateSyncAdapter {
         }
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
-        let key =
-            borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_ref.state_part_index)).unwrap();
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_ref.index)).unwrap();
         let bytes = part.to_bytes();
         store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit();
