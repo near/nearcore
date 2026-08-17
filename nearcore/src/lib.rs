@@ -413,14 +413,17 @@ pub async fn start_with_config_and_synchronization_impl(
     );
 
     let epoch_id = EpochId::default();
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
+    // Take the layout from the genesis EpochInfo the EpochManager just wrote rather than
+    // re-deriving it, so genesis state can never be built under a different layout than the
+    // one the epoch manager recorded.
+    let genesis_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_sharded_genesis_state(
         storage.get_hot_store(),
         &config.genesis,
-        &genesis_epoch_config,
+        &genesis_shard_layout,
         Some(home_dir),
     );
 

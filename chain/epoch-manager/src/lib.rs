@@ -557,6 +557,7 @@ impl EpochManager {
             epoch_length,
             epoch_config_store,
             genesis_config.protocol_version,
+            genesis_config.shard_layout.clone(),
         );
         Arc::new(
             Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
