@@ -381,7 +381,11 @@ fn blacklist_dedups_duplicate_settlement_entries() {
 // from candidacy, but not this all-bad-shard interaction.
 #[test]
 fn blacklist_valve_ignores_endorsement_only_entry() {
-    let (epoch_info, layout, shard_id) = single_shard_epoch(2);
+    // Three real epoch validators, but only 0 and 1 settled as producers: id 2 is a genuine
+    // validator that is endorsement-only on this shard, not an unknown tracker entry.
+    let layout = ShardLayout::single_shard();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = epoch_info_for_layout(&layout, vec![vec![0, 1]], 3);
     let mut inner = HashMap::new();
     inner.insert(0, ChunkStats::new_with_production(0, 100));
     inner.insert(1, ChunkStats::new_with_production(0, 100));
@@ -395,9 +399,11 @@ fn blacklist_valve_ignores_endorsement_only_entry() {
     // Deterministic: the two all-bad candidates tie on every level down to lower-id, which
     // keeps 0 — strictly stronger than only asserting the endorsement-only id is not kept.
     assert_eq!(stats.kept, Some(0), "equal all-bad candidates must resolve to the lower id");
-    let bl = &res.blacklist[&shard_id];
-    assert_eq!(bl.len(), 1, "keep-one must leave exactly one survivor");
-    assert!(!bl.contains(&2), "endorsement-only id must never be blacklisted");
+    assert_eq!(
+        res.blacklist[&shard_id],
+        HashSet::from([1]),
+        "exactly the non-kept all-bad producer is blacklisted; endorsement-only id stays out",
+    );
 }
 
 // u128 keeps both the ratio comparison and the safety-valve cross-multiply overflow-proof.
