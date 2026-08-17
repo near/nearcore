@@ -32,7 +32,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_part::{StatePart, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -496,17 +496,17 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_ref.index,
+            part_id = part_id.index,
             %shard_id,
             %prev_hash,
-            num_parts = part_ref.total)
+            num_parts = part_id.total)
         .entered();
-        tracing::debug!(target: "state-parts", %shard_id, ?prev_hash, ?state_root, ?part_ref, "obtain_state_part");
+        tracing::debug!(target: "state-parts", %shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
@@ -518,18 +518,18 @@ impl NightshadeRuntime {
             shard_uid,
             state_root,
             &prev_hash,
-            part_ref,
+            part_id,
             trie_with_state,
         );
         let partial_state = match trie_nodes {
             Ok(partial_state) => partial_state,
             // Expected while a snapshot is being created; the caller retries.
             Err(err @ SnapshotError::LockWouldBlock) => {
-                tracing::debug!(target: "runtime", %shard_id, part_ref.index, part_ref.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
+                tracing::debug!(target: "runtime", %shard_id, part_id.index, part_id.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
                 return Err(StorageError::from(err).into());
             }
             Err(err) => {
-                tracing::error!(target: "runtime", ?err, part_ref.index, part_ref.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
+                tracing::error!(target: "runtime", ?err, part_id.index, part_id.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
                 return Err(StorageError::from(err).into());
             }
         };
@@ -541,7 +541,7 @@ impl NightshadeRuntime {
     fn validate_state_part_impl(
         &self,
         state_root: &StateRoot,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> StatePartValidationResult {
         let partial_state = part.to_partial_state();
@@ -550,7 +550,7 @@ impl NightshadeRuntime {
             tracing::error!(target: "state-parts", ?partial_state, "state part deserialization error");
             return StatePartValidationResult::Invalid;
         };
-        match Trie::validate_state_part(state_root, part_ref, partial_state) {
+        match Trie::validate_state_part(state_root, part_id, partial_state) {
             Ok(_) => StatePartValidationResult::Valid,
             // Storage error should not happen
             Err(err) => {
@@ -1481,19 +1481,19 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_ref.index,
+            part_id = part_id.index,
             %shard_id,
             %prev_hash,
             ?state_root,
-            num_parts = part_ref.total)
+            num_parts = part_id.total)
         .entered();
         let instant = Instant::now();
-        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_ref);
+        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
         let elapsed = instant.elapsed();
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
@@ -1506,11 +1506,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> StatePartValidationResult {
         let instant = Instant::now();
-        let res = self.validate_state_part_impl(state_root, part_ref, part);
+        let res = self.validate_state_part_impl(state_root, part_id, part);
         let elapsed = instant.elapsed();
         let is_ok = match res {
             StatePartValidationResult::Valid => "ok",
@@ -1526,7 +1526,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
         part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
@@ -1538,7 +1538,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .to_partial_state()
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
-            Trie::apply_state_part(state_root, part_ref, part);
+            Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();

@@ -3,7 +3,7 @@ use near_chain::Chain;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{StatePart, StatePartIndex, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
 use near_store::archive::cloud_storage::CloudStorage;
 use std::ops::Range;
@@ -315,13 +315,13 @@ pub async fn download_and_apply_state_parts_sequentially(
         chain.state_sync_adapter.set_state_part(
             shard_id,
             sync_hash,
-            StatePartRef::new(part_idx, num_parts),
+            StatePartId::new(part_idx, num_parts),
             &part,
         )?;
         chain.runtime_adapter.apply_state_part(
             shard_id,
             &state_root,
-            StatePartRef::new(part_idx, num_parts),
+            StatePartId::new(part_idx, num_parts),
             &part,
             epoch_id,
         )?;

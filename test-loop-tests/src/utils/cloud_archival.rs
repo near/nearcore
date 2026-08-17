@@ -17,7 +17,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::{StatePart, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
@@ -650,7 +650,7 @@ async fn download_and_apply_state_snapshot(
         let partial_state = StatePart::from_bytes(bytes).unwrap().to_partial_state().unwrap();
         let apply_result = Trie::apply_state_part(
             &state_root,
-            StatePartRef::new(part_id, num_parts),
+            StatePartId::new(part_id, num_parts),
             partial_state,
         );
         let mut store_update = tries.store_update();

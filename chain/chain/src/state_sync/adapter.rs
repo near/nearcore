@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::{StatePart, StatePartIndex, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -331,7 +331,7 @@ impl ChainStateSyncAdapter {
                 shard_id,
                 &prev_prev_hash,
                 &state_root,
-                StatePartRef::new(part_idx, num_parts),
+                StatePartId::new(part_idx, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
 
@@ -535,14 +535,14 @@ impl ChainStateSyncAdapter {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_ref: StatePartRef,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
         if matches!(
-            self.runtime_adapter.validate_state_part(shard_id, &state_root, part_ref, part),
+            self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
             StatePartValidationResult::Invalid
         ) {
             byzantine_assert!(false);
@@ -553,7 +553,7 @@ impl ChainStateSyncAdapter {
         }
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_ref.index)).unwrap();
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.index)).unwrap();
         let bytes = part.to_bytes();
         store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit();

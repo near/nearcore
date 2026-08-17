@@ -14,7 +14,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_part::{StatePart, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
@@ -330,9 +330,9 @@ fn run_state_sync_with_dumped_parts(
         ));
         let bytes = std::fs::read(&path).expect("Part file not found. It should exist");
         let part = StatePart::from_bytes(bytes).unwrap();
-        let part_ref = StatePartRef::new(part_id, num_parts);
+        let part_id = StatePartId::new(part_id, num_parts);
         runtime_client_1
-            .apply_state_part(shard_id, &state_root, part_ref, &part, &epoch_id)
+            .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)
             .unwrap();
     }
     env.clients[1].chain.set_state_finalize(shard_id, sync_hash).unwrap();

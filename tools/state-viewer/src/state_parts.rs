@@ -11,7 +11,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::{StatePart, StatePartIndex, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
@@ -395,7 +395,7 @@ async fn load_state_parts(
                             chain.runtime_adapter.validate_state_part(
                                 shard_id,
                                 &state_root,
-                                StatePartRef::new(part_id, num_parts),
+                                StatePartId::new(part_id, num_parts),
                                 &part
                             ),
                             near_chain::types::StatePartValidationResult::Valid
@@ -406,7 +406,7 @@ async fn load_state_parts(
                         let trie_nodes = part.to_partial_state().unwrap();
                         print_state_part(
                             &state_root,
-                            StatePartRef::new(part_id, num_parts),
+                            StatePartId::new(part_id, num_parts),
                             trie_nodes,
                         )
                     }
@@ -418,7 +418,7 @@ async fn load_state_parts(
     }
 }
 
-fn print_state_part(state_root: &StateRoot, _part_id: StatePartRef, trie_nodes: PartialState) {
+fn print_state_part(state_root: &StateRoot, _part_id: StatePartId, trie_nodes: PartialState) {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
     trie.print_recursive(
@@ -502,7 +502,7 @@ async fn dump_state_parts(
                 shard_id,
                 sync_prev_prev_hash,
                 &state_root,
-                StatePartRef::new(part_idx, num_parts),
+                StatePartId::new(part_idx, num_parts),
             )
             .unwrap();
 

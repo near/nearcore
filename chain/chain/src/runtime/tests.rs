@@ -864,7 +864,7 @@ fn test_state_sync() {
 
     let state_part = env
         .runtime
-        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], StatePartRef::new(0, 1))
+        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], StatePartId::new(0, 1))
         .unwrap();
     let root_node =
         env.runtime.get_state_root_node(shard_id, &block_hash, &env.state_roots[0]).unwrap();
@@ -932,7 +932,7 @@ fn test_state_sync() {
         new_env.runtime.validate_state_part(
             ShardId::new(0),
             &Trie::EMPTY_ROOT,
-            StatePartRef::new(0, 1),
+            StatePartId::new(0, 1),
             &state_part
         ),
         StatePartValidationResult::Invalid
@@ -940,7 +940,7 @@ fn test_state_sync() {
     new_env.runtime.validate_state_part(
         ShardId::new(0),
         &env.state_roots[0],
-        StatePartRef::new(0, 1),
+        StatePartId::new(0, 1),
         &state_part,
     );
     let epoch_id = &new_env.head.epoch_id;
@@ -949,7 +949,7 @@ fn test_state_sync() {
         .apply_state_part(
             shard_id,
             &env.state_roots[0],
-            StatePartRef::new(0, 1),
+            StatePartId::new(0, 1),
             &state_part,
             epoch_id,
         )

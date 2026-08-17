@@ -40,7 +40,7 @@ use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
-use near_primitives::state_part::{StatePart, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -1216,12 +1216,12 @@ fn slow_test_process_block_after_state_sync() {
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartRef::new(0, 1))
+        .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
         .unwrap();
     let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(shard_id, &state_root, StatePartRef::new(0, 1), &state_part, &epoch_id)
+        .apply_state_part(shard_id, &state_root, StatePartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
     env.clients[0].process_block_test(block.into(), Provenance::PRODUCED).unwrap();
@@ -1997,7 +1997,7 @@ fn slow_test_catchup_gas_price_change() {
             .set_state_part(
                 shard_id,
                 sync_hash,
-                StatePartRef::new(i, num_parts),
+                StatePartId::new(i, num_parts),
                 &state_sync_parts[i as usize],
             )
             .unwrap();
@@ -2025,7 +2025,7 @@ fn slow_test_catchup_gas_price_change() {
                 .apply_state_part(
                     shard_id,
                     &state_sync_header.chunk_prev_state_root(),
-                    StatePartRef::new(part_id, num_parts),
+                    StatePartId::new(part_id, num_parts),
                     &part,
                     blocks[5].header().epoch_id(),
                 )
@@ -3457,17 +3457,11 @@ mod contract_precompilation_tests {
         let sync_prev_prev_hash = sync_prev_header.prev_hash();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartRef::new(0, 1))
+            .obtain_state_part(shard_id, &sync_prev_prev_hash, &state_root, StatePartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(
-                shard_id,
-                &state_root,
-                StatePartRef::new(0, 1),
-                &state_part,
-                &epoch_id,
-            )
+            .apply_state_part(shard_id, &state_root, StatePartId::new(0, 1), &state_part, &epoch_id)
             .unwrap();
     }
 

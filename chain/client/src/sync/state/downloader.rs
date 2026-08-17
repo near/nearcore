@@ -9,7 +9,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{StatePartIndex, StatePartRef};
+use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
@@ -175,7 +175,7 @@ impl StateSyncDownloader {
                     runtime_adapter.validate_state_part(
                         shard_id,
                         &state_root,
-                        StatePartRef { index: part_idx, total: num_state_parts },
+                        StatePartId { index: part_idx, total: num_state_parts },
                         &part,
                     ),
                     StatePartValidationResult::Valid

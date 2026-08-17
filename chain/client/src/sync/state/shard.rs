@@ -14,7 +14,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::{StatePart, StatePartIndex, StatePartRef};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -334,7 +334,7 @@ async fn apply_state_part(
     runtime.apply_state_part(
         shard_id,
         &state_root,
-        StatePartRef { index: part_idx, total: num_parts },
+        StatePartId { index: part_idx, total: num_parts },
         &state_part,
         &epoch_id,
     )?;
