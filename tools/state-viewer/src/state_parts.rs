@@ -572,9 +572,9 @@ fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Cha
 }
 
 fn get_part_ids(
-    state_part_index_froom: Option<StatePartIndex>,
+    state_part_index_from: Option<StatePartIndex>,
     state_part_index_to: Option<StatePartIndex>,
     num_parts: u64,
 ) -> Range<StatePartIndex> {
-    state_part_index_froom.unwrap_or(0)..state_part_index_to.unwrap_or(num_parts)
+    state_part_index_from.unwrap_or(0)..state_part_index_to.unwrap_or(num_parts)
 }
