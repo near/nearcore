@@ -1765,7 +1765,8 @@ fn drive_until(
 // v152+ protocol: two sibling forks off a shared prefix starve different producers, and the
 // accessor (keyed on the anchor hash) resolves each fork to its own blacklist. Asserts the
 // aggregator exit directly via `aggregate_epoch_info_upto`'s `full_info` flag rather than
-// inferring it from blacklist equality.
+// inferring it from blacklist equality. Also pins the strict `>` watermark gate at a
+// final-height tie and the persisted rows under the inherited {0, 1} blacklist.
 //
 // Lowered test-only thresholds (10 misses past a 20-block grace) keep it cheap. The prior
 // fixture forked an equal-depth sibling at height 1; that ancient fork point pinned the cached
@@ -1791,13 +1792,17 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    // Premise for the {0,1} blacklist below: three distinct producers, so blacklisting two
-    // leaves a survivor and the keep-one valve stays quiet.
+    // Premise: producers are exactly {0, 1, 2}. The sibling blacklists 0 (inherited from the
+    // prefix) and 1 (branch-local), so 2 is the unique remaining eligible producer and the
+    // keep-one valve stays quiet.
     let shard_index = layout.get_shard_index(shard_id).unwrap();
     assert_eq!(
-        epoch_info.chunk_producers_settlement()[shard_index].iter().collect::<HashSet<_>>().len(),
-        3,
-        "fork test needs a shard with exactly three distinct chunk producers",
+        epoch_info.chunk_producers_settlement()[shard_index]
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>(),
+        HashSet::from([0, 1, 2]),
+        "fork test needs chunk producers exactly {{0, 1, 2}}",
     );
 
     let genesis = fork_block_hash(0, 0);
@@ -1860,7 +1865,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
 
     // Phase 4: extend the canonical branch until its anchor's last-final block is
-    // canonical-only (past the shared prefix), then snapshot the canonical finality watermark.
+    // canonical-only (past the shared prefix), then snapshot the finality watermark and the
+    // cache position (the canonical anchor's last-final block).
     let (canonical_tip, _) = drive_until(
         &handle,
         epoch_info.as_ref(),
@@ -1874,20 +1880,64 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "canonical last-final becomes canonical-only",
         |h, tip| h.read().get_block_info(&tip).unwrap().last_finalized_height() > fork_point_height,
     );
-    let canonical_watermark = handle.read().largest_final_height;
+    let (canonical_watermark, canonical_cache) = {
+        let read = handle.read();
+        let canonical_final = *read.get_block_info(&canonical_tip).unwrap().last_final_block_hash();
+        let cache = read.epoch_info_aggregator.last_block_hash;
+        assert_eq!(
+            cache, canonical_final,
+            "the cache must sit on the canonical anchor's last-final block",
+        );
+        (read.largest_final_height, cache)
+    };
 
-    // Phase 5: extend the sibling, starving producer 1, until it overtakes the canonical
-    // watermark, the aggregator cache has moved onto the sibling (its `last_block_hash` is the
-    // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
-    // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
-    // genuinely overtakes; passing it replaces the cache with a fresh walk onto the sibling.
-    let (sibling_tip, _) = drive_until(
+    // Phase 5: drive the sibling to exact final-height equality with the canonical watermark.
+    // The cache-replacement gate on `largest_final_height` is a strict `>`: at a tie the
+    // sibling must not move the watermark or the cached aggregator (a `>=` would flap the
+    // cache by arrival order). Rows are still seeded for these blocks; only the cache state
+    // must stay put.
+    let (sibling_tie, tie_height) = drive_until(
         &handle,
         epoch_info.as_ref(),
         &layout,
         shard_id,
         sibling_first,
         first_height,
+        2,
+        1,
+        256,
+        "sibling final height ties the canonical watermark",
+        |h, tip| {
+            h.read().get_block_info(&tip).unwrap().last_finalized_height() == canonical_watermark
+        },
+    );
+    let (tie_final_hash, watermark_at_tie, cache_at_tie) = {
+        let read = handle.read();
+        (
+            *read.get_block_info(&sibling_tie).unwrap().last_final_block_hash(),
+            read.largest_final_height,
+            read.epoch_info_aggregator.last_block_hash,
+        )
+    };
+    assert_ne!(
+        tie_final_hash, canonical_cache,
+        "the tie must be a genuinely different sibling final block",
+    );
+    assert_eq!(watermark_at_tie, canonical_watermark, "a tie must not move the watermark");
+    assert_eq!(cache_at_tie, canonical_cache, "a tie must not replace the cached aggregator");
+
+    // Phase 6: extend the sibling, starving producer 1, until it overtakes the canonical
+    // watermark, the aggregator cache has moved onto the sibling (its `last_block_hash` is the
+    // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
+    // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
+    // genuinely overtakes; passing it replaces the cache with a fresh walk onto the sibling.
+    let (sibling_tip, sibling_height) = drive_until(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        sibling_tie,
+        tie_height,
         2,
         1,
         256,
@@ -1911,7 +1961,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     assert_ne!(canonical_tip, sibling_tip, "forks must have distinct anchor hashes");
 
-    // Phase 6: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
+    // Phase 7: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
     // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
     // cache sits on the sibling, so the walk cannot reach the cached sync point and instead
     // walks the canonical chain from the epoch start.
@@ -1933,7 +1983,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         "after the sibling takeover the canonical basis must walk from the epoch start",
     );
 
-    // Phase 7: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
+    // Phase 8: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
     // one survivor left).
     let sibling_bl = handle.get_chunk_producer_blacklist(&sibling_tip).unwrap();
     assert_eq!(
@@ -1941,6 +1991,121 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         HashMap::from([(shard_id, HashSet::from([0, 1]))]),
         "sibling must resolve to its own blacklist, isolated from the canonical branch",
     );
+
+    // Phase 9: the persisted rows carry the full {0, 1} blacklist. `stored == 2` alone cannot
+    // prove that: the blacklist-aware sampler redistributes rather than retrying the plain
+    // pick, so a seeder that lost one entry could still store 2 at many heights. So assert
+    // `stored == 2` at every scanned anchor, and keep scanning until heights were seen where
+    // each broken variant would have stored something else — the plain sampler (no blacklist),
+    // and the excluding sampler under {1} only (lost inherited 0) and {0} only (lost
+    // branch-local 1).
+    let full_blacklist = HashSet::from([0, 1]);
+    let expected_bl = HashMap::from([(shard_id, full_blacklist.clone())]);
+    let (mut tip, mut height) = (sibling_tip, sibling_height);
+    let mut saw_no_blacklist = false;
+    let mut saw_missing_inherited = false;
+    let mut saw_missing_branch_local = false;
+    for _ in 0..128 {
+        assert_eq!(
+            handle.get_chunk_producer_blacklist(&tip).unwrap(),
+            expected_bl,
+            "sibling blacklist drifted from {{0, 1}} while scanning rows",
+        );
+        let witness = assert_seeded_row_matches_blacklist(
+            &handle,
+            epoch_info.as_ref(),
+            &layout,
+            shard_id,
+            &epoch_id,
+            tip,
+            &full_blacklist,
+        );
+        assert_eq!(witness.expected, 2, "excluding {{0, 1}} from {{0, 1, 2}} must leave 2");
+        assert_eq!(witness.stored, 2, "stored row must be the sole non-blacklisted producer");
+        let without_inherited = epoch_info
+            .sample_chunk_producer_excluding(
+                &layout,
+                shard_id,
+                witness.chunk_height,
+                &HashSet::from([1]),
+            )
+            .unwrap();
+        let without_branch_local = epoch_info
+            .sample_chunk_producer_excluding(
+                &layout,
+                shard_id,
+                witness.chunk_height,
+                &HashSet::from([0]),
+            )
+            .unwrap();
+        saw_no_blacklist |= witness.plain != 2;
+        saw_missing_inherited |= without_inherited != 2;
+        saw_missing_branch_local |= without_branch_local != 2;
+        if saw_no_blacklist && saw_missing_inherited && saw_missing_branch_local {
+            return;
+        }
+        height += 1;
+        tip = fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, tip, 2, height, 1);
+    }
+    let (basis, basis_height, cache, watermark) = {
+        let read = handle.read();
+        let info = read.get_block_info(&tip).unwrap();
+        (
+            *info.last_final_block_hash(),
+            info.last_finalized_height(),
+            read.epoch_info_aggregator.last_block_hash,
+            read.largest_final_height,
+        )
+    };
+    panic!(
+        "no discriminating rows within 128 blocks: tip {tip} at height {height}, basis {basis} \
+         (height {basis_height}), cache {cache}, watermark {watermark}; witnesses \
+         no_blacklist={saw_no_blacklist} missing_inherited={saw_missing_inherited} \
+         missing_branch_local={saw_missing_branch_local}",
+    );
+}
+
+/// The persisted `DBCol::ChunkProducers` row for one anchor, alongside the samples a caller
+/// needs to judge whether the anchor discriminates a broken blacklist.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+struct SeededRowWitness {
+    chunk_height: u64,
+    /// Plain height sample (what the seeder would store with no blacklist).
+    plain: ValidatorId,
+    /// Blacklist-aware sample (what the seeder must store).
+    expected: ValidatorId,
+    /// What the seeder actually stored.
+    stored: ValidatorId,
+}
+
+/// Reads the persisted `DBCol::ChunkProducers` row for `tip` and asserts it is the
+/// blacklist-aware sample and not blacklisted. The anchor height comes from `tip`'s own
+/// `BlockInfo`, so the row read and the expected sample cannot diverge. Note the two samplers
+/// draw from different distributions, so they can differ even at heights where the plain pick
+/// is not blacklisted.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+fn assert_seeded_row_matches_blacklist(
+    handle: &EpochManagerHandle,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+    shard_id: ShardId,
+    epoch_id: &EpochId,
+    tip: CryptoHash,
+    shard_blacklist: &HashSet<ValidatorId>,
+) -> SeededRowWitness {
+    let anchor_height = handle.read().get_block_info(&tip).unwrap().height();
+    let chunk_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+    let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
+    let expected = epoch_info
+        .sample_chunk_producer_excluding(layout, shard_id, chunk_height, shard_blacklist)
+        .unwrap();
+    let stored_stake = handle
+        .get_chunk_producer_info_anchored(Some(&tip), epoch_id, chunk_height, shard_id)
+        .unwrap();
+    let stored = epoch_info.get_validator_id(stored_stake.account_id()).copied().unwrap();
+    assert_eq!(stored, expected, "seeded row must be the blacklist-aware sample");
+    assert!(!shard_blacklist.contains(&stored), "seeded row must not be a blacklisted producer");
+    SeededRowWitness { chunk_height, plain, expected, stored }
 }
 
 /// Drives `branch` off the shared `fork_point`, starving `target`, until it blacklists
@@ -1975,13 +2140,10 @@ fn assert_branch_seeds_own_blacklist(
     );
 
     // Extend (target stays down, so the blacklist stays {target}) until the PLAIN sampler
-    // at the anchor offset would pick the blacklisted producer. Only then does the seeder's
-    // reassignment change the stored row, so scanning only the anchors the drive happened to
-    // leave is not enough — with one blacklisted producer of three a short window need not
-    // contain a plain sample of it.
+    // at the anchor offset picks the blacklisted producer — only such an anchor proves the
+    // seeder rerouted away from a blacklisted canonical pick. With one blacklisted producer
+    // of three, the anchors the drive happened to leave need not contain one.
     for _ in 0..128 {
-        let chunk_height = height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-        let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
         let blacklist = handle.get_chunk_producer_blacklist(&tip).unwrap();
         let shard_blacklist = blacklist.get(&shard_id).cloned().unwrap_or_default();
         assert_eq!(
@@ -1989,25 +2151,19 @@ fn assert_branch_seeds_own_blacklist(
             HashSet::from([target]),
             "branch {branch} blacklist drifted from {{{target}}}",
         );
-        if shard_blacklist.contains(&plain) {
-            let expected = epoch_info
-                .sample_chunk_producer_excluding(layout, shard_id, chunk_height, &shard_blacklist)
-                .unwrap();
-            let stored_stake = handle
-                .get_chunk_producer_info_anchored(Some(&tip), epoch_id, chunk_height, shard_id)
-                .unwrap();
-            let stored = epoch_info.get_validator_id(stored_stake.account_id()).copied().unwrap();
-            assert_eq!(
-                stored, expected,
-                "branch {branch}: seeded row must be the blacklist-aware sample",
-            );
+        let witness = assert_seeded_row_matches_blacklist(
+            handle,
+            epoch_info,
+            layout,
+            shard_id,
+            epoch_id,
+            tip,
+            &shard_blacklist,
+        );
+        if shard_blacklist.contains(&witness.plain) {
             assert_ne!(
-                stored, plain,
+                witness.stored, witness.plain,
                 "branch {branch}: seeder must reassign away from the blacklisted plain pick",
-            );
-            assert!(
-                !shard_blacklist.contains(&stored),
-                "branch {branch}: seeded row must not be a blacklisted producer",
             );
             return;
         }
