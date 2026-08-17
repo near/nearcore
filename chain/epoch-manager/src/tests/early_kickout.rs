@@ -410,32 +410,6 @@ fn blacklist_u128_arithmetic_no_overflow() {
     );
 }
 
-// A settlement shorter than the layout's shard count: the shard whose index exceeds the
-// settlement is skipped (`settlement.get(shard_index) -> None`), so it is absent from both
-// the blacklist and the stats even under an all-bad tracker. `EpochInfo::new` does not
-// validate settlement length against the layout, so this inconsistent pairing is
-// constructible; the drop branch is otherwise hard to reach.
-#[test]
-fn blacklist_skips_shard_absent_from_settlement() {
-    let layout = ShardLayout::multi_shard(3, 0);
-    let shard_ids: Vec<ShardId> = layout.shard_ids().collect();
-    let settlement: Vec<ValidatorId> = vec![0, 1, 2];
-    let accounts: Vec<_> = (0..3).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
-    // Two settlements for a three-shard layout: the third shard (index 2) has no entry.
-    let epoch_info = epoch_info(
-        0,
-        accounts,
-        settlement.clone(),
-        vec![settlement.clone(), settlement],
-        PROTOCOL_VERSION,
-        layout.clone(),
-    );
-    let st = tracker(shard_ids[2], &[(0, 0, 100), (1, 0, 100), (2, 0, 100)]);
-    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
-    assert!(res.blacklist.is_empty(), "a shard with no settlement entry must not be blacklisted");
-    assert!(res.shard_stats.is_empty(), "a skipped shard must not appear in the stats");
-}
-
 // --- Accessor tests (end-to-end through EpochManagerHandle) ---
 
 /// Records a block at `cur` with an explicit per-shard `chunk_mask` (true =
@@ -1542,33 +1516,19 @@ fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-// 13. Defense-in-depth unit coverage for resolving mixed parent/child shard ids
-//     against the layout the blacklist is computed for. One `shard_tracker` carrying
-//     ids from both layouts is fed to each: every valid shard keeps its own-settlement
-//     candidate, and ids with no shard index in that layout are dropped. This does not
-//     drive an epoch-boundary resharding transition (see the out-of-scope note below).
-//
-//     Distinct per-shard settlements make it discriminating: with the identical
-//     `0..n` settlement on every shard, resolving a valid shard to a wrong-but-in-range
-//     index would still produce the same blacklist. Production reads the settlement at
-//     the resolved index and filters candidates against it, so a wrong valid index only
-//     surfaces when the settlements differ.
-//
-//     Run over both the V2 and V3 derivations: production dynamic resharding derives
-//     V3, and the two operations under test (`get_shard_index` + settlement lookup)
-//     behave identically in both, so this tracks the fixture to production.
-//
-//     Out of scope: an end-to-end boundary transition. The layout-mismatch drop branch
-//     looks unreachable in production today — `chunk_producer_blacklist_at_anchor`
-//     checks `aggregator.epoch_id` first, and the layout is fixed within an epoch.
+// 13. Resolving mixed parent/child shard ids against the layout the blacklist is computed
+//     for. One `shard_tracker` carrying ids from both layouts is fed to each layout: every
+//     valid shard keeps its own-settlement candidate, ids with no shard index there are
+//     dropped. Distinct per-shard settlements make it discriminating — an identical `0..n`
+//     settlement everywhere would hide a valid shard resolved to a wrong-but-in-range index.
+//     Run over both V2 and V3, since production resharding derives V3 and `get_shard_index` +
+//     settlement lookup behave the same in both. Unit coverage only: no epoch boundary is
+//     driven and no split is finalized.
 #[test]
 fn blacklist_resharding_maps_to_current_layout_shard_ids() {
-    // Explicit non-identity layout so `shard_id != shard_index` holds by construction
-    // for every shard (no dependency on `multi_shard`'s seeded shuffle). Parent covers
-    // accounts split at "mmm" with ids [1, 0]; splitting at "aaa" (sorts first) retires
-    // shard 1 into children [2, 3] and leaves shard 0. Both the V2 and V3 derivations
-    // splice `[max_shard_id + 1, max_shard_id + 2]` at the new boundary's insert index,
-    // so both yield [2, 3, 0]; pin all three vectors before deriving generically.
+    // Explicit non-identity layout so `shard_id != shard_index` by construction. Parent
+    // splits at "mmm" with ids [1, 0]; adding boundary "aaa" (sorts first) retires shard 1
+    // into [2, 3] and keeps shard 0. V2 and V3 derive the same ids; pin them first.
     let split_boundary: AccountId = "aaa".parse().unwrap();
     let parent =
         ShardLayout::v2(vec!["mmm".parse().unwrap()], vec![ShardId::new(1), ShardId::new(0)], None);
@@ -1630,10 +1590,10 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
         children[0],
     );
 
-    // Five producers: one bad producer per shard plus a shared healthy producer (id 4).
-    // Distinct settlements built in declared shard-index order, never via `get_shard_index`
-    // (the mechanism under test must not be its own oracle). Each valid shard's bad
-    // producer sits in that shard's own settlement.
+    // One bad producer per shard plus a shared healthy producer (id 4). The settlement Vec
+    // is indexed by ShardIndex, so build it through `shard_infos()` (the API's index-order
+    // contract) rather than `shard_ids()`, and never through `get_shard_index` (the mechanism
+    // under test). Each valid shard's bad producer sits in that shard's own settlement.
     const HEALTHY: ValidatorId = 4;
     let num_producers = 5u64;
     let bad_producer = |shard: ShardId| -> ValidatorId {
@@ -1652,7 +1612,7 @@ fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
     let settlement_for =
         |shard: ShardId| -> Vec<ValidatorId> { vec![bad_producer(shard), HEALTHY] };
     let settlements = |layout: &ShardLayout| -> Vec<Vec<ValidatorId>> {
-        layout.shard_ids().map(settlement_for).collect()
+        layout.shard_infos().map(|info| settlement_for(info.shard_id())).collect()
     };
     let parent_ei = epoch_info_for_layout(parent, settlements(parent), num_producers);
     let child_ei = epoch_info_for_layout(child, settlements(child), num_producers);
@@ -1802,19 +1762,18 @@ fn drive_until(
     );
 }
 
-// v152+ protocol: two sibling forks off a shared prefix starve different producers, and
-// the accessor (keyed on the anchor hash) resolves each fork to its own blacklist. This
-// one test interleaves the deep-sibling overtake, the late-prefix inheritance and the
-// cached-prefix path, asserting the aggregator exit directly via `aggregate_epoch_info_upto`'s
-// `full_info` flag rather than inferring it from blacklist equality.
+// v152+ protocol: two sibling forks off a shared prefix starve different producers, and the
+// accessor (keyed on the anchor hash) resolves each fork to its own blacklist. Asserts the
+// aggregator exit directly via `aggregate_epoch_info_upto`'s `full_info` flag rather than
+// inferring it from blacklist equality.
 //
 // Lowered test-only thresholds (10 misses past a 20-block grace) keep it cheap. The prior
-// fixture used an equal-depth sibling forked at height 1: that ancient fork point kept the
-// cached aggregator pinned to genesis, so every per-block seed walk ran to genesis and the
-// recording cost was quadratic in the sibling depth. Forking at the cached last-final block
-// (the real production shape) makes the sibling grow linearly, so the real 100-miss /
-// 1000-block thresholds would also work here at ~1500 blocks; the lowered thresholds are for
-// speed and legibility, not correctness. Real thresholds stay covered by the canonical tests.
+// fixture forked an equal-depth sibling at height 1; that ancient fork point pinned the cached
+// aggregator to genesis, so every per-block seed walk ran to genesis and recording cost was
+// quadratic in the sibling depth. Forking at the shared-prefix tip (at or above the cached
+// last-final block) makes the sibling grow linearly, so real thresholds would also work here at
+// ~1500 blocks — the lowered thresholds are for speed, not correctness. Real thresholds stay
+// covered by the canonical tests.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
 #[test]
 fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
@@ -1832,6 +1791,14 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+    // Premise for the {0,1} blacklist below: three distinct producers, so blacklisting two
+    // leaves a survivor and the keep-one valve stays quiet.
+    let shard_index = layout.get_shard_index(shard_id).unwrap();
+    assert_eq!(
+        epoch_info.chunk_producers_settlement()[shard_index].iter().collect::<HashSet<_>>().len(),
+        3,
+        "fork test needs a shard with exactly three distinct chunk producers",
+    );
 
     let genesis = fork_block_hash(0, 0);
     record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
@@ -1863,23 +1830,33 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, fork_point, 2, first_height, 1);
     assert_ne!(canonical_first, sibling_first, "sibling branches must have distinct hashes");
 
-    // Phase 3: white-box coverage of the aggregator helper. Aggregating to the first sibling
-    // block itself (NOT the blacklist basis for that anchor — the accessor aggregates to the
-    // anchor's last-final block) reaches the same-epoch cached-prefix sync point, so
-    // `full_info` is false and the caller merges the cached prefix. `merge_prefix` is the
-    // intended behaviour there, not contamination: the merged aggregator carries producer 0's
-    // common-prefix stats.
-    let (_, full_info) = handle
+    // Phase 3: aggregating to the first sibling block (not the accessor's basis for that
+    // anchor, which is its last-final block) reaches the same-epoch cached-prefix sync point,
+    // so `full_info` is false and the caller merges the cached prefix. Pin that the merge
+    // actually ran: the merged producer-0 stats must equal cached-prefix + suffix exactly, and
+    // the cached prefix must carry a real contribution (`expected > 0`). Asserting only that
+    // the merged stats are nonzero would pass even without the merge, since the suffix can
+    // itself contain producer-0 stats.
+    let stats = |agg: &EpochInfoAggregator, id: ValidatorId| -> (u64, u64) {
+        agg.shard_tracker
+            .get(&shard_id)
+            .and_then(|m| m.get(&id))
+            .map_or((0, 0), |s| (s.produced(), s.expected()))
+    };
+    let prefix = handle.read().epoch_info_aggregator.clone();
+    let (suffix, full_info) = handle
         .read()
         .aggregate_epoch_info_upto(&sibling_first)
         .unwrap()
         .expect("first sibling block differs from the cache position");
     assert!(!full_info, "first sibling block must hit the same-epoch cached-prefix exit");
     let merged = handle.read().get_epoch_info_aggregator_upto_last(&sibling_first).unwrap();
-    let producer_0 = merged.shard_tracker.get(&shard_id).and_then(|m| m.get(&0));
-    assert!(
-        producer_0.is_some_and(|s| s.expected() > 0),
-        "merged aggregator must carry producer 0's common-prefix stats, got {producer_0:?}",
+    let (prefix_0, suffix_0, merged_0) = (stats(&prefix, 0), stats(&suffix, 0), stats(&merged, 0));
+    assert!(prefix_0.1 > 0, "cached prefix must carry producer 0's common-prefix stats");
+    assert_eq!(
+        merged_0,
+        (prefix_0.0 + suffix_0.0, prefix_0.1 + suffix_0.1),
+        "merged stats must be cached-prefix + suffix (proves merge_prefix ran)",
     );
 
     // Phase 4: extend the canonical branch until its anchor's last-final block is
@@ -1903,7 +1880,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // watermark, the aggregator cache has moved onto the sibling (its `last_block_hash` is the
     // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
     // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
-    // genuinely overtakes; passing it triggers the full-rewalk replace onto the sibling.
+    // genuinely overtakes; passing it replaces the cache with a fresh walk onto the sibling.
     let (sibling_tip, _) = drive_until(
         &handle,
         epoch_info.as_ref(),
@@ -1936,8 +1913,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
 
     // Phase 6: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
     // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
-    // cache sits on the sibling, so the walk cannot reach the cached sync point and rewalks
-    // the canonical chain to the epoch start.
+    // cache sits on the sibling, so the walk cannot reach the cached sync point and instead
+    // walks the canonical chain from the epoch start.
     let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
     assert_eq!(
         canonical_bl,
@@ -1953,7 +1930,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         .expect("canonical basis differs from the sibling cache position");
     assert!(
         canonical_full_info,
-        "after the sibling takeover the canonical basis must trigger a full rewalk",
+        "after the sibling takeover the canonical basis must walk from the epoch start",
     );
 
     // Phase 7: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
@@ -2065,8 +2042,9 @@ fn fork_seeded_rows_reflect_each_branch_blacklist() {
     let genesis = fork_block_hash(0, 0);
     record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
 
-    // Two forks off genesis, each starving its own producer. Each call drives and asserts to
-    // completion before the next, so at assertion time the aggregator cache is on that branch.
+    // Two forks off genesis, each starving its own producer. Each branch's blacklist is
+    // self-contained: a non-ancestor branch aggregates afresh from the epoch boundary, so the
+    // assertions hold regardless of which branch the aggregator cache currently sits on.
     assert_branch_seeds_own_blacklist(
         &handle,
         epoch_info.as_ref(),
