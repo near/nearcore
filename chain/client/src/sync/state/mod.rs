@@ -450,7 +450,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: StatePartIndex,
+        state_part_index: StatePartIndex,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>>;

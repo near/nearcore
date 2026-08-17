@@ -1596,10 +1596,10 @@ impl StateResponseInfo {
         }
     }
 
-    pub fn part_id(&self) -> Option<StatePartIndex> {
+    pub fn state_part_index(&self) -> Option<StatePartIndex> {
         match self {
-            Self::V1(info) => info.state_response.part_id(),
-            Self::V2(info) => info.state_response.part_id(),
+            Self::V1(info) => info.state_response.state_part_index(),
+            Self::V2(info) => info.state_response.state_part_index(),
         }
     }
 

@@ -318,7 +318,7 @@ async fn load_state_parts(
     action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_id: Option<StatePartIndex>,
+    state_part_index: Option<StatePartIndex>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
     chain: &Chain,
@@ -353,7 +353,7 @@ async fn load_state_parts(
 
     let num_parts =
         list_state_parts(external, chain_id, &epoch_id, epoch_height, shard_id).await.unwrap();
-    let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
+    let part_ids = get_part_ids(state_part_index, state_part_index.map(|x| x + 1), num_parts);
 
     match action {
         LoadAction::Apply => {
@@ -435,8 +435,8 @@ fn print_state_part(state_root: &StateRoot, _part_id: StatePartRef, trie_nodes: 
 async fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_from: Option<StatePartIndex>,
-    part_to: Option<StatePartIndex>,
+    state_part_index_from: Option<StatePartIndex>,
+    state_part_index_to: Option<StatePartIndex>,
     dump_header: bool,
     chain: &Chain,
     chain_id: &str,
@@ -461,7 +461,7 @@ async fn dump_state_parts(
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
-    let part_ids = get_part_ids(part_from, part_to, num_parts);
+    let state_part_indices = get_part_ids(state_part_index_from, state_part_index_to, num_parts);
     let epoch_height = epoch.epoch_height();
 
     tracing::info!(
@@ -471,7 +471,7 @@ async fn dump_state_parts(
         %shard_id,
         num_parts,
         ?sync_hash,
-        ?part_ids,
+        ?state_part_indices,
         ?state_root,
         "dumping state as seen at the beginning of the specified epoch",
     );
@@ -494,20 +494,19 @@ async fn dump_state_parts(
     }
 
     // dump parts
-    for part_id in part_ids {
+    for state_part_index in state_part_indices {
         let timer = Instant::now();
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = chain
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
                 sync_prev_prev_hash,
                 &state_root,
-                StatePartRef::new(part_id, num_parts),
+                StatePartRef::new(state_part_index, num_parts),
             )
             .unwrap();
 
-        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let file_type = StateFileType::StatePart { part_id: state_part_index, num_parts };
         let location = external_storage_location(
             &chain_id,
             &epoch_id,
@@ -523,7 +522,7 @@ async fn dump_state_parts(
         let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
-            part_id,
+            state_part_index,
             part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
@@ -573,9 +572,9 @@ fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Cha
 }
 
 fn get_part_ids(
-    part_from: Option<StatePartIndex>,
-    part_to: Option<StatePartIndex>,
+    state_part_index_froom: Option<StatePartIndex>,
+    state_part_index_to: Option<StatePartIndex>,
     num_parts: u64,
 ) -> Range<StatePartIndex> {
-    part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
+    state_part_index_froom.unwrap_or(0)..state_part_index_to.unwrap_or(num_parts)
 }

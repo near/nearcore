@@ -465,7 +465,7 @@ async fn run_select_peer_test(
     test_name: &'static str,
     actions: &[SelectPeerAction],
     keys: &[SecretKey],
-    part_id: StatePartIndex,
+    state_part_index: StatePartIndex,
     part_selection_cache_batch_size: u32,
 ) {
     let config =
@@ -493,7 +493,8 @@ async fn run_select_peer_test(
             }
             SelectPeerAction::CallSelect(epoch_height, wanted) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);
-                let peer = cache.select_host_for_part(&sync_hash, ShardId::new(0), part_id);
+                let peer =
+                    cache.select_host_for_part(&sync_hash, ShardId::new(0), state_part_index);
                 let wanted = match wanted {
                     Some(idx) => Some(PeerId::new(keys[*idx].public_key())),
                     None => None,
@@ -502,9 +503,9 @@ async fn run_select_peer_test(
             }
             SelectPeerAction::PartReceived => {
                 let shard_id = ShardId::new(0);
-                assert!(cache.has_selector(shard_id, part_id));
-                cache.part_received(shard_id, part_id);
-                assert!(!cache.has_selector(shard_id, part_id));
+                assert!(cache.has_selector(shard_id, state_part_index));
+                cache.part_received(shard_id, state_part_index);
+                assert!(!cache.has_selector(shard_id, state_part_index));
             }
             SelectPeerAction::CheckNumberOfHosts(expected_number_of_hosts) => {
                 assert_eq!(cache.get_hosts().len(), *expected_number_of_hosts);

@@ -56,12 +56,12 @@ pub struct Config {
 pub(crate) fn priority_score(
     peer_id: &PeerId,
     shard_id: ShardId,
-    part_id: StatePartIndex,
+    state_part_index: StatePartIndex,
 ) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(peer_id.public_key().key_data());
     h.update(shard_id.to_le_bytes());
-    h.update(part_id.to_le_bytes());
+    h.update(state_part_index.to_le_bytes());
     h.finalize().into()
 }
 
@@ -273,12 +273,14 @@ impl Inner {
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: StatePartIndex,
+        state_part_index: StatePartIndex,
     ) -> Option<PeerId> {
         self.update_current_state_sync_hash(sync_hash);
 
-        let selector =
-            self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
+        let selector = self
+            .peer_selector
+            .entry((shard_id, state_part_index))
+            .or_insert(PartPeerSelector::default());
 
         // Insert more hosts into the selector if needed
         let available_hosts = self.hosts_for_shard.get(&shard_id)?;
@@ -291,7 +293,7 @@ impl Inner {
                     continue;
                 }
 
-                let score = priority_score(peer_id, shard_id, part_id);
+                let score = priority_score(peer_id, shard_id, state_part_index);
 
                 // Wrap entries with `Reverse` so that we pop the *least* desirable options
                 new_peers.push(std::cmp::Reverse(StatePartHost {
@@ -420,21 +422,21 @@ impl SnapshotHostsCache {
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        part_id: StatePartIndex,
+        state_part_index: StatePartIndex,
     ) -> Option<PeerId> {
-        self.0.lock().select_host_for_part(sync_hash, shard_id, part_id)
+        self.0.lock().select_host_for_part(sync_hash, shard_id, state_part_index)
     }
 
     /// Triggered by state sync actor after processing a state part.
-    pub fn part_received(&self, shard_id: ShardId, part_id: StatePartIndex) {
+    pub fn part_received(&self, shard_id: ShardId, state_part_index: StatePartIndex) {
         let mut inner = self.0.lock();
-        inner.peer_selector.remove(&(shard_id, part_id));
+        inner.peer_selector.remove(&(shard_id, state_part_index));
     }
 
     #[cfg(test)]
-    pub(crate) fn has_selector(&self, shard_id: ShardId, part_id: StatePartIndex) -> bool {
+    pub(crate) fn has_selector(&self, shard_id: ShardId, state_part_index: StatePartIndex) -> bool {
         let inner = self.0.lock();
-        inner.peer_selector.contains_key(&(shard_id, part_id))
+        inner.peer_selector.contains_key(&(shard_id, state_part_index))
     }
 
     #[cfg(test)]

@@ -36,7 +36,7 @@ fn handle_message(
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
-            let part_id = state_response.part_id();
+            let part_id = state_response.state_part_index();
             let now = Instant::now();
             let duration = if let Some(part_id) = part_id {
                 let duration = app_info.requests_sent.get(&part_id).map(|sent| {

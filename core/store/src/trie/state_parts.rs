@@ -125,28 +125,30 @@ impl Trie {
             target: "state-parts",
             "get_state_part_boundaries",
             %shard_id,
-            part_id = part_ref.idx,
+            part_id = part_ref.state_part_index,
             num_parts = part_ref.total)
         .entered();
         let _timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let StatePartRef { idx, total } = part_ref;
+        let StatePartRef { state_part_index, total } = part_ref;
 
         // 1. Extract nodes corresponding to state part boundaries.
         let recording_trie = self.recording_reads_new_recorder();
         let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let path_begin = recording_trie.find_state_part_boundary(part_ref.idx, part_ref.total)?;
-        let path_end = recording_trie.find_state_part_boundary(part_ref.idx + 1, part_ref.total)?;
+        let path_begin =
+            recording_trie.find_state_part_boundary(part_ref.state_part_index, part_ref.total)?;
+        let path_end = recording_trie
+            .find_state_part_boundary(part_ref.state_part_index + 1, part_ref.total)?;
         let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
 
         tracing::debug!(
             target: "state-parts",
-            idx,
+            state_part_index,
             total,
             ?boundaries_read_duration,
             "found state part boundaries",
@@ -172,7 +174,7 @@ impl Trie {
             target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
             %shard_id,
-            part_id = part_ref.idx,
+            part_id = part_ref.state_part_index,
             num_parts = part_ref.total)
         .entered();
         let _timer = metrics::GET_STATE_PART_NODES_WITH_FS_ELAPSED
@@ -306,8 +308,10 @@ impl Trie {
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
     fn visit_nodes_for_state_part(&self, part_ref: StatePartRef) -> Result<(), StorageError> {
-        let path_begin = self.find_state_part_boundary(part_ref.idx, part_ref.total)?;
-        let path_end = self.find_state_part_boundary(part_ref.idx + 1, part_ref.total)?;
+        let path_begin =
+            self.find_state_part_boundary(part_ref.state_part_index, part_ref.total)?;
+        let path_end =
+            self.find_state_part_boundary(part_ref.state_part_index + 1, part_ref.total)?;
 
         let mut iterator = self.disk_iter()?;
         let nodes_list =
@@ -433,8 +437,10 @@ impl Trie {
             });
         }
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root, false);
-        let path_begin = trie.find_state_part_boundary(part_ref.idx, part_ref.total)?;
-        let path_end = trie.find_state_part_boundary(part_ref.idx + 1, part_ref.total)?;
+        let path_begin =
+            trie.find_state_part_boundary(part_ref.state_part_index, part_ref.total)?;
+        let path_end =
+            trie.find_state_part_boundary(part_ref.state_part_index + 1, part_ref.total)?;
         let mut iterator = trie.disk_iter()?;
         let trie_traversal_items =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;

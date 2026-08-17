@@ -141,7 +141,7 @@ impl StateSyncDownloader {
         sync_hash: CryptoHash,
         state_root: CryptoHash,
         num_state_parts: u64,
-        part_id: StatePartIndex,
+        state_part_index: StatePartIndex,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
@@ -154,10 +154,11 @@ impl StateSyncDownloader {
             if cancel.is_cancelled() {
                 return Err(near_chain::Error::Other("Cancelled".to_owned()));
             }
-            let handle =
-                task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
+            let handle = task_tracker
+                .get_handle(&format!("shard {} part {}", shard_id, state_part_index))
+                .await;
             handle.set_status("Reading existing part");
-            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id) {
+            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, state_part_index) {
                 return Ok(());
             }
 
@@ -166,7 +167,7 @@ impl StateSyncDownloader {
                     .download_shard_part(
                         shard_id,
                         sync_hash,
-                        part_id,
+                        state_part_index,
                         handle.clone(),
                         cancel.clone(),
                     )
@@ -175,13 +176,14 @@ impl StateSyncDownloader {
                     runtime_adapter.validate_state_part(
                         shard_id,
                         &state_root,
-                        StatePartRef { idx: part_id, total: num_state_parts },
+                        StatePartRef { state_part_index, total: num_state_parts },
                         &part,
                     ),
                     StatePartValidationResult::Valid
                 ) {
                     let mut store_update = store.store_update();
-                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, state_part_index))
+                        .unwrap();
                     let bytes = part.to_bytes();
                     store_update.set(DBCol::StateParts, &key, &bytes);
                     store_update.commit();
@@ -213,10 +215,10 @@ fn does_state_part_exist_on_disk(
     store: &Store,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: StatePartIndex,
+    state_part_index: StatePartIndex,
 ) -> bool {
     store.exists(
         DBCol::StateParts,
-        &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
+        &borsh::to_vec(&StatePartKey(sync_hash, shard_id, state_part_index)).unwrap(),
     )
 }
