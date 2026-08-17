@@ -5,10 +5,10 @@ use near_primitives::stateless_validation::contract_distribution::{CodeHash, Con
 use near_vm_runner::ContractCode;
 use parking_lot::Mutex;
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ContractType {
     /// Local contract, deployed to a specific account
     Local,
@@ -19,9 +19,9 @@ enum ContractType {
 /// Tracks deployments of this contract.
 struct DeployedContract {
     /// The deployed contract
-    contract: ContractCode,
+    code: ContractCode,
     /// List of all types with which this contract was deployed.
-    types: Vec<ContractType>,
+    types: BTreeSet<ContractType>,
 }
 
 /// Tracks the uncommitted and committed deployments and calls to contracts, while applying the receipts in a chunk.
@@ -62,7 +62,7 @@ impl ContractsTracker {
             .get(&code_hash)
             .or_else(|| self.committed_deploys.get(&code_hash))
             .map(|contract| {
-                ContractCode::new(contract.contract.code().to_vec(), Some(code_hash.into()))
+                ContractCode::new(contract.code.code().to_vec(), Some(code_hash.into()))
             })
     }
 
@@ -71,7 +71,8 @@ impl ContractsTracker {
     }
 
     fn deploy(&mut self, code: ContractCode, contract_type: ContractType) {
-        let deployed_contract = DeployedContract { contract: code, types: vec![contract_type] };
+        let deployed_contract =
+            DeployedContract { code, types: std::iter::once(contract_type).collect() };
         Self::add_deployed_contract(deployed_contract, &mut self.uncommitted_deploys);
     }
 
@@ -81,12 +82,12 @@ impl ContractsTracker {
         deploys: DeployedContract,
         map: &mut BTreeMap<CodeHash, DeployedContract>,
     ) {
-        match map.entry((*deploys.contract.hash()).into()) {
+        match map.entry((*deploys.code.hash()).into()) {
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(deploys);
             }
             Entry::Occupied(mut occupied_entry) => {
-                occupied_entry.get_mut().types.extend_from_slice(&deploys.types);
+                occupied_entry.get_mut().types.extend(deploys.types);
             }
         }
     }
@@ -115,7 +116,7 @@ impl ContractsTracker {
                     // Global contracts are distributed using a different mechanism, don't include them in contract_deploys
                     None
                 } else {
-                    Some(deployed.contract)
+                    Some(deployed.code)
                 }
             })
             .collect();
