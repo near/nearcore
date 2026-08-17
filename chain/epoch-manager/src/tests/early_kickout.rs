@@ -324,6 +324,118 @@ fn keep_one_leaves_sampler_nonempty() {
     }
 }
 
+// --- blacklist-math hardening (pure math) ---
+
+// The safety valve's least-bad tiebreak resolves at the FEWER-EXPECTED level, not only
+// on ratio and lower-id. Two all-bad producers with equal ratio (800/2000 == 400/1000):
+// fewer-expected keeps id 1 (expected 1000 < 2000), while a lower-id-only tiebreak would
+// keep id 0. Pins comparator level 2, which `blacklist_safety_valve_all_producers` (equal
+// on every level) cannot.
+#[test]
+fn keep_one_fewer_expected_tiebreak() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(2);
+    let st = tracker(shard_id, &[(0, 800, 2000), (1, 400, 1000)]);
+    assert_eq!(kept_survivor(&st, &epoch_info, &layout, shard_id, &[0, 1]), 1);
+    assert_eq!(
+        blacklist(&st, &epoch_info, &layout),
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+    );
+}
+
+// Duplicate settlement entries do not inflate the safety-valve denominator: `producers` is
+// a set, so a `[0, 0, 1]` settlement has two distinct producers, and two all-bad candidates
+// trip the valve. Were the duplicate counted, the denominator would be 3, the valve would
+// not fire, and both would be blacklisted. `EpochInfo::new` neither rejects nor dedups the
+// duplicate.
+#[test]
+fn blacklist_dedups_duplicate_settlement_entries() {
+    let layout = ShardLayout::single_shard();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = epoch_info_for_layout(&layout, vec![vec![0, 0, 1]], 2);
+    let st = tracker(shard_id, &[(0, 0, 100), (1, 0, 100)]);
+    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let stats = &res.shard_stats[&shard_id];
+    assert_eq!(stats.raw_candidate_count, 2, "duplicate id must not inflate the candidate count");
+    assert!(stats.safety_valve_fired(), "two distinct all-bad producers must trip the valve");
+    assert_eq!(res.blacklist[&shard_id].len(), 1, "keep-one must leave exactly one survivor");
+}
+
+// Endorsement-only entries stay out of BOTH the safety-valve denominator and the kept set.
+// Two all-bad producers trip the valve; an endorsement-only validator (id 2, not in the
+// settlement) is neither counted nor kept. Existing test 7 covers endorsement-only exclusion
+// from candidacy, but not this all-bad-shard interaction.
+#[test]
+fn blacklist_valve_ignores_endorsement_only_entry() {
+    let (epoch_info, layout, shard_id) = single_shard_epoch(2);
+    let mut inner = HashMap::new();
+    inner.insert(0, ChunkStats::new_with_production(0, 100));
+    inner.insert(1, ChunkStats::new_with_production(0, 100));
+    // Endorsement-only, not in the settlement: high endorsement, zero production.
+    inner.insert(2, ChunkStats::new(0, 0, 1000, 1000));
+    let st = HashMap::from([(shard_id, inner)]);
+    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    let stats = &res.shard_stats[&shard_id];
+    assert_eq!(stats.raw_candidate_count, 2, "endorsement-only id must not be a candidate");
+    assert!(stats.safety_valve_fired());
+    assert_ne!(stats.kept, Some(2), "endorsement-only id must never be the kept producer");
+    let bl = &res.blacklist[&shard_id];
+    assert_eq!(bl.len(), 1, "keep-one must leave exactly one survivor");
+    assert!(!bl.contains(&2), "endorsement-only id must never be blacklisted");
+}
+
+// u128 keeps both the ratio comparison and the safety-valve cross-multiply overflow-proof.
+// A u64 cross-multiply of these operands would panic under `overflow-checks`, which is on in
+// the `dev-release` profile CI builds. `produced == expected == u64::MAX` is avoided on
+// purpose: missed would be 0, so it would not be a candidate.
+#[test]
+fn blacklist_u128_arithmetic_no_overflow() {
+    let big = u64::MAX;
+    // Ratio check: id 0 misses ~2^63 with produced*100 (~9.2e20) < expected*80 (~1.5e21), so
+    // it is a candidate; ids 1, 2 are healthy so the valve does not fire.
+    let (epoch_info, layout, shard_id) = single_shard_epoch(3);
+    let st = tracker(shard_id, &[(0, big / 2, big), (1, 100, 100), (2, 100, 100)]);
+    assert_eq!(
+        blacklist(&st, &epoch_info, &layout),
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+    );
+
+    // Safety-valve comparator cross-multiply (pa*eb vs pb*ea) with operands near 2^127
+    // (still under 2^128). id 0's ratio ~1/2 beats id 1's ~1/4, so the valve keeps id 0.
+    let (epoch_info2, layout2, shard2) = single_shard_epoch(2);
+    let st2 = tracker(shard2, &[(0, big / 2, big), (1, big / 4, big)]);
+    assert_eq!(kept_survivor(&st2, &epoch_info2, &layout2, shard2, &[0, 1]), 0);
+    assert_eq!(
+        blacklist(&st2, &epoch_info2, &layout2),
+        HashMap::from([(shard2, HashSet::from([1]))]),
+    );
+}
+
+// A settlement shorter than the layout's shard count: the shard whose index exceeds the
+// settlement is skipped (`settlement.get(shard_index) -> None`), so it is absent from both
+// the blacklist and the stats even under an all-bad tracker. `EpochInfo::new` does not
+// validate settlement length against the layout, so this inconsistent pairing is
+// constructible; the drop branch is otherwise hard to reach.
+#[test]
+fn blacklist_skips_shard_absent_from_settlement() {
+    let layout = ShardLayout::multi_shard(3, 0);
+    let shard_ids: Vec<ShardId> = layout.shard_ids().collect();
+    let settlement: Vec<ValidatorId> = vec![0, 1, 2];
+    let accounts: Vec<_> = (0..3).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
+    // Two settlements for a three-shard layout: the third shard (index 2) has no entry.
+    let epoch_info = epoch_info(
+        0,
+        accounts,
+        settlement.clone(),
+        vec![settlement.clone(), settlement],
+        PROTOCOL_VERSION,
+        layout.clone(),
+    );
+    let st = tracker(shard_ids[2], &[(0, 0, 100), (1, 0, 100), (2, 0, 100)]);
+    let res = compute_chunk_producer_blacklist(&st, &epoch_info, &layout);
+    assert!(res.blacklist.is_empty(), "a shard with no settlement entry must not be blacklisted");
+    assert!(res.shard_stats.is_empty(), "a skipped shard must not appear in the stats");
+}
+
 // --- Accessor tests (end-to-end through EpochManagerHandle) ---
 
 /// Records a block at `cur` with an explicit per-shard `chunk_mask` (true =
