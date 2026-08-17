@@ -69,12 +69,13 @@ use near_store::DBCol;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Grace window used by every test here, in blocks into the epoch. Small enough that a
-/// test-loop chain clears it in seconds, large enough that the first blocks of an
-/// epoch still cannot blacklist anyone.
+/// Grace window used by the reassignment and epoch-sync bootstrap tests, in blocks into
+/// the epoch. Small enough that a test-loop chain clears it in seconds, large enough that
+/// the first blocks of an epoch still cannot blacklist anyone. The state-sync case uses
+/// tighter values of its own.
 const TEST_EPOCH_GRACE_BLOCKS: u64 = 20;
-/// Miss floor used by every test here. A target holding ~half its shard's slots reaches
-/// this within ~10 heights of leaving the grace window.
+/// Miss floor used by the reassignment and epoch-sync bootstrap tests. A target holding
+/// ~half its shard's slots reaches this within ~10 heights of leaving the grace window.
 const TEST_MIN_MISSES: u64 = 5;
 
 /// Asserts `EarlyKickout` is enabled for the genesis protocol version, then shrinks the

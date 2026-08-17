@@ -139,6 +139,10 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
 ///
 /// `assert_shard_shuffling_happened` only proves an assignment changed; holding
 /// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
+/// "Newly assigned" follows `shard_tracker::should_catch_up_shard`: gained now, not held
+/// in either of the two prior epochs. State retained from two epochs ago means the node
+/// resumes applying chunks from disk, no sync, and still writes the `ChunkExtra` read as
+/// proof here.
 ///
 /// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
 /// resharding caller must map a shard to its prior parent instead.
@@ -160,8 +164,8 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let genesis_height = chain.genesis().height();
         let epoch_ids = collect_distinct_epoch_ids(client);
 
-        'validator: for window in epoch_ids.windows(2) {
-            let (prev_epoch, new_epoch) = (&window[0], &window[1]);
+        'validator: for w in 1..epoch_ids.len() {
+            let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
             let prev_layout = epoch_manager.get_shard_layout(prev_epoch).unwrap();
             let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
             assert_eq!(
@@ -179,7 +183,15 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                 let cared_before = epoch_manager
                     .cares_about_shard_in_epoch(prev_epoch, validator, shard_id)
                     .unwrap();
-                if !(cared_now && !cared_before) {
+                // Mirrors `shard_tracker::should_catch_up_shard`: state retained from
+                // T-1 means no sync happened.
+                let older_epoch = w.checked_sub(2).map(|i| &epoch_ids[i]);
+                let tracked_before = older_epoch.is_some_and(|older_epoch| {
+                    epoch_manager
+                        .cares_about_shard_in_epoch(older_epoch, validator, shard_id)
+                        .unwrap()
+                });
+                if !(cared_now && !cared_before && !tracked_before) {
                     continue;
                 }
 
