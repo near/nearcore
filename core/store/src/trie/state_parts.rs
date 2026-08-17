@@ -28,7 +28,7 @@ use borsh::BorshDeserialize;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::StatePartRef;
+use near_primitives::state_part::{StatePartIndex, StatePartRef};
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
@@ -51,21 +51,22 @@ impl Trie {
     /// and visits all provided nodes.
     fn find_state_part_boundary(
         &self,
-        part_id: u64,
+        state_part_index: StatePartIndex,
         num_parts: u64,
     ) -> Result<Option<Vec<u8>>, StorageError> {
-        if part_id > num_parts {
+        if state_part_index > num_parts {
             return Err(StorageError::StorageInternalError);
         }
-        if part_id == 0 {
+        if state_part_index == 0 {
             return Ok(Some(vec![]));
         }
-        if part_id == num_parts {
+        if state_part_index == num_parts {
             return Ok(None);
         }
         let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
-        let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
+        let size_start = total_size / num_parts * state_part_index
+            + state_part_index.min(total_size % num_parts);
         if root_node.memory_usage <= size_start {
             return Ok(None);
         }
