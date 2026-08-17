@@ -9,12 +9,15 @@ use crate::EARLY_KICKOUT_EPOCH_GRACE_BLOCKS;
 #[cfg(feature = "nightly")]
 use crate::epoch_info_aggregator::EpochInfoAggregator;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+use crate::set_early_kickout_thresholds_for_testing;
 use crate::test_utils::DEFAULT_TOTAL_SUPPLY;
 use crate::test_utils::{
-    record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
+    epoch_info, record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
 };
 use crate::{
-    EpochManager, EpochManagerAdapter, EpochManagerHandle, compute_chunk_producer_blacklist,
+    ChunkProducerBlacklist, EpochManager, EpochManagerAdapter, EpochManagerHandle,
+    compute_chunk_producer_blacklist,
 };
 #[cfg(feature = "nightly")]
 use crate::{SampleEpoch, SeedAnchor};
@@ -31,7 +34,7 @@ use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndor
 use near_primitives::types::EpochId;
 #[cfg(feature = "nightly")]
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{Balance, ChunkStats, ShardId, ValidatorId};
+use near_primitives::types::{AccountId, Balance, ChunkStats, ShardId, ValidatorId};
 #[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -43,40 +46,48 @@ use std::collections::{HashMap, HashSet};
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
+/// Builds an `EpochInfo` over `layout` with `num_producers` accounts (ids
+/// `0..num_producers`) and one explicit chunk-producer `settlement` per shard, in
+/// shard-index order (`layout.shard_infos()`). `num_producers` is passed explicitly
+/// rather than inferred: it sets the account count that `stake_weights` indexes, and
+/// per-shard settlements no longer determine it.
+fn epoch_info_for_layout(
+    layout: &ShardLayout,
+    settlements: Vec<Vec<ValidatorId>>,
+    num_producers: u64,
+) -> EpochInfo {
+    assert_eq!(
+        settlements.len(),
+        layout.num_shards() as usize,
+        "one chunk-producer settlement per shard",
+    );
+    let accounts: Vec<_> =
+        (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
+    let block_producers: Vec<ValidatorId> = (0..num_producers).collect();
+    epoch_info(0, accounts, block_producers, settlements, PROTOCOL_VERSION, layout.clone())
+}
+
 /// Builds a single-shard `EpochInfo` with `num_producers` chunk producers (ids
 /// `0..num_producers`) and returns it alongside the layout and the shard id.
 fn single_shard_epoch(num_producers: u64) -> (EpochInfo, ShardLayout, ShardId) {
-    let accounts: Vec<_> =
-        (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
-    let settlement: Vec<ValidatorId> = (0..num_producers).collect();
     let shard_layout = ShardLayout::single_shard();
     let shard_id = shard_layout.shard_ids().next().unwrap();
-    let epoch_info = crate::test_utils::epoch_info(
-        0,
-        accounts,
-        settlement.clone(),
-        vec![settlement],
-        PROTOCOL_VERSION,
-        shard_layout.clone(),
-    );
+    let settlement: Vec<ValidatorId> = (0..num_producers).collect();
+    let epoch_info = epoch_info_for_layout(&shard_layout, vec![settlement], num_producers);
     (epoch_info, shard_layout, shard_id)
 }
 
-/// Like `single_shard_epoch`, but for an arbitrary `layout`: the same
-/// `0..num_producers` settlement on every shard.
-fn epoch_info_for_layout(layout: &ShardLayout, num_producers: u64) -> EpochInfo {
-    let accounts: Vec<_> =
-        (0..num_producers).map(|i| (format!("test{i}").parse().unwrap(), STAKE)).collect();
-    let settlement: Vec<ValidatorId> = (0..num_producers).collect();
-    let num_shards = layout.num_shards() as usize;
-    crate::test_utils::epoch_info(
-        0,
-        accounts,
-        settlement.clone(),
-        vec![settlement; num_shards],
-        PROTOCOL_VERSION,
-        layout.clone(),
-    )
+/// Projects a `ChunkProducerBlacklist`'s per-shard `shard_stats` into a comparable
+/// map (`raw_candidate_count`, `kept`). `BlacklistShardStats` has no `PartialEq`, so
+/// tests read it field by field rather than adding a derive to the production struct.
+fn shard_stats_projection(
+    result: &ChunkProducerBlacklist,
+) -> HashMap<ShardId, (usize, Option<ValidatorId>)> {
+    result
+        .shard_stats
+        .iter()
+        .map(|(shard_id, stats)| (*shard_id, (stats.raw_candidate_count, stats.kept)))
+        .collect()
 }
 
 /// Convenience: builds a `shard_tracker` with a single shard from `(validator_id,
@@ -221,7 +232,7 @@ fn blacklist_multi_shard_independent() {
     let settlement: Vec<ValidatorId> = (0..num_producers).collect();
     let shard_layout = ShardLayout::multi_shard(2, 0);
     let shard_ids: Vec<ShardId> = shard_layout.shard_ids().collect();
-    let epoch_info = crate::test_utils::epoch_info(
+    let epoch_info = epoch_info(
         0,
         accounts,
         settlement.clone(),
@@ -1419,30 +1430,73 @@ fn accessor_propagates_missing_block_info_on_same_epoch_basis() {
     );
 }
 
-// 13. Stats are resolved against the layout the blacklist is computed for. One
-//     `shard_tracker` carrying both a retired parent shard id and a child shard id is
-//     fed to both layouts: each drops the id that has no shard index there, and the
-//     shard that survived the split resolves in both.
+// 13. Defense-in-depth unit coverage for resolving mixed parent/child shard ids
+//     against the layout the blacklist is computed for. One `shard_tracker` carrying
+//     ids from both layouts is fed to each: every valid shard keeps its own-settlement
+//     candidate, and ids with no shard index in that layout are dropped. This does not
+//     drive an epoch-boundary resharding transition (see the out-of-scope note below).
+//
+//     Distinct per-shard settlements make it discriminating: with the identical
+//     `0..n` settlement on every shard, resolving a valid shard to a wrong-but-in-range
+//     index would still produce the same blacklist. Production reads the settlement at
+//     the resolved index and filters candidates against it, so a wrong valid index only
+//     surfaces when the settlements differ.
+//
+//     Run over both the V2 and V3 derivations: production dynamic resharding derives
+//     V3, and the two operations under test (`get_shard_index` + settlement lookup)
+//     behave identically in both, so this tracks the fixture to production.
+//
+//     Out of scope: an end-to-end boundary transition. The layout-mismatch drop branch
+//     looks unreachable in production today — `chunk_producer_blacklist_at_anchor`
+//     checks `aggregator.epoch_id` first, and the layout is fixed within an epoch.
 #[test]
 fn blacklist_resharding_maps_to_current_layout_shard_ids() {
-    let num_producers = 4u64;
-    let parent = ShardLayout::multi_shard(2, 0);
+    // Explicit non-identity layout so `shard_id != shard_index` holds by construction
+    // for every shard (no dependency on `multi_shard`'s seeded shuffle). Parent covers
+    // accounts split at "mmm" with ids [1, 0]; splitting at "aaa" (sorts first) retires
+    // shard 1 into children [2, 3] and leaves shard 0. Both the V2 and V3 derivations
+    // splice `[max_shard_id + 1, max_shard_id + 2]` at the new boundary's insert index,
+    // so both yield [2, 3, 0]; pin all three vectors before deriving generically.
+    let split_boundary: AccountId = "aaa".parse().unwrap();
+    let parent =
+        ShardLayout::v2(vec!["mmm".parse().unwrap()], vec![ShardId::new(1), ShardId::new(0)], None);
+    assert_eq!(
+        parent.shard_ids().collect::<Vec<_>>(),
+        vec![ShardId::new(1), ShardId::new(0)],
+        "parent shard ids",
+    );
+    let v2_child = ShardLayout::derive_shard_layout(&parent, split_boundary.clone());
+    let v3_child = parent.derive_v3(split_boundary, || vec![]).unwrap();
+    for child in [&v2_child, &v3_child] {
+        assert_eq!(
+            child.shard_ids().collect::<Vec<_>>(),
+            vec![ShardId::new(2), ShardId::new(3), ShardId::new(0)],
+            "child shard ids",
+        );
+    }
+
+    reshard_case(&parent, &v2_child);
+    reshard_case(&parent, &v3_child);
+}
+
+/// One reshard mapping check for a `parent`/`child` layout pair (the caller pins the
+/// concrete shard ids first). Derives the retired parent, survivor and children by set
+/// difference, feeds one shared `shard_tracker` to both layouts, and asserts that each
+/// keeps its valid shards' candidates and drops the ids foreign to it.
+fn reshard_case(parent: &ShardLayout, child: &ShardLayout) {
     let parent_ids: Vec<ShardId> = parent.shard_ids().collect();
-    let child = ShardLayout::derive_shard_layout(&parent, "aaa".parse().unwrap());
     let child_ids: Vec<ShardId> = child.shard_ids().collect();
-    assert_eq!(child.num_shards(), 3, "split must add exactly one shard");
 
-    let split_parent = *parent_ids
-        .iter()
-        .find(|id| !child_ids.contains(id))
-        .expect("exactly one parent shard is split/retired");
-    let surviving = *parent_ids
-        .iter()
-        .find(|id| child_ids.contains(id))
-        .expect("exactly one parent shard survives the split");
+    let retired: Vec<ShardId> =
+        parent_ids.iter().copied().filter(|id| !child_ids.contains(id)).collect();
+    let survivors: Vec<ShardId> =
+        parent_ids.iter().copied().filter(|id| child_ids.contains(id)).collect();
+    assert_eq!(retired.len(), 1, "exactly one parent shard is split/retired, got {retired:?}");
+    assert_eq!(survivors.len(), 1, "exactly one parent shard survives, got {survivors:?}");
+    let split_parent = retired[0];
+    let surviving = survivors[0];
     let children = child.get_children_shards_ids(split_parent).expect("split parent has children");
-    assert_eq!(children.len(), 2, "a split yields two children");
-
+    assert_eq!(children.len(), 2, "a split yields two children, got {children:?}");
     for c in &children {
         assert!(!parent_ids.contains(c), "child id {c} must not reuse a parent shard id");
         assert_eq!(
@@ -1452,131 +1506,475 @@ fn blacklist_resharding_maps_to_current_layout_shard_ids() {
         );
     }
 
-    let parent_ei = epoch_info_for_layout(&parent, num_producers);
-    let child_ei = epoch_info_for_layout(&child, num_producers);
+    // The drop is a layout-level `get_shard_index` miss: a retired parent lives only in
+    // the split map, a child does not exist in the parent, so neither resolves.
+    assert!(
+        child.get_shard_index(split_parent).is_err(),
+        "retired parent {split_parent} must have no shard index in the child layout",
+    );
+    assert!(
+        parent.get_shard_index(children[0]).is_err(),
+        "child {} must have no shard index in the parent layout",
+        children[0],
+    );
 
-    // 0/100 clears both gates (100 misses, 0% ratio). Exactly one bad producer per
-    // shard, so the keep-one valve never fires and the expected maps stay exact.
-    let one_bad = |bad_id: ValidatorId| -> HashMap<ValidatorId, ChunkStats> {
-        (0..num_producers)
-            .map(|id| {
-                let stats = if id == bad_id {
-                    ChunkStats::new_with_production(0, 100)
-                } else {
-                    ChunkStats::new_with_production(100, 100)
-                };
-                (id, stats)
-            })
-            .collect()
+    // Five producers: one bad producer per shard plus a shared healthy producer (id 4).
+    // Distinct settlements built in declared shard-index order, never via `get_shard_index`
+    // (the mechanism under test must not be its own oracle). Each valid shard's bad
+    // producer sits in that shard's own settlement.
+    const HEALTHY: ValidatorId = 4;
+    let num_producers = 5u64;
+    let bad_producer = |shard: ShardId| -> ValidatorId {
+        if shard == ShardId::new(1) {
+            0
+        } else if shard == ShardId::new(0) {
+            1
+        } else if shard == ShardId::new(2) {
+            2
+        } else if shard == ShardId::new(3) {
+            3
+        } else {
+            panic!("unexpected shard id {shard}")
+        }
     };
-    let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::from([
-        (surviving, one_bad(0)),
-        (split_parent, one_bad(1)),
-        (children[0], one_bad(2)),
-    ]);
+    let settlement_for =
+        |shard: ShardId| -> Vec<ValidatorId> { vec![bad_producer(shard), HEALTHY] };
+    let settlements = |layout: &ShardLayout| -> Vec<Vec<ValidatorId>> {
+        layout.shard_ids().map(settlement_for).collect()
+    };
+    let parent_ei = epoch_info_for_layout(parent, settlements(parent), num_producers);
+    let child_ei = epoch_info_for_layout(child, settlements(child), num_producers);
 
-    let bl_parent = blacklist(&st, &parent_ei, &parent);
-    assert_eq!(
-        bl_parent,
-        HashMap::from([(surviving, HashSet::from([0])), (split_parent, HashSet::from([1]))]),
-    );
-    assert!(!bl_parent.contains_key(&children[0]), "child id must not resolve on parent layout");
-    assert!(!bl_parent.contains_key(&children[1]), "child id must not resolve on parent layout");
+    // One tracker carrying every shard id from both layouts. 0/100 clears both gates
+    // (100 missed, 0% ratio); the healthy id is 100/100. One candidate per shard, so the
+    // keep-one valve never fires (`kept == None`).
+    let candidate_shard = |shard: ShardId| -> HashMap<ValidatorId, ChunkStats> {
+        HashMap::from([
+            (bad_producer(shard), ChunkStats::new_with_production(0, 100)),
+            (HEALTHY, ChunkStats::new_with_production(100, 100)),
+        ])
+    };
+    let all_shards: HashSet<ShardId> = parent_ids.iter().chain(child_ids.iter()).copied().collect();
+    let st: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> =
+        all_shards.iter().map(|&shard| (shard, candidate_shard(shard))).collect();
 
-    let bl_child = blacklist(&st, &child_ei, &child);
+    // Parent layout: shards 1 and 0 resolve, the two child ids are foreign and dropped.
+    let parent_result = compute_chunk_producer_blacklist(&st, &parent_ei, parent);
     assert_eq!(
-        bl_child,
-        HashMap::from([(surviving, HashSet::from([0])), (children[0], HashSet::from([2]))]),
+        parent_result.blacklist,
+        HashMap::from([
+            (split_parent, HashSet::from([bad_producer(split_parent)])),
+            (surviving, HashSet::from([bad_producer(surviving)])),
+        ]),
+        "parent layout must blacklist each valid shard's own-settlement candidate",
     );
-    assert!(
-        !bl_child.contains_key(&split_parent),
-        "retired parent id must not resolve on child layout",
+    assert_eq!(
+        shard_stats_projection(&parent_result),
+        HashMap::from([(split_parent, (1, None)), (surviving, (1, None))]),
+        "parent layout stats: one candidate per valid shard, valve not fired",
     );
-    assert!(
-        !bl_child.contains_key(&children[1]),
-        "child shard with no stats must be absent from the blacklist",
+
+    // Child layout: children and the survivor resolve, the retired parent id is dropped.
+    let child_result = compute_chunk_producer_blacklist(&st, &child_ei, child);
+    assert_eq!(
+        child_result.blacklist,
+        HashMap::from([
+            (children[0], HashSet::from([bad_producer(children[0])])),
+            (children[1], HashSet::from([bad_producer(children[1])])),
+            (surviving, HashSet::from([bad_producer(surviving)])),
+        ]),
+        "child layout must blacklist each valid shard's own-settlement candidate",
+    );
+    assert_eq!(
+        shard_stats_projection(&child_result),
+        HashMap::from(
+            [(children[0], (1, None)), (children[1], (1, None)), (surviving, (1, None)),]
+        ),
+        "child layout stats: one candidate per valid shard, valve not fired",
     );
 }
 
-/// `drive_down_node` starting from an arbitrary `fork_point`: blacklist-aware
-/// assignment, chunk missed only when the sampler picks `target`. `salt` keeps sibling
-/// forks' block hashes distinct. Returns the tip.
-#[cfg(feature = "nightly")]
-fn drive_fork(
+/// A block hash on `branch` at `height`. The branch byte is a domain separator, so
+/// sibling branches (and the shared prefix's branch 0) never collide, whatever heights
+/// they reuse across the fork.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+fn fork_block_hash(branch: u8, height: u64) -> CryptoHash {
+    hash(&[&[branch][..], &height.to_le_bytes()[..]].concat())
+}
+
+/// Records one block on `branch` at `height`, extending `prev`, using the same
+/// blacklist-aware assignment as `drive_down_node`: the chunk is missed exactly when
+/// `target` is the scheduled producer, so `target` accrues misses while its slots
+/// reassign to producers that actually produce. Returns the new tip. Shared by the two
+/// fork tests below (their only genuine overlap).
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+fn fork_step(
     handle: &EpochManagerHandle,
-    fork_point: CryptoHash,
-    fork_point_height: u64,
-    count: u64,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+    shard_id: ShardId,
+    prev: CryptoHash,
+    branch: u8,
+    height: u64,
     target: ValidatorId,
-    salt: u64,
 ) -> CryptoHash {
-    let fork_hash = |height: u64| hash(&[salt.to_le_bytes(), height.to_le_bytes()].concat());
-    let epoch_id = handle.get_epoch_id(&fork_point).unwrap();
+    let cur = fork_block_hash(branch, height);
+    let empty = HashSet::new();
+    let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
+    let assigned = epoch_info
+        .sample_chunk_producer_excluding(
+            layout,
+            shard_id,
+            height,
+            blacklist.get(&shard_id).unwrap_or(&empty),
+        )
+        .unwrap();
+    let produced = assigned != target;
+    record_block_with_mask(&mut handle.write(), prev, cur, height, vec![produced]);
+    cur
+}
+
+/// Drives one branch forward via `fork_step` until `done(tip)` holds, starting from
+/// `(prev, height)`. Every phase of the fork tests is driven by an observable condition
+/// rather than a fixed block count, because the sampler and the two-block finality lag
+/// decide when a condition becomes true. Panics with the full fork state if `cap` steps
+/// pass first. Returns the tip and its height.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+fn drive_until(
+    handle: &EpochManagerHandle,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+    shard_id: ShardId,
+    mut prev: CryptoHash,
+    mut height: u64,
+    branch: u8,
+    target: ValidatorId,
+    cap: u64,
+    phase: &str,
+    mut done: impl FnMut(&EpochManagerHandle, CryptoHash) -> bool,
+) -> (CryptoHash, u64) {
+    for _ in 0..cap {
+        if done(handle, prev) {
+            return (prev, height);
+        }
+        height += 1;
+        prev = fork_step(handle, epoch_info, layout, shard_id, prev, branch, height, target);
+    }
+    if done(handle, prev) {
+        return (prev, height);
+    }
+    let (basis, watermark, cache) = {
+        let read = handle.read();
+        let info = read.get_block_info(&prev).unwrap();
+        (
+            *info.last_final_block_hash(),
+            read.largest_final_height,
+            read.epoch_info_aggregator.last_block_hash,
+        )
+    };
+    let target_stats = handle
+        .read()
+        .get_epoch_info_aggregator_upto_last(&basis)
+        .ok()
+        .and_then(|agg| agg.shard_tracker.get(&shard_id).and_then(|m| m.get(&target).cloned()))
+        .map(|s| (s.produced(), s.expected()))
+        .unwrap_or((0, 0));
+    let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
+    panic!(
+        "phase {phase:?}: cap {cap} exceeded on branch {branch} at height {height}; anchor {prev} \
+         basis {basis} cache {cache} watermark {watermark}; target {target} produced {} expected {} \
+         missed {}; blacklist {blacklist:?}",
+        target_stats.0,
+        target_stats.1,
+        target_stats.1.saturating_sub(target_stats.0),
+    );
+}
+
+// v152+ protocol: two sibling forks off a shared prefix starve different producers, and
+// the accessor (keyed on the anchor hash) resolves each fork to its own blacklist. This
+// one test interleaves the deep-sibling overtake, the late-prefix inheritance and the
+// cached-prefix path, asserting the aggregator exit directly via `aggregate_epoch_info_upto`'s
+// `full_info` flag rather than inferring it from blacklist equality.
+//
+// Lowered test-only thresholds (10 misses past a 20-block grace) keep it cheap. The prior
+// fixture used an equal-depth sibling forked at height 1: that ancient fork point kept the
+// cached aggregator pinned to genesis, so every per-block seed walk ran to genesis and the
+// recording cost was quadratic in the sibling depth. Forking at the cached last-final block
+// (the real production shape) makes the sibling grow linearly, so the real 100-miss /
+// 1000-block thresholds would also work here at ~1500 blocks; the lowered thresholds are for
+// speed and legibility, not correctness. Real thresholds stay covered by the canonical tests.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[test]
+fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
+    let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
+    // 3 validators so blacklisting two producers on the sibling does not trip the keep-one
+    // valve; the contamination a leak would cause then shows up in the blacklist itself.
+    let validators = vec![
+        ("test0".parse().unwrap(), STAKE),
+        ("test1".parse().unwrap(), STAKE),
+        ("test2".parse().unwrap(), STAKE),
+    ];
+    // Epoch length large enough that everything stays inside epoch 0 (no boundary reset).
+    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let epoch_id = EpochId::default();
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    let empty = HashSet::new();
-    let mut prev = fork_point;
-    for i in 1..=count {
-        let height = fork_point_height + i;
-        let cur = fork_hash(height);
-        let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
-        let assigned = epoch_info
-            .sample_chunk_producer_excluding(
-                &layout,
-                shard_id,
-                height,
-                blacklist.get(&shard_id).unwrap_or(&empty),
-            )
-            .unwrap();
-        let produced = assigned != target;
-        record_block_with_mask(&mut handle.write(), prev, cur, height, vec![produced]);
-        prev = cur;
-    }
-    prev
+
+    let genesis = fork_block_hash(0, 0);
+    record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
+
+    // Phase 1: shared prefix on branch 0, starving producer 0, until the accessor is
+    // exactly {0}. The fork point is this prefix tip — at or above the cached last-final
+    // block, so both forks descend from the cached position (linear seed walks).
+    let only_0 = HashMap::from([(shard_id, HashSet::from([0]))]);
+    let (fork_point, fork_point_height) = drive_until(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        genesis,
+        0,
+        0,
+        0,
+        256,
+        "shared prefix -> {0}",
+        |h, tip| h.get_chunk_producer_blacklist(&tip).unwrap() == only_0,
+    );
+
+    // Phase 2: branch a canonical child (keeps starving 0) and a sibling child (starves 1)
+    // off the shared fork point.
+    let first_height = fork_point_height + 1;
+    let canonical_first =
+        fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, fork_point, 1, first_height, 0);
+    let sibling_first =
+        fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, fork_point, 2, first_height, 1);
+    assert_ne!(canonical_first, sibling_first, "sibling branches must have distinct hashes");
+
+    // Phase 3: white-box coverage of the aggregator helper. Aggregating to the first sibling
+    // block itself (NOT the blacklist basis for that anchor — the accessor aggregates to the
+    // anchor's last-final block) reaches the same-epoch cached-prefix sync point, so
+    // `full_info` is false and the caller merges the cached prefix. `merge_prefix` is the
+    // intended behaviour there, not contamination: the merged aggregator carries producer 0's
+    // common-prefix stats.
+    let (_, full_info) = handle
+        .read()
+        .aggregate_epoch_info_upto(&sibling_first)
+        .unwrap()
+        .expect("first sibling block differs from the cache position");
+    assert!(!full_info, "first sibling block must hit the same-epoch cached-prefix exit");
+    let merged = handle.read().get_epoch_info_aggregator_upto_last(&sibling_first).unwrap();
+    let producer_0 = merged.shard_tracker.get(&shard_id).and_then(|m| m.get(&0));
+    assert!(
+        producer_0.is_some_and(|s| s.expected() > 0),
+        "merged aggregator must carry producer 0's common-prefix stats, got {producer_0:?}",
+    );
+
+    // Phase 4: extend the canonical branch until its anchor's last-final block is
+    // canonical-only (past the shared prefix), then snapshot the canonical finality watermark.
+    let (canonical_tip, _) = drive_until(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        canonical_first,
+        first_height,
+        1,
+        0,
+        256,
+        "canonical last-final becomes canonical-only",
+        |h, tip| h.read().get_block_info(&tip).unwrap().last_finalized_height() > fork_point_height,
+    );
+    let canonical_watermark = handle.read().largest_final_height;
+
+    // Phase 5: extend the sibling, starving producer 1, until it overtakes the canonical
+    // watermark, the aggregator cache has moved onto the sibling (its `last_block_hash` is the
+    // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
+    // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
+    // genuinely overtakes; passing it triggers the full-rewalk replace onto the sibling.
+    let (sibling_tip, _) = drive_until(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        sibling_first,
+        first_height,
+        2,
+        1,
+        256,
+        "sibling overtakes and blacklist becomes {0,1}",
+        |h, tip| {
+            let (final_hash, final_height, cache) = {
+                let read = h.read();
+                let info = read.get_block_info(&tip).unwrap();
+                (
+                    *info.last_final_block_hash(),
+                    info.last_finalized_height(),
+                    read.epoch_info_aggregator.last_block_hash,
+                )
+            };
+            if final_height <= canonical_watermark || cache != final_hash {
+                return false;
+            }
+            h.get_chunk_producer_blacklist(&tip).unwrap().get(&shard_id)
+                == Some(&HashSet::from([0, 1]))
+        },
+    );
+    assert_ne!(canonical_tip, sibling_tip, "forks must have distinct anchor hashes");
+
+    // Phase 6: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
+    // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
+    // cache sits on the sibling, so the walk cannot reach the cached sync point and rewalks
+    // the canonical chain to the epoch start.
+    let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
+    assert_eq!(
+        canonical_bl,
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "canonical blacklist must be unchanged after the sibling took over the cache",
+    );
+    let canonical_basis =
+        *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
+    let (_, canonical_full_info) = handle
+        .read()
+        .aggregate_epoch_info_upto(&canonical_basis)
+        .unwrap()
+        .expect("canonical basis differs from the sibling cache position");
+    assert!(
+        canonical_full_info,
+        "after the sibling takeover the canonical basis must trigger a full rewalk",
+    );
+
+    // Phase 7: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
+    // one survivor left).
+    let sibling_bl = handle.get_chunk_producer_blacklist(&sibling_tip).unwrap();
+    assert_eq!(
+        sibling_bl,
+        HashMap::from([(shard_id, HashSet::from([0, 1]))]),
+        "sibling must resolve to its own blacklist, isolated from the canonical branch",
+    );
 }
 
-// 14. v152+ protocol: two sibling forks off a shared prefix starve different producers.
-//     The accessor is keyed on the anchor hash and aggregates only along that anchor's
-//     own chain, so each fork resolves to its own blacklist. `record_block_info` takes
-//     arbitrary prev/cur, so these are real forks, not a harness approximation.
-#[cfg(feature = "nightly")]
+/// Drives `branch` off the shared `fork_point`, starving `target`, until it blacklists
+/// exactly `{target}`, then manufactures a non-vacuous anchor and asserts the seeded
+/// `DBCol::ChunkProducers` row (the row consensus actually reads) reflects that branch's
+/// blacklist: it excludes `target` at a height where the plain sampler would have picked it.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+fn assert_branch_seeds_own_blacklist(
+    handle: &EpochManagerHandle,
+    epoch_info: &EpochInfo,
+    layout: &ShardLayout,
+    shard_id: ShardId,
+    epoch_id: &EpochId,
+    fork_point: CryptoHash,
+    fork_point_height: u64,
+    branch: u8,
+    target: ValidatorId,
+) {
+    let only_target = HashMap::from([(shard_id, HashSet::from([target]))]);
+    let (mut tip, mut height) = drive_until(
+        handle,
+        epoch_info,
+        layout,
+        shard_id,
+        fork_point,
+        fork_point_height,
+        branch,
+        target,
+        256,
+        "reach single-producer blacklist",
+        |h, t| h.get_chunk_producer_blacklist(&t).unwrap() == only_target,
+    );
+
+    // Extend (target stays down, so the blacklist stays {target}) until the PLAIN sampler
+    // at the anchor offset would pick the blacklisted producer. Only then does the seeder's
+    // reassignment change the stored row, so scanning only the anchors the drive happened to
+    // leave is not enough — with one blacklisted producer of three a short window need not
+    // contain a plain sample of it.
+    for _ in 0..128 {
+        let chunk_height = height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
+        let blacklist = handle.get_chunk_producer_blacklist(&tip).unwrap();
+        let shard_blacklist = blacklist.get(&shard_id).cloned().unwrap_or_default();
+        assert_eq!(
+            shard_blacklist,
+            HashSet::from([target]),
+            "branch {branch} blacklist drifted from {{{target}}}",
+        );
+        if shard_blacklist.contains(&plain) {
+            let expected = epoch_info
+                .sample_chunk_producer_excluding(layout, shard_id, chunk_height, &shard_blacklist)
+                .unwrap();
+            let stored_stake = handle
+                .get_chunk_producer_info_anchored(Some(&tip), epoch_id, chunk_height, shard_id)
+                .unwrap();
+            let stored = epoch_info.get_validator_id(stored_stake.account_id()).copied().unwrap();
+            assert_eq!(
+                stored, expected,
+                "branch {branch}: seeded row must be the blacklist-aware sample",
+            );
+            assert_ne!(
+                stored, plain,
+                "branch {branch}: seeder must reassign away from the blacklisted plain pick",
+            );
+            assert!(
+                !shard_blacklist.contains(&stored),
+                "branch {branch}: seeded row must not be a blacklisted producer",
+            );
+            return;
+        }
+        height += 1;
+        tip = fork_step(handle, epoch_info, layout, shard_id, tip, branch, height, target);
+    }
+    panic!(
+        "branch {branch}: no anchor whose plain pick is the blacklisted producer within 128 blocks"
+    );
+}
+
+// v152+ protocol, seeded-row companion to the fork isolation test: consensus reads the
+// stored `DBCol::ChunkProducers` row, not the live recompute, so pin that the stored row on
+// each fork reflects that fork's own blacklist. Two branches fork at genesis and starve
+// different producers; each ends with its own single-producer blacklist, and its seeded row
+// excludes that producer at a height where the plain sampler would have picked it.
+#[cfg(all(feature = "nightly", feature = "test_features"))]
 #[test]
-fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    // Epoch length large enough that both forks stay inside epoch 0 (no boundary reset).
+fn fork_seeded_rows_reflect_each_branch_blacklist() {
+    let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
+    let validators = vec![
+        ("test0".parse().unwrap(), STAKE),
+        ("test1".parse().unwrap(), STAKE),
+        ("test2".parse().unwrap(), STAKE),
+    ];
     let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+    let epoch_id = EpochId::default();
+    let layout = handle.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = layout.shard_ids().next().unwrap();
+    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
 
-    let genesis = hash(&0u64.to_le_bytes());
-    let common = hash(&1u64.to_le_bytes());
+    let genesis = fork_block_hash(0, 0);
     record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
-    record_block_with_mask(&mut handle.write(), genesis, common, 1, vec![true]);
 
-    // Past the 1000-block start-of-epoch grace, so each tip has a non-empty blacklist.
-    let depth = 1200;
-    let canonical_tip = drive_fork(&handle, common, 1, depth, 0, 1);
-    // Isolation holds by construction (the aggregator walks only the anchor's own chain,
-    // and its monotone `largest_final_height` watermark rejects sibling mutation), so
-    // this snapshot pins that construction. Worth pinning because a leak would not show
-    // up in the blacklists below: the keep-one valve would drop the extra candidate.
-    let canonical_stats_before =
-        handle.read().get_epoch_info_aggregator_upto_last(&canonical_tip).unwrap().shard_tracker;
-    let fork_tip = drive_fork(&handle, common, 1, depth, 1, 2);
-    assert_ne!(canonical_tip, fork_tip, "forks must have distinct anchor hashes");
-
-    let epoch_id = handle.get_epoch_id_from_prev_block(&canonical_tip).unwrap();
-    let shard_id = handle.get_shard_layout(&epoch_id).unwrap().shard_ids().next().unwrap();
-
-    let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
-    let fork_bl = handle.get_chunk_producer_blacklist(&fork_tip).unwrap();
-
-    assert_eq!(canonical_bl, HashMap::from([(shard_id, HashSet::from([0]))]));
-    assert_eq!(fork_bl, HashMap::from([(shard_id, HashSet::from([1]))]));
-
-    let canonical_stats_after =
-        handle.read().get_epoch_info_aggregator_upto_last(&canonical_tip).unwrap().shard_tracker;
-    assert_eq!(
-        canonical_stats_before, canonical_stats_after,
-        "driving the abandoned fork must not alter the canonical anchor's aggregated stats",
+    // Two forks off genesis, each starving its own producer. Each call drives and asserts to
+    // completion before the next, so at assertion time the aggregator cache is on that branch.
+    assert_branch_seeds_own_blacklist(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        &epoch_id,
+        genesis,
+        0,
+        1,
+        0,
+    );
+    assert_branch_seeds_own_blacklist(
+        &handle,
+        epoch_info.as_ref(),
+        &layout,
+        shard_id,
+        &epoch_id,
+        genesis,
+        0,
+        2,
+        1,
     );
 }
