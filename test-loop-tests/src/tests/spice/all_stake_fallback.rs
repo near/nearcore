@@ -4,7 +4,7 @@ use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::spice::core::all_stake_fallback_assignment;
+use near_chain::spice::all_stake_fallback::all_stake_fallback_assignment;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -153,6 +153,32 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
 
     // The certified frontier must keep advancing via the all-stake fallback though every designated
     // endorsement is dropped (slowly: ~1 block per fallback window under a total outage).
+    let target = env.node(0).last_certified_block_header().height() + 4;
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= target,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
+    init_test_logger();
+
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
+    // Every request for partial data is dropped, so a non-designated validator can endorse only if
+    // the producers pushed the witness to it when the fallback opened.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements)
+        .drop(DropCondition::SpicePartialDataRequests);
+    assert_fallback_has_enough_stake(&env.node(0));
+
     let target = env.node(0).last_certified_block_header().height() + 4;
     env.node_runner(0).run_until(
         |node| node.last_certified_block_header().height() >= target,

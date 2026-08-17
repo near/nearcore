@@ -6,6 +6,7 @@ use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
+use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
@@ -184,6 +185,12 @@ impl ChunkExecutorActor {
     /// buffer for the parent block).
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        // A block from a pre-spice epoch was already executed synchronously as part
+        // of block processing and has no spice state to work from, so this returns
+        // without touching it.
+        if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            return Ok(());
+        }
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
@@ -341,6 +348,11 @@ impl ChunkExecutorActor {
 impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
         if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        // Both recovery steps below read the spice execution heads, which only
+        // exist once spice is active
+        if !spice_enabled_at_head_on_startup(&self.chain_store) {
             return;
         }
         // Recover after a crash between apply-commit and finalize: walk forward

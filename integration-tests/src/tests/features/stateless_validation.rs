@@ -352,7 +352,12 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Create a dummy ChunkStateWitness with an invalid shard_id
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = ShardId::new(1000000000);
-    let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
+    let witness = ChunkStateWitness::new_dummy(
+        upper_height,
+        invalid_shard_id,
+        previous_block,
+        PROTOCOL_VERSION,
+    );
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID

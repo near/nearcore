@@ -43,10 +43,10 @@ use crate::transaction::{
 };
 use crate::trie_split::TrieSplit;
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
+    StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -2768,6 +2768,20 @@ impl LightClientBlockLiteView {
             &self.prev_block_hash,
         )
     }
+}
+
+/// Proof that a chunk's certified execution roots are committed by a spice block
+/// that a light client can trust via its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;
+/// `certifying_block_proof` places the certifying block into the head's block merkle tree.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionProofView {
+    pub roots: ChunkExecutionRoots,
+    pub roots_proof: MerklePath,
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    pub certifying_block_proof: MerklePath,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

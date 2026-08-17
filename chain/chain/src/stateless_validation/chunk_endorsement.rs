@@ -234,6 +234,7 @@ mod tests {
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::ShardId;
     use near_primitives::validator_signer::ValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
 
     /// Builds a single-shard block at the next height carrying `chunk` and a single endorsement
@@ -264,7 +265,8 @@ mod tests {
 
         // `new_dummy` leaves `height_included` at zero, and a chunk that is not new in this block
         // skips endorsement checks entirely.
-        let mut chunk = ShardChunkHeader::new_dummy(height, ShardId::new(0), *genesis.hash());
+        let mut chunk =
+            ShardChunkHeader::new_dummy(height, ShardId::new(0), *genesis.hash(), PROTOCOL_VERSION);
         *chunk.height_included_mut() = height;
 
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(genesis.hash()).unwrap();

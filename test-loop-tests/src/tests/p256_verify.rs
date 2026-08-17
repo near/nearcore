@@ -153,7 +153,6 @@ fn test_p256_verify_invalid_returns_0() {
 /// imports `env.p256_verify` must fail at call time (the import can't be
 /// linked against a runtime that doesn't expose it).
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_p256_verify_pre_activation_call_fails() {
     init_test_logger();
 
