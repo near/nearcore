@@ -205,7 +205,7 @@ export interface EpochInfoView {
     protocol_version: number;
     // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
     // index, which does not identify the shards after a resharding.
-    // TODO: get rid of the tuples variant once all nodes are updated and return the entries
+    // TODO(#16236): get rid of the tuples variant once all nodes are updated and return the entries
     // in the new format.
     shards_size_and_parts: ShardSizeAndParts[] | [number, number, boolean][];
 }
@@ -225,7 +225,7 @@ function isLegacyShardsSizeAndParts(
 
 // Accepts either payload shape, reporting which one it got so callers can label shards
 // accurately instead of silently presenting a shard index as a shard id. Legacy entries get
-// `shard_id: -1`, which is only ever meaningful to read when `keyedByShardId` is set.
+// `shard_id: -1`; when `keyedByShardId` is false, callers should use `shard_index` instead.
 export function normalizeShardsSizeAndParts(
     value: EpochInfoView['shards_size_and_parts']
 ): NormalizedShardSizes {

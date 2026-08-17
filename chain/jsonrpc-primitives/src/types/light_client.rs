@@ -45,6 +45,19 @@ pub struct RpcLightClientBlockProofResponse {
     pub block_proof: near_primitives::merkle::MerklePath,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientChunkExecutionProofRequest {
+    pub chunk_id: near_primitives::types::SpiceChunkId,
+    pub light_client_head: near_primitives::hash::CryptoHash,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientChunkExecutionProofResponse {
+    pub chunk_execution_proof: near_primitives::views::ChunkExecutionProofView,
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -72,6 +85,17 @@ pub enum RpcLightClientProofError {
     UnavailableShard {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
         shard_id: near_primitives::types::ShardId,
+    },
+    #[error("Chunk {chunk_id:?} is not yet certified")]
+    ChunkNotCertified { chunk_id: near_primitives::types::SpiceChunkId },
+    #[error(
+        "Light client head height {head_height} must be greater than height \
+         {certifying_block_height} of the block certifying chunk {chunk_id:?}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: near_primitives::types::SpiceChunkId,
+        certifying_block_height: near_primitives::types::BlockHeight,
+        head_height: near_primitives::types::BlockHeight,
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },

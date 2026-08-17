@@ -215,6 +215,37 @@ fn test_state_sync_simple_five_node() {
     assert_shard_shuffling_happened(&env, &clients);
 }
 
+#[test]
+#[should_panic(expected = "Invalid Gas Used")]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_chunk_extra_divergence_stops_the_node() {
+    init_test_logger();
+    let validators_spec = create_validators_spec(5, 0);
+    let clients = validators_spec_clients(&validators_spec);
+    let accounts = make_accounts(10);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build();
+
+    let handle = env.node_datas[4].client_sender.actor_handle();
+    env.test_loop.data.get_mut(&handle).client.chain.adv_corrupt_state_sync_chunk_extra = true;
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_for_number_of_blocks(40);
+}
+
 // 2 validators, 4 shards, no extra accounts. With only validator + "near" accounts,
 // at least one shard will be empty. Tests state syncing a shard with no account data.
 #[test]

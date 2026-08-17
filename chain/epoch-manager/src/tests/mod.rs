@@ -2190,6 +2190,7 @@ fn test_protocol_version_switch() {
     let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = 0;
+    let genesis_shard_layout = epoch_config.static_shard_layout().unwrap();
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (genesis_protocol_version, Arc::new(epoch_config.clone())),
         (PROTOCOL_VERSION, Arc::new(epoch_config)),
@@ -2199,6 +2200,7 @@ fn test_protocol_version_switch() {
         2,
         config_store,
         genesis_protocol_version,
+        genesis_shard_layout,
     );
 
     let amount_staked = Balance::from_yoctonear(1_000_000);
@@ -2232,6 +2234,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     let new_epoch_config = epoch_config(2, 4, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let genesis_protocol_version = PROTOCOL_VERSION - 1;
+    let genesis_shard_layout = old_epoch_config.static_shard_layout().unwrap();
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (genesis_protocol_version, Arc::new(old_epoch_config)),
         (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
@@ -2241,6 +2244,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         2,
         config_store,
         genesis_protocol_version,
+        genesis_shard_layout,
     );
 
     let amount_staked = Balance::from_yoctonear(1_000_000);
@@ -2289,12 +2293,16 @@ fn test_protocol_version_switch_with_many_seats() {
         stake("test2".parse().unwrap(), amount_staked.checked_div(5).unwrap()),
     ];
 
-    let config_store = EpochConfigStore::test_single_version(
+    let epoch_config = TestEpochConfigBuilder::new().epoch_length(10).build();
+    let genesis_shard_layout = epoch_config.static_shard_layout().unwrap();
+    let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
+    let config = AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        10,
+        config_store,
         PROTOCOL_VERSION,
-        TestEpochConfigBuilder::new().epoch_length(10).build(),
+        genesis_shard_layout,
     );
-    let config =
-        AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store, PROTOCOL_VERSION);
 
     let mut epoch_manager =
         EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
@@ -2322,12 +2330,18 @@ fn test_version_switch_kickout_old_version() {
     let epoch_length = 2;
     let epoch_config = epoch_config(epoch_length, 1, 2, 100, 90, 60, 0, Rational32::new(0, 1))
         .for_protocol_version(version);
+    let genesis_shard_layout = epoch_config.static_shard_layout().unwrap();
     let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (version, Arc::new(epoch_config.clone())),
         (new_version, Arc::new(epoch_config)),
     ]));
-    let config =
-        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, PROTOCOL_VERSION);
+    let config = AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        2,
+        config_store,
+        PROTOCOL_VERSION,
+        genesis_shard_layout,
+    );
 
     let (large_stake, small_stake) = (Balance::from_yoctonear(1_000), Balance::from_yoctonear(100));
     let validators = vec![
