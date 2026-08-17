@@ -24,6 +24,7 @@ use near_primitives::views::{
     AccountContractView, ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
 };
 use near_store::{DBCol, StoreConfig};
+use std::collections::HashSet;
 use std::iter::repeat_with;
 use tokio::sync::mpsc;
 
@@ -461,6 +462,41 @@ fn test_indexer_skip_broken_block() {
     assert_eq!(msg.block.header.height, broken_height + 1);
 }
 
+/// Two adjacent unbuildable heights used to deadlock a `skip_broken_blocks`
+/// streamer: skipping the first one recorded no progress, so the next iteration
+/// of the main loop started over on it, hit the second one, went back to the
+/// first one, and never streamed another block. Observed on a traffic generator
+/// node ping-ponging between the same two heights forever.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_skip_adjacent_broken_blocks() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_heights = drop_receipts_of_delayed_local_txs(&mut env);
+    let first_broken = *broken_heights.iter().min().unwrap();
+    let last_broken = *broken_heights.iter().max().unwrap();
+    assert!(
+        broken_heights.contains(&(first_broken + 1)),
+        "the deadlock needs two adjacent broken heights, got {broken_heights:?}"
+    );
+
+    let mut indexer_receiver =
+        start_indexer_skipping_broken_blocks(&env, SyncModeEnum::BlockHeight(first_broken - 1));
+    // The height before the broken ones still streams normally.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, first_broken - 1);
+    // Streaming must get past every broken height instead of looping on them.
+    loop {
+        let height = receive_indexer_message(&mut env, &mut indexer_receiver).block.header.height;
+        assert!(!broken_heights.contains(&height), "height {height} should have been skipped");
+        if height > last_broken {
+            break;
+        }
+    }
+}
+
 /// The very same block must instead terminate a regular indexer: silently
 /// dropping it would leave an unnoticed gap in the stream.
 #[test]
@@ -508,6 +544,63 @@ fn drop_receipt_of_local_tx(env: &mut TestLoopEnv) -> BlockHeight {
     );
 
     broken_height
+}
+
+/// Runs local transactions whose receipts spill over into consecutive blocks and
+/// drops all of those receipts from the store, leaving a run of adjacent heights
+/// that can no longer be built. Returns those heights.
+fn drop_receipts_of_delayed_local_txs(env: &mut TestLoopEnv) -> HashSet<BlockHeight> {
+    deploy_test_contract(env);
+    // Each local receipt burns more than half the chunk gas limit, so only two of
+    // them fit in a chunk and the third one is delayed into the next block.
+    let gas_to_burn = GAS_LIMIT.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
+    let txs = repeat_with(|| create_burn_gas_tx(env, gas_to_burn)).take(3).collect_vec();
+    for tx in &txs {
+        env.validator().submit_tx(tx.clone());
+    }
+
+    let receipt_ids = txs
+        .iter()
+        .map(|tx| {
+            let tx_outcome = env
+                .validator_runner()
+                .run_until_outcome_available(tx.get_hash(), Duration::seconds(5));
+            let ExecutionStatus::SuccessReceiptId(receipt_id) =
+                tx_outcome.outcome_with_id.outcome.status
+            else {
+                panic!("failed to convert transaction to receipt");
+            };
+            receipt_id
+        })
+        .collect_vec();
+    let broken_heights = receipt_ids
+        .iter()
+        .map(|receipt_id| {
+            let outcome = env
+                .validator_runner()
+                .run_until_outcome_available(*receipt_id, Duration::seconds(5));
+            env.validator().block(outcome.block_hash).header().height()
+        })
+        .collect::<HashSet<_>>();
+
+    // Get the broken heights off the chain head, so that the streamer has a later
+    // height to resume at once it gives up on them.
+    env.validator_runner().run_for_number_of_blocks(3);
+
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    for receipt_id in &receipt_ids {
+        store_update.decrement_refcount(DBCol::Receipts, receipt_id.as_ref());
+    }
+    store_update.commit();
+    for receipt_id in &receipt_ids {
+        assert!(
+            !store.exists(DBCol::Receipts, receipt_id.as_ref()),
+            "receipt should be gone from the store"
+        );
+    }
+
+    broken_heights
 }
 
 fn user_account() -> AccountId {

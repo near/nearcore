@@ -366,6 +366,16 @@ pub async fn start(
                             if indexer_config.skip_broken_blocks {
                                 build_streamer_message_attempts = 0;
                                 tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to build streamer message");
+                                // Record the skipped height as synced, so the main
+                                // loop resumes after it instead of starting over on
+                                // it. Without this, a broken height followed by
+                                // another broken one loops forever: the first is
+                                // skipped, the second fails and breaks out of this
+                                // loop, and the next iteration starts back at the
+                                // first one.
+                                db.put(b"last_synced_block_height", &block_height.to_string())
+                                    .unwrap();
+                                last_synced_block_height = Some(block_height);
                                 continue;
                             }
                             panic!(
