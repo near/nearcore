@@ -58,6 +58,21 @@ pub struct RpcLightClientChunkExecutionProofResponse {
     pub chunk_execution_proof: near_primitives::views::ChunkExecutionProofView,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientExecutionOutcomeProofRequest {
+    #[serde(flatten)]
+    pub id: near_primitives::types::TransactionOrReceiptId,
+    pub light_client_head: near_primitives::hash::CryptoHash,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientExecutionOutcomeProofResponse {
+    pub chunk_execution_proof: near_primitives::views::ChunkExecutionProofView,
+    pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -86,6 +101,8 @@ pub enum RpcLightClientProofError {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
         shard_id: near_primitives::types::ShardId,
     },
+    #[error("Node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: near_primitives::types::ShardId },
     #[error("Chunk {chunk_id:?} is not yet certified")]
     ChunkNotCertified { chunk_id: near_primitives::types::SpiceChunkId },
     #[error(

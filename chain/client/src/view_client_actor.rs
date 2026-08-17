@@ -23,7 +23,8 @@ use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetLightClientChunkExecutionProof, GetLightClientProofError, GetMaintenanceWindows,
+    GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
+    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
     GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
     GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
@@ -1707,6 +1708,69 @@ impl
             .with_label_values(&["GetLightClientChunkExecutionProof"])
             .start_timer();
         self.build_chunk_execution_proof(&msg.chunk_id, &msg.light_client_head)
+    }
+}
+
+impl
+    Handler<
+        GetLightClientExecutionOutcomeProof,
+        Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientExecutionOutcomeProof,
+    ) -> Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientExecutionOutcomeProof"])
+            .start_timer();
+        let (id, account_id) = match msg.id {
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                (transaction_hash, sender_id)
+            }
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                (receipt_id, receiver_id)
+            }
+        };
+        let outcome = match self.chain.get_execution_outcome(&id) {
+            Ok(outcome) => outcome,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let head = self.chain.head()?;
+                let shard_id = account_id_to_shard_id(
+                    self.epoch_manager.as_ref(),
+                    &account_id,
+                    &head.epoch_id,
+                )
+                .into_chain_error()?;
+                if !self
+                    .shard_tracker
+                    .cares_about_shard_checked(&head.last_block_hash, shard_id)
+                    .into_chain_error()?
+                {
+                    return Err(GetLightClientProofError::ShardNotTracked { shard_id });
+                }
+                return Err(GetLightClientProofError::UnknownTransactionOrReceipt {
+                    transaction_or_receipt_id: id,
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let block_hash = outcome.block_hash;
+        let epoch_id = *self.chain.get_block_header(&block_hash)?.epoch_id();
+        // The executor, not the account named in the request, decides which shard ran
+        // this outcome. An unverified request hint would name a chunk whose outcome_root
+        // does not commit the outcome.
+        let executor_id = &outcome.outcome_with_id.outcome.executor_id;
+        let shard_id = account_id_to_shard_id(self.epoch_manager.as_ref(), executor_id, &epoch_id)
+            .into_chain_error()?;
+        let chunk_id = SpiceChunkId { block_hash, shard_id };
+        let chunk_execution_proof =
+            self.build_chunk_execution_proof(&chunk_id, &msg.light_client_head)?;
+        Ok(GetLightClientExecutionOutcomeProofResponse {
+            chunk_execution_proof,
+            outcome_proof: outcome.into(),
+        })
     }
 }
 
