@@ -1030,8 +1030,8 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         num_parts: u64,
     ) -> Result<(), Error> {
-        for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+        for state_part_index in 0..num_parts {
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, state_part_index)).unwrap();
             self.gc_col(DBCol::StateParts, &key);
             self.gc_col(DBCol::StatePartsApplied, &key);
         }
