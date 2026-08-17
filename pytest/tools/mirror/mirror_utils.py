@@ -1,6 +1,7 @@
 import sys
 import time
 import atexit
+import hashlib
 import json
 import os
 import pathlib
@@ -11,6 +12,7 @@ import subprocess
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import base58
+from cryptography.hazmat.primitives.asymmetric import mldsa
 from nacl.signing import SigningKey
 
 from configured_logger import logger
@@ -225,6 +227,32 @@ def send_add_access_key(node, key, target_key, nonce, block_hash):
     res = node.send_tx(tx)
     logger.info(
         f'sent add key tx for {target_key.account_id} {target_key.pk}: {res}')
+
+
+def send_mldsa65_add_key(node, key, action, nonce, block_hash, label):
+    tx = transaction.sign_and_serialize_transaction(key.account_id, nonce,
+                                                    [action], block_hash,
+                                                    key.account_id,
+                                                    key.decoded_pk(),
+                                                    key.decoded_sk())
+    res = node.send_tx_and_wait(tx, timeout=30)
+    assert 'error' not in res, f'ML-DSA-65 {label} tx failed: {res}'
+    status = res['result']['status']
+    assert 'SuccessValue' in status, f'ML-DSA-65 {label} tx failed: {status}'
+    logger.info(f'added ML-DSA-65 {label} to {key.account_id}')
+
+
+def send_add_mldsa65_access_key(node, key, mldsa65_pk, nonce, block_hash):
+    action = transaction.create_full_access_key_action(
+        mldsa65_pk, key_type=transaction.KEY_TYPE_MLDSA65)
+    send_mldsa65_add_key(node, key, action, nonce, block_hash, 'access key')
+
+
+def send_add_mldsa65_gas_key(node, key, mldsa65_pk, num_nonces, nonce,
+                             block_hash):
+    action = transaction.create_gas_key_full_access_key_action(
+        mldsa65_pk, num_nonces, key_type=transaction.KEY_TYPE_MLDSA65)
+    send_mldsa65_add_key(node, key, action, nonce, block_hash, 'gas key')
 
 
 def create_subaccount(node,
@@ -499,6 +527,44 @@ def map_key_no_secret(pk_str):
     pk_bytes = base58.b58decode(pk_str.split(':')[1].encode('ascii'))
     mapped_pk = bytes(SigningKey(pk_bytes).verify_key)
     return 'ed25519:' + base58.b58encode(mapped_pk).decode('ascii')
+
+
+MLDSA65_SEED_LEN = 32
+MLDSA65_HASH_DOMAIN = b'near:ml-dsa-65-pubkey-hash:v1'
+
+
+def mldsa65_public_key(seed):
+    """Deterministic ML-DSA-65 pubkey bytes from a seed string.
+
+    Pads the seed to 32 bytes with spaces so a given string yields the same
+    key as `SecretKey::from_seed(KeyType::MLDSA65, seed)` does in Rust
+    """
+    seed_bytes = seed.encode('utf8')[:MLDSA65_SEED_LEN]
+    seed_bytes = seed_bytes.ljust(MLDSA65_SEED_LEN, b' ')
+    private_key = mldsa.MLDSA65PrivateKey.from_seed_bytes(seed_bytes)
+    return private_key.public_key().public_bytes_raw()
+
+
+def mldsa65_handle_digest(mldsa65_pk):
+    """SHA3-256 of (domain tag || pubkey), the raw on-trie handle bytes."""
+    digest = hashlib.sha3_256(MLDSA65_HASH_DOMAIN + mldsa65_pk).digest()
+    assert len(digest) == MLDSA65_SEED_LEN
+    return digest
+
+
+def mldsa65_handle(mldsa65_pk):
+    """The on-trie identifier for an ML-DSA-65 pubkey."""
+    digest = mldsa65_handle_digest(mldsa65_pk)
+    return 'ml-dsa-65-hash:' + base58.b58encode(digest).decode('ascii')
+
+
+def map_mldsa65_key_no_secret(mldsa65_pk):
+    """Map an ML-DSA-65 pubkey through the --no-secret mirror key mapping."""
+    # --no-secret feeds the handle bytes straight in as the seed.
+    mapped = mldsa.MLDSA65PrivateKey.from_seed_bytes(
+        mldsa65_handle_digest(mldsa65_pk))
+    mapped_pk = mapped.public_key().public_bytes_raw()
+    return mapped_pk, mldsa65_handle(mapped_pk)
 
 
 def map_account_no_secret(account_id):

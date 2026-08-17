@@ -8,7 +8,7 @@ use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_mirror::key_mapping::{map_account, map_key};
+use near_mirror::key_mapping::{map_account, map_key_handle};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
 use near_parameters::RuntimeConfig;
@@ -1100,19 +1100,13 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        // TODO(post-quantum): fork-network does not support ML-DSA-65 yet -
-                        // skip hash-form entries since we lack the full
-                        // pubkey needed for key_mapping.
-                        let Some(full_pk) = public_key.full_pubkey() else {
-                            continue;
-                        };
-                        let replacement = map_key(&full_pk, None);
+                        let replacement = map_key_handle(&public_key, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
-                        storage_mutator.remove_access_key(shard_uid, account_id, full_pk)?;
+                        storage_mutator.remove_access_key(shard_uid, account_id, public_key)?;
                         storage_mutator.set_access_key(
                             new_shard_idx,
                             new_account_id,
@@ -1126,19 +1120,14 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        // TODO(post-quantum): same skip as the AccessKey arm above for
-                        // hash-form ML-DSA-65 entries.
-                        let Some(full_pk) = public_key.full_pubkey() else {
-                            continue;
-                        };
-                        let replacement = map_key(&full_pk, None);
+                        let replacement = map_key_handle(&public_key, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator
-                            .remove_gas_key_nonce(shard_uid, account_id, full_pk, index)?;
+                            .remove_gas_key_nonce(shard_uid, account_id, public_key, index)?;
                         storage_mutator.set_gas_key_nonce(
                             new_shard_idx,
                             new_account_id,

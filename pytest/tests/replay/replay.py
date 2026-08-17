@@ -4,7 +4,7 @@ from account import Account
 from collections import OrderedDict
 from key import Key
 from messages.tx import *
-from messages.crypto import AccessKey, crypto_schema, PublicKey, Signature
+from messages.crypto import AccessKey, crypto_schema, make_public_key, Signature
 from messages.bridge import bridge_schema
 from serializer import BinarySerializer
 import mocknet_helpers
@@ -89,10 +89,7 @@ def convert_transaction_type_string_to_class(name):
 def convert_json_public_key_to_py_public_key(json_public_key):
     pk_str = json_public_key.split(
         ':')[1] if ':' in json_public_key else json_public_key
-    ans = PublicKey()
-    ans.keyType = 0
-    ans.data = base58.b58decode(pk_str.encode('ascii'))
-    return ans
+    return make_public_key(base58.b58decode(pk_str.encode('ascii')))
 
 
 '''
@@ -161,9 +158,7 @@ def send_resigned_transactions(tx_path, home_dir):
                 ]
             except ValueError:
                 continue
-        tx.publicKey = PublicKey()
-        tx.publicKey.keyType = 0
-        tx.publicKey.data = key_pair.decoded_pk()
+        tx.publicKey = make_public_key(key_pair.decoded_pk())
         msg = BinarySerializer(schema).serialize(tx)
         hash_ = hashlib.sha256(msg).digest()
         signature = Signature()

@@ -26,6 +26,10 @@ import mirror_utils
 MIRROR_DIR = pathlib.Path.home() / '.near' / 'test-mirror'
 TARGET_VALIDATORS = mirror_utils.TARGET_VALIDATORS
 
+MLDSA65_ACCESS_KEY = mirror_utils.mldsa65_public_key('mirror-pq-offline-test')
+MLDSA65_GAS_KEY = mirror_utils.mldsa65_public_key('mirror-pq-offline-test-gas')
+MLDSA65_GAS_NUM_NONCES = 3
+
 
 class TestContext:
     """Shared mutable state passed to all test case hooks."""
@@ -359,6 +363,78 @@ class GasKeyTest(MirrorTestCase):
         logger.info(f'{self.name}: all gas key checks passed')
 
 
+class MlDsa65Test(MirrorTestCase):
+    """ML-DSA-65 access and gas keys must survive the fork, remapped."""
+    name = 'mldsa65'
+
+    def pre_fork(self, ctx):
+        mirror_utils.send_add_mldsa65_access_key(ctx.node, ctx.signer_key,
+                                                 MLDSA65_ACCESS_KEY,
+                                                 ctx.next_nonce(), ctx.bhash)
+        mirror_utils.send_add_mldsa65_gas_key(ctx.node, ctx.signer_key,
+                                              MLDSA65_GAS_KEY,
+                                              MLDSA65_GAS_NUM_NONCES,
+                                              ctx.next_nonce(), ctx.bhash)
+        return []
+
+    def check_fork(self, node):
+        keys = node.get_access_key_list('test0',
+                                        finality='final')['result']['keys']
+        pks = [k['public_key'] for k in keys]
+
+        # Neither source key may survive.
+        for label, pk in [('access', MLDSA65_ACCESS_KEY),
+                          ('gas', MLDSA65_GAS_KEY)]:
+            handle = mirror_utils.mldsa65_handle(pk)
+            assert handle not in pks, \
+                f'forked state still carries source ML-DSA-65 {label} ' \
+                f'key {handle}'
+
+        pq = {
+            k['public_key']: k
+            for k in keys if k['public_key'].startswith('ml-dsa-65-hash:')
+        }
+        assert len(pq) == 2, \
+            f'expected 2 ML-DSA-65 keys on the forked test0, got {pks}'
+
+        _, access_mapped = mirror_utils.map_mldsa65_key_no_secret(
+            MLDSA65_ACCESS_KEY)
+        access = pq.get(access_mapped)
+        assert access is not None, \
+            f'mapped ML-DSA-65 access key {access_mapped} missing, ' \
+            f'got {sorted(pq)}'
+        assert access['access_key']['permission'] == 'FullAccess', \
+            f'mapped ML-DSA-65 access key is not full access: {access}'
+
+        gas_mapped_pk, gas_mapped = mirror_utils.map_mldsa65_key_no_secret(
+            MLDSA65_GAS_KEY)
+        assert gas_mapped in pq, \
+            f'mapped ML-DSA-65 gas key {gas_mapped} missing, got {sorted(pq)}'
+        # view_gas_key_nonces takes a full pubkey, not the handle state stores,
+        # so this queries the mapped key the way the mirror itself does.
+        nonces = mirror_utils.get_gas_key_nonces(
+            node, 'test0',
+            'ml-dsa-65:' + base58.b58encode(gas_mapped_pk).decode('ascii'))
+        assert nonces is not None, \
+            f'no gas key nonces for mapped {gas_mapped} on forked state'
+        assert len(nonces) == MLDSA65_GAS_NUM_NONCES, \
+            f'expected {MLDSA65_GAS_NUM_NONCES} nonce indexes on forked ' \
+            f'state, got {len(nonces)}'
+
+        logger.info(f'{self.name}: forked state carries both mapped '
+                    'ML-DSA-65 keys')
+
+    def check(self, node):
+        for label, pk in [('access', MLDSA65_ACCESS_KEY),
+                          ('gas', MLDSA65_GAS_KEY)]:
+            _, handle = mirror_utils.map_mldsa65_key_no_secret(pk)
+            nonce = node.get_nonce_for_pk('test0', handle, finality='final')
+            assert nonce is not None, \
+                f'mapped ML-DSA-65 {label} key {handle} not found on target'
+        logger.info(f'{self.name}: target chain carries both mapped '
+                    'ML-DSA-65 keys')
+
+
 def build_images(config, test_cases):
     """Phases 1-5: build target image (forked state) and source image (chain with traffic).
 
@@ -607,6 +683,7 @@ def main():
         ContractTest(),
         CreateSubaccountTest(),
         GasKeyTest(),
+        MlDsa65Test(),
     ]
     target_img, source_img, validator_keys, end_source_height = build_images(
         config, test_cases)

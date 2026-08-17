@@ -16,8 +16,34 @@ class Signature:
             self.data = base58.b58decode(data)
 
 
+# Borsh variant names for PublicKey. A key's position in `PublicKey`'s schema
+# below is its borsh discriminant, and the name doubles as the attribute the
+# serializer reads the key bytes from.
+KEY_TYPE_ED25519 = 'ed25519'
+KEY_TYPE_SECP256K1 = 'secp256k1'
+KEY_TYPE_MLDSA65 = 'mldsa65'
+
+KEY_TYPE_LENGTHS = {
+    KEY_TYPE_ED25519: 32,
+    KEY_TYPE_SECP256K1: 64,
+    KEY_TYPE_MLDSA65: 1952,
+}
+
+
 class PublicKey:
     pass
+
+
+def make_public_key(data: bytes,
+                    key_type: str = KEY_TYPE_ED25519) -> PublicKey:
+    """Build a PublicKey from raw key bytes."""
+    expected = KEY_TYPE_LENGTHS[key_type]
+    assert len(data) == expected, \
+        f'{key_type} public key must be {expected} bytes, got {len(data)}'
+    public_key = PublicKey()
+    public_key.enum = key_type
+    setattr(public_key, key_type, data)
+    return public_key
 
 
 class AccessKey:
@@ -69,8 +95,15 @@ crypto_schema = [
     ],
     [
         PublicKey, {
-            'kind': 'struct',
-            'fields': [['keyType', 'u8'], ['data', [32]]]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                [KEY_TYPE_ED25519, [KEY_TYPE_LENGTHS[KEY_TYPE_ED25519]]],
+                [KEY_TYPE_SECP256K1, [KEY_TYPE_LENGTHS[KEY_TYPE_SECP256K1]]],
+                [KEY_TYPE_MLDSA65, [KEY_TYPE_LENGTHS[KEY_TYPE_MLDSA65]]],
+            ]
         }
     ],
     [

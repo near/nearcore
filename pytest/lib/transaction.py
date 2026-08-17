@@ -14,9 +14,7 @@ def make_transaction(receiverId, nonce, actions, blockHash, accountId,
                      pk) -> Transaction:
     tx = Transaction()
     tx.signerId = accountId
-    tx.publicKey = PublicKey()
-    tx.publicKey.keyType = 0
-    tx.publicKey.data = pk
+    tx.publicKey = make_public_key(pk)
     tx.nonce = nonce
     tx.receiverId = receiverId
     tx.actions = actions
@@ -65,9 +63,7 @@ def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
     delegateAction.actions = actions
     delegateAction.nonce = nonce
     delegateAction.maxBlockHeight = maxBlockHeight
-    delegateAction.publicKey = PublicKey()
-    delegateAction.publicKey.keyType = 0
-    delegateAction.publicKey.data = publicKey
+    delegateAction.publicKey = make_public_key(publicKey)
     signableMessageDiscriminant = 2**30 + 366
     serializer = BinarySerializer(schema)
     serializer.serialize_num(signableMessageDiscriminant, 4)
@@ -103,16 +99,14 @@ def create_create_account_action():
     return action
 
 
-def create_full_access_key_action(pk):
+def create_full_access_key_action(pk, key_type=KEY_TYPE_ED25519):
     permission = AccessKeyPermission()
     permission.enum = 'fullAccess'
     permission.fullAccess = FullAccessPermission()
     accessKey = AccessKey()
     accessKey.nonce = 0
     accessKey.permission = permission
-    publicKey = PublicKey()
-    publicKey.keyType = 0
-    publicKey.data = pk
+    publicKey = make_public_key(pk, key_type)
     addKey = AddKey()
     addKey.accessKey = accessKey
     addKey.publicKey = publicKey
@@ -123,9 +117,7 @@ def create_full_access_key_action(pk):
 
 
 def create_delete_access_key_action(pk):
-    publicKey = PublicKey()
-    publicKey.keyType = 0
-    publicKey.data = pk
+    publicKey = make_public_key(pk)
     deleteKey = DeleteKey()
     deleteKey.publicKey = publicKey
     action = Action()
@@ -146,9 +138,7 @@ def create_payment_action(amount):
 def create_staking_action(amount, pk):
     stake = Stake()
     stake.stake = amount
-    stake.publicKey = PublicKey()
-    stake.publicKey.keyType = 0
-    stake.publicKey.data = pk
+    stake.publicKey = make_public_key(pk)
     action = Action()
     action.enum = 'stake'
     action.stake = stake
@@ -204,7 +194,9 @@ def create_delete_account_action(beneficiary):
     return action
 
 
-def create_gas_key_full_access_key_action(pk, num_nonces):
+def create_gas_key_full_access_key_action(pk,
+                                          num_nonces,
+                                          key_type=KEY_TYPE_ED25519):
     gasKeyInfo = GasKeyInfo()
     gasKeyInfo.balance = 0
     gasKeyInfo.numNonces = num_nonces
@@ -216,9 +208,7 @@ def create_gas_key_full_access_key_action(pk, num_nonces):
     accessKey = AccessKey()
     accessKey.nonce = 0
     accessKey.permission = permission
-    publicKey = PublicKey()
-    publicKey.keyType = 0
-    publicKey.data = pk
+    publicKey = make_public_key(pk, key_type)
     addKey = AddKey()
     addKey.accessKey = accessKey
     addKey.publicKey = publicKey
@@ -230,9 +220,7 @@ def create_gas_key_full_access_key_action(pk, num_nonces):
 
 def create_transfer_to_gas_key_action(pk, deposit):
     transferToGasKey = TransferToGasKey()
-    transferToGasKey.publicKey = PublicKey()
-    transferToGasKey.publicKey.keyType = 0
-    transferToGasKey.publicKey.data = pk
+    transferToGasKey.publicKey = make_public_key(pk)
     transferToGasKey.deposit = deposit
     action = Action()
     action.enum = 'transferToGasKey'
@@ -242,9 +230,7 @@ def create_transfer_to_gas_key_action(pk, deposit):
 
 def create_withdraw_from_gas_key_action(pk, amount):
     withdrawFromGasKey = WithdrawFromGasKey()
-    withdrawFromGasKey.publicKey = PublicKey()
-    withdrawFromGasKey.publicKey.keyType = 0
-    withdrawFromGasKey.publicKey.data = pk
+    withdrawFromGasKey.publicKey = make_public_key(pk)
     withdrawFromGasKey.amount = amount
     action = Action()
     action.enum = 'withdrawFromGasKey'
@@ -256,9 +242,7 @@ def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
                                       blockHash, accountId, pk, sk):
     tx = TransactionV1()
     tx.signerId = accountId
-    tx.publicKey = PublicKey()
-    tx.publicKey.keyType = 0
-    tx.publicKey.data = pk
+    tx.publicKey = make_public_key(pk)
     txNonce = TransactionNonce()
     txNonce.enum = 'gasKeyNonce'
     nonceData = GasKeyNonceData()
