@@ -2000,12 +2000,15 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // and the excluding sampler under {1} only (lost inherited 0) and {0} only (lost
     // branch-local 1).
     let full_blacklist = HashSet::from([0, 1]);
+    let only_branch_local = HashSet::from([1]);
+    let only_inherited = HashSet::from([0]);
     let expected_bl = HashMap::from([(shard_id, full_blacklist.clone())]);
     let (mut tip, mut height) = (sibling_tip, sibling_height);
     let mut saw_no_blacklist = false;
     let mut saw_missing_inherited = false;
     let mut saw_missing_branch_local = false;
-    for _ in 0..128 {
+    const SCAN_CAP: u64 = 128;
+    for attempt in 0..SCAN_CAP {
         assert_eq!(
             handle.get_chunk_producer_blacklist(&tip).unwrap(),
             expected_bl,
@@ -2027,7 +2030,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
                 &layout,
                 shard_id,
                 witness.chunk_height,
-                &HashSet::from([1]),
+                &only_branch_local,
             )
             .unwrap();
         let without_branch_local = epoch_info
@@ -2035,7 +2038,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
                 &layout,
                 shard_id,
                 witness.chunk_height,
-                &HashSet::from([0]),
+                &only_inherited,
             )
             .unwrap();
         saw_no_blacklist |= witness.plain != 2;
@@ -2044,8 +2047,12 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         if saw_no_blacklist && saw_missing_inherited && saw_missing_branch_local {
             return;
         }
-        height += 1;
-        tip = fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, tip, 2, height, 1);
+        // Do not step past the last inspected tip: the panic below reports `tip`, which must
+        // be a tip whose row was actually scanned.
+        if attempt + 1 < SCAN_CAP {
+            height += 1;
+            tip = fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, tip, 2, height, 1);
+        }
     }
     let (basis, basis_height, cache, watermark) = {
         let read = handle.read();
@@ -2058,8 +2065,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         )
     };
     panic!(
-        "no discriminating rows within 128 blocks: tip {tip} at height {height}, basis {basis} \
-         (height {basis_height}), cache {cache}, watermark {watermark}; witnesses \
+        "no discriminating rows within {SCAN_CAP} blocks: tip {tip} at height {height}, basis \
+         {basis} (height {basis_height}), cache {cache}, watermark {watermark}; witnesses \
          no_blacklist={saw_no_blacklist} missing_inherited={saw_missing_inherited} \
          missing_branch_local={saw_missing_branch_local}",
     );
