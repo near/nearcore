@@ -249,8 +249,8 @@ pub struct ShardStateSyncResponseV1 {
 }
 
 impl ShardStateSyncResponseV1 {
-    pub fn state_part_index(&self) -> Option<StatePartIndex> {
-        self.part.as_ref().map(|(state_part_index, _)| *state_part_index)
+    pub fn part_idx(&self) -> Option<StatePartIndex> {
+        self.part.as_ref().map(|(part_idx, _)| *part_idx)
     }
 
     pub fn payload_length(&self) -> Option<usize> {
@@ -314,34 +314,26 @@ impl ShardStateSyncResponse {
         }
     }
 
-    pub fn state_part_index(&self) -> Option<StatePartIndex> {
+    pub fn part_idx(&self) -> Option<StatePartIndex> {
         match self {
-            Self::V1(response) => {
-                response.part.as_ref().map(|(state_part_index, _)| *state_part_index)
-            }
-            Self::V2(response) => {
-                response.part.as_ref().map(|(state_part_index, _)| *state_part_index)
-            }
-            Self::V3(response) => {
-                response.part.as_ref().map(|(state_part_index, _)| *state_part_index)
-            }
-            Self::V4(response) => {
-                response.part.as_ref().map(|(state_part_index, _)| *state_part_index)
-            }
+            Self::V1(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
+            Self::V2(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
+            Self::V3(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
+            Self::V4(response) => response.part.as_ref().map(|(part_idx, _)| *part_idx),
         }
     }
 
     pub fn take_part(self) -> Option<(StatePartIndex, StatePart)> {
         match self {
-            Self::V1(response) => response.part.map(|(state_part_index, part)| {
-                (state_part_index, StatePart::V0(StatePartV0(part)))
-            }),
-            Self::V2(response) => response.part.map(|(state_part_index, part)| {
-                (state_part_index, StatePart::V0(StatePartV0(part)))
-            }),
-            Self::V3(response) => response.part.map(|(state_part_index, part)| {
-                (state_part_index, StatePart::V0(StatePartV0(part)))
-            }),
+            Self::V1(response) => {
+                response.part.map(|(part_idx, part)| (part_idx, StatePart::V0(StatePartV0(part))))
+            }
+            Self::V2(response) => {
+                response.part.map(|(part_idx, part)| (part_idx, StatePart::V0(StatePartV0(part))))
+            }
+            Self::V3(response) => {
+                response.part.map(|(part_idx, part)| (part_idx, StatePart::V0(StatePartV0(part))))
+            }
             Self::V4(response) => response.part,
         }
     }

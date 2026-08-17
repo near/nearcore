@@ -7,7 +7,7 @@
 //! contiguous in this order. Left boundary of i-th part is determined by computing
 //! prefix sums of memory usages of nodes.
 //! A bit more precisely - memory usage threshold for i-th part is approximately
-//! `total_size / num_parts * part_id`. The boundary itself is a first node which
+//! `total_size / num_parts * part_idx`. The boundary itself is a first node which
 //! corresponds to some key-value pair and prefix memory usage for it is greater
 //! than a threshold.
 //!
@@ -28,7 +28,7 @@ use borsh::BorshDeserialize;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::{StatePartIndex, StatePartRef};
+use near_primitives::state_part::StatePartRef;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
@@ -36,13 +36,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl Trie {
-    /// Descends into node corresponding to `part_id`-th boundary node if state
+    /// Descends into node corresponding to `boundary_idx`-th boundary node if state
     /// is divided into `num_parts` parts.
     /// Visits all the left siblings of nodes on the way to the boundary node.
     /// Guarantees that the node corresponds to some KV pair or returns `StorageError`,
     /// except corner cases:
-    /// - for part 0, boundary is Some(empty_key);
-    /// - for part `num_parts`, boundary is None.
+    /// - for `boundary_idx = 0`, boundary is `Some(empty_key)`;
+    /// - for `boundary_idx = num_parts`, boundary is `None`.
     /// This guarantees that parts cover all nodes in trie.
     /// Returning `None` corresponds to the right boundary of the trie.
     ///
@@ -51,22 +51,22 @@ impl Trie {
     /// and visits all provided nodes.
     fn find_state_part_boundary(
         &self,
-        state_part_index: StatePartIndex,
+        boundary_idx: u64,
         num_parts: u64,
     ) -> Result<Option<Vec<u8>>, StorageError> {
-        if state_part_index > num_parts {
+        if boundary_idx > num_parts {
             return Err(StorageError::StorageInternalError);
         }
-        if state_part_index == 0 {
+        if boundary_idx == 0 {
             return Ok(Some(vec![]));
         }
-        if state_part_index == num_parts {
+        if boundary_idx == num_parts {
             return Ok(None);
         }
         let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
-        let size_start = total_size / num_parts * state_part_index
-            + state_part_index.min(total_size % num_parts);
+        let size_start =
+            total_size / num_parts * boundary_idx + boundary_idx.min(total_size % num_parts);
         if root_node.memory_usage <= size_start {
             return Ok(None);
         }
@@ -133,23 +133,22 @@ impl Trie {
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let StatePartRef { index: state_part_index, total } = part_ref;
+        let StatePartRef { index: part_idx, total } = part_ref;
 
         // 1. Extract nodes corresponding to state part boundaries.
         let recording_trie = self.recording_reads_new_recorder();
         let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let path_begin =
-            recording_trie.find_state_part_boundary(part_ref.index, part_ref.total)?;
-        let path_end = recording_trie
-            .find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
+        let path_begin = recording_trie.find_state_part_boundary(part_ref.index, part_ref.total)?;
+        let path_end =
+            recording_trie.find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
         let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
 
         tracing::debug!(
             target: "state-parts",
-            state_part_index,
+            part_idx,
             total,
             ?boundaries_read_duration,
             "found state part boundaries",
@@ -159,7 +158,7 @@ impl Trie {
 
     /// Creates state part using only the flat storage (i.e. FlatState).
     ///
-    /// * part_id - number of the state part, mainly for metrics.
+    /// * part_ref - number of the state part, mainly for metrics.
     /// * state_trie - provides access to State for random lookups of values by hash.
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
@@ -309,10 +308,8 @@ impl Trie {
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
     fn visit_nodes_for_state_part(&self, part_ref: StatePartRef) -> Result<(), StorageError> {
-        let path_begin =
-            self.find_state_part_boundary(part_ref.index, part_ref.total)?;
-        let path_end =
-            self.find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
+        let path_begin = self.find_state_part_boundary(part_ref.index, part_ref.total)?;
+        let path_end = self.find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
 
         let mut iterator = self.disk_iter()?;
         let nodes_list =
@@ -438,10 +435,8 @@ impl Trie {
             });
         }
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root, false);
-        let path_begin =
-            trie.find_state_part_boundary(part_ref.index, part_ref.total)?;
-        let path_end =
-            trie.find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
+        let path_begin = trie.find_state_part_boundary(part_ref.index, part_ref.total)?;
+        let path_end = trie.find_state_part_boundary(part_ref.index + 1, part_ref.total)?;
         let mut iterator = trie.disk_iter()?;
         let trie_traversal_items =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;

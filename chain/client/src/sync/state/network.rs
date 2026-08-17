@@ -306,14 +306,14 @@ impl StateSyncDownloadSource for StateSyncDownloadSourcePeer {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        state_part_index: StatePartIndex,
+        part_idx: StatePartIndex,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<StatePart, near_chain::Error>> {
         let key = PendingPeerRequestKey {
             shard_id,
             sync_hash,
-            part_id_or_header: PartIdOrHeader::Part { part_id: state_part_index },
+            part_id_or_header: PartIdOrHeader::Part { part_id: part_idx },
         };
         let fut = Self::try_download(
             self.clock.clone(),

@@ -195,10 +195,10 @@ fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StateP
 fn new_part_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    state_part_index: StatePartIndex,
+    part_idx: StatePartIndex,
     part: Option<StatePart>,
 ) -> StatePartOrHeader {
-    let part = part.map(|part| (state_part_index, part));
+    let part = part.map(|part| (part_idx, part));
     let state_response = ShardStateSyncResponse::new_from_part(part);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));

@@ -277,14 +277,14 @@ impl ChainStateSyncAdapter {
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
-        state_part_index: StatePartIndex,
+        part_idx: StatePartIndex,
         sync_hash: CryptoHash,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "sync",
             "get_state_response_part",
             %shard_id,
-            state_part_index,
+            part_idx,
             ?sync_hash)
         .entered();
         let block = self
@@ -294,7 +294,7 @@ impl ChainStateSyncAdapter {
         let header = block.header();
         let epoch_id = block.header().epoch_id();
         // Check cache
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, state_part_index)).unwrap();
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap();
         if let Some(bytes) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
             let state_part = StatePart::from_bytes(bytes.to_vec())?;
@@ -321,7 +321,7 @@ impl ChainStateSyncAdapter {
             .get_state_root_node(shard_id, &prev_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        if state_part_index >= num_parts {
+        if part_idx >= num_parts {
             return Err(shard_id_out_of_bounds(shard_id));
         }
         let current_time = Instant::now();
@@ -331,19 +331,15 @@ impl ChainStateSyncAdapter {
                 shard_id,
                 &prev_prev_hash,
                 &state_root,
-                StatePartRef::new(state_part_index, num_parts),
+                StatePartRef::new(part_idx, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
 
         let elapsed_ms = (self.clock.now().signed_duration_since(current_time))
             .whole_milliseconds()
             .max(0) as u128;
-        self.requested_state_parts.save_state_part_elapsed(
-            &sync_hash,
-            &shard_id,
-            &state_part_index,
-            elapsed_ms,
-        );
+        self.requested_state_parts
+            .save_state_part_elapsed(&sync_hash, &shard_id, &part_idx, elapsed_ms);
 
         // Cache the part data, but only if the corresponding header is also cached.
         // At epoch boundaries, clear_all_downloaded_parts() deletes all cached headers

@@ -26,9 +26,9 @@ pub struct StatePartRef {
 }
 
 impl StatePartRef {
-    pub fn new(state_part_index: StatePartIndex, num_parts: u64) -> StatePartRef {
-        assert!(state_part_index < num_parts);
-        StatePartRef { index: state_part_index, total: num_parts }
+    pub fn new(part_idx: StatePartIndex, num_parts: u64) -> StatePartRef {
+        assert!(part_idx < num_parts);
+        StatePartRef { index: part_idx, total: num_parts }
     }
 }
 

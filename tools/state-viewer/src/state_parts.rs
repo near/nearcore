@@ -318,7 +318,7 @@ async fn load_state_parts(
     action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    state_part_index: Option<StatePartIndex>,
+    part_idx: Option<StatePartIndex>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
     chain: &Chain,
@@ -353,7 +353,7 @@ async fn load_state_parts(
 
     let num_parts =
         list_state_parts(external, chain_id, &epoch_id, epoch_height, shard_id).await.unwrap();
-    let part_ids = get_part_ids(state_part_index, state_part_index.map(|x| x + 1), num_parts);
+    let part_ids = get_part_ids(part_idx, part_idx.map(|x| x + 1), num_parts);
 
     match action {
         LoadAction::Apply => {
@@ -494,7 +494,7 @@ async fn dump_state_parts(
     }
 
     // dump parts
-    for state_part_index in state_part_indices {
+    for part_idx in state_part_indices {
         let timer = Instant::now();
         let state_part = chain
             .runtime_adapter
@@ -502,11 +502,11 @@ async fn dump_state_parts(
                 shard_id,
                 sync_prev_prev_hash,
                 &state_root,
-                StatePartRef::new(state_part_index, num_parts),
+                StatePartRef::new(part_idx, num_parts),
             )
             .unwrap();
 
-        let file_type = StateFileType::StatePart { part_id: state_part_index, num_parts };
+        let file_type = StateFileType::StatePart { part_id: part_idx, num_parts };
         let location = external_storage_location(
             &chain_id,
             &epoch_id,
@@ -522,7 +522,7 @@ async fn dump_state_parts(
         let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
-            state_part_index,
+            part_idx,
             part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),

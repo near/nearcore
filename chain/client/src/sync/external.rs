@@ -214,8 +214,8 @@ pub fn location_prefix(
     }
 }
 
-pub fn part_filename(state_part_index: StatePartIndex, num_parts: u64) -> String {
-    format!("state_part_{:06}_of_{:06}", state_part_index, num_parts)
+pub fn part_filename(part_idx: StatePartIndex, num_parts: u64) -> String {
+    format!("state_part_{:06}_of_{:06}", part_idx, num_parts)
 }
 
 pub fn match_filename(s: &str) -> Option<regex::Captures<'_>> {
@@ -240,9 +240,9 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
 
 pub fn get_part_id_from_filename(s: &str) -> Option<StatePartIndex> {
     if let Some(captures) = match_filename(s) {
-        if let Some(state_part_index) = captures.get(1) {
-            if let Ok(state_part_index) = state_part_index.as_str().parse::<StatePartIndex>() {
-                return Some(state_part_index);
+        if let Some(part_idx) = captures.get(1) {
+            if let Ok(part_idx) = part_idx.as_str().parse::<StatePartIndex>() {
+                return Some(part_idx);
             }
         }
     }
@@ -302,15 +302,10 @@ pub async fn download_and_apply_state_parts_sequentially(
     );
 
     let timer = Instant::now();
-    for state_part_index in state_part_indices {
+    for part_idx in state_part_indices {
         let timer = Instant::now();
-        assert!(
-            state_part_index < num_parts,
-            "part_id: {}, num_parts: {}",
-            state_part_index,
-            num_parts
-        );
-        let file_type = StateFileType::StatePart { part_id: state_part_index, num_parts };
+        assert!(part_idx < num_parts, "part_id: {}, num_parts: {}", part_idx, num_parts);
+        let file_type = StateFileType::StatePart { part_id: part_idx, num_parts };
         let location =
             external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
         let bytes = external.get_file(shard_id, &location, &file_type).await?;
@@ -320,17 +315,17 @@ pub async fn download_and_apply_state_parts_sequentially(
         chain.state_sync_adapter.set_state_part(
             shard_id,
             sync_hash,
-            StatePartRef::new(state_part_index, num_parts),
+            StatePartRef::new(part_idx, num_parts),
             &part,
         )?;
         chain.runtime_adapter.apply_state_part(
             shard_id,
             &state_root,
-            StatePartRef::new(state_part_index, num_parts),
+            StatePartRef::new(part_idx, num_parts),
             &part,
             epoch_id,
         )?;
-        tracing::debug!(target: "state-parts", state_part_index, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+        tracing::debug!(target: "state-parts", part_idx, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
     Ok(())

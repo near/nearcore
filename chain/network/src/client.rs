@@ -98,7 +98,7 @@ impl StateResponse {
     pub fn part_id_or_header(&self) -> PartIdOrHeader {
         match self {
             Self::Ack(ack) => ack.part_id_or_header,
-            Self::State(state) => match state.state_part_index() {
+            Self::State(state) => match state.part_idx() {
                 Some(part_id) => PartIdOrHeader::Part { part_id },
                 None => PartIdOrHeader::Header,
             },

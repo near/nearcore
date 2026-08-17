@@ -303,12 +303,12 @@ async fn apply_state_part(
     cancel: CancellationToken,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    state_part_index: StatePartIndex,
+    part_idx: StatePartIndex,
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,
 ) -> Result<StatePartApplyResult, near_chain::Error> {
-    let key = StatePartKey(sync_hash, shard_id, state_part_index);
+    let key = StatePartKey(sync_hash, shard_id, part_idx);
     let key_bytes = borsh::to_vec(&key).unwrap();
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
@@ -316,9 +316,8 @@ async fn apply_state_part(
         return Ok(StatePartApplyResult::AlreadyApplied);
     }
     return_if_cancelled!(cancel);
-    let handle = computation_task_tracker
-        .get_handle(&format!("shard {} part {}", shard_id, state_part_index))
-        .await;
+    let handle =
+        computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_idx)).await;
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
     let bytes = store
@@ -326,7 +325,7 @@ async fn apply_state_part(
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
-                state_part_index, shard_id
+                part_idx, shard_id
             ))
         })?
         .to_vec();
@@ -335,7 +334,7 @@ async fn apply_state_part(
     runtime.apply_state_part(
         shard_id,
         &state_root,
-        StatePartRef { index: state_part_index, total: num_parts },
+        StatePartRef { index: part_idx, total: num_parts },
         &state_part,
         &epoch_id,
     )?;

@@ -56,12 +56,12 @@ pub struct Config {
 pub(crate) fn priority_score(
     peer_id: &PeerId,
     shard_id: ShardId,
-    state_part_index: StatePartIndex,
+    part_idx: StatePartIndex,
 ) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(peer_id.public_key().key_data());
     h.update(shard_id.to_le_bytes());
-    h.update(state_part_index.to_le_bytes());
+    h.update(part_idx.to_le_bytes());
     h.finalize().into()
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn priority_score(
 struct StatePartHost {
     /// A peer host for some desired state part
     peer_id: PeerId,
-    /// Priority score computed over the peer_id, shard_id, and part_id
+    /// Priority score computed over the peer_id, shard_id, and part_idx
     score: [u8; 32],
     /// The number of times we have already queried this host for this part
     /// TODO: consider storing this on disk, so we can remember who hasn't
@@ -273,14 +273,12 @@ impl Inner {
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        state_part_index: StatePartIndex,
+        part_idx: StatePartIndex,
     ) -> Option<PeerId> {
         self.update_current_state_sync_hash(sync_hash);
 
-        let selector = self
-            .peer_selector
-            .entry((shard_id, state_part_index))
-            .or_insert(PartPeerSelector::default());
+        let selector =
+            self.peer_selector.entry((shard_id, part_idx)).or_insert(PartPeerSelector::default());
 
         // Insert more hosts into the selector if needed
         let available_hosts = self.hosts_for_shard.get(&shard_id)?;
@@ -293,7 +291,7 @@ impl Inner {
                     continue;
                 }
 
-                let score = priority_score(peer_id, shard_id, state_part_index);
+                let score = priority_score(peer_id, shard_id, part_idx);
 
                 // Wrap entries with `Reverse` so that we pop the *least* desirable options
                 new_peers.push(std::cmp::Reverse(StatePartHost {
@@ -422,21 +420,21 @@ impl SnapshotHostsCache {
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        state_part_index: StatePartIndex,
+        part_idx: StatePartIndex,
     ) -> Option<PeerId> {
-        self.0.lock().select_host_for_part(sync_hash, shard_id, state_part_index)
+        self.0.lock().select_host_for_part(sync_hash, shard_id, part_idx)
     }
 
     /// Triggered by state sync actor after processing a state part.
-    pub fn part_received(&self, shard_id: ShardId, state_part_index: StatePartIndex) {
+    pub fn part_received(&self, shard_id: ShardId, part_idx: StatePartIndex) {
         let mut inner = self.0.lock();
-        inner.peer_selector.remove(&(shard_id, state_part_index));
+        inner.peer_selector.remove(&(shard_id, part_idx));
     }
 
     #[cfg(test)]
-    pub(crate) fn has_selector(&self, shard_id: ShardId, state_part_index: StatePartIndex) -> bool {
+    pub(crate) fn has_selector(&self, shard_id: ShardId, part_idx: StatePartIndex) -> bool {
         let inner = self.0.lock();
-        inner.peer_selector.contains_key(&(shard_id, state_part_index))
+        inner.peer_selector.contains_key(&(shard_id, part_idx))
     }
 
     #[cfg(test)]

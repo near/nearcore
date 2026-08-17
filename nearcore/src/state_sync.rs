@@ -277,7 +277,7 @@ enum NewDump {
 /// At startup or when we enter a new epoch, we initialize the `current_dump` field to represent the current epoch's state dump.
 /// Then for each shard that we track and want to dump state for, we'll have one `ShardDump` struct representing it stored in the
 /// `DumpState` struct that holds the global state. First we upload headers if they're not already present in the external storage, and
-/// then we start the part uploading by calling `start_upload_parts()`. This initializes one `PartUploader` struct for each shard_id and part_id,
+/// then we start the part uploading by calling `start_upload_parts()`. This initializes one `PartUploader` struct for each shard_id and part_idx,
 /// and spawns a PartUploader::upload_state_part() future for each, that will be responsible for generating and uploading that part if it's not
 /// already uploaded. When all the parts for a shard have been uploaded, we'll be notified by the `upload_parts` field of the associated
 /// `ShardDump` struct, which we check in `check_parts_upload()`.

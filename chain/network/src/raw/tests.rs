@@ -130,17 +130,17 @@ async fn test_raw_conn_state_parts() {
                 )) = msg
                 {
                     let response = state_response.take_state_response();
-                    let state_part_index = response.state_part_index();
-                    if let Some(state_part_index) = state_part_index {
-                        if state_part_index >= num_parts {
+                    let part_idx = response.part_idx();
+                    if let Some(part_idx) = part_idx {
+                        if part_idx >= num_parts {
                             panic!(
                                 "received unexpected part_id {} (expected 0-{})",
-                                state_part_index,
+                                part_idx,
                                 num_parts - 1
                             );
                         }
-                        if !parts_received.insert(state_part_index) {
-                            panic!("received duplicate part_id {}", state_part_index);
+                        if !parts_received.insert(part_idx) {
+                            panic!("received duplicate part_id {}", part_idx);
                         }
                         if parts_received.len() == num_parts as usize {
                             break;
