@@ -23,6 +23,7 @@
 // - Manual genesis pattern: required because `TestEpochConfigBuilder::from_genesis(&genesis)` needs
 //   the genesis to derive the epoch config with shuffling enabled. Can't use the auto-setup path.
 
+use super::util::collect_distinct_epoch_ids;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -36,7 +37,7 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
@@ -44,7 +45,7 @@ use std::collections::HashMap;
 const EPOCH_LENGTH: BlockHeightDelta = 10;
 const INITIAL_USER_BALANCE: Balance = Balance::from_near(10_000);
 
-fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
+pub(crate) fn get_boundary_accounts(num_shards: usize) -> Vec<AccountId> {
     if num_shards > 27 {
         todo!("don't know how to include more than 27 shards yet!");
     }
@@ -94,38 +95,33 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 /// Note: we check ALL consecutive epoch pairs, not just first vs last, because with few
 /// validators/shards the first and last epoch can coincidentally have the same assignment
 /// even though shuffling occurred in intermediate epochs.
-fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
+///
+/// Fixed-layout helper: it asserts consecutive epochs share one shard layout, which is what
+/// makes the shard ids directly comparable and every tracking lookup below infallible. A
+/// resharding caller must map a shard to its prior parent instead
+/// (`get_prev_shard_id_from_prev_hash`, `cared_about_shard_prev_epoch_from_prev_block`).
+pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) {
     let client = env.node(0).client();
-    let head = client.chain.head().unwrap();
-    let genesis_height = client.chain.genesis().height();
-    let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap();
-
-    // Collect distinct epoch IDs by walking the chain.
-    let mut epoch_ids = Vec::new();
-    for height in (genesis_height + 1)..=head.height {
-        if let Ok(hash) = client.chain.get_block_hash_by_height(height) {
-            let epoch_id = client.epoch_manager.get_epoch_id(&hash).unwrap();
-            if epoch_ids.last() != Some(&epoch_id) {
-                epoch_ids.push(epoch_id);
-            }
-        }
-    }
+    let epoch_ids = collect_distinct_epoch_ids(client);
 
     assert!(epoch_ids.len() >= 2, "chain didn't advance past the first epoch");
 
     // Check any pair of consecutive epochs for a shard assignment change.
     for window in epoch_ids.windows(2) {
         let (epoch_a, epoch_b) = (&window[0], &window[1]);
+        let layout_a = client.epoch_manager.get_shard_layout(epoch_a).unwrap();
+        let layout_b = client.epoch_manager.get_shard_layout(epoch_b).unwrap();
+        assert_eq!(layout_a, layout_b, "fixed-layout helper used across a layout transition");
         for account_id in validators {
-            for &shard_id in &shard_ids {
+            for shard_id in layout_a.shard_ids() {
                 let cared_a = client
                     .epoch_manager
                     .cares_about_shard_in_epoch(epoch_a, account_id, shard_id)
-                    .unwrap_or(false);
+                    .unwrap();
                 let cared_b = client
                     .epoch_manager
                     .cares_about_shard_in_epoch(epoch_b, account_id, shard_id)
-                    .unwrap_or(false);
+                    .unwrap();
                 if cared_a != cared_b {
                     return; // Found a change — shuffling happened.
                 }
@@ -137,6 +133,93 @@ fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[AccountId]) 
         "no validator's shard assignment changed between any consecutive epochs — \
          shuffling didn't happen, so state sync was never exercised"
     );
+}
+
+/// Validators that provably *acquired state* for a newly assigned shard, by index.
+///
+/// `assert_shard_shuffling_happened` only proves an assignment changed; holding
+/// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
+/// "Newly assigned" follows `shard_tracker::should_catch_up_shard`: gained now, not held
+/// in either of the two prior epochs. State retained from two epochs ago means the node
+/// resumes applying chunks from disk, no sync, and still writes the `ChunkExtra` read as
+/// proof here.
+///
+/// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
+/// resharding caller must map a shard to its prior parent instead.
+///
+/// Callers are nightly-only, but this module is not gated, so the stable build would
+/// see this as dead code under `-D warnings`.
+#[cfg_attr(not(feature = "nightly"), allow(dead_code))]
+pub(crate) fn assert_state_synced_for_reassigned_shard(
+    env: &TestLoopEnv,
+    validators: &[AccountId],
+) -> Vec<usize> {
+    let mut synced_validators = Vec::new();
+    for (idx, validator) in validators.iter().enumerate() {
+        let node = env.node(idx);
+        let client = node.client();
+        let epoch_manager = client.epoch_manager.as_ref();
+        let chain = &client.chain;
+        let head = node.head();
+        let genesis_height = chain.genesis().height();
+        let epoch_ids = collect_distinct_epoch_ids(client);
+
+        'validator: for w in 1..epoch_ids.len() {
+            let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
+            let prev_layout = epoch_manager.get_shard_layout(prev_epoch).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
+            assert_eq!(
+                prev_layout, shard_layout,
+                "fixed-layout helper used across a layout transition"
+            );
+            for shard_id in shard_layout.shard_ids() {
+                // With equal layouts both lookups are infallible; converting an error to
+                // "did not care" here could fabricate a reassignment and make the
+                // `ChunkExtra` check pass trivially on a shard the validator held all
+                // along.
+                let cared_now = epoch_manager
+                    .cares_about_shard_in_epoch(new_epoch, validator, shard_id)
+                    .unwrap();
+                let cared_before = epoch_manager
+                    .cares_about_shard_in_epoch(prev_epoch, validator, shard_id)
+                    .unwrap();
+                // Mirrors `shard_tracker::should_catch_up_shard`: state retained from
+                // T-1 means no sync happened.
+                let older_epoch = w.checked_sub(2).map(|i| &epoch_ids[i]);
+                let tracked_before = older_epoch.is_some_and(|older_epoch| {
+                    epoch_manager
+                        .cares_about_shard_in_epoch(older_epoch, validator, shard_id)
+                        .unwrap()
+                });
+                if !(cared_now && !cared_before && !tracked_before) {
+                    continue;
+                }
+
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                for height in (genesis_height + 1)..=head.height {
+                    let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
+                    if epoch_manager.get_epoch_id(&hash).unwrap() != *new_epoch {
+                        continue;
+                    }
+                    if chain.get_chunk_extra(&hash, &shard_uid).is_ok() {
+                        tracing::info!(
+                            target: "test",
+                            node = idx,
+                            ?shard_id,
+                            "verified state synced for reassigned shard"
+                        );
+                        synced_validators.push(idx);
+                        break 'validator;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        !synced_validators.is_empty(),
+        "no validator held state for a newly reassigned shard; state sync not exercised"
+    );
+    synced_validators
 }
 
 /// Verify all nodes advanced their head past the given minimum height.
