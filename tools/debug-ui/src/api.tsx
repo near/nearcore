@@ -205,7 +205,7 @@ export interface EpochInfoView {
     protocol_version: number;
     // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
     // index, which does not identify the shards after a resharding.
-    // TODO: get rid of the tuples variant once all nodes are updated and return the entries
+    // TODO(#16236): get rid of the tuples variant once all nodes are updated and return the entries
     // in the new format.
     shards_size_and_parts: ShardSizeAndParts[] | [number, number, boolean][];
 }
