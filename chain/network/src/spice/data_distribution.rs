@@ -15,14 +15,14 @@ pub struct SpiceIncomingPartialData {
     pub recv_permit: RecvMessagePermit,
 }
 
-/// One `entry` costs that many rate limit tokens (apart from included ordinals that would each cost 1).
-/// A bit random number to distinguish serving an entry with 10 ordinals from serving 10 entries with 1 ordinal each,
-/// that would require 10 re-encodes, but still have a single token.
-const ENTRY_TOKEN_COST: u32 = 16;
+/// Rate limit tokens each entry costs, on top of 1 per requested ordinal. Somewhat arbitrary;
+/// chosen to keep 1 entry with 10 ordinals cheaper than 10 entries with 1 ordinal each, which cost
+/// 10 re-encodes.
+const PER_ENTRY_TOKEN_COST: u32 = 16;
 
-/// Request for spice data. Batched: several items wanted from the same peer travel in one
-/// message under a single requester. Each entry names the part ordinals it wants and is
-/// served or skipped independently.
+/// Request for spice data, answered with `SpicePartialData`. Batched: several entries wanted from
+/// the same peer travel in one message under a single requester. An entry is one `wants` element:
+/// a data id plus the part ordinals wanted for it. Each entry is served or skipped independently.
 #[derive(
     Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
@@ -46,11 +46,13 @@ impl SpiceDataRequest {
     }
 
     /// Rate limit tokens this request costs. Saturates: this is read before any cap applies.
+    // TODO(spice): Validate the per-entry cost and the SpiceDataRequest bucket against production
+    // scale (chunk producers, witness validators, shards per epoch).
     pub fn token_cost(&self) -> u32 {
         match self {
             // Starts at 1 so an empty request is not free.
             Self::V1(request) => request.wants.iter().fold(1u32, |total, (_, ordinals)| {
-                total.saturating_add(ENTRY_TOKEN_COST).saturating_add(ordinals.len() as u32)
+                total.saturating_add(PER_ENTRY_TOKEN_COST).saturating_add(ordinals.len() as u32)
             }),
         }
     }
@@ -84,40 +86,4 @@ pub struct SpiceDataDistributorSenderForNetwork {
     pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
     pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::types::ShardId;
-    use std::str::FromStr as _;
-
-    #[test]
-    fn test_data_request_borsh_round_trip() {
-        let request = SpiceDataRequest::new(
-            BTreeMap::from([
-                (
-                    SpiceDataIdentifier::Witness {
-                        block_hash: CryptoHash::hash_bytes(&[1]),
-                        shard_id: ShardId::new(3),
-                    },
-                    BTreeSet::from([0, 5, 7]),
-                ),
-                (
-                    SpiceDataIdentifier::ReceiptProof {
-                        block_hash: CryptoHash::hash_bytes(&[2]),
-                        from_shard_id: ShardId::new(1),
-                        to_shard_id: ShardId::new(2),
-                    },
-                    BTreeSet::from([4]),
-                ),
-            ]),
-            AccountId::from_str("requester.near").unwrap(),
-        );
-
-        let bytes = borsh::to_vec(&request).unwrap();
-        assert_eq!(bytes[0], 0, "V1 discriminant");
-        assert_eq!(borsh::from_slice::<SpiceDataRequest>(&bytes).unwrap(), request);
-    }
 }

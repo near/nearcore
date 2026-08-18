@@ -78,10 +78,17 @@ pub struct SpiceMessageGate {
     dropped: HashMap<SpiceMessageKind, u64>,
 }
 
+/// What a single drop counts, so that entries of a batched message do not land in the
+/// per-message metric.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DropUnit {
+    Message,
+    Entry,
+}
+
 impl SpiceMessageGate {
-    /// Whether an inbound spice message referencing `block_hash` should be processed. A drop is
-    /// counted under `kind` once per call, so a caller gating each entry of a batched message
-    /// counts entries rather than messages.
+    /// Whether an inbound spice message referencing `block_hash` should be processed. One drop
+    /// counts one message.
     ///
     /// The authoritative answer is the referenced block itself. When that block is
     /// not on disk we cannot ask it, and we must not simply drop: spice legitimately
@@ -97,6 +104,28 @@ impl SpiceMessageGate {
         chain_store: &ChainStoreAdapter,
         kind: SpiceMessageKind,
         block_hash: &CryptoHash,
+    ) -> bool {
+        self.decide(chain_store, kind, block_hash, DropUnit::Message)
+    }
+
+    /// Whether one entry of a batched spice message should be processed. The other entries are
+    /// unaffected. Drops count under [`metrics::SPICE_PRE_ACTIVATION_REQUEST_ENTRIES_DROPPED`],
+    /// keeping entries out of the per-message metric.
+    pub fn should_process_entry(
+        &mut self,
+        chain_store: &ChainStoreAdapter,
+        kind: SpiceMessageKind,
+        block_hash: &CryptoHash,
+    ) -> bool {
+        self.decide(chain_store, kind, block_hash, DropUnit::Entry)
+    }
+
+    fn decide(
+        &mut self,
+        chain_store: &ChainStoreAdapter,
+        kind: SpiceMessageKind,
+        block_hash: &CryptoHash,
+        unit: DropUnit,
     ) -> bool {
         let enabled = match spice_enabled_for_block(chain_store, block_hash) {
             Ok(enabled) => enabled,
@@ -123,9 +152,14 @@ impl SpiceMessageGate {
                 %block_hash,
                 "dropping spice message, spice is not active",
             );
-            metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED
-                .with_label_values(&[kind.as_str()])
-                .inc();
+            match unit {
+                DropUnit::Message => metrics::SPICE_PRE_ACTIVATION_MESSAGES_DROPPED
+                    .with_label_values(&[kind.as_str()])
+                    .inc(),
+                DropUnit::Entry => metrics::SPICE_PRE_ACTIVATION_REQUEST_ENTRIES_DROPPED
+                    .with_label_values(&[kind.as_str()])
+                    .inc(),
+            }
             #[cfg(feature = "test_features")]
             {
                 *self.dropped.entry(kind).or_default() += 1;
