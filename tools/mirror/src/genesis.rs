@@ -625,7 +625,7 @@ mod test {
                 account_id: account_id.clone(),
                 account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
             },
-            StateRecord::access_key(account_id.clone(), &public_key, AccessKey::full_access()),
+            StateRecord::access_key(account_id, &public_key, AccessKey::full_access()),
         ];
         let out = run_map_records(&records);
 

@@ -34,8 +34,7 @@ class PublicKey:
     pass
 
 
-def make_public_key(data: bytes,
-                    key_type: str = KEY_TYPE_ED25519) -> PublicKey:
+def make_public_key(data: bytes, key_type: str = KEY_TYPE_ED25519) -> PublicKey:
     """Build a PublicKey from raw key bytes."""
     expected = KEY_TYPE_LENGTHS[key_type]
     assert len(data) == expected, \

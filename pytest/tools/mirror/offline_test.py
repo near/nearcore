@@ -392,7 +392,8 @@ class MlDsa65Test(MirrorTestCase):
 
         pq = {
             k['public_key']: k
-            for k in keys if k['public_key'].startswith('ml-dsa-65-hash:')
+            for k in keys
+            if k['public_key'].startswith('ml-dsa-65-hash:')
         }
         assert len(pq) == 2, \
             f'expected 2 ML-DSA-65 keys on the forked test0, got {pks}'
