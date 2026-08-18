@@ -33,6 +33,7 @@ const INTERVAL: Duration = Duration::milliseconds(250);
 /// `StreamWhileSyncing` mode the node is ~always syncing, so every failure is
 /// counted - otherwise the budget would never be enforced.
 const MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS: u32 = 10;
+const LAST_SYNCED_BLOCK_HEIGHT_KEY: &[u8] = b"last_synced_block_height";
 
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
@@ -367,9 +368,11 @@ pub async fn start(
                                 build_streamer_message_attempts = 0;
                                 tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to build streamer message");
                                 // Record the skipped height as synced so the next outer iteration resumes right after it
-                                db.put(b"last_synced_block_height", &block_height.to_string())
-                                    .unwrap();
-                                last_synced_block_height = Some(block_height);
+                                record_synced_block_height(
+                                    &db,
+                                    &mut last_synced_block_height,
+                                    block_height,
+                                );
                                 // break the inner loop, the next outer iteration resumes from `last_synced_block_height + 1`.
                                 break;
                             }
@@ -399,10 +402,19 @@ pub async fn start(
             };
 
             metrics::NUM_STREAMER_MESSAGES_SENT.inc();
-            db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
-            last_synced_block_height = Some(block_height);
+            record_synced_block_height(&db, &mut last_synced_block_height, block_height);
         }
     }
+}
+
+/// Persists the synced block height to the indexer db and updates the in-memory copy.
+fn record_synced_block_height(
+    db: &rocksdb::DB,
+    last_synced_block_height: &mut Option<BlockHeight>,
+    block_height: BlockHeight,
+) {
+    db.put(LAST_SYNCED_BLOCK_HEIGHT_KEY, &block_height.to_string()).unwrap();
+    *last_synced_block_height = Some(block_height);
 }
 
 fn get_start_syncing_block_height(
@@ -419,7 +431,7 @@ fn get_start_syncing_block_height(
     // Otherwise determine the start height based on the sync mode
     match indexer_config.sync_mode {
         crate::SyncModeEnum::FromInterruption => {
-            match db.get(b"last_synced_block_height").unwrap() {
+            match db.get(LAST_SYNCED_BLOCK_HEIGHT_KEY).unwrap() {
                 Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
                 None => latest_block_height,
             }
