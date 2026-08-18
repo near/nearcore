@@ -28,15 +28,52 @@ pub enum AccountVersion {
     V2,
 }
 
+/// Whether an account's state has been installed.
+///
+/// Only universal accounts can be uninitialized: they come into existence when
+/// a transfer funds a `0u` id whose state init has not been applied yet. A
+/// deterministic account waiting for its state init is an ordinary V1 account
+/// with no contract, not this.
+#[derive(
+    PartialEq, Eq, Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize, ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AccountState {
+    #[default]
+    Initialized,
+    Uninitialized,
+}
+
+impl AccountState {
+    fn is_initialized(&self) -> bool {
+        match self {
+            Self::Initialized => true,
+            Self::Uninitialized => false,
+        }
+    }
+}
+
 /// Per account information stored in the state.
+///
+/// Two independent axes: whether the account's state has been installed, and,
+/// for an initialized account, the version of its storage layout.
 /// When introducing new version:
 /// - introduce new AccountV[NewVersion] struct
-/// - add new Account enum option V[NewVersion](AccountV[NewVersion])
+/// - add new InitializedAccount enum option V[NewVersion](AccountV[NewVersion])
 /// - add new BorshVersionedAccount enum option V[NewVersion](AccountV[NewVersion])
 /// - update SerdeAccount with newly added fields
 /// - update serde ser/deser to properly handle conversions
 #[derive(PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub enum Account {
+    Uninitialized(UninitializedAccountV1),
+    Initialized(InitializedAccount),
+}
+
+/// An account with its state in place. It can hold a contract, access keys and
+/// contract data, and it can stake.
+#[derive(PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+pub enum InitializedAccount {
     V1(AccountV1),
     V2(AccountV2),
 }
@@ -154,6 +191,20 @@ pub struct AccountV2 {
     contract: AccountContract,
 }
 
+/// A universal account funded before its state init was installed.
+///
+/// It carries nothing but balance: no contract, no access keys and no data.
+/// Installing the state init is the only thing that can add any of those, and
+/// doing so moves the account out of this state, so everything else that writes
+/// to an account is unreachable while it stays uninitialized.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+pub struct UninitializedAccountV1 {
+    /// The total not locked tokens.
+    amount: Balance,
+    /// Storage used by the account record itself.
+    storage_usage: StorageUsage,
+}
+
 impl Account {
     /// Max number of bytes an account can have in its state (excluding contract code)
     /// before it is infeasible to delete.
@@ -169,22 +220,172 @@ impl Account {
         contract: AccountContract,
         storage_usage: StorageUsage,
     ) -> Self {
-        match contract {
-            AccountContract::None => Self::V1(AccountV1 {
+        let account = match contract {
+            AccountContract::None => InitializedAccount::V1(AccountV1 {
                 amount,
                 locked,
                 code_hash: CryptoHash::default(),
                 storage_usage,
             }),
             AccountContract::Local(code_hash) => {
-                Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
+                InitializedAccount::V1(AccountV1 { amount, locked, code_hash, storage_usage })
             }
-            _ => Self::V2(AccountV2 { amount, locked, storage_usage, contract }),
+            _ => InitializedAccount::V2(AccountV2 { amount, locked, storage_usage, contract }),
+        };
+        Self::Initialized(account)
+    }
+
+    /// A universal account funded before its state init was installed. Holds
+    /// nothing but balance until [`Self::initialize`] is called.
+    pub fn new_uninitialized(amount: Balance, storage_usage: StorageUsage) -> Self {
+        Self::Uninitialized(UninitializedAccountV1 { amount, storage_usage })
+    }
+
+    /// Whether the account's state has been installed.
+    ///
+    /// This is about the [`Account::Uninitialized`] representation, which only
+    /// universal accounts use. A deterministic account still waiting for its
+    /// state init is an ordinary V1 account with no contract, so this returns
+    /// `true` for it.
+    #[inline]
+    pub fn is_initialized(&self) -> bool {
+        match self {
+            Self::Initialized(_) => true,
+            Self::Uninitialized(_) => false,
+        }
+    }
+
+    /// Move an uninitialized account to the initialized state, keeping its
+    /// balance and storage usage. The caller then installs the state itself.
+    ///
+    /// Panics if the account is already initialized.
+    pub fn initialize(&mut self) {
+        let Self::Uninitialized(account) = self else {
+            panic!("account is already initialized");
+        };
+        *self = Self::Initialized(InitializedAccount::V1(AccountV1 {
+            amount: account.amount,
+            locked: Balance::ZERO,
+            code_hash: CryptoHash::default(),
+            storage_usage: account.storage_usage,
+        }));
+    }
+
+    #[inline]
+    fn state(&self) -> AccountState {
+        match self {
+            Self::Uninitialized(_) => AccountState::Uninitialized,
+            Self::Initialized(_) => AccountState::Initialized,
         }
     }
 
     #[inline]
     pub fn amount(&self) -> Balance {
+        match self {
+            Self::Uninitialized(account) => account.amount,
+            Self::Initialized(account) => account.amount(),
+        }
+    }
+
+    /// Always zero while uninitialized: nothing can stake on the account's
+    /// behalf before its state init is installed.
+    #[inline]
+    pub fn locked(&self) -> Balance {
+        match self {
+            Self::Uninitialized(_) => Balance::ZERO,
+            Self::Initialized(account) => account.locked(),
+        }
+    }
+
+    #[inline]
+    pub fn contract(&self) -> Cow<'_, AccountContract> {
+        match self {
+            Self::Uninitialized(_) => Cow::Owned(AccountContract::None),
+            Self::Initialized(account) => account.contract(),
+        }
+    }
+
+    #[inline]
+    pub fn storage_usage(&self) -> StorageUsage {
+        match self {
+            Self::Uninitialized(account) => account.storage_usage,
+            Self::Initialized(account) => account.storage_usage(),
+        }
+    }
+
+    /// Layout version within the account's [`AccountState`].
+    #[inline]
+    pub fn version(&self) -> AccountVersion {
+        match self {
+            Self::Uninitialized(_) => AccountVersion::V1,
+            Self::Initialized(account) => account.version(),
+        }
+    }
+
+    #[inline]
+    pub fn global_contract_hash(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Uninitialized(_) => None,
+            Self::Initialized(account) => account.global_contract_hash(),
+        }
+    }
+
+    #[inline]
+    pub fn global_contract_account_id(&self) -> Option<&AccountId> {
+        match self {
+            Self::Uninitialized(_) => None,
+            Self::Initialized(account) => account.global_contract_account_id(),
+        }
+    }
+
+    #[inline]
+    pub fn local_contract_hash(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Uninitialized(_) => None,
+            Self::Initialized(account) => account.local_contract_hash(),
+        }
+    }
+
+    #[inline]
+    pub fn set_amount(&mut self, amount: Balance) {
+        match self {
+            Self::Uninitialized(account) => account.amount = amount,
+            Self::Initialized(account) => account.set_amount(amount),
+        }
+    }
+
+    /// Panics on an uninitialized account, which can never have locked balance.
+    #[inline]
+    pub fn set_locked(&mut self, locked: Balance) {
+        match self {
+            Self::Uninitialized(_) => {
+                panic!("uninitialized account can't have locked balance")
+            }
+            Self::Initialized(account) => account.set_locked(locked),
+        }
+    }
+
+    /// Panics on an uninitialized account. Call [`Self::initialize`] first.
+    #[inline]
+    pub fn set_contract(&mut self, contract: AccountContract) {
+        match self {
+            Self::Uninitialized(_) => panic!("uninitialized account can't have a contract"),
+            Self::Initialized(account) => account.set_contract(contract),
+        }
+    }
+
+    #[inline]
+    pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
+        match self {
+            Self::Uninitialized(account) => account.storage_usage = storage_usage,
+            Self::Initialized(account) => account.set_storage_usage(storage_usage),
+        }
+    }
+}
+
+impl InitializedAccount {
+    #[inline]
+    fn amount(&self) -> Balance {
         match self {
             Self::V1(account) => account.amount,
             Self::V2(account) => account.amount,
@@ -192,7 +393,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn locked(&self) -> Balance {
+    fn locked(&self) -> Balance {
         match self {
             Self::V1(account) => account.locked,
             Self::V2(account) => account.locked,
@@ -200,7 +401,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn contract(&self) -> Cow<'_, AccountContract> {
+    fn contract(&self) -> Cow<'_, AccountContract> {
         match self {
             Self::V1(account) => {
                 Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))
@@ -210,7 +411,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn storage_usage(&self) -> StorageUsage {
+    fn storage_usage(&self) -> StorageUsage {
         match self {
             Self::V1(account) => account.storage_usage,
             Self::V2(account) => account.storage_usage,
@@ -218,7 +419,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn version(&self) -> AccountVersion {
+    fn version(&self) -> AccountVersion {
         match self {
             Self::V1(_) => AccountVersion::V1,
             Self::V2(_) => AccountVersion::V2,
@@ -226,7 +427,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn global_contract_hash(&self) -> Option<CryptoHash> {
+    fn global_contract_hash(&self) -> Option<CryptoHash> {
         match self {
             Self::V2(AccountV2 { contract: AccountContract::Global(hash), .. }) => Some(*hash),
             Self::V1(_) | Self::V2(_) => None,
@@ -234,7 +435,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn global_contract_account_id(&self) -> Option<&AccountId> {
+    fn global_contract_account_id(&self) -> Option<&AccountId> {
         match self {
             Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(account), .. }) => {
                 Some(account)
@@ -244,7 +445,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn local_contract_hash(&self) -> Option<CryptoHash> {
+    fn local_contract_hash(&self) -> Option<CryptoHash> {
         match self {
             Self::V1(account) => {
                 AccountContract::from_local_code_hash(account.code_hash).local_code()
@@ -257,7 +458,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_amount(&mut self, amount: Balance) {
+    fn set_amount(&mut self, amount: Balance) {
         match self {
             Self::V1(account) => account.amount = amount,
             Self::V2(account) => account.amount = amount,
@@ -265,7 +466,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_locked(&mut self, locked: Balance) {
+    fn set_locked(&mut self, locked: Balance) {
         match self {
             Self::V1(account) => account.locked = locked,
             Self::V2(account) => account.locked = locked,
@@ -273,7 +474,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_contract(&mut self, contract: AccountContract) {
+    fn set_contract(&mut self, contract: AccountContract) {
         match self {
             Self::V1(account) => match contract {
                 AccountContract::None | AccountContract::Local(_) => {
@@ -292,7 +493,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
+    fn set_storage_usage(&mut self, storage_usage: StorageUsage) {
         match self {
             Self::V1(account) => account.storage_usage = storage_usage,
             Self::V2(account) => account.storage_usage = storage_usage,
@@ -309,9 +510,13 @@ struct SerdeAccount {
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
-    /// Version of Account in re migrations and similar.
+    /// Version of Account in re migrations and similar. Scoped to `state`.
     #[serde(default)]
     version: AccountVersion,
+    /// Whether the account's state has been installed. Absent from documents
+    /// written before universal accounts existed, which are all initialized.
+    #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
+    state: AccountState,
     /// Global contracts fields
     #[serde(default, skip_serializing_if = "Option::is_none")]
     global_contract_hash: Option<CryptoHash>,
@@ -341,13 +546,18 @@ impl<'de> serde::Deserialize<'de> for Account {
             ));
         }
 
+        if !account_data.state.is_initialized() {
+            return uninitialized_account_from_serde(account_data)
+                .map_err(serde::de::Error::custom);
+        }
+
         match account_data.version {
-            AccountVersion::V1 => Ok(Account::V1(AccountV1 {
+            AccountVersion::V1 => Ok(Account::Initialized(InitializedAccount::V1(AccountV1 {
                 amount: account_data.amount,
                 locked: account_data.locked,
                 code_hash: account_data.code_hash,
                 storage_usage: account_data.storage_usage,
-            })),
+            }))),
             AccountVersion::V2 => {
                 let contract = match account_data.global_contract_account_id {
                     Some(account_id) => AccountContract::GlobalByAccount(account_id),
@@ -357,15 +567,32 @@ impl<'de> serde::Deserialize<'de> for Account {
                     },
                 };
 
-                Ok(Account::V2(AccountV2 {
+                Ok(Account::Initialized(InitializedAccount::V2(AccountV2 {
                     amount: account_data.amount,
                     locked: account_data.locked,
                     storage_usage: account_data.storage_usage,
                     contract,
-                }))
+                })))
             }
         }
     }
+}
+
+/// Rebuild an uninitialized account, rejecting the fields it can never carry.
+fn uninitialized_account_from_serde(account: SerdeAccount) -> Result<Account, &'static str> {
+    if account.version != AccountVersion::V1 {
+        return Err("an uninitialized account must be version V1");
+    }
+    if account.locked != Balance::ZERO {
+        return Err("an uninitialized account can't have locked balance");
+    }
+    if account.code_hash != CryptoHash::default()
+        || account.global_contract_hash.is_some()
+        || account.global_contract_account_id.is_some()
+    {
+        return Err("an uninitialized account can't have a contract");
+    }
+    Ok(Account::new_uninitialized(account.amount, account.storage_usage))
 }
 
 impl serde::Serialize for Account {
@@ -381,6 +608,7 @@ impl serde::Serialize for Account {
             code_hash,
             storage_usage: self.storage_usage(),
             version,
+            state: self.state(),
             global_contract_hash: self.global_contract_hash(),
             global_contract_account_id: self.global_contract_account_id().cloned(),
         };
@@ -405,6 +633,7 @@ impl schemars::JsonSchema for Account {
 enum BorshVersionedAccount {
     // V1 is not included since it is serialized directly without being wrapped in enum
     V2(AccountV2) = 0,
+    Uninitialized(UninitializedAccountV1) = 1,
 }
 
 impl BorshDeserialize for Account {
@@ -415,7 +644,10 @@ impl BorshDeserialize for Account {
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             let versioned_account = BorshVersionedAccount::deserialize_reader(rd)?;
             let account = match versioned_account {
-                BorshVersionedAccount::V2(account_v2) => Account::V2(account_v2),
+                BorshVersionedAccount::V2(account_v2) => {
+                    Account::Initialized(InitializedAccount::V2(account_v2))
+                }
+                BorshVersionedAccount::Uninitialized(account) => Account::Uninitialized(account),
             };
             Ok(account)
         } else {
@@ -424,12 +656,9 @@ impl BorshDeserialize for Account {
             let code_hash = CryptoHash::deserialize_reader(rd)?;
             let storage_usage = StorageUsage::deserialize_reader(rd)?;
 
-            Ok(Account::V1(AccountV1 {
-                amount: sentinel_or_amount,
-                locked,
-                code_hash,
-                storage_usage,
-            }))
+            let account_v1 =
+                AccountV1 { amount: sentinel_or_amount, locked, code_hash, storage_usage };
+            Ok(Account::Initialized(InitializedAccount::V1(account_v1)))
         }
     }
 }
@@ -437,8 +666,15 @@ impl BorshDeserialize for Account {
 impl BorshSerialize for Account {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         let versioned_account = match self {
-            Account::V1(account_v1) => return account_v1.serialize(writer),
-            Account::V2(account_v2) => BorshVersionedAccount::V2(account_v2.clone()),
+            Account::Initialized(InitializedAccount::V1(account_v1)) => {
+                return account_v1.serialize(writer);
+            }
+            Account::Initialized(InitializedAccount::V2(account_v2)) => {
+                BorshVersionedAccount::V2(account_v2.clone())
+            }
+            Account::Uninitialized(account) => {
+                BorshVersionedAccount::Uninitialized(account.clone())
+            }
         };
         let sentinel = Account::SERIALIZATION_SENTINEL;
         BorshSerialize::serialize(&sentinel, writer)?;
@@ -646,6 +882,15 @@ pub struct FunctionCallPermission {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use expect_test::expect;
+
+    fn initialized_v1(account: AccountV1) -> Account {
+        Account::Initialized(InitializedAccount::V1(account))
+    }
+
+    fn initialized_v2(account: AccountV2) -> Account {
+        Account::Initialized(InitializedAccount::V2(account))
+    }
 
     fn create_serde_account(
         code_hash: CryptoHash,
@@ -658,6 +903,7 @@ mod tests {
             code_hash,
             storage_usage: 1000,
             version: AccountVersion::V2,
+            state: AccountState::Initialized,
             global_contract_hash,
             global_contract_account_id,
         }
@@ -679,6 +925,7 @@ mod tests {
             code_hash: old_account.code_hash,
             storage_usage: old_account.storage_usage,
             version: AccountVersion::V1,
+            state: AccountState::Initialized,
             global_contract_hash: None,
             global_contract_account_id: None,
         };
@@ -686,7 +933,7 @@ mod tests {
         assert_eq!(actual_serde_repr, expected_serde_repr);
 
         let new_account: Account = serde_json::from_str(&serialized_account).unwrap();
-        assert_eq!(new_account, Account::V1(old_account));
+        assert_eq!(new_account, initialized_v1(old_account));
 
         let new_serialized_account = serde_json::to_string(&new_account).unwrap();
         let deserialized_account: Account = serde_json::from_str(&new_serialized_account).unwrap();
@@ -703,7 +950,7 @@ mod tests {
         };
         let old_bytes = borsh::to_vec(&old_account).unwrap();
         let new_account = <Account as BorshDeserialize>::deserialize(&mut &old_bytes[..]).unwrap();
-        assert_eq!(new_account, Account::V1(old_account));
+        assert_eq!(new_account, initialized_v1(old_account));
 
         let new_bytes = borsh::to_vec(&new_account).unwrap();
         assert_eq!(new_bytes, old_bytes);
@@ -720,7 +967,7 @@ mod tests {
             storage_usage: 1000,
             contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
         };
-        let account = Account::V2(account_v2.clone());
+        let account = initialized_v2(account_v2.clone());
 
         let serialized_account = serde_json::to_string(&account).unwrap();
         let expected_serde_repr = SerdeAccount {
@@ -729,6 +976,7 @@ mod tests {
             code_hash: account_v2.contract.local_code().unwrap_or_default(),
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
+            state: AccountState::Initialized,
             global_contract_hash: None,
             global_contract_account_id: None,
         };
@@ -747,7 +995,7 @@ mod tests {
             storage_usage: 1000,
             contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
         };
-        let account = Account::V2(account_v2);
+        let account = initialized_v2(account_v2);
         let serialized_account = borsh::to_vec(&account).unwrap();
         let deserialized_account =
             <Account as BorshDeserialize>::deserialize(&mut &serialized_account[..]).unwrap();
@@ -799,17 +1047,179 @@ mod tests {
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
         };
-        let mut account = Account::V1(account_v1);
+        let mut account = initialized_v1(account_v1);
         let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
         account.set_contract(contract);
-        assert!(matches!(account, Account::V1(_)));
+        assert!(matches!(account, Account::Initialized(InitializedAccount::V1(_))));
 
         let contract = AccountContract::None;
         account.set_contract(contract);
-        assert!(matches!(account, Account::V1(_)));
+        assert!(matches!(account, Account::Initialized(InitializedAccount::V1(_))));
 
         let contract = AccountContract::Global(CryptoHash::hash_bytes(&[42]));
         account.set_contract(contract);
-        assert!(matches!(account, Account::V2(_)));
+        assert!(matches!(account, Account::Initialized(InitializedAccount::V2(_))));
+    }
+
+    fn borsh_hex(account: &Account) -> String {
+        borsh::to_vec(account).unwrap().iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn uninitialized_serde_account() -> SerdeAccount {
+        SerdeAccount {
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::ZERO,
+            code_hash: CryptoHash::default(),
+            storage_usage: 300,
+            version: AccountVersion::V1,
+            state: AccountState::Uninitialized,
+            global_contract_hash: None,
+            global_contract_account_id: None,
+        }
+    }
+
+    fn deserialize_account(repr: &SerdeAccount) -> Result<Account, serde_json::Error> {
+        serde_json::from_str(&serde_json::to_string(repr).unwrap())
+    }
+
+    /// Pins the on-wire encoding of every representation, so a change to the
+    /// `Account` shape that also moves the bytes can't pass unnoticed.
+    #[test]
+    fn borsh_encoding_is_stable() {
+        let v1 = initialized_v1(AccountV1 {
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
+            code_hash: CryptoHash::hash_bytes(&[42]),
+            storage_usage: 300,
+        });
+        expect!["64000000000000000000000000000000c8000000000000000000000000000000684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc12c01000000000000"].assert_eq(&borsh_hex(&v1));
+
+        let v2 = initialized_v2(AccountV2 {
+            amount: Balance::from_yoctonear(100),
+            locked: Balance::from_yoctonear(200),
+            storage_usage: 300,
+            contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
+        });
+        expect!["ffffffffffffffffffffffffffffffff0064000000000000000000000000000000c80000000000000000000000000000002c0100000000000002684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"].assert_eq(&borsh_hex(&v2));
+
+        let uninitialized = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        expect![
+            "ffffffffffffffffffffffffffffffff01640000000000000000000000000000002c01000000000000"
+        ]
+        .assert_eq(&borsh_hex(&uninitialized));
+    }
+
+    #[test]
+    fn uninitialized_account_accessors() {
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+
+        assert!(!account.is_initialized());
+        assert_eq!(account.amount(), Balance::from_yoctonear(100));
+        assert_eq!(account.locked(), Balance::ZERO);
+        assert_eq!(account.storage_usage(), 300);
+        assert_eq!(account.version(), AccountVersion::V1);
+        assert!(account.contract().is_none());
+        assert_eq!(account.local_contract_hash(), None);
+        assert_eq!(account.global_contract_hash(), None);
+        assert_eq!(account.global_contract_account_id(), None);
+    }
+
+    #[test]
+    fn initialize_keeps_balance_and_storage_usage() {
+        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        // A transfer can credit the account while it is still uninitialized.
+        account.set_amount(Balance::from_yoctonear(500));
+
+        account.initialize();
+
+        assert!(account.is_initialized());
+        assert_eq!(account.amount(), Balance::from_yoctonear(500));
+        assert_eq!(account.locked(), Balance::ZERO);
+        assert_eq!(account.storage_usage(), 300);
+        assert_eq!(account.version(), AccountVersion::V1);
+        assert!(account.contract().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn initialize_twice_panics() {
+        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        account.initialize();
+        account.initialize();
+    }
+
+    #[test]
+    #[should_panic(expected = "locked balance")]
+    fn set_locked_on_uninitialized_account_panics() {
+        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        account.set_locked(Balance::from_yoctonear(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "can't have a contract")]
+    fn set_contract_on_uninitialized_account_panics() {
+        let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        account.set_contract(AccountContract::Local(CryptoHash::hash_bytes(&[42])));
+    }
+
+    #[test]
+    fn uninitialized_account_borsh_serialization() {
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+
+        let bytes = borsh::to_vec(&account).unwrap();
+        let deserialized = <Account as BorshDeserialize>::deserialize(&mut &bytes[..]).unwrap();
+        assert_eq!(deserialized, account);
+    }
+
+    #[test]
+    fn uninitialized_account_serde_serialization() {
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+
+        let serialized_account = serde_json::to_string(&account).unwrap();
+        expect![[r#"{"amount":"100","locked":"0","code_hash":"11111111111111111111111111111111","storage_usage":300,"version":"V1","state":"uninitialized"}"#]].assert_eq(&serialized_account);
+
+        let deserialized_account: Account = serde_json::from_str(&serialized_account).unwrap();
+        assert_eq!(deserialized_account, account);
+    }
+
+    /// Existing accounts must serialize exactly as before, so that documents
+    /// written by older binaries and by this one stay interchangeable.
+    #[test]
+    fn initialized_account_serde_serialization_omits_state() {
+        let account = Account::new(
+            Balance::from_yoctonear(100),
+            Balance::from_yoctonear(200),
+            AccountContract::Local(CryptoHash::hash_bytes(&[42])),
+            300,
+        );
+
+        let serialized_account = serde_json::to_string(&account).unwrap();
+        assert!(!serialized_account.contains("\"state\""), "{serialized_account}");
+    }
+
+    #[test]
+    fn uninitialized_account_serde_deserialization_rejects_impossible_fields() {
+        assert!(deserialize_account(&uninitialized_serde_account()).is_ok());
+
+        let mut wrong_version = uninitialized_serde_account();
+        wrong_version.version = AccountVersion::V2;
+        assert!(deserialize_account(&wrong_version).is_err());
+
+        let mut locked = uninitialized_serde_account();
+        locked.locked = Balance::from_yoctonear(1);
+        assert!(deserialize_account(&locked).is_err());
+
+        let mut local_contract = uninitialized_serde_account();
+        local_contract.code_hash = CryptoHash::hash_bytes(&[42]);
+        assert!(deserialize_account(&local_contract).is_err());
+
+        let mut global_contract = uninitialized_serde_account();
+        global_contract.global_contract_hash = Some(CryptoHash::hash_bytes(&[42]));
+        assert!(deserialize_account(&global_contract).is_err());
+
+        let mut global_by_account = uninitialized_serde_account();
+        global_by_account.global_contract_account_id =
+            Some(AccountId::try_from("test.near".to_string()).unwrap());
+        assert!(deserialize_account(&global_by_account).is_err());
     }
 }
