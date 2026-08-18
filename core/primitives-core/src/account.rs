@@ -149,7 +149,10 @@ impl AccountContract {
     }
 
     pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
+        match self {
+            Self::None => true,
+            Self::Local(_) | Self::Global(_) | Self::GlobalByAccount(_) => false,
+        }
     }
 
     pub fn is_some(&self) -> bool {
@@ -157,7 +160,10 @@ impl AccountContract {
     }
 
     pub fn is_local(&self) -> bool {
-        matches!(self, Self::Local(_))
+        match self {
+            Self::Local(_) => true,
+            Self::None | Self::Global(_) | Self::GlobalByAccount(_) => false,
+        }
     }
 
     pub fn identifier_storage_usage(&self) -> u64 {
@@ -230,7 +236,9 @@ impl Account {
             AccountContract::Local(code_hash) => {
                 InitializedAccount::V1(AccountV1 { amount, locked, code_hash, storage_usage })
             }
-            _ => InitializedAccount::V2(AccountV2 { amount, locked, storage_usage, contract }),
+            AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+                InitializedAccount::V2(AccountV2 { amount, locked, storage_usage, contract })
+            }
         };
         Self::Initialized(account)
     }
@@ -480,7 +488,7 @@ impl InitializedAccount {
                 AccountContract::None | AccountContract::Local(_) => {
                     account.code_hash = contract.local_code().unwrap_or_default();
                 }
-                _ => {
+                AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
                     let mut account_v2 = account.to_v2();
                     account_v2.contract = contract;
                     *self = Self::V2(account_v2);
@@ -753,7 +761,7 @@ impl AccessKey {
         match &self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            _ => None,
+            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
         }
     }
 
@@ -761,7 +769,7 @@ impl AccessKey {
         match &mut self.permission {
             AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
             | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
-            _ => None,
+            AccessKeyPermission::FunctionCall(_) | AccessKeyPermission::FullAccess => None,
         }
     }
 }
@@ -828,7 +836,7 @@ impl AccessKeyPermission {
         match self {
             AccessKeyPermission::FunctionCall(permission)
             | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            _ => None,
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
         }
     }
 
@@ -836,7 +844,7 @@ impl AccessKeyPermission {
         match self {
             AccessKeyPermission::FunctionCall(permission)
             | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
-            _ => None,
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
         }
     }
 }
