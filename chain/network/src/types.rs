@@ -27,7 +27,8 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
@@ -252,13 +253,13 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
-        part_id: u64,
+        part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
     StateRequestAck {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id_or_header: PartIdOrHeader,
+        part_or_header: PartOrHeader,
         body: StateRequestAckBody,
         peer_id: PeerId,
     },
@@ -328,7 +329,7 @@ pub enum NetworkRequests {
 
 #[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
-    StatePartReceived(ShardId, u64),
+    StatePartReceived(ShardId, StatePartIndex),
 }
 
 /// Combines peer address info, chain.
@@ -594,7 +595,7 @@ pub enum Tier3RequestBody {
 pub struct StatePartRequestBody {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_idx: StatePartIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

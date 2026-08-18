@@ -116,11 +116,11 @@ pub enum DBCol {
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
     /// Contains State parts that we've received.
-    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || StatePartIndex)
     /// - *Content type*: state part (bytes)
     StateParts,
     /// Contains information about which state parts we've applied.
-    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || StatePartIndex)
     /// - *Content type*: bool (just a marker that we've applied this part)
     StatePartsApplied,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)

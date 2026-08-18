@@ -685,10 +685,10 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActor {
 
         match state_response {
             StateResponse::Ack(ref ack) => {
-                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_id_or_header(), ack_body = ?ack.body, "received state request ack");
+                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_or_header(), ack_body = ?ack.body, "received state request ack");
             }
             StateResponse::State(ref state) => {
-                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_id_or_header(), size = ?state.payload_length(), "received state response");
+                tracing::trace!(target: "sync", %shard_id, ?hash, part_id = ?state_response.part_or_header(), size = ?state.payload_length(), "received state response");
             }
         }
 

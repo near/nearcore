@@ -17,7 +17,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
@@ -642,14 +642,17 @@ async fn download_and_apply_state_snapshot(
     let chain_id = cloud_storage.chain_id();
     let num_parts =
         list_state_parts(&connection, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
-    for part_id in 0..num_parts {
-        let file_type = StateFileType::StatePart { part_id, num_parts };
+    for part_idx in 0..num_parts {
+        let file_type = StateFileType::StatePart { part_idx, num_parts };
         let location =
             external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
         let bytes = connection.get_file(shard_id, &location, &file_type).await.unwrap();
         let partial_state = StatePart::from_bytes(bytes).unwrap().to_partial_state().unwrap();
-        let apply_result =
-            Trie::apply_state_part(&state_root, PartId::new(part_id, num_parts), partial_state);
+        let apply_result = Trie::apply_state_part(
+            &state_root,
+            StatePartId::new(part_idx, num_parts),
+            partial_state,
+        );
         let mut store_update = tries.store_update();
         tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         store_update.commit();

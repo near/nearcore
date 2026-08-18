@@ -1074,7 +1074,7 @@ impl NetworkState {
                         body: Tier3RequestBody::StatePart(StatePartRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
-                            part_id: request.part_id,
+                            part_idx: request.part_idx,
                         }),
                         recv_permit,
                     });
@@ -1239,10 +1239,10 @@ impl NetworkState {
                     .await;
                 response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
             }
-            PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
                 let response = self
                     .state_request_adapter
-                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_idx })
                     .await;
                 response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
             }
