@@ -17,11 +17,16 @@ use std::collections::HashSet;
 pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 20;
 
 /// Whether the chunk may certify via the all-stake fallback in a block at `carrying_height`: true
-/// once its designated validators have had `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks to act.
+/// once its designated validators have had `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks to act. A
+/// fallback-only chunk is eligible from the start: it has no delay to wait out, and
+/// `certifiable_since_height` is only set in a later block than the chunk's own.
 pub fn fallback_eligible(
     carrying_height: BlockHeight,
     chunk_info: &SpiceUncertifiedChunkInfo,
 ) -> bool {
+    if chunk_info.is_fallback_only {
+        return true;
+    }
     let Some(certifiable_since) = chunk_info.certifiable_since_height else {
         return false;
     };
@@ -41,13 +46,15 @@ pub fn endorsers_certify_chunk(
     endorsers: &HashSet<AccountId>,
 ) -> Result<bool, Error> {
     let epoch_id = chunk_block_header.epoch_id();
-    let designated = epoch_manager.get_chunk_validator_assignments(
-        epoch_id,
-        chunk_info.chunk_id.shard_id,
-        chunk_block_header.height(),
-    )?;
-    if designated.is_endorsed(endorsers) {
-        return Ok(true);
+    if !chunk_info.is_fallback_only {
+        let designated = epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_info.chunk_id.shard_id,
+            chunk_block_header.height(),
+        )?;
+        if designated.is_endorsed(endorsers) {
+            return Ok(true);
+        }
     }
     if !fallback_eligible(carrying_height, chunk_info) {
         return Ok(false);
