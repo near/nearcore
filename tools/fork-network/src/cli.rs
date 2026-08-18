@@ -706,6 +706,7 @@ impl ForkNetworkCommand {
             original_genesis_config,
             genesis_file,
             epoch_config,
+            target_shard_layout,
             new_state_roots,
             new_validator_accounts,
         )
@@ -788,7 +789,12 @@ impl ForkNetworkCommand {
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
         genesis.config.chain_id.clone_from(chain_id);
-        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
+        initialize_sharded_genesis_state(
+            store.clone(),
+            &genesis,
+            target_shard_layout,
+            Some(home_dir),
+        );
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();
 
@@ -849,6 +855,7 @@ impl ForkNetworkCommand {
             genesis.config,
             near_config.config.genesis_file.clone(),
             epoch_config,
+            target_shard_layout.clone(),
             state_roots.clone(),
             validators,
         )?;
@@ -1010,11 +1017,20 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                // fork-network writes a static-layout genesis, so apply the requested shard
-                // layout whether the base (mainnet) config is static or dynamic. The base is
-                // dynamic since resharding stabilized; otherwise make_and_write_genesis fails.
-                config.shard_layout_config =
-                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                // Only pin versions that already had a static layout. Once dynamic resharding is
+                // enabled the layout comes from EpochInfo, and forcing it static here would
+                // disable resharding on the fork -- which is one of the things a fork exists to
+                // exercise.
+                if config.shard_layout_config.static_shard_layout().is_some() {
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                } else {
+                    tracing::warn!(
+                        target: "near", version,
+                        "shard layout override ignored: this protocol version uses dynamic \
+                         resharding, so the layout is determined per-epoch rather than by config"
+                    );
+                }
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -1696,12 +1712,12 @@ impl ForkNetworkCommand {
         original_config: GenesisConfig,
         genesis_file: String,
         epoch_config: EpochConfig,
+        // The layout the fork was built with. Passed in rather than read back out of
+        // `epoch_config`, which has no static layout once dynamic resharding is enabled.
+        shard_layout: ShardLayout,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config
-            .static_shard_layout()
-            .context("dynamic resharding epoch config is not supported")?;
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id,
             genesis_height: original_config.genesis_height,
