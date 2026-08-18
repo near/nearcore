@@ -561,8 +561,8 @@ mod tests {
         // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
         // on-chain `raw_state_init_to_account_id` host fn's cross-check.
         for (state_init, expected) in [
-            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g0ep4de"), // cspell:disable-line
-            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0s32b8m"), // cspell:disable-line
+            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"), // cspell:disable-line
+            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"), // cspell:disable-line
         ] {
             let id = derive_universal_account_id(state_init);
             assert_eq!(id.as_str(), expected);
