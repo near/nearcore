@@ -173,14 +173,15 @@ struct ReassignmentScan {
 /// Scans heights from `from_height` down towards `epoch_start` (staying far enough above
 /// it that the grandparent anchor is in the same epoch) for the target's own scheduled
 /// slots on `shard`. For each slot whose grandparent anchor blacklists the target, the
-/// DB-backed resolver must return a DIFFERENT validator. Mirrors the epoch-manager
-/// anti-flap unit test, end-to-end over the real chain. Stops after two reassigned slots;
-/// the callers only need existence, not exhaustiveness.
+/// DB-backed resolver must return exactly the blacklist-aware sample — the same
+/// `sample_chunk_producer_excluding` pick the production seeder stores — which is never
+/// the target. Mirrors the epoch-manager anti-flap unit test, end-to-end over the real
+/// chain. Stops after two reassigned slots; the callers only need existence, not
+/// exhaustiveness.
 fn scan_reassigned_target_slots(
     node: &TestLoopNode,
     epoch_info: &EpochInfo,
     shard_layout: &ShardLayout,
-    target_account: &AccountId,
     target_id: ValidatorId,
     shard: ShardId,
     from_height: BlockHeight,
@@ -213,11 +214,21 @@ fn scan_reassigned_target_slots(
                         .unwrap_or_else(|err| {
                             panic!("resolver failed at height {height} shard {shard}: {err:?}")
                         });
+                    let excluded = anchor_blacklist
+                        .get(&shard)
+                        .expect("anchor blacklists the target on this shard");
+                    let expected_id = epoch_info
+                        .sample_chunk_producer_excluding(shard_layout, shard, height, excluded)
+                        .expect("a healthy replacement must remain (safety-valve guard upstream)");
                     assert_ne!(
+                        expected_id, target_id,
+                        "excluding sampler must exclude the blacklisted target"
+                    );
+                    assert_eq!(
                         resolved.account_id(),
-                        target_account,
-                        "chunk at height {height} on shard {shard} must be \
-                         reassigned away from the blacklisted producer"
+                        epoch_info.get_validator(expected_id).account_id(),
+                        "row-backed resolver must equal the exact blacklist-aware sample \
+                         at height {height} shard {shard}"
                     );
                     scan.reassigned_slots += 1;
                 }
@@ -226,6 +237,32 @@ fn scan_reassigned_target_slots(
         height -= 1;
     }
     scan
+}
+
+/// Current-epoch (produced, expected) chunk stats for `account_id` on `shard_id` at
+/// `block_hash`, from the aggregator-backed validator info. Returns (0, 0) when the shard
+/// carries no expected slots for the validator yet — `shards_produced` only lists shards
+/// with `expected > 0`, so absence is a valid early-epoch state, not an error.
+fn chunk_stats_for_shard(
+    epoch_manager: &Arc<dyn EpochManagerAdapter>,
+    block_hash: CryptoHash,
+    account_id: &AccountId,
+    shard_id: ShardId,
+) -> (u64, u64) {
+    let info =
+        epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(block_hash)).unwrap();
+    let validator = info
+        .current_validators
+        .iter()
+        .find(|validator| &validator.account_id == account_id)
+        .expect("account must be a current validator");
+    match validator.shards_produced.iter().position(|&shard| shard == shard_id) {
+        Some(index) => (
+            validator.num_produced_chunks_per_shard[index],
+            validator.num_expected_chunks_per_shard[index],
+        ),
+        None => (0, 0),
+    }
 }
 
 /// Shard-layout identity per block over a walked header range, for asserting a window
@@ -392,7 +429,6 @@ fn test_early_kickout_reassignment() {
         &observe,
         epoch_info.as_ref(),
         &shard_layout,
-        &target_account,
         target_id,
         target_shard,
         final_head.height,
@@ -1088,10 +1124,12 @@ fn slow_test_early_kickout_across_resharding() {
         let parent_shard_index = base_shard_layout.get_shard_index(parent_shard_id).unwrap();
         let parent_settlement =
             &genesis_epoch_info.chunk_producers_settlement()[parent_shard_index];
-        // Fixture precondition, loud fail if balance-assignment ever changes. The
-        // post-split guards below check the child settlements independently.
+        // Fixture precondition, loud fail if balance-assignment ever changes. Distinct
+        // ids, not `len()`: the keep-one valve counts distinct producers, so a duplicate
+        // entry would satisfy a length check vacuously. The post-split guards below
+        // check the child settlements independently.
         assert_eq!(
-            parent_settlement.len(),
+            parent_settlement.iter().collect::<HashSet<_>>().len(),
             4,
             "fixture expects 8 equal-stake producers balanced 4/4 across 2 shards"
         );
@@ -1115,6 +1153,11 @@ fn slow_test_early_kickout_across_resharding() {
     );
     {
         let pre_epoch_info = epoch_manager.get_epoch_info(&pre_trigger_head.epoch_id).unwrap();
+        assert_eq!(
+            pre_epoch_info.protocol_version(),
+            PROTOCOL_VERSION - 1,
+            "pre-split epoch must still run the old protocol version"
+        );
         let pre_target_id = *pre_epoch_info
             .get_validator_id(&target_account)
             .expect("target must be a validator in the pre-split epoch");
@@ -1143,6 +1186,11 @@ fn slow_test_early_kickout_across_resharding() {
     }
     let split_epoch_id = env.node(0).head().epoch_id;
     let split_epoch_info = epoch_manager.get_epoch_info(&split_epoch_id).unwrap();
+    assert_eq!(
+        split_epoch_info.protocol_version(),
+        PROTOCOL_VERSION,
+        "split epoch must run the new protocol version"
+    );
     // Standard kickout staying disabled is what keeps the always-missing target alive
     // through the boundaries; this `expect` guards that regression loudly.
     let split_target_id = *split_epoch_info
@@ -1167,13 +1215,50 @@ fn slow_test_early_kickout_across_resharding() {
     let target_child_shard = target_shards[0];
     assert!(
         children.contains(&target_child_shard),
-        "sticky assignment must land the target on a child of {parent_shard_id}, \
-         got {target_child_shard}"
+        "fixture requires the target to land on a child of the retired parent \
+         {parent_shard_id}, got {target_child_shard}"
     );
     let target_child_index = new_shard_layout.get_shard_index(target_child_shard).unwrap();
+    // Distinct ids for the same reason as the parent guard: the keep-one valve counts
+    // distinct producers.
     assert!(
-        split_epoch_info.chunk_producers_settlement()[target_child_index].len() >= 2,
+        split_epoch_info.chunk_producers_settlement()[target_child_index]
+            .iter()
+            .collect::<HashSet<_>>()
+            .len()
+            >= 2,
         "target's child shard must retain a healthy replacement (safety-valve guard)"
+    );
+
+    // Blacklist-reset proof, part 1: at the first finalized observation inside the split
+    // epoch the target must NOT be blacklisted (entry is a couple of blocks in, far under
+    // the grace window, and the aggregator's epoch gate holds), and its child-epoch stats
+    // must sit below the miss floor. Without this, a hypothetical carry-across bug — the
+    // pre-split blacklist surviving the boundary — would go unnoticed.
+    env.node_runner(0).run_until(
+        move |node| node.final_head().epoch_id == split_epoch_id,
+        Duration::seconds(EPOCH_LENGTH as i64),
+    );
+    let split_entry_head = env.node(0).final_head();
+    {
+        let entry_blacklist =
+            epoch_manager.get_chunk_producer_blacklist(&split_entry_head.last_block_hash).unwrap();
+        assert!(
+            !entry_blacklist
+                .get(&target_child_shard)
+                .is_some_and(|excluded| excluded.contains(&split_target_id)),
+            "blacklist must reset at the split boundary"
+        );
+    }
+    let (entry_produced, entry_expected) = chunk_stats_for_shard(
+        &epoch_manager,
+        split_entry_head.last_block_hash,
+        &target_account,
+        target_child_shard,
+    );
+    assert!(
+        entry_expected.saturating_sub(entry_produced) < TEST_MIN_MISSES,
+        "split-epoch stats must start below the miss floor, got {entry_produced}/{entry_expected}"
     );
 
     // Post-split kickout: the blacklist reset at the boundary, so it has to re-accrue
@@ -1198,6 +1283,22 @@ fn slow_test_early_kickout_across_resharding() {
              in the split epoch"
         );
     }
+    // Blacklist-reset proof, part 2: the trigger came from misses accumulated INSIDE the
+    // split epoch — expected slots grew since entry and the fresh misses crossed the floor.
+    let (trigger_produced, trigger_expected) = chunk_stats_for_shard(
+        &epoch_manager,
+        post_trigger_head.last_block_hash,
+        &target_account,
+        target_child_shard,
+    );
+    assert!(
+        trigger_expected > entry_expected,
+        "child-epoch expected slots must have grown, got {entry_expected} -> {trigger_expected}"
+    );
+    assert!(
+        trigger_expected.saturating_sub(trigger_produced) >= TEST_MIN_MISSES,
+        "child-epoch misses must have crossed the floor, got {trigger_produced}/{trigger_expected}"
+    );
     // Runway so chunks whose grandparent anchor blacklists the target exist to check.
     env.node_runner(0).run_for_number_of_blocks(20);
     assert_eq!(
@@ -1217,7 +1318,6 @@ fn slow_test_early_kickout_across_resharding() {
         &observe,
         split_epoch_info.as_ref(),
         &new_shard_layout,
-        &target_account,
         split_target_id,
         target_child_shard,
         final_head.height,
@@ -1231,9 +1331,10 @@ fn slow_test_early_kickout_across_resharding() {
 
     // Requirement 1: every persisted row the anchored resolver needs across the split
     // exists and matches the blacklist-aware schedule. The walk fails on any
-    // `ChunkProducerNotInDB`-shaped absence, truncation, or wrong row; asserting
-    // `reassigned_rows` pins that the window contains both blacklist-active regions and
-    // `cross_epoch_heights` that the cross-epoch resolver arm ran.
+    // `ChunkProducerNotInDB`-shaped absence, truncation, or wrong row. `reassigned_rows`
+    // is a global counter: it proves the window holds at least one blacklist-driven
+    // reassignment; the child scan above pins the post-split region specifically.
+    // `cross_epoch_heights > 0` pins that the cross-epoch resolver arm ran.
     let low = pre_trigger_head.height.saturating_sub(5);
     assert!(
         low > observe.tail() + 2,
@@ -1243,7 +1344,7 @@ fn slow_test_early_kickout_across_resharding() {
     let label = "cross-resharding walk";
     let walk = walk_anchor_rows(&observe, final_head.last_block_hash, low)
         .unwrap_or_else(|err| panic!("{label} failed before reaching {low}: {err:?}"));
-    assert_walk_window(&walk, final_head.height - low, label);
+    assert_walk_window(&walk, final_head.height - low + 1, label);
     assert_blacklist_read_everywhere(&walk, label);
     assert!(
         walk.reassigned_rows > 0,
@@ -1299,7 +1400,12 @@ fn slow_test_early_kickout_across_resharding() {
     }
     assert!(liveness_blocks >= 10, "liveness window too thin: only {liveness_blocks} blocks found");
     assert!(
-        sibling_blocks >= 1,
-        "sibling child shard {sibling_child} produced no chunk in the liveness window"
+        sibling_blocks >= 2,
+        "sibling child shard {sibling_child} must produce chunks at different heights in \
+         the liveness window, got {sibling_blocks}"
+    );
+    assert!(
+        final_head.height >= post_trigger_head.height + 15,
+        "final head did not advance past the post-split kickout"
     );
 }
