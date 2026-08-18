@@ -68,9 +68,9 @@ impl<'a> AncestryEndorsements<'a> {
         self.on_chain.get(chunk_id).is_some_and(|endorsers| endorsers.contains_key(account_id))
     }
 
-    /// Chunks awaiting a designated endorsement on chain (with repeats per missing validator).
-    pub(crate) fn pending_designated_chunks(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
-        self.pending_designated.iter().map(|(chunk_id, _)| *chunk_id)
+    /// Every chunk still uncertified in the ancestry.
+    pub(crate) fn uncertified_chunk_ids(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
+        self.uncertified_chunks.keys().copied()
     }
 
     /// Endorsements (designated and non-designated) already on chain for `chunk_id`.
