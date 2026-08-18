@@ -15,7 +15,7 @@ use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers,
+    SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers, is_fallback_only_chunk,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
@@ -2715,6 +2715,22 @@ fn save_test_witness_for_chunk(chain: &Chain, chunk_id: &SpiceChunkId) -> SpiceC
     witness
 }
 
+/// The chain's first chunk that the schedule marks fallback-only.
+fn grow_chain_to_fallback_only_chunk(chain: &mut Chain) -> SpiceChunkId {
+    for _ in 0..100 {
+        let block = produce_block(chain, &latest_block(chain));
+        let chunks = block.chunks();
+        let scheduled = chunks.iter_raw().find(|chunk| {
+            is_fallback_only_chunk(chain.epoch_manager.as_ref(), block.header(), chunk.shard_id())
+                .unwrap()
+        });
+        if let Some(chunk) = scheduled {
+            return SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() };
+        }
+    }
+    panic!("no fallback-only chunk within 100 blocks");
+}
+
 /// What the push targets: the fallback endorsers of `chunk_id`, less its producers, who already
 /// hold the witness.
 fn fallback_witness_recipients(chain: &Chain, chunk_id: &SpiceChunkId) -> HashSet<AccountId> {
@@ -2803,6 +2819,32 @@ fn test_witness_is_pushed_only_once() {
     let next_block = produce_block(&mut chain, &head_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fallback_only_witness_is_pushed_without_waiting_for_the_delay() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let chunk_id = grow_chain_to_fallback_only_chunk(&mut chain);
+    let witness = save_test_witness_for_chunk(&chain, &chunk_id);
+
+    let head_block = latest_block(&chain);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), chunk_id.shard_id)
+        .unwrap()
+        .swap_remove(0);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+
+    let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
+    assert_eq!(pushes.len(), 1, "the scheduled chunk's witness was not pushed on its own block");
+    let (partial_data, recipients) = pushes.swap_remove(0);
+    assert_eq!(partial_data.block_hash(), &witness.chunk_id().block_hash);
+    assert_eq!(recipients, fallback_witness_recipients(&chain, &chunk_id));
 }
 
 #[test]
