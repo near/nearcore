@@ -225,8 +225,8 @@ fn scan_reassigned_target_slots(
                         "excluding sampler must exclude the blacklisted target"
                     );
                     assert_eq!(
-                        resolved.account_id(),
-                        epoch_info.get_validator(expected_id).account_id(),
+                        resolved,
+                        epoch_info.get_validator(expected_id),
                         "row-backed resolver must equal the exact blacklist-aware sample \
                          at height {height} shard {shard}"
                     );
@@ -1231,10 +1231,12 @@ fn slow_test_early_kickout_across_resharding() {
     );
 
     // Blacklist-reset proof, part 1: at the first finalized observation inside the split
-    // epoch the target must NOT be blacklisted (entry is a couple of blocks in, far under
-    // the grace window, and the aggregator's epoch gate holds), and its child-epoch stats
-    // must sit below the miss floor. Without this, a hypothetical carry-across bug — the
-    // pre-split blacklist surviving the boundary — would go unnoticed.
+    // epoch the blacklist must be GLOBALLY empty (entry is a couple of blocks in: either
+    // the last-final basis still sits in the previous epoch and the aggregator's epoch
+    // gate holds, or the split epoch is inside its grace window), and the target's
+    // child-epoch stats must sit below the miss floor. Without this, a hypothetical
+    // carry-across bug — the pre-split blacklist surviving the boundary, possibly under
+    // a stale epoch-local id or a stale shard key — would go unnoticed.
     env.node_runner(0).run_until(
         move |node| node.final_head().epoch_id == split_epoch_id,
         Duration::seconds(EPOCH_LENGTH as i64),
@@ -1244,10 +1246,8 @@ fn slow_test_early_kickout_across_resharding() {
         let entry_blacklist =
             epoch_manager.get_chunk_producer_blacklist(&split_entry_head.last_block_hash).unwrap();
         assert!(
-            !entry_blacklist
-                .get(&target_child_shard)
-                .is_some_and(|excluded| excluded.contains(&split_target_id)),
-            "blacklist must reset at the split boundary"
+            entry_blacklist.is_empty(),
+            "blacklist must reset at the split boundary, got {entry_blacklist:?}"
         );
     }
     let (entry_produced, entry_expected) = chunk_stats_for_shard(
@@ -1284,10 +1284,22 @@ fn slow_test_early_kickout_across_resharding() {
         );
     }
     // Blacklist-reset proof, part 2: the trigger came from misses accumulated INSIDE the
-    // split epoch — expected slots grew since entry and the fresh misses crossed the floor.
+    // split epoch. Stats are read at the blacklist's own basis — the anchor's last-final
+    // block, the same basis `get_chunk_producer_blacklist` and the production seeder use —
+    // not at the newer post-trigger hash, so the floor check pins the exact stats that
+    // produced the observed blacklist.
+    let trigger_basis_hash = *epoch_manager
+        .get_block_info(&post_trigger_head.last_block_hash)
+        .unwrap()
+        .last_final_block_hash();
+    assert_eq!(
+        epoch_manager.get_epoch_id(&trigger_basis_hash).unwrap(),
+        split_epoch_id,
+        "a non-empty split-epoch blacklist must use a last-final basis in the split epoch"
+    );
     let (trigger_produced, trigger_expected) = chunk_stats_for_shard(
         &epoch_manager,
-        post_trigger_head.last_block_hash,
+        trigger_basis_hash,
         &target_account,
         target_child_shard,
     );
@@ -1297,7 +1309,8 @@ fn slow_test_early_kickout_across_resharding() {
     );
     assert!(
         trigger_expected.saturating_sub(trigger_produced) >= TEST_MIN_MISSES,
-        "child-epoch misses must have crossed the floor, got {trigger_produced}/{trigger_expected}"
+        "the blacklist's last-final basis must have crossed the miss floor, \
+         got {trigger_produced}/{trigger_expected}"
     );
     // Runway so chunks whose grandparent anchor blacklists the target exist to check.
     env.node_runner(0).run_for_number_of_blocks(20);
