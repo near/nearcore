@@ -554,6 +554,7 @@ impl TestLoopBuilder {
             bucket_config: self.bucket_config.clone(),
             task_delay_fn: self.task_delay_fn.clone(),
             spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
+            spice_data_faults: Default::default(),
         };
         (self.test_loop, shared_state)
     }

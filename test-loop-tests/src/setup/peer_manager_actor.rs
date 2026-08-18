@@ -462,6 +462,16 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
+    /// Whether a message from `origin` reaches `account_id` rather than being dropped as a severed
+    /// link. For handlers that deliver messages themselves instead of going through
+    /// `senders_for_account`.
+    pub(crate) fn is_link_allowed(&self, origin: &AccountId, account_id: &AccountId) -> bool {
+        let guard = self.0.lock();
+        let origin_peer_id = &guard.account_to_peer_id[origin];
+        let peer_id = &guard.account_to_peer_id[account_id];
+        !Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id)
+    }
+
     pub(crate) fn senders_for_peer(
         &self,
         origin: &PeerId,

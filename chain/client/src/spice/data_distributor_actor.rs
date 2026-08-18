@@ -194,6 +194,9 @@ pub(crate) const FALLBACK_WITNESS_PULL_GRACE: BlockHeight = 2;
 /// fallback eligible within this many blocks. Only decides whether to buffer the parts.
 pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
 
+/// Share of the parts an item is encoded into that suffice to decode it.
+pub const DATA_PARTS_RATIO: f64 = 0.6;
+
 /// Max number of entries `(data_id, ordinals)` a single batched request may carry.
 /// This caps the encodes (CPU).
 pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
@@ -489,7 +492,6 @@ impl SpiceDataDistributorActor {
         contract_code_response_validator_sender: Sender<SpiceContractCodeResponseMessage>,
     ) -> Self {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
-        const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();

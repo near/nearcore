@@ -32,7 +32,7 @@ use near_network::types::StateRequestSenderForNetwork;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, Nonce};
+use near_primitives::types::{AccountId, Nonce, SpiceChunkId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
@@ -47,7 +47,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
@@ -81,6 +81,8 @@ pub struct SharedState {
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// Fault injection for spice data distribution, armed by tests.
+    pub spice_data_faults: SpiceDataFaultState,
 }
 
 /// Shared state for the spice endorsement-delay network handler installed by
@@ -89,6 +91,66 @@ pub struct SharedState {
 pub struct SpiceEndorsementDelayState {
     pub installed_for: HashSet<String>,
     pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
+}
+
+/// Shared state for the spice data fault handler installed by
+/// `TestLoopEnv::install_spice_data_faults`. Locked separately so a test can read what the handler
+/// saw without touching the faults it armed.
+#[derive(Clone, Default)]
+pub struct SpiceDataFaultState {
+    pub faults: Arc<Mutex<SpiceDataFaults>>,
+    pub observed: Arc<Mutex<SpiceDataObserved>>,
+    pub(crate) wiring: Arc<Mutex<SpiceDataFaultWiring>>,
+}
+
+/// Faults applied to spice partial data on its way out of a node, keyed by the account sending it,
+/// so a test names producers rather than nodes. Every set starts empty, and arming one mid-run
+/// takes effect on the next message.
+///
+/// Keying by sender covers every way partial data leaves a node: the push, the all-stake fallback
+/// push, and the response to a data request. Contract accesses and contract code travel as their
+/// own messages and are never faulted.
+#[derive(Default)]
+pub struct SpiceDataFaults {
+    /// Partial data these accounts send never arrives.
+    pub drop_from: HashSet<AccountId>,
+    /// Partial data these accounts send arrives this much later than usual.
+    pub delay_from: HashMap<AccountId, Duration>,
+    /// One byte of one part is flipped and the message re-signed, so the fault is attributable to
+    /// the sender rather than to a broken signature.
+    pub corrupt_from: HashSet<AccountId>,
+    /// These accounts send their parts a second time under a conflicting commitment.
+    pub equivocate_from: HashSet<AccountId>,
+}
+
+/// Where the handler delivers the faulty copies it makes, and which nodes already have it.
+#[derive(Default)]
+pub struct SpiceDataFaultWiring {
+    pub(crate) installed_for: HashSet<String>,
+    pub(crate) senders: HashMap<AccountId, TestLoopSender<SpiceDataDistributorActor>>,
+}
+
+/// What the spice data fault handler saw. Counted per fault kind, so a test arming several can
+/// still tell which of them fired.
+#[derive(Default)]
+pub struct SpiceDataObserved {
+    /// Messages dropped, delayed, corrupted, and sent again under a conflicting commitment. One
+    /// message can be counted by more than one of these.
+    pub dropped: usize,
+    pub delayed: usize,
+    pub corrupted: usize,
+    pub equivocated: usize,
+    /// Data requests seen per requesting node. Empty on a healthy chain, where pushes are enough,
+    /// so it shows which nodes a fault pushed onto the recovery path.
+    // TODO(spice-data-distribution): record the producer asked and the ordinals requested, so a
+    // test can assert how a missing set was split across sources and how often one source is
+    // asked.
+    pub data_requests: HashMap<AccountId, usize>,
+    /// Chunks each account endorsed. A node that produces nothing can only endorse after receiving
+    /// and validating the witness, so this is where data delivery is observable. Endorsements are
+    /// sent once per recipient and re-broadcast until they are on chain, so they are collected as a
+    /// set of chunks rather than counted.
+    pub endorsements: HashMap<AccountId, HashSet<SpiceChunkId>>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
