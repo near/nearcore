@@ -4111,7 +4111,6 @@ dependencies = [
  "reed-solomon-erasure",
  "regex",
  "reqwest 0.13.2",
- "rust-s3",
  "serde",
  "serde_json",
  "strum",
