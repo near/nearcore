@@ -1,12 +1,17 @@
-//! Verification for SPICE light-client chunk-execution proofs.
+//! Verification for SPICE light-client proofs.
 //!
 //! A light client trusts a final head and its block merkle root. These functions
 //! recompute that root from a served proof without trusting the serving node.
 
+use crate::trie::AccessOptions;
+use crate::{PartialStorage, Trie};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{compute_root_from_path, compute_root_from_path_and_item};
-use near_primitives::types::{ChunkExecutionRoots, SpiceChunkId};
-use near_primitives::views::{ChunkExecutionProofView, ExecutionOutcomeWithIdView};
+use near_primitives::state::PartialState;
+use near_primitives::types::{ChunkExecutionRoots, SpiceChunkId, StoreValue};
+use near_primitives::views::{
+    ChunkExecutionProofView, ExecutionOutcomeWithIdView, StateProofTarget, StateProofView,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SpiceProofVerificationError {
@@ -24,6 +29,10 @@ pub enum SpiceProofVerificationError {
     UnexpectedOutcomeBlockHash { expected: CryptoHash, found: CryptoHash },
     #[error("execution outcome proof does not recompute the chunk's outcome_root")]
     InvalidOutcomeProof,
+    #[error("state proof does not reconstruct the claimed value at the chunk's state_root")]
+    InvalidStateProof,
+    #[error("state proof trie access failed: {0}")]
+    TrieError(String),
 }
 
 /// Checks that `expected_chunk_id`'s execution roots are committed by a block that
@@ -90,4 +99,41 @@ pub fn verify_execution_outcome_proof(
         return Err(SpiceProofVerificationError::InvalidOutcomeProof);
     }
     Ok(())
+}
+
+/// What a verified state proof says about `target` in one shard.
+#[derive(Debug)]
+pub enum StateProofOutcome<'a> {
+    Present(&'a StoreValue),
+    /// Absent from this chunk's shard. Absence from the chain is a stronger claim.
+    AbsentInShard,
+}
+
+/// Verifies a state trie proof against the chunk's `state_root`: reconstructs the
+/// trie from `state_proof` and checks the claimed value for `target`. Call after
+/// [`verify_chunk_execution_proof`] to bind `roots` to the trusted head.
+// TODO(spice): `AbsentInShard` for a contract-code, contract-data, or access-key target
+// can be raised to a global absence by pairing it with a `Present` account proof for the
+// same chunk, since a shard's state only holds accounts it owns. Proving an account itself
+// absent still needs an authenticated shard layout.
+pub fn verify_state_proof<'a>(
+    target: &StateProofTarget,
+    state_proof: &'a StateProofView,
+    roots: &ChunkExecutionRoots,
+) -> Result<StateProofOutcome<'a>, SpiceProofVerificationError> {
+    let ChunkExecutionRoots::V1(roots) = roots;
+    let partial_storage =
+        PartialStorage { nodes: PartialState::TrieValues(state_proof.nodes.clone()) };
+    let trie = Trie::from_recorded_storage(partial_storage, roots.state_root, false);
+    let trie_key = target.to_trie_key().to_vec();
+    let recovered_value = trie
+        .get(&trie_key, AccessOptions::DEFAULT)
+        .map_err(|error| SpiceProofVerificationError::TrieError(error.to_string()))?;
+    if recovered_value.as_deref() != state_proof.value.as_ref().map(|value| value.as_slice()) {
+        return Err(SpiceProofVerificationError::InvalidStateProof);
+    }
+    Ok(match state_proof.value.as_ref() {
+        Some(value) => StateProofOutcome::Present(value),
+        None => StateProofOutcome::AbsentInShard,
+    })
 }

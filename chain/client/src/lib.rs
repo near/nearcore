@@ -23,12 +23,12 @@ pub use near_client_primitives::types::{
     GetChunkExtraExists, GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
     GetExecutionOutcomesForBlock, GetGasPrice, GetLightClientChunkExecutionProof,
     GetLightClientExecutionOutcomeProof, GetLightClientExecutionOutcomeProofResponse,
-    GetLightClientProofError, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock,
-    GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse,
-    GetShardChunk, GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock,
-    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfo, GetValidatorOrdered, Query, QueryError, Status, StatusResponse, SyncStatus,
-    TxStatus, TxStatusError, TxStatusOutcome,
+    GetLightClientProofError, GetLightClientStateProof, GetLightClientStateProofResponse,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProcessedReceiptIds,
+    GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse, GetShardChunk,
+    GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
+    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError, TxStatusOutcome,
 };
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
