@@ -895,3 +895,12 @@ pub static SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL: LazyLock<IntCounterVec
         )
         .unwrap()
     });
+
+pub static SPICE_MALFORMED_DATA_REQUESTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_spice_malformed_data_requests_total",
+        "Number of spice data requests rejected as malformed, by reason",
+        &["reason"],
+    )
+    .unwrap()
+});

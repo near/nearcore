@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::get_contract_accesses;
 use crate::spice::chunk_executor_actor::get_receipt_proof;
@@ -36,9 +37,7 @@ use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
 use near_network::spice::data_distribution::SpiceContractCodeRequestMessage;
 use near_network::spice::data_distribution::SpiceContractCodeResponseMessage;
 use near_network::spice::data_distribution::SpiceIncomingPartialData;
-use near_network::spice::data_distribution::{
-    SpicePartialDataRequest, SpicePartialDataRequestMessage,
-};
+use near_network::spice::data_distribution::{SpiceDataRequest, SpiceDataRequestMessage};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
@@ -74,6 +73,8 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{TrieDBStorage, TrieStorage};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -81,6 +82,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use strum::IntoStaticStr;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -122,8 +124,35 @@ pub(crate) enum Error {
     DecodeError(std::io::Error),
     #[error("store io error")]
     StoreIoError(std::io::Error),
+    #[error("malformed data request: {0}")]
+    MalformedRequest(MalformedDataRequest),
     #[error("other error: {0}")]
     Other(&'static str),
+}
+
+/// Why an inbound data request was rejected as malformed. A peer cannot produce any of these
+/// without violating the request grammar, so each is attributable to the sender.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr, thiserror::Error)]
+#[strum(serialize_all = "snake_case")]
+pub enum MalformedDataRequest {
+    #[error("no entries")]
+    NoEntries,
+    #[error("too many entries")]
+    TooManyEntries,
+    #[error("entry without ordinals")]
+    EntryWithoutOrdinals,
+    #[error("too many ordinals")]
+    TooManyOrdinals,
+    #[error("ordinal outside the producer set")]
+    OrdinalOutsideProducerSet,
+    #[error("shard id outside the shard layout")]
+    UnknownShard,
+}
+
+impl MalformedDataRequest {
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
 }
 
 impl From<EpochError> for Error {
@@ -164,6 +193,16 @@ pub(crate) const FALLBACK_WITNESS_PULL_GRACE: BlockHeight = 2;
 /// few blocks behind does not see it open yet, so it accepts a push for a chunk that becomes
 /// fallback eligible within this many blocks. Only decides whether to buffer the parts.
 pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
+
+/// Max number of entries `(data_id, ordinals)` a single batched request may carry.
+/// This caps the encodes (CPU).
+pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
+
+/// Max total number of parts a single batched request may carry.
+/// This caps the number of parts sent back, not their size. Must stay above the largest
+/// per-shard chunk-producer set.
+// TODO(spice): Bound the outbound bytes per (data_id, requester) too.
+pub(crate) const MAX_REQUESTED_PARTS: usize = 256;
 
 /// Bundles channels for all SPICE-related messages that the network layer dispatches to.
 /// Acts as a demux: handles messages it owns (partial data, etc) directly, and forwards the other
@@ -210,6 +249,12 @@ pub struct SpiceDataDistributorActor {
 
     /// Rounds of [`Self::request_waiting_on_data`], so each retry moves to another producer.
     request_round: u64,
+
+    /// Malformed data requests seen, by reason. Only under `test_features`, so a test can assert
+    /// a request was rejected for the reason it targets rather than merely producing no output.
+    /// Production observability is [`metrics::SPICE_MALFORMED_DATA_REQUESTS`].
+    #[cfg(feature = "test_features")]
+    malformed_data_requests: HashMap<MalformedDataRequest, u64>,
 }
 
 struct DistributionData {
@@ -362,17 +407,11 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
     }
 }
 
-impl Handler<SpicePartialDataRequestMessage> for SpiceDataDistributorActor {
-    fn handle(&mut self, msg: SpicePartialDataRequestMessage) -> () {
-        if !self.spice_gate.should_process(
-            &self.chain_store,
-            SpiceMessageKind::PartialDataRequest,
-            msg.request.data_id.block_hash(),
-        ) {
-            return;
-        }
-        if let Err(err) = self.handle_partial_data_request(msg.request) {
-            tracing::error!(target: "spice_data_distribution", ?err, "failure when handling partial data request");
+impl Handler<SpiceDataRequestMessage> for SpiceDataDistributorActor {
+    fn handle(&mut self, msg: SpiceDataRequestMessage) -> () {
+        if let Err(err) = self.handle_data_request(msg.request) {
+            self.record_malformed_data_request(&err);
+            tracing::debug!(target: "spice_data_distribution", ?err, "not handling data request");
         }
     }
 }
@@ -477,6 +516,8 @@ impl SpiceDataDistributorActor {
             spice_gate: SpiceMessageGate::default(),
             pushed_fallback_witnesses: HashSet::new(),
             request_round: 0,
+            #[cfg(feature = "test_features")]
+            malformed_data_requests: HashMap::new(),
         }
     }
 
@@ -484,6 +525,23 @@ impl SpiceDataDistributorActor {
     #[cfg(feature = "test_features")]
     pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
         self.spice_gate.dropped_count(kind)
+    }
+
+    /// How many data requests this actor rejected for `reason`.
+    #[cfg(feature = "test_features")]
+    pub fn malformed_data_request_count(&self, reason: MalformedDataRequest) -> u64 {
+        self.malformed_data_requests.get(&reason).copied().unwrap_or(0)
+    }
+
+    /// Tallies a rejected request, ignoring every other error. Errors that are not the sender's
+    /// fault (missing block, data we do not have) must not land here.
+    fn record_malformed_data_request(&mut self, err: &Error) {
+        let Error::MalformedRequest(reason) = err else { return };
+        metrics::SPICE_MALFORMED_DATA_REQUESTS.with_label_values(&[reason.as_str()]).inc();
+        #[cfg(feature = "test_features")]
+        {
+            *self.malformed_data_requests.entry(*reason).or_default() += 1;
+        }
     }
 
     // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
@@ -1345,11 +1403,16 @@ impl SpiceDataDistributorActor {
             // producers.
             // TODO(spice): Request data only we know may be available. (For example based on
             // execution and certification heads.)
+            let total_parts = producers.len();
             let producer_index =
-                producer_index_to_request_from(producers.len(), id, me, self.request_round);
+                producer_index_to_request_from(total_parts, id, me, self.request_round);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::SpicePartialDataRequest {
-                    request: SpicePartialDataRequest { data_id: id.clone(), requester: me.clone() },
+                NetworkRequests::SpiceDataRequest {
+                    // TODO(spice): Batch the ids that resolve to the same producer.
+                    request: SpiceDataRequest::new(
+                        BTreeMap::from([(id.clone(), (0..total_parts as u64).collect())]),
+                        me.clone(),
+                    ),
                     producer: producers.swap_remove(producer_index),
                 },
             ));
@@ -1381,23 +1444,73 @@ impl SpiceDataDistributorActor {
         data.map(|data| self.encode_distribution_data(&data, producers_count))
     }
 
-    fn handle_partial_data_request(
+    fn handle_data_request(&mut self, request: SpiceDataRequest) -> Result<(), Error> {
+        let (wants, requester) = request.into_parts();
+        validate_wants(&wants)?;
+        for (data_id, ordinals) in wants {
+            if !self.spice_gate.should_process_entry(
+                &self.chain_store,
+                SpiceMessageKind::DataRequest,
+                data_id.block_hash(),
+            ) {
+                continue;
+            }
+            if let Err(err) = self.serve_data_request(&data_id, &ordinals, &requester) {
+                self.record_malformed_data_request(&err);
+                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?requester, "not serving data request");
+            }
+        }
+        Ok(())
+    }
+
+    /// Rejects shard ids outside the layout they are read against. Without this they would fail
+    /// deeper in the epoch manager, where the error is indistinguishable from data we do not have.
+    fn validate_requested_shards(
+        &self,
+        data_id: &SpiceDataIdentifier,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let epoch_id = block.header().epoch_id();
+        let in_layout = |epoch_id: &EpochId, shard_id: ShardId| -> Result<bool, Error> {
+            Ok(self.epoch_manager.get_shard_layout(epoch_id)?.shard_ids().contains(&shard_id))
+        };
+        let known = match data_id {
+            SpiceDataIdentifier::Witness { shard_id, .. } => in_layout(epoch_id, *shard_id)?,
+            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                let next_block_epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(block_hash)?;
+                in_layout(epoch_id, *from_shard_id)?
+                    && in_layout(&next_block_epoch_id, *to_shard_id)?
+            }
+        };
+        if !known {
+            return Err(Error::MalformedRequest(MalformedDataRequest::UnknownShard));
+        }
+        Ok(())
+    }
+
+    fn serve_data_request(
         &mut self,
-        SpicePartialDataRequest { data_id, requester }: SpicePartialDataRequest,
+        data_id: &SpiceDataIdentifier,
+        ordinals: &BTreeSet<u64>,
+        requester: &AccountId,
     ) -> Result<(), Error> {
         let Some(signer) = self.validator_signer.get() else {
-            return Err(Error::Other(
-                "without validator signer we cannot handle partial data requests",
-            ));
+            return Err(Error::Other("without validator signer we cannot handle data requests"));
         };
 
         let block = self.chain_store.get_block(data_id.block_hash())?;
-        let (_recipients, producers) = self.recipients_and_producers(&data_id, &block)?;
+        self.validate_requested_shards(data_id, &block)?;
+        let (_recipients, producers) = self.recipients_and_producers(data_id, &block)?;
         if !producers.contains(signer.validator_id()) {
             return Err(Error::Other("we do not produce requested data"));
         }
+        let total_parts = producers.len();
+        if ordinals.last().is_some_and(|highest| *highest >= total_parts as u64) {
+            return Err(Error::MalformedRequest(MalformedDataRequest::OrdinalOutsideProducerSet));
+        }
 
-        let Some(data) = self.get_distribution_data(&data_id, producers.len()) else {
+        let Some(data) = self.get_distribution_data(data_id, total_parts) else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
             tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
@@ -1409,7 +1522,7 @@ impl SpiceDataDistributorActor {
 
         // For witness requests, also send contract accesses so that the requester
         // (e.g. a chunk validator catching up after restart) can request them if not available in their local cache.
-        if let SpiceDataIdentifier::Witness { block_hash, shard_id } = &data_id {
+        if let SpiceDataIdentifier::Witness { block_hash, shard_id } = data_id {
             let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
             let accesses =
                 get_contract_accesses(self.chain_store.store_ref(), block_hash, *shard_id)
@@ -1420,10 +1533,19 @@ impl SpiceDataDistributorActor {
             ));
         }
 
-        let recipients = HashSet::from([requester]);
+        let parts: Vec<_> =
+            data.parts.into_iter().filter(|part| ordinals.contains(&part.part_ord)).collect();
+        debug_assert_eq!(parts.len(), ordinals.len());
+
+        let recipients = HashSet::from([requester.clone()]);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
-                partial_data: SpicePartialData::new(data_id, data.commitment, data.parts, &signer),
+                partial_data: SpicePartialData::new(
+                    data_id.clone(),
+                    data.commitment,
+                    parts,
+                    &signer,
+                ),
                 recipients,
             },
         ));
@@ -1625,6 +1747,25 @@ impl SpiceDataDistributorActor {
         }
         Ok(())
     }
+}
+
+/// Checks a request against the caps before any of it is served, so a request that asks for too
+/// much costs nothing beyond this pass. Ordinals are checked against the producer count when
+/// serving the entry, where that count is known.
+fn validate_wants(wants: &BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>) -> Result<(), Error> {
+    if wants.is_empty() {
+        return Err(Error::MalformedRequest(MalformedDataRequest::NoEntries));
+    }
+    if wants.len() > MAX_REQUESTED_DATA_IDS {
+        return Err(Error::MalformedRequest(MalformedDataRequest::TooManyEntries));
+    }
+    if wants.values().any(|ordinals| ordinals.is_empty()) {
+        return Err(Error::MalformedRequest(MalformedDataRequest::EntryWithoutOrdinals));
+    }
+    if wants.values().map(|ordinals| ordinals.len()).sum::<usize>() > MAX_REQUESTED_PARTS {
+        return Err(Error::MalformedRequest(MalformedDataRequest::TooManyOrdinals));
+    }
+    Ok(())
 }
 
 /// The starting producer index is derived from a hash of (data_id, requester), so requests for the
