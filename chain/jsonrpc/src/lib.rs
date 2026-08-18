@@ -17,7 +17,8 @@ use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
     GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice,
     GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
-    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError, GetMaintenanceWindows,
+    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError,
+    GetLightClientStateProof, GetLightClientStateProofResponse, GetMaintenanceWindows,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetReceiptToTx,
     GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo,
     GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
@@ -466,6 +467,10 @@ pub struct ViewClientSenderForRpc(
         GetLightClientExecutionOutcomeProof,
         Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError>,
     >,
+    AsyncSender<
+        GetLightClientStateProof,
+        Result<GetLightClientStateProofResponse, GetLightClientProofError>,
+    >,
     AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
     AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
     AsyncSender<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>,
@@ -784,6 +789,9 @@ impl JsonRpcHandler {
                     self.light_client_execution_outcome_proof(params)
                 })
                 .await
+            }
+            "EXPERIMENTAL_light_client_state_proof" => {
+                process_method_call(request, |params| self.light_client_state_proof(params)).await
             }
             "EXPERIMENTAL_protocol_config" => {
                 process_method_call(request, |params| self.protocol_config(params)).await
@@ -2539,6 +2547,28 @@ impl JsonRpcHandler {
                 outcome_proof: response.outcome_proof,
             },
         )
+    }
+
+    async fn light_client_state_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofRequest {
+            chunk_id,
+            target,
+            light_client_head,
+        } = request;
+        let response: GetLightClientStateProofResponse = self
+            .view_client_send(GetLightClientStateProof { chunk_id, target, light_client_head })
+            .await?;
+        Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofResponse {
+            chunk_execution_proof: response.chunk_execution_proof,
+            value: response.value,
+            state_proof: response.state_proof,
+        })
     }
 
     async fn network_info(

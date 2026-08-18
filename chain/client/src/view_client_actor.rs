@@ -24,7 +24,8 @@ use near_client_primitives::types::{
     GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
     GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
     GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
-    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError, GetMaintenanceWindows,
+    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError,
+    GetLightClientStateProof, GetLightClientStateProofResponse, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
     GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
     GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
@@ -44,18 +45,19 @@ use near_network::types::{
 };
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::EpochError;
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
-    Finality, MaybeBlockId, ShardId, SpiceChunkId, SyncCheckpoint, TransactionOrReceiptId,
-    ValidatorInfoIdentifier, sorted_chunk_execution_roots,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
+    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
+    TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
@@ -68,6 +70,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
+use near_store::trie::AccessOptions;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -1771,6 +1774,76 @@ impl
             chunk_execution_proof,
             outcome_proof: outcome.into(),
         })
+    }
+}
+
+impl
+    Handler<
+        GetLightClientStateProof,
+        Result<GetLightClientStateProofResponse, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientStateProof,
+    ) -> Result<GetLightClientStateProofResponse, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientStateProof"])
+            .start_timer();
+        let shard_id = msg.chunk_id.shard_id;
+        let chunk_block_header = self.chain.get_block_header(&msg.chunk_id.block_hash)?;
+        if !self
+            .shard_tracker
+            .cares_about_shard_checked(chunk_block_header.prev_hash(), shard_id)
+            .into_chain_error()?
+        {
+            return Err(GetLightClientProofError::ShardNotTracked { shard_id });
+        }
+        // Without this the server would answer an absent value for a target that lives in
+        // another shard, and that absence proof verifies against this chunk's state_root.
+        let account_shard_id = account_id_to_shard_id(
+            self.epoch_manager.as_ref(),
+            msg.target.account_id(),
+            chunk_block_header.epoch_id(),
+        )
+        .into_chain_error()?;
+        if account_shard_id != shard_id {
+            return Err(GetLightClientProofError::TargetShardMismatch {
+                account_id: msg.target.account_id().clone(),
+                account_shard_id,
+                requested_shard_id: shard_id,
+            });
+        }
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, chunk_block_header.epoch_id())
+                .into_chain_error()?;
+
+        let chunk_execution_proof =
+            self.build_chunk_execution_proof(&msg.chunk_id, &msg.light_client_head)?;
+        let ChunkExecutionRoots::V1(roots) = &chunk_execution_proof.roots;
+        let state_root = roots.state_root;
+
+        let trie = self
+            .runtime
+            .get_tries()
+            .get_view_trie_for_shard(shard_uid, state_root)
+            .recording_reads_new_recorder();
+        let trie_key = msg.target.to_trie_key().to_vec();
+        let value = trie.get(&trie_key, AccessOptions::DEFAULT).map_err(|error| match error {
+            StorageError::MissingTrieValue(_) => {
+                GetLightClientProofError::StateNotAvailable { chunk_id: msg.chunk_id.clone() }
+            }
+            error => GetLightClientProofError::InternalError { error_message: error.to_string() },
+        })?;
+        let Some(partial_storage) = trie.recorded_storage() else {
+            return Err(GetLightClientProofError::InternalError {
+                error_message: "trie did not record a state proof".to_string(),
+            });
+        };
+        let PartialState::TrieValues(state_proof) = partial_storage.nodes;
+        let value = value.map(StoreValue::from);
+        Ok(GetLightClientStateProofResponse { chunk_execution_proof, value, state_proof })
     }
 }
 

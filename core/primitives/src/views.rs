@@ -40,6 +40,7 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
@@ -2781,6 +2782,45 @@ pub struct ChunkExecutionProofView {
     pub roots_proof: MerklePath,
     pub certifying_block_header_lite: LightClientBlockLiteView,
     pub certifying_block_proof: MerklePath,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    ContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            StateProofTarget::Account { account_id }
+            | StateProofTarget::ContractCode { account_id }
+            | StateProofTarget::ContractData { account_id, .. }
+            | StateProofTarget::AccessKey { account_id, .. } => account_id,
+        }
+    }
+
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => {
+                TrieKey::access_key(account_id.clone(), public_key.clone())
+            }
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

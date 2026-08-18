@@ -1,4 +1,6 @@
 use serde_json::Value;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -73,6 +75,25 @@ pub struct RpcLightClientExecutionOutcomeProofResponse {
     pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientStateProofRequest {
+    pub chunk_id: near_primitives::types::SpiceChunkId,
+    pub target: near_primitives::views::StateProofTarget,
+    pub light_client_head: near_primitives::hash::CryptoHash,
+}
+
+#[serde_as]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcLightClientStateProofResponse {
+    pub chunk_execution_proof: near_primitives::views::ChunkExecutionProofView,
+    pub value: Option<near_primitives::types::StoreValue>,
+    #[serde_as(as = "Vec<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub state_proof: Vec<Arc<[u8]>>,
+}
+
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -103,6 +124,17 @@ pub enum RpcLightClientProofError {
     },
     #[error("Node does not track shard {shard_id}")]
     ShardNotTracked { shard_id: near_primitives::types::ShardId },
+    #[error(
+        "Account {account_id} is in shard {account_shard_id}, not the requested shard \
+         {requested_shard_id}"
+    )]
+    TargetShardMismatch {
+        account_id: near_primitives::types::AccountId,
+        account_shard_id: near_primitives::types::ShardId,
+        requested_shard_id: near_primitives::types::ShardId,
+    },
+    #[error("State for chunk {chunk_id:?} is not available on this node")]
+    StateNotAvailable { chunk_id: near_primitives::types::SpiceChunkId },
     #[error("Chunk {chunk_id:?} is not yet certified")]
     ChunkNotCertified { chunk_id: near_primitives::types::SpiceChunkId },
     #[error(
