@@ -976,8 +976,23 @@ impl Handler<SpanWrapped<PostStateReadyMessage>> for ClientActor {
 }
 
 #[derive(Debug)]
+enum HighestHeightSource {
+    Peer(PeerId),
+    OwnHeaderHead,
+}
+
+impl fmt::Display for HighestHeightSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Peer(peer_id) => write!(f, "highest height peer: {peer_id}"),
+            Self::OwnHeaderHead => write!(f, "own header head"),
+        }
+    }
+}
+
+#[derive(Debug)]
 enum SyncRequirement {
-    SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
+    SyncNeeded { source: HighestHeightSource, highest_height: BlockHeight, head: Tip },
     AlreadyCaughtUp { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
     NoPeers,
     AdvHeaderSyncDisabled,
@@ -1002,12 +1017,12 @@ impl SyncRequirement {
 impl fmt::Display for SyncRequirement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SyncNeeded { peer_id, highest_height, head: my_head } => write!(
+            Self::SyncNeeded { source, highest_height, head: my_head } => write!(
                 f,
-                "sync needed at #{} [{}]. highest height peer: {} at #{}",
+                "sync needed at #{} [{}]. {} at #{}",
                 my_head.height,
                 format_hash(my_head.last_block_hash),
-                peer_id,
+                source,
                 highest_height
             ),
             Self::AlreadyCaughtUp { peer_id, highest_height, head: my_head } => write!(
@@ -1683,16 +1698,34 @@ impl ClientActor {
         let head = Tip::clone(&head);
         let is_syncing = self.client.sync_handler.sync_status.is_syncing();
 
-        if self.head_is_stale(&head)? {
+        let from_peers = if self.head_is_stale(&head)? {
             // Head hasn't advanced in ~1 epoch: we really are behind (a peer can't
             // fake this), so use the unvalidated claimed heights to pick who to sync
             // from; the proof and downstream checks re-validate the target.
-            self.sync_requirement_from_claimed_peers(head, is_syncing)
+            self.sync_requirement_from_claimed_peers(head.clone(), is_syncing)?
         } else {
             // Head is recent, so we still know the validator set for nearby heights
             // and can verify a peer's advertised height before entering sync.
-            self.sync_requirement_from_verified_peers(head, is_syncing)
+            self.sync_requirement_from_verified_peers(head.clone(), is_syncing)?
+        };
+        // After state sync the verified peer heights sit below the new head: peers read as level
+        // with us, or leave NoPeers when there is only one. Our own header head is already ahead
+        // and no peer can forge it. It decides whether to keep syncing, not who to download from.
+        if from_peers.sync_needed()
+            || !matches!(self.client.sync_handler.sync_status, SyncStatus::BlockSync { .. })
+        {
+            return Ok(from_peers);
         }
+        let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
+        let highest_height = self.client.chain.header_head()?.height.min(shutdown_height);
+        if highest_height <= head.height {
+            return Ok(from_peers);
+        }
+        Ok(SyncRequirement::SyncNeeded {
+            source: HighestHeightSource::OwnHeaderHead,
+            highest_height,
+            head,
+        })
     }
 
     /// True when our head has not advanced in ~1 epoch of wall-clock time: the
@@ -1791,7 +1824,11 @@ impl ClientActor {
             highest_height > head.height + self.client.config.sync_height_threshold
         };
         if needed {
-            SyncRequirement::SyncNeeded { peer_id, highest_height, head }
+            SyncRequirement::SyncNeeded {
+                source: HighestHeightSource::Peer(peer_id),
+                highest_height,
+                head,
+            }
         } else {
             SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head }
         }
