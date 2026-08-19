@@ -3606,12 +3606,11 @@ impl Chain {
         // Assume that next epoch id is the same as the current one. This will not be true on epoch
         // boundaries, but that is ok. On epoch id mismatch the result of early transaction
         // preparation will be ignored.
-        let next_chunk_prepare_context = {
-            // Unwrap is safe here because chunk headers are already verified.
-            let gas_used = chunk_headers.compute_gas_used_checked().unwrap();
-            let gas_limit = chunk_headers.compute_gas_limit_checked().unwrap();
-            PrepareTransactionsBlockContext {
-                next_gas_price: Block::compute_next_gas_price_checked(
+        let Some(next_gas_price) = chunk_headers
+            .compute_gas_used_checked()
+            .zip(chunk_headers.compute_gas_limit_checked())
+            .and_then(|(gas_used, gas_limit)| {
+                Block::compute_next_gas_price_checked(
                     prev_block.header().next_gas_price(),
                     gas_used,
                     gas_limit,
@@ -3619,11 +3618,21 @@ impl Chain {
                     self.block_economics_config.min_gas_price(),
                     self.block_economics_config.max_gas_price(),
                 )
-                .unwrap(),
-                height: block.height,
-                next_epoch_id: epoch_id,
-                congestion_info: block.congestion_info.clone(),
-            }
+            })
+        else {
+            tracing::debug!(
+                target: "chain",
+                height = block.height,
+                shard_id = %shard_uid.shard_id(),
+                "gas overflow in chunk headers; skipping early transaction preparation"
+            );
+            return None;
+        };
+        let next_chunk_prepare_context = PrepareTransactionsBlockContext {
+            next_gas_price,
+            height: block.height,
+            next_epoch_id: epoch_id,
+            congestion_info: block.congestion_info.clone(),
         };
 
         // Transactions included in the current chunk, they aren't removed from the pool yet and
