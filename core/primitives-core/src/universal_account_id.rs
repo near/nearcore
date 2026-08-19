@@ -75,7 +75,8 @@ pub fn decode_universal_account_id(id: &str) -> Result<[u8; 32], ParseUaidError>
     if !id.starts_with(UAID_PREFIX) {
         return Err(ParseUaidError::BadPrefix);
     }
-    let body = &bytes[UAID_PREFIX.len()..];
+    let body: &[u8; UAID_DATA_SYMBOLS] =
+        bytes[UAID_PREFIX.len()..].try_into().map_err(|_| ParseUaidError::BadLength)?;
     let mut data = [0u8; UAID_DATA_SYMBOLS];
     for (slot, &c) in data.iter_mut().zip(body) {
         *slot = decode_symbol(c)?;
@@ -208,27 +209,31 @@ mod tests {
         }
     }
 
+    /// The last symbol holds 1 real hash bit (its top bit) and 4 padding bits (its
+    /// low 4 bits), which must be zero. So only 2 of the 32 symbols are valid
+    /// there; anything else is a second spelling of the same address. Sweep all 32
+    /// to pin the accepted set exactly, not just to reject a few known-bad ones.
     #[test]
-    fn rejects_non_canonical_padding() {
-        // The last symbol holds 1 real hash bit (its top bit) and 4 padding bits
-        // (its low 4 bits), which must be zero for a canonical encoding. Every
-        // non-zero padding pattern must be rejected.
-        for padding in 1..=0b1111 {
-            let mut data = base32_encode(&[0x00; 32]); // last symbol starts at 0
-            data[UAID_DATA_SYMBOLS - 1] = padding; // inject the padding bits under test
-
-            let mut s = String::with_capacity(UAID_LEN);
-            s.push_str(UAID_PREFIX);
-            for &v in &data {
-                s.push(CROCKFORD[v as usize] as char);
+    fn accepts_exactly_the_canonical_encodings() {
+        let base = encode_universal_account_id(&[0x5a; 32]).as_str().to_owned();
+        let mut accepted = 0;
+        for (v, &sym) in CROCKFORD.iter().enumerate() {
+            let mut bytes = base.clone().into_bytes();
+            *bytes.last_mut().unwrap() = sym;
+            let s = String::from_utf8(bytes).unwrap();
+            match decode_universal_account_id(&s) {
+                Ok(hash) => {
+                    assert_eq!(v & 0b1111, 0, "final symbol {} has padding set", sym as char);
+                    assert_eq!(encode_universal_account_id(&hash).as_str(), s);
+                    accepted += 1;
+                }
+                Err(e) => {
+                    assert_ne!(v & 0b1111, 0, "canonical final symbol {} rejected", sym as char);
+                    assert_eq!(e, ParseUaidError::NonCanonical, "final symbol {}", sym as char);
+                }
             }
-
-            assert_eq!(
-                decode_universal_account_id(&s),
-                Err(ParseUaidError::NonCanonical),
-                "padding pattern {padding:#06b} in the final data symbol was accepted",
-            );
         }
+        assert_eq!(accepted, 2);
     }
 
     #[test]
