@@ -80,7 +80,11 @@ pub(crate) fn action_stake(
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
             account.set_amount(new_balance);
-            account.set_locked(stake.stake);
+            // An uninitialized account has no access keys, so no receipt can
+            // name one as its actor.
+            account.set_locked(stake.stake).map_err(|err| {
+                StorageError::StorageInconsistentState(format!("{account_id}: {err}"))
+            })?;
         }
     } else {
         result.result = Err(ActionErrorKind::TriesToStake {
@@ -277,7 +281,9 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
+    account
+        .set_contract(AccountContract::Local(*code.hash()))
+        .map_err(|err| StorageError::StorageInconsistentState(format!("{account_id}: {err}")))?;
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying

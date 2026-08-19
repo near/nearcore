@@ -1667,11 +1667,16 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
+                // An uninitialized account has no access keys, so nothing can
+                // have staked on its behalf.
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
-                    account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
+                    let locked = account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
-                    })?);
+                    })?;
+                    account.set_locked(locked).map_err(|err| {
+                        StorageError::StorageInconsistentState(format!("{account_id}: {err}"))
+                    })?;
                 }
 
                 tracing::debug!(target: "runtime",
@@ -1698,13 +1703,14 @@ impl Runtime {
                         )
                     })?;
                 tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
-                account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - set_locked".into(),
-                        )
-                    },
-                )?);
+                let locked = account.locked().checked_sub(return_stake).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow(
+                        "update_validator_accounts - set_locked".into(),
+                    )
+                })?;
+                account.set_locked(locked).map_err(|err| {
+                    StorageError::StorageInconsistentState(format!("{account_id}: {err}"))
+                })?;
                 account.set_amount(account.amount().checked_add(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(

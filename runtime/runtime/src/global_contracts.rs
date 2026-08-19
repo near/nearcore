@@ -102,7 +102,9 @@ pub(crate) fn use_global_contract(
             ))
         })?,
     );
-    account.set_contract(contract);
+    account
+        .set_contract(contract)
+        .map_err(|err| StorageError::StorageInconsistentState(format!("{account_id}: {err}")))?;
     Ok(())
 }
 

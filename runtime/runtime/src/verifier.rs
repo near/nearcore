@@ -707,7 +707,7 @@ mod tests {
             accounts
         {
             let mut initial_account = account_new(initial_balance, CryptoHash::default());
-            initial_account.set_locked(initial_locked);
+            initial_account.set_locked(initial_locked).unwrap();
             let mut key_count = 0;
             for access_key in access_keys {
                 let public_key = if key_count == 0 {
@@ -740,7 +740,7 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_contract(AccountContract::Local(code_hash));
+                initial_account.set_contract(AccountContract::Local(code_hash)).unwrap();
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );

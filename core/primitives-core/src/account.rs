@@ -54,6 +54,15 @@ impl AccountState {
     }
 }
 
+/// Error returned when a change does not fit the account's [`AccountState`].
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum InvalidAccountState {
+    #[error("account state has not been installed yet")]
+    Uninitialized,
+    #[error("account state has already been installed")]
+    AlreadyInitialized,
+}
+
 /// Per account information stored in the state.
 ///
 /// Two independent axes: whether the account's state has been installed, and,
@@ -265,11 +274,9 @@ impl Account {
 
     /// Move an uninitialized account to the initialized state, keeping its
     /// balance and storage usage. The caller then installs the state itself.
-    ///
-    /// Panics if the account is already initialized.
-    pub fn initialize(&mut self) {
+    pub fn initialize(&mut self) -> Result<(), InvalidAccountState> {
         let Self::Uninitialized(account) = self else {
-            panic!("account is already initialized");
+            return Err(InvalidAccountState::AlreadyInitialized);
         };
         *self = Self::Initialized(InitializedAccount::V1(AccountV1 {
             amount: account.amount,
@@ -277,6 +284,7 @@ impl Account {
             code_hash: CryptoHash::default(),
             storage_usage: account.storage_usage,
         }));
+        Ok(())
     }
 
     #[inline]
@@ -362,23 +370,27 @@ impl Account {
         }
     }
 
-    /// Panics on an uninitialized account, which can never have locked balance.
+    /// Fails on an uninitialized account, which can never have locked balance.
     #[inline]
-    pub fn set_locked(&mut self, locked: Balance) {
+    pub fn set_locked(&mut self, locked: Balance) -> Result<(), InvalidAccountState> {
         match self {
-            Self::Uninitialized(_) => {
-                panic!("uninitialized account can't have locked balance")
+            Self::Uninitialized(_) => Err(InvalidAccountState::Uninitialized),
+            Self::Initialized(account) => {
+                account.set_locked(locked);
+                Ok(())
             }
-            Self::Initialized(account) => account.set_locked(locked),
         }
     }
 
-    /// Panics on an uninitialized account. Call [`Self::initialize`] first.
+    /// Fails on an uninitialized account. Call [`Self::initialize`] first.
     #[inline]
-    pub fn set_contract(&mut self, contract: AccountContract) {
+    pub fn set_contract(&mut self, contract: AccountContract) -> Result<(), InvalidAccountState> {
         match self {
-            Self::Uninitialized(_) => panic!("uninitialized account can't have a contract"),
-            Self::Initialized(account) => account.set_contract(contract),
+            Self::Uninitialized(_) => Err(InvalidAccountState::Uninitialized),
+            Self::Initialized(account) => {
+                account.set_contract(contract);
+                Ok(())
+            }
         }
     }
 
@@ -1057,15 +1069,15 @@ mod tests {
         };
         let mut account = initialized_v1(account_v1);
         let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
-        account.set_contract(contract);
+        account.set_contract(contract).unwrap();
         assert!(matches!(account, Account::Initialized(InitializedAccount::V1(_))));
 
         let contract = AccountContract::None;
-        account.set_contract(contract);
+        account.set_contract(contract).unwrap();
         assert!(matches!(account, Account::Initialized(InitializedAccount::V1(_))));
 
         let contract = AccountContract::Global(CryptoHash::hash_bytes(&[42]));
-        account.set_contract(contract);
+        account.set_contract(contract).unwrap();
         assert!(matches!(account, Account::Initialized(InitializedAccount::V2(_))));
     }
 
@@ -1138,7 +1150,7 @@ mod tests {
         // A transfer can credit the account while it is still uninitialized.
         account.set_amount(Balance::from_yoctonear(500));
 
-        account.initialize();
+        account.initialize().unwrap();
 
         assert!(account.is_initialized());
         assert_eq!(account.amount(), Balance::from_yoctonear(500));
@@ -1149,25 +1161,35 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "already initialized")]
-    fn initialize_twice_panics() {
+    fn initialize_twice_fails() {
         let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
-        account.initialize();
-        account.initialize();
+        assert_eq!(account.initialize(), Ok(()));
+        assert_eq!(account.initialize(), Err(InvalidAccountState::AlreadyInitialized));
     }
 
     #[test]
-    #[should_panic(expected = "locked balance")]
-    fn set_locked_on_uninitialized_account_panics() {
+    fn uninitialized_account_rejects_locked_and_contract() {
         let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
-        account.set_locked(Balance::from_yoctonear(1));
+        let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
+
+        assert_eq!(
+            account.set_locked(Balance::from_yoctonear(1)),
+            Err(InvalidAccountState::Uninitialized)
+        );
+        assert_eq!(account.set_contract(contract), Err(InvalidAccountState::Uninitialized));
     }
 
     #[test]
-    #[should_panic(expected = "can't have a contract")]
-    fn set_contract_on_uninitialized_account_panics() {
+    fn initialized_account_accepts_locked_and_contract() {
         let mut account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
-        account.set_contract(AccountContract::Local(CryptoHash::hash_bytes(&[42])));
+        let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
+
+        account.initialize().unwrap();
+        account.set_locked(Balance::from_yoctonear(7)).unwrap();
+        account.set_contract(contract.clone()).unwrap();
+
+        assert_eq!(account.locked(), Balance::from_yoctonear(7));
+        assert_eq!(account.contract().as_ref(), &contract);
     }
 
     #[test]
@@ -1177,6 +1199,22 @@ mod tests {
         let bytes = borsh::to_vec(&account).unwrap();
         let deserialized = <Account as BorshDeserialize>::deserialize(&mut &bytes[..]).unwrap();
         assert_eq!(deserialized, account);
+    }
+
+    /// An unknown wrapper discriminant must fail loudly rather than decode as
+    /// something else. This is what stops an older binary from misreading an
+    /// account variant it does not know about.
+    #[test]
+    fn borsh_deserialization_rejects_unknown_discriminant() {
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let mut bytes = borsh::to_vec(&account).unwrap();
+
+        // The discriminant sits right after the sentinel.
+        let sentinel_len = borsh::to_vec(&Account::SERIALIZATION_SENTINEL).unwrap().len();
+        assert_eq!(bytes[sentinel_len], 1, "uninitialized accounts are discriminant 1");
+        bytes[sentinel_len] = 2;
+
+        assert!(<Account as BorshDeserialize>::deserialize(&mut &bytes[..]).is_err());
     }
 
     #[test]

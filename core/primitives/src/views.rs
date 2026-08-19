@@ -131,6 +131,9 @@ impl From<Account> for AccountView {
     }
 }
 
+// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized
+// account round-trips back as an initialized one and `view_account` cannot tell
+// the two apart. Universal accounts need that distinction exposed here.
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
         let contract = match &view.global_contract_account_id {
