@@ -2,26 +2,35 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_account_id, create_account_ids};
 use assert_matches::assert_matches;
+use borsh::BorshDeserialize as _;
 use near_async::messaging::Handler as _;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess as _;
 use near_chain_configs::TrackedShardsConfig;
-use near_client::{GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof};
+use near_client::{
+    GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
+    GetLightClientStateProof,
+};
 use near_client_primitives::types::GetLightClientProofError;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{
     Balance, ChunkExecutionRoots, ChunkExecutionRootsV1, Gas, SpiceChunkId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    ChunkExecutionProofView, ExecutionStatusView, LightClientBlockLiteView,
+    ChunkExecutionProofView, ExecutionStatusView, LightClientBlockLiteView, StateProofTarget,
+    StateProofView,
 };
 use near_store::spice_proof_verifier::{
-    SpiceProofVerificationError, verify_chunk_execution_proof, verify_execution_outcome_proof,
+    SpiceProofVerificationError, StateProofOutcome, verify_chunk_execution_proof,
+    verify_execution_outcome_proof, verify_state_proof,
 };
+use near_test_contracts::rs_contract;
 
 /// Certifies the chain, then returns a final head strictly newer than the certifying block.
 fn run_until_certified_light_client_head(env: &mut TestLoopEnv) -> CryptoHash {
@@ -411,6 +420,209 @@ fn test_spice_light_client_outcome_proof_untracked_shard() {
 
     let result = env.node_mut(1).view_client_actor().handle(request());
     assert_matches!(result, Err(GetLightClientProofError::UnavailableShard { .. }));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_light_client_state_proof() {
+    init_test_logger();
+
+    // See the outcome-proof test: this account is outside the first shard.
+    let contract_account = create_account_id("vault");
+    let mut env = TestLoopBuilder::new()
+        .validators(1, 0)
+        .num_shards(4)
+        .add_user_accounts([&contract_account], Balance::from_near(10))
+        .build();
+
+    let deploy_tx = env.validator().tx_deploy_test_contract(&contract_account);
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(20));
+
+    // rs_contract's write_key_value reads input as `key_bytes || value(u64 LE)` and
+    // does storage_write(key, value), so this creates a provable ContractData entry.
+    let storage_key = b"spice_key".to_vec();
+    let storage_value: u64 = 42;
+    let mut call_args = storage_key.clone();
+    call_args.extend_from_slice(&storage_value.to_le_bytes());
+    let call_tx = env.validator().tx_call(
+        &contract_account,
+        &contract_account,
+        "write_key_value",
+        call_args,
+        Balance::ZERO,
+        Gas::from_teragas(300),
+    );
+    let call_tx_hash = call_tx.get_hash();
+    env.validator_runner().run_tx(call_tx, Duration::seconds(20));
+    let receipt_id = env.validator().tx_receipt_id(call_tx_hash);
+
+    let tip_height = env.validator().head().height;
+    env.validator_runner().run_until_certified(tip_height);
+    let certified_head_height = env.validator().head().height;
+    env.validator_runner().run_until_final_head_height(certified_head_height + 1);
+
+    let light_client_head = env.validator().final_head().last_block_hash;
+
+    // The chunk that executed the write; its certified state_root is what the state
+    // proofs below are checked against.
+    let write_block_hash = env.validator().execution_outcome_with_proof(receipt_id).block_hash;
+    let epoch_manager = env.validator().client().epoch_manager.clone();
+    let epoch_id =
+        *env.validator().client().chain.get_block_header(&write_block_hash).unwrap().epoch_id();
+    let account_shard_id =
+        account_id_to_shard_id(epoch_manager.as_ref(), &contract_account, &epoch_id).unwrap();
+    let chunk_id = SpiceChunkId { block_hash: write_block_hash, shard_id: account_shard_id };
+
+    // Account record proves the deployed contract and a gas-reduced balance.
+    let account_target = StateProofTarget::Account { account_id: contract_account.clone() };
+    let account_response = env
+        .validator_mut()
+        .view_client_actor()
+        .handle(GetLightClientStateProof {
+            chunk_id: chunk_id.clone(),
+            target: account_target.clone(),
+            light_client_head,
+        })
+        .unwrap();
+    let StateProofOutcome::Present(account_value) = verify_state_proof(
+        &account_target,
+        &account_response.state_proof,
+        &account_response.chunk_execution_proof.roots,
+    )
+    .unwrap() else {
+        panic!("contract account must be present")
+    };
+    let account = Account::try_from_slice(account_value.as_slice()).unwrap();
+    assert_eq!(account.local_contract_hash(), Some(CryptoHash::hash_bytes(rs_contract())));
+    assert!(account.amount() < Balance::from_near(10), "deploy and call gas should reduce balance");
+
+    // The contract-data key/value the call wrote is present and proves the exact value.
+    let data_target = StateProofTarget::ContractData {
+        account_id: contract_account.clone(),
+        key: storage_key.into(),
+    };
+    let data_response = env
+        .validator_mut()
+        .view_client_actor()
+        .handle(GetLightClientStateProof {
+            chunk_id: chunk_id.clone(),
+            target: data_target.clone(),
+            light_client_head,
+        })
+        .unwrap();
+    let StateProofOutcome::Present(proved_value) = verify_state_proof(
+        &data_target,
+        &data_response.state_proof,
+        &data_response.chunk_execution_proof.roots,
+    )
+    .unwrap() else {
+        panic!("contract data must be present")
+    };
+    assert_eq!(proved_value.as_slice(), storage_value.to_le_bytes().as_slice());
+
+    // The chunk-execution proof in the response ties state_root to the trusted head.
+    let head_header = env.validator().client().chain.get_block_header(&light_client_head).unwrap();
+    verify_chunk_execution_proof(
+        &data_response.chunk_execution_proof,
+        &chunk_id,
+        head_header.block_merkle_root(),
+    )
+    .unwrap();
+
+    // Tampering the claimed value must be rejected by the trie proof.
+    let tampered_state_proof = StateProofView {
+        value: Some(b"tampered contract data".to_vec().into()),
+        ..data_response.state_proof.clone()
+    };
+    assert_matches!(
+        verify_state_proof(
+            &data_target,
+            &tampered_state_proof,
+            &data_response.chunk_execution_proof.roots,
+        ),
+        Err(SpiceProofVerificationError::InvalidStateProof)
+    );
+
+    let other_shard_id = epoch_manager
+        .get_shard_layout(&epoch_id)
+        .unwrap()
+        .shard_ids()
+        .find(|shard_id| *shard_id != account_shard_id)
+        .unwrap();
+    let result = env.validator_mut().view_client_actor().handle(GetLightClientStateProof {
+        chunk_id: SpiceChunkId { block_hash: write_block_hash, shard_id: other_shard_id },
+        target: account_target,
+        light_client_head,
+    });
+    assert_matches!(result, Err(GetLightClientProofError::TargetShardMismatch { .. }));
+
+    // The deployed code itself is provable, and its bytes are the contract we sent.
+    let code_target = StateProofTarget::LocalContractCode { account_id: contract_account.clone() };
+    let code_response = env
+        .validator_mut()
+        .view_client_actor()
+        .handle(GetLightClientStateProof {
+            chunk_id: chunk_id.clone(),
+            target: code_target.clone(),
+            light_client_head,
+        })
+        .unwrap();
+    let StateProofOutcome::Present(proved_code) = verify_state_proof(
+        &code_target,
+        &code_response.state_proof,
+        &code_response.chunk_execution_proof.roots,
+    )
+    .unwrap() else {
+        panic!("contract code must be present")
+    };
+    assert_eq!(proved_code.as_slice(), rs_contract());
+
+    // The access key exercises the public-key to trie-handle encoding.
+    let access_key_target = StateProofTarget::AccessKey {
+        account_id: contract_account.clone(),
+        public_key: create_user_test_signer(&contract_account).public_key(),
+    };
+    let access_key_response = env
+        .validator_mut()
+        .view_client_actor()
+        .handle(GetLightClientStateProof {
+            chunk_id: chunk_id.clone(),
+            target: access_key_target.clone(),
+            light_client_head,
+        })
+        .unwrap();
+    let StateProofOutcome::Present(access_key_value) = verify_state_proof(
+        &access_key_target,
+        &access_key_response.state_proof,
+        &access_key_response.chunk_execution_proof.roots,
+    )
+    .unwrap() else {
+        panic!("access key must be present")
+    };
+    AccessKey::try_from_slice(access_key_value.as_slice()).unwrap();
+
+    // A key the contract never wrote has no value, and that absence is provable.
+    let absent_target = StateProofTarget::ContractData {
+        account_id: contract_account,
+        key: b"never_written".to_vec().into(),
+    };
+    let absent_response = env
+        .validator_mut()
+        .view_client_actor()
+        .handle(GetLightClientStateProof {
+            chunk_id,
+            target: absent_target.clone(),
+            light_client_head,
+        })
+        .unwrap();
+    assert_matches!(
+        verify_state_proof(
+            &absent_target,
+            &absent_response.state_proof,
+            &absent_response.chunk_execution_proof.roots,
+        ),
+        Ok(StateProofOutcome::AbsentInShard)
+    );
 }
 
 #[test]

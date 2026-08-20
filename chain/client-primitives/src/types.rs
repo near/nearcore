@@ -9,8 +9,8 @@ use near_primitives::types::{
 };
 use near_primitives::views::{
     ChunkExecutionProofView, EpochSyncStatusView, ExecutionOutcomeWithIdView,
-    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateSyncStatusView,
-    SyncStatusView, TxStatusView,
+    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateProofTarget,
+    StateProofView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -935,6 +935,19 @@ pub struct GetLightClientExecutionOutcomeProofResponse {
     pub outcome_proof: ExecutionOutcomeWithIdView,
 }
 
+#[derive(Debug)]
+pub struct GetLightClientStateProof {
+    pub chunk_id: SpiceChunkId,
+    pub target: StateProofTarget,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub state_proof: StateProofView,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum GetLightClientProofError {
     #[error("Chunk {chunk_id:?} is not yet certified")]
@@ -957,6 +970,19 @@ pub enum GetLightClientProofError {
     UnknownTransactionOrReceipt { transaction_or_receipt_id: CryptoHash },
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
     UnavailableShard { transaction_or_receipt_id: CryptoHash, shard_id: ShardId },
+    #[error("Node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error(
+        "Account {account_id} is in shard {account_shard_id}, not the requested shard \
+         {requested_shard_id}"
+    )]
+    TargetShardMismatch {
+        account_id: AccountId,
+        account_shard_id: ShardId,
+        requested_shard_id: ShardId,
+    },
+    #[error("State for chunk {chunk_id:?} is not available on this node")]
+    StateNotAvailable { chunk_id: SpiceChunkId },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
 }
