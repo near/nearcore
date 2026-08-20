@@ -377,6 +377,14 @@ impl CloudArchivalWriter {
     ) -> Result<bool, CloudArchivingError> {
         let epoch_ending_block_hash = self.find_epoch_ending_in_batch(batch_range)?;
 
+        // Before any head write, so a block head never advertises an epoch with no
+        // epoch data.
+        if self.config.archive_block_data {
+            if let Some(prev_epoch_end) = epoch_ending_block_hash {
+                self.archive_next_epoch_data(prev_epoch_end).await?;
+            }
+        }
+
         let block_update = if self.config.archive_block_data {
             self.archive_block_batch_if_lagging(batch_range).await?
         } else {
@@ -386,11 +394,6 @@ impl CloudArchivalWriter {
             self.archive_shard_batches_if_lagging(batch_range, epoch_ending_block_hash).await?;
         let cloud_head_written = block_update.as_ref().is_some_and(|u| u.cloud_head_written)
             || shards_update.iter().any(|shard| shard.cloud_head_written);
-        if self.config.archive_block_data {
-            if let Some(last_block_hash) = epoch_ending_block_hash {
-                self.archive_ending_epoch_data(last_block_hash).await?;
-            }
-        }
         self.advance_local_heads(
             batch_range.end(),
             block_update.as_ref(),
@@ -499,12 +502,12 @@ impl CloudArchivalWriter {
         Ok(sync_prev_prev_header.height())
     }
 
-    /// Uploads epoch data for the epoch whose last block is `last_block_hash`.
-    async fn archive_ending_epoch_data(
+    /// Uploads epoch data for the epoch that starts right after `prev_epoch_end`.
+    async fn archive_next_epoch_data(
         &self,
-        last_block_hash: CryptoHash,
+        prev_epoch_end: CryptoHash,
     ) -> Result<(), CloudArchivingError> {
-        let epoch_id = self.epoch_manager.get_epoch_id(&last_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_epoch_end)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await
     }
@@ -691,10 +694,10 @@ impl CloudArchivalWriter {
         Ok(shard_batches)
     }
 
-    /// Initializes the cloud archive writer: validates bucket config and
-    /// reconciles cloud heads with local state. Missing components start at the
-    /// previous epoch's end so the first uploaded `EpochData` reflects a
-    /// fully-archived epoch; existing ones are clamped to `hot_final_height - 1`.
+    /// Initializes the cloud archive writer: validates bucket config, reconciles
+    /// cloud heads with local state, and publishes epoch data for the epoch it
+    /// starts in. Missing components start at the previous epoch's end; existing
+    /// ones are clamped to `hot_final_height - 1`.
     // TODO(cloud_archival) Cover this logic with tests.
     async fn initialize(
         &self,
@@ -715,6 +718,13 @@ impl CloudArchivalWriter {
         self.ensure_min_cloud_head_available_for_archiving(runtime_adapter, init_state.min_height)?;
         self.log_initialization_status(block_head_ext, &shard_heads_ext, init_state.prev_epoch_end);
         self.set_local_heads(&init_state)?;
+
+        // Publishing otherwise happens at the previous epoch's last block. We upload
+        // idempotently on node start in case it didn't happen, e.g. fresh bucket.
+        if self.config.archive_block_data {
+            let prev_epoch_end = self.compute_initial_prev_epoch_end(init_state.min_height)?;
+            self.archive_next_epoch_data(prev_epoch_end).await?;
+        }
 
         Ok(())
     }
