@@ -32,8 +32,8 @@ pub enum AccountVersion {
 ///
 /// Only universal accounts can be uninitialized: they come into existence when
 /// a transfer funds a `0u` id whose state init has not been applied yet. A
-/// deterministic account waiting for its state init is an ordinary V1 account
-/// with no contract, not this.
+/// deterministic `0s` account waiting for its state init is an ordinary V1
+/// account with no contract, not this.
 #[derive(
     PartialEq, Eq, Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize, ProtocolSchema,
 )]
@@ -55,6 +55,10 @@ impl AccountState {
 }
 
 /// Error returned when a change does not fit the account's [`AccountState`].
+///
+/// Unreachable on a healthy chain: an uninitialized account has no access keys,
+/// so no receipt can name one as its actor. Seeing this means corrupted state
+/// or a bug, not anything a user did.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidAccountState {
     #[error("account state has not been installed yet")]
@@ -261,9 +265,9 @@ impl Account {
     /// Whether the account's state has been installed.
     ///
     /// This is about the [`Account::Uninitialized`] representation, which only
-    /// universal accounts use. A deterministic account still waiting for its
-    /// state init is an ordinary V1 account with no contract, so this returns
-    /// `true` for it.
+    /// universal accounts use. A deterministic `0s` account still waiting for
+    /// its state init is an ordinary V1 account with no contract, so this
+    /// returns `true` for it.
     #[inline]
     pub fn is_initialized(&self) -> bool {
         match self {
@@ -313,6 +317,10 @@ impl Account {
         }
     }
 
+    // TODO(universal-accounts): for an uninitialized account this says "no contract"
+    // where the truth is "no state", an important distinction for future RPC. Replace return
+    // type with Option, but be careful about call sites, because AccountContract already
+    // has is_some/is_none methods.
     #[inline]
     pub fn contract(&self) -> Cow<'_, AccountContract> {
         match self {
@@ -530,7 +538,8 @@ struct SerdeAccount {
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
-    /// Version of Account in re migrations and similar. Scoped to `state`.
+    /// Account storage layout version, used for migrations and similar.
+    /// Scoped to `state`.
     #[serde(default)]
     version: AccountVersion,
     /// Whether the account's state has been installed. Absent from documents
