@@ -1114,7 +1114,7 @@ impl SpiceDataDistributorActor {
                 if chunk_info.is_fallback_only {
                     // Eligible from its own block, before we applied the chunk that produces the
                     // witness. Later blocks retry.
-                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk is not applied yet");
+                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not yet produced - chunk not applied");
                 } else {
                     tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
                 }
