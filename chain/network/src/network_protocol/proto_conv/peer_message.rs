@@ -345,6 +345,30 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
+                PeerMessage::EpochSyncManifestRequest => {
+                    ProtoMT::EpochSyncManifestRequest(proto::EpochSyncManifestRequest {
+                        special_fields: Default::default(),
+                    })
+                }
+                PeerMessage::EpochSyncManifestResponse(manifest) => {
+                    ProtoMT::EpochSyncManifestResponse(proto::EpochSyncManifestResponse {
+                        compressed_manifest: manifest.as_slice().to_vec(),
+                        special_fields: Default::default(),
+                    })
+                }
+                PeerMessage::EpochSyncBatchRequest { batch_index } => {
+                    ProtoMT::EpochSyncBatchRequest(proto::EpochSyncBatchRequest {
+                        batch_index: *batch_index,
+                        special_fields: Default::default(),
+                    })
+                }
+                PeerMessage::EpochSyncBatchResponse { batch_index, batch } => {
+                    ProtoMT::EpochSyncBatchResponse(proto::EpochSyncBatchResponse {
+                        batch_index: *batch_index,
+                        compressed_batch: batch.as_slice().to_vec(),
+                        special_fields: Default::default(),
+                    })
+                }
             }),
             ..Default::default()
         }
@@ -529,6 +553,21 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(
                 CompressedData::from_boxed_slice(esr.compressed_proof.clone().into_boxed_slice()),
             ),
+            ProtoMT::EpochSyncManifestRequest(_) => PeerMessage::EpochSyncManifestRequest,
+            ProtoMT::EpochSyncManifestResponse(esmr) => {
+                PeerMessage::EpochSyncManifestResponse(CompressedData::from_boxed_slice(
+                    esmr.compressed_manifest.clone().into_boxed_slice(),
+                ))
+            }
+            ProtoMT::EpochSyncBatchRequest(escr) => {
+                PeerMessage::EpochSyncBatchRequest { batch_index: escr.batch_index }
+            }
+            ProtoMT::EpochSyncBatchResponse(escr) => PeerMessage::EpochSyncBatchResponse {
+                batch_index: escr.batch_index,
+                batch: CompressedData::from_boxed_slice(
+                    escr.compressed_batch.clone().into_boxed_slice(),
+                ),
+            },
         })
     }
 }

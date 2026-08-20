@@ -111,6 +111,17 @@ impl StateSyncStatus {
 }
 
 #[derive(Clone, Debug)]
+pub struct FetchingEpochSyncBatchesState {
+    // Peer from whom we have downloaded the manifest,
+    pub manifest_source_peer_id: PeerId,
+    pub manifest_source_peer_height: BlockHeight,
+    pub total_batches: u64,
+    pub verified_batches: u64,
+    pub in_flight: u64,
+    pub attempt_time: near_time::Utc,
+}
+
+#[derive(Clone, Debug)]
 pub enum EpochSyncStatus {
     /// Epoch sync decided but no request sent yet.
     NotStarted,
@@ -120,6 +131,12 @@ pub enum EpochSyncStatus {
         source_peer_id: PeerId,
         attempt_time: near_time::Utc,
     },
+    FetchingManifest {
+        source_peer_id: PeerId,
+        source_peer_height: BlockHeight,
+        attempt_time: near_time::Utc,
+    },
+    FetchingBatches(FetchingEpochSyncBatchesState),
     /// Epoch sync proof applied successfully.
     Done,
 }
@@ -215,6 +232,8 @@ impl From<EpochSyncStatus> for EpochSyncStatusView {
                     attempt_time: attempt_time.to_string(),
                 }
             }
+            EpochSyncStatus::FetchingManifest { .. } => todo!(),
+            EpochSyncStatus::FetchingBatches { .. } => todo!(),
             EpochSyncStatus::Done => EpochSyncStatusView::Done,
         }
     }

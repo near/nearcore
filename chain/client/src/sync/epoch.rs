@@ -1,18 +1,23 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
+use crate::sync::handler::SyncHandler;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
 use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
-use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
+use near_client_primitives::types::{EpochSyncStatus, FetchingEpochSyncBatchesState, SyncStatus};
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
     get_epoch_info_block_producers,
 };
-use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
+use near_network::client::{
+    EpochSyncBatchRequestMessage, EpochSyncBatchResponseMessage, EpochSyncManifestRequestMessage,
+    EpochSyncManifestResponseMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
+};
+use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter,
     PeerManagerMessageRequest,
@@ -20,8 +25,10 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_sync::{
-    CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
-    EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
+    CompressedEpochSyncProof, CompressedEpochSyncProofBatch, CompressedEpochSyncProofManifest,
+    EPOCHS_PER_BATCH_V1, EpochSyncProof, EpochSyncProofBatch, EpochSyncProofBatchV1,
+    EpochSyncProofCurrentEpochData, EpochSyncProofEpochData, EpochSyncProofLastEpochData,
+    EpochSyncProofManifest, EpochSyncProofManifestV1, EpochSyncProofV1, MAX_NUMBER_OF_BATCHES,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -34,6 +41,7 @@ use near_store::{Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::instrument;
 
 /// Maximum age of an epoch sync proof, in number of epochs.
@@ -49,6 +57,160 @@ const EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS: u64 = {
     3
 };
 
+/// Timeout for a single batch request.
+const EPOCH_SYNC_BATCH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Maximum number of batch requests outstanding at any time.
+const MAX_IN_FLIGHT_BATCH_REQUESTS: u64 = 8;
+
+pub enum EpochDataBatchStatus {
+    Missing,
+    Requested { attempt_time: near_time::Utc },
+    Verified(Vec<EpochSyncProofEpochData>),
+}
+
+pub struct EpochSyncProofAssembler {
+    manifest: EpochSyncProofManifestV1,
+    batches: Vec<EpochDataBatchStatus>,
+}
+
+impl EpochSyncProofAssembler {
+    pub fn new(manifest: EpochSyncProofManifestV1) -> Result<Self, Error> {
+        if manifest.total_epochs == 0 {
+            return Err(Error::Other(String::from("manifest covers no epochs")));
+        }
+
+        let expected_num_batches = manifest.expected_num_batches();
+        if expected_num_batches > MAX_NUMBER_OF_BATCHES {
+            return Err(Error::Other(format!(
+                "manifest declares {expected_num_batches} batches, at most {MAX_NUMBER_OF_BATCHES} allowed",
+            )));
+        }
+
+        if manifest.batches_metadata.len() as u64 != expected_num_batches {
+            return Err(Error::Other(format!(
+                "manifest has {} batch metadata entries but declares {expected_num_batches} batches",
+                manifest.batches_metadata.len(),
+            )));
+        }
+
+        let batches = (0..expected_num_batches).map(|_| EpochDataBatchStatus::Missing).collect();
+
+        Ok(Self { manifest, batches })
+    }
+
+    pub fn total_batches(&self) -> usize {
+        self.batches.len()
+    }
+
+    pub fn is_awaiting_batches(&self, batch_index: u64) -> bool {
+        self.batches
+            .get(batch_index as usize)
+            .is_some_and(|status| matches!(status, EpochDataBatchStatus::Requested { .. }))
+    }
+
+    pub fn try_add_batch(
+        &mut self,
+        batch_index: u64,
+        batch: EpochSyncProofBatchV1,
+    ) -> Result<(), Error> {
+        let entry = self
+            .batches
+            .get_mut(batch_index as usize)
+            .ok_or_else(|| Error::Other(String::from("invalid batch index")))?;
+
+        let metadata = self
+            .manifest
+            .batches_metadata
+            .get(batch_index as usize)
+            .ok_or_else(|| Error::Other(String::from("invalid batch index")))?;
+
+        match entry {
+            EpochDataBatchStatus::Requested { .. } => {
+                // We expect that every batch is full except the last one.
+                let epochs_before_batch = batch_index.saturating_mul(EPOCHS_PER_BATCH_V1);
+                let expected_epochs = self
+                    .manifest
+                    .total_epochs
+                    .saturating_sub(epochs_before_batch)
+                    .min(EPOCHS_PER_BATCH_V1);
+                if batch.epochs.len() as u64 != expected_epochs {
+                    return Err(Error::Other(format!(
+                        "batch {batch_index} carries {} epochs, expected {expected_epochs}",
+                        batch.epochs.len(),
+                    )));
+                }
+
+                let Some(first_epoch) = &batch.epochs.first() else {
+                    return Err(Error::Other(String::from("Batch was empty")));
+                };
+
+                if batch_index > 0 {
+                    if first_epoch.last_final_block_header.epoch_id() != &metadata.first_epoch_id {
+                        return Err(Error::Other(format!(
+                            "batch {batch_index} starts at epoch {:?}, manifest declares {:?}",
+                            first_epoch.last_final_block_header.epoch_id(),
+                            metadata.first_epoch_id,
+                        )));
+                    }
+                    if !EpochSync::verify_block_producer_handoff(
+                        &first_epoch.block_producers,
+                        first_epoch.use_versioned_bp_hash_format,
+                        &metadata.first_bp_hash,
+                    )? {
+                        return Err(Error::Other(format!(
+                            "block producers of batch {batch_index}'s first epoch do not match the manifest",
+                        )));
+                    }
+                }
+
+                *entry = EpochDataBatchStatus::Verified(batch.epochs);
+                Ok(())
+            }
+            EpochDataBatchStatus::Missing => {
+                Err(Error::Other(String::from("batch was not requested")))
+            }
+            EpochDataBatchStatus::Verified(_) => {
+                Err(Error::Other(String::from("batch already exists")))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn mark_requested_for_test(&mut self, batch_index: u64) {
+        self.batches[batch_index as usize] =
+            EpochDataBatchStatus::Requested { attempt_time: near_time::Utc::UNIX_EPOCH };
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.batches.iter().all(|batch| matches!(batch, EpochDataBatchStatus::Verified(_)))
+    }
+
+    pub fn try_build(&self) -> Result<EpochSyncProofV1, Error> {
+        let all_epochs = self
+            .batches
+            .iter()
+            .map(|batch| {
+                if let EpochDataBatchStatus::Verified(epochs) = batch {
+                    Ok(epochs)
+                } else {
+                    Err(Error::Other(String::from("Not all batch are ready")))
+                }
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        Ok(EpochSyncProofV1 {
+            all_epochs: all_epochs.into_iter().flatten().cloned().collect(),
+            last_epoch: self.manifest.last_epoch.clone(),
+            current_epoch: self.manifest.current_epoch.clone(),
+        })
+    }
+}
+
+struct BatchedEpochSyncProof {
+    manifest: CompressedEpochSyncProofManifest,
+    batches: Vec<CompressedEpochSyncProofBatch>,
+}
+
 pub struct EpochSync {
     clock: Clock,
     network_adapter: PeerManagerAdapter,
@@ -58,6 +220,8 @@ pub struct EpochSync {
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
+    last_batched_response_cache: Arc<Mutex<Option<(EpochId, Arc<BatchedEpochSyncProof>)>>>,
+    proof_assembler: Option<EpochSyncProofAssembler>,
 }
 
 impl EpochSync {
@@ -75,6 +239,8 @@ impl EpochSync {
             async_computation_spawner,
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
+            last_batched_response_cache: Arc::new(Mutex::new(None)),
+            proof_assembler: None,
         }
     }
 
@@ -127,7 +293,7 @@ impl EpochSync {
     /// request is still in flight. Handles both initial send (NotStarted) and
     /// retry on timeout (InProgress).
     pub fn run(
-        &self,
+        &mut self,
         status: &mut EpochSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
@@ -135,14 +301,140 @@ impl EpochSync {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
+                    self.request_full_proof(status, highest_height_peers)
                 } else {
-                    return Ok(());
+                    Ok(())
                 }
             }
-            EpochSyncStatus::NotStarted => {}
-            EpochSyncStatus::Done => return Ok(()),
+            EpochSyncStatus::FetchingManifest {
+                source_peer_id,
+                source_peer_height: _,
+                attempt_time,
+            } => {
+                if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
+                    tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
+                    self.request_manifest(status, highest_height_peers)
+                } else {
+                    Ok(())
+                }
+            }
+            EpochSyncStatus::FetchingBatches(state) => {
+                *status = self.check_batches_status(state)?;
+                Ok(())
+            }
+            EpochSyncStatus::NotStarted => {
+                if ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) {
+                    self.request_manifest(status, highest_height_peers)
+                } else {
+                    self.request_full_proof(status, highest_height_peers)
+                }
+            }
+            EpochSyncStatus::Done => Ok(()),
+        }
+    }
+
+    fn check_batches_status(
+        &mut self,
+        FetchingEpochSyncBatchesState {
+            manifest_source_peer_id,
+            manifest_source_peer_height,
+            total_batches,
+            verified_batches,
+            attempt_time,
+            in_flight: _,
+        }: &FetchingEpochSyncBatchesState,
+    ) -> Result<EpochSyncStatus, Error> {
+        if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
+            tracing::warn!(target: "sync", %manifest_source_peer_id, "epoch sync from peer timed out, restarting epoch sync");
+            self.proof_assembler = None;
+            return Ok(EpochSyncStatus::NotStarted);
         }
 
+        let Some(assembler) = self.proof_assembler.as_mut() else {
+            tracing::error!(target: "sync", "no proof assembler while fetching batches, this is a bug, restarting epoch sync");
+            return Ok(EpochSyncStatus::NotStarted);
+        };
+
+        let mut in_flight = assembler
+            .batches
+            .iter()
+            .filter(|status| matches!(status, EpochDataBatchStatus::Requested { .. }))
+            .count() as u64;
+
+        for (batch_index, status) in assembler.batches.iter_mut().enumerate() {
+            match status {
+                EpochDataBatchStatus::Verified(_) => {}
+                EpochDataBatchStatus::Missing => {
+                    if in_flight < MAX_IN_FLIGHT_BATCH_REQUESTS {
+                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            // TODO: consider requesting batches from multiple peers in parallel
+                            NetworkRequests::EpochSyncBatchRequest {
+                                peer_id: manifest_source_peer_id.clone(),
+                                batch_index: batch_index as u64,
+                            },
+                        ));
+                        *status =
+                            EpochDataBatchStatus::Requested { attempt_time: self.clock.now_utc() };
+                        in_flight += 1;
+                    }
+                }
+                EpochDataBatchStatus::Requested { attempt_time } => {
+                    // retry we haven't gotten back a response yet
+                    if *attempt_time + EPOCH_SYNC_BATCH_REQUEST_TIMEOUT < self.clock.now_utc() {
+                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            // TODO: consider requesting batches from multiple peers in parallel
+                            NetworkRequests::EpochSyncBatchRequest {
+                                peer_id: manifest_source_peer_id.clone(),
+                                batch_index: batch_index as u64,
+                            },
+                        ));
+                        *status =
+                            EpochDataBatchStatus::Requested { attempt_time: self.clock.now_utc() };
+                    }
+                }
+            }
+        }
+
+        Ok(EpochSyncStatus::FetchingBatches(FetchingEpochSyncBatchesState {
+            manifest_source_peer_id: manifest_source_peer_id.clone(),
+            manifest_source_peer_height: *manifest_source_peer_height,
+            total_batches: *total_batches,
+            verified_batches: *verified_batches,
+            attempt_time: *attempt_time,
+            in_flight,
+        }))
+    }
+
+    fn request_manifest(
+        &self,
+        status: &mut EpochSyncStatus,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), Error> {
+        // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
+        let peer = highest_height_peers
+            .choose(&mut rand::thread_rng())
+            .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
+
+        tracing::info!(target: "sync", peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
+
+        *status = EpochSyncStatus::FetchingManifest {
+            source_peer_id: peer.peer_info.id.clone(),
+            source_peer_height: peer.highest_block_height,
+            attempt_time: self.clock.now_utc(),
+        };
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::EpochSyncManifestRequest { peer_id: peer.peer_info.id.clone() },
+        ));
+
+        Ok(())
+    }
+
+    fn request_full_proof(
+        &self,
+        status: &mut EpochSyncStatus,
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<(), Error> {
         // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
         let peer = highest_height_peers
             .choose(&mut rand::thread_rng())
@@ -163,6 +455,52 @@ impl EpochSync {
         Ok(())
     }
 
+    #[instrument(skip(store, cache))]
+    fn derive_batched_epoch_sync_proof(
+        store: Store,
+        transaction_validity_period: BlockHeightDelta,
+        cache: Arc<Mutex<Option<(EpochId, Arc<BatchedEpochSyncProof>)>>>,
+    ) -> Result<Arc<BatchedEpochSyncProof>, Error> {
+        let target_epoch_last_block_hash =
+            find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
+        let chain_store = store.chain_store();
+        let target_epoch_last_block_header =
+            chain_store.get_block_header(&target_epoch_last_block_hash)?;
+
+        let mut guard = cache.lock();
+        if let Some((epoch_id, response)) = &*guard {
+            if epoch_id == target_epoch_last_block_header.epoch_id() {
+                return Ok(response.clone());
+            }
+        }
+        let proof = derive_epoch_sync_proof_from_last_block(
+            &store.epoch_store(),
+            &target_epoch_last_block_hash,
+            true,
+        )?;
+        let (manifest, batches) = proof.into_v1().split_into_batches();
+
+        let (manifest, _) =
+            CompressedEpochSyncProofManifest::encode(&EpochSyncProofManifest::V1(manifest))
+                .map_err(|err| {
+                    Error::Other(format!("failed to compress epoch sync manifest: {err:?}"))
+                })?;
+        let batches = batches
+            .into_iter()
+            .map(|batches| {
+                CompressedEpochSyncProofBatch::encode(&EpochSyncProofBatch::V1(batches))
+                    .map(|(batches, _)| batches)
+                    .map_err(|err| {
+                        Error::Other(format!("failed to compress epoch sync proof batch: {err:?}"))
+                    })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        let response = Arc::new(BatchedEpochSyncProof { manifest, batches });
+        *guard = Some((*target_epoch_last_block_header.epoch_id(), response.clone()));
+        Ok(response)
+    }
+
     /// Validates an epoch sync proof: checks peer identity, proof freshness,
     /// and cryptographic correctness. Does not write any data to the store.
     /// Returns `Ok(true)` if the proof is valid, `Ok(false)` if the proof
@@ -175,15 +513,25 @@ impl EpochSync {
         source_peer: &PeerId,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<bool, Error> {
-        let SyncStatus::EpochSync(EpochSyncStatus::InProgress {
-            source_peer_id,
-            source_peer_height,
-            ..
-        }) = status
-        else {
-            tracing::warn!(target: "sync", %source_peer, "ignoring unexpected epoch sync proof");
-            return Ok(false);
+        let (source_peer_id, source_peer_height) = match status {
+            SyncStatus::EpochSync(EpochSyncStatus::InProgress {
+                source_peer_id,
+                source_peer_height,
+                ..
+            }) => (source_peer_id, source_peer_height),
+            SyncStatus::EpochSync(EpochSyncStatus::FetchingBatches(
+                FetchingEpochSyncBatchesState {
+                    manifest_source_peer_id,
+                    manifest_source_peer_height,
+                    ..
+                },
+            )) => (manifest_source_peer_id, manifest_source_peer_height),
+            _ => {
+                tracing::warn!(target: "sync", %source_peer, "ignoring unexpected epoch sync proof");
+                return Ok(false);
+            }
         };
+
         if *source_peer_id != *source_peer {
             tracing::warn!(target: "sync", %source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
             return Ok(false);
@@ -343,23 +691,7 @@ impl EpochSync {
         }
 
         // Verify block producer handoff to the second epoch after genesis.
-        let second_next_epoch_id_after_genesis = EpochId(*self.genesis.hash());
-        let second_next_epoch_info_after_genesis =
-            epoch_manager.get_epoch_info(&second_next_epoch_id_after_genesis)?;
-        if all_epochs[0].block_producers
-            != get_epoch_info_block_producers(&second_next_epoch_info_after_genesis)
-        {
-            return Err(Error::InvalidEpochSyncProof(
-                "invalid block producers for second epoch after genesis".to_string(),
-            ));
-        }
-        if all_epochs[0].last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
-            return Err(Error::InvalidEpochSyncProof(format!(
-                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
-                second_next_epoch_id_after_genesis,
-                all_epochs[0].last_final_block_header.epoch_id(),
-            )));
-        }
+        Self::verify_first_epoch_against_genesis(&self.genesis, &all_epochs[0], epoch_manager)?;
         Self::verify_final_block_endorsement(&all_epochs[0])?;
 
         // Verify the data of each epoch, in chronological order. When verifying each epoch,
@@ -497,6 +829,35 @@ impl EpochSync {
 
     /// Verifies that EpochSyncProofPastEpochData's block_producers is valid,
     /// returning true if it is.
+    /// Verifies that the first epoch of a proof is the epoch following genesis, against the
+    /// block producers this node derives from its own genesis. This is the root of the
+    /// induction the rest of the proof rests on, so it deliberately uses nothing the sender
+    /// supplied.
+    fn verify_first_epoch_against_genesis(
+        genesis: &BlockHeader,
+        first_epoch: &EpochSyncProofEpochData,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<(), Error> {
+        let second_next_epoch_id_after_genesis = EpochId(*genesis.hash());
+        let second_next_epoch_info_after_genesis =
+            epoch_manager.get_epoch_info(&second_next_epoch_id_after_genesis)?;
+        if first_epoch.block_producers
+            != get_epoch_info_block_producers(&second_next_epoch_info_after_genesis)
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid block producers for second epoch after genesis".to_string(),
+            ));
+        }
+        if first_epoch.last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
+                second_next_epoch_id_after_genesis,
+                first_epoch.last_final_block_header.epoch_id(),
+            )));
+        }
+        Ok(())
+    }
+
     fn verify_block_producer_handoff(
         block_producers: &Vec<ValidatorStake>,
         use_versioned_bp_hash_format: bool,
@@ -571,6 +932,59 @@ impl EpochSync {
         }
 
         Ok(())
+    }
+}
+
+impl ClientActor {
+    fn spawn_batched_epoch_sync_response(
+        &self,
+        task_name: &'static str,
+        respond: impl FnOnce(&BatchedEpochSyncProof) -> Option<NetworkRequests> + Send + 'static,
+        response_permit: OutgoingPermit,
+    ) {
+        if !ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) {
+            tracing::debug!(target: "sync", task_name, "ignoring batched epoch sync request, feature is not enabled");
+            return;
+        }
+
+        let store = self.client.chain.chain_store.store();
+        let transaction_validity_period = self.client.chain.transaction_validity_period();
+        let cache = self.client.sync_handler.epoch_sync.last_batched_response_cache.clone();
+        let network_adapter = self.client.network_adapter.clone();
+        self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(task_name, move || {
+            let response = match EpochSync::derive_batched_epoch_sync_proof(
+                store,
+                transaction_validity_period,
+                cache,
+            ) {
+                Ok(response) => response,
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, "failed to derive batched epoch sync proof");
+                    return;
+                }
+            };
+            if let Some(request) = respond(&response) {
+                network_adapter.send(NetworkRequestWithPermit { request, permit: response_permit });
+            }
+        })
+    }
+
+    fn request_data_reset_if_stale(&mut self) -> bool {
+        let tip_height = match self.client.chain.header_head() {
+            Ok(head) => head.height,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "failed to read header head while handling epoch sync proof");
+                return true;
+            }
+        };
+        if tip_height == self.client.chain.genesis().height() {
+            return false;
+        }
+        tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
+        if let Some(tx) = self.shutdown_signal.take() {
+            let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+        }
+        true
     }
 }
 
@@ -664,19 +1078,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         }
 
         // If the proof is valid but the node is stale (data beyond genesis), shut down for data reset immediately
-        let tip_height = match self.client.chain.header_head() {
-            Ok(head) => head.height,
-            Err(err) => {
-                tracing::error!(target: "sync", ?err, "failed to read header head while handling epoch sync proof");
-                return;
-            }
-        };
-        let genesis_height = self.client.chain.genesis().height();
-        if tip_height != genesis_height {
-            tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
-            if let Some(tx) = self.shutdown_signal.take() {
-                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-            }
+        if self.request_data_reset_if_stale() {
             return;
         }
 
@@ -692,11 +1094,378 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
     }
 }
 
+impl Handler<EpochSyncManifestRequestMessage> for ClientActor {
+    fn handle(
+        &mut self,
+        EpochSyncManifestRequestMessage { from_peer, recv_permit: _, response_permit }: EpochSyncManifestRequestMessage,
+    ) {
+        self.spawn_batched_epoch_sync_response(
+            "respond to epoch sync manifest request",
+            move |response| {
+                Some(NetworkRequests::EpochSyncManifestResponse {
+                    peer_id: from_peer,
+                    manifest: response.manifest.clone(),
+                })
+            },
+            response_permit,
+        );
+    }
+}
+
+impl Handler<EpochSyncManifestResponseMessage> for ClientActor {
+    fn handle(
+        &mut self,
+        EpochSyncManifestResponseMessage { from_peer, manifest, recv_permit: _ }: EpochSyncManifestResponseMessage,
+    ) {
+        let SyncStatus::EpochSync(EpochSyncStatus::FetchingManifest {
+            source_peer_id,
+            source_peer_height,
+            attempt_time,
+        }) = &self.client.sync_handler.sync_status
+        else {
+            tracing::warn!(target: "sync", %from_peer, "ignoring unsolicited epoch sync response");
+            return;
+        };
+
+        let (manifest, _) = match manifest.decode() {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "failed to uncompress epoch sync proof manifest");
+                return;
+            }
+        };
+
+        if *source_peer_id != from_peer {
+            tracing::warn!(target: "sync", %from_peer, "ignoring epoch sync response from a wrong peer");
+            return;
+        }
+
+        let assembler = match EpochSyncProofAssembler::new(manifest.into_v1()) {
+            Ok(assembler) => assembler,
+            Err(err) => {
+                tracing::warn!(target: "sync", %from_peer, ?err, "ignoring invalid manifest");
+                return;
+            }
+        };
+        let total_batches = assembler.total_batches() as u64;
+        self.client.sync_handler.epoch_sync.proof_assembler = Some(assembler);
+        self.client.sync_handler.sync_status =
+            SyncStatus::EpochSync(EpochSyncStatus::FetchingBatches(FetchingEpochSyncBatchesState {
+                manifest_source_peer_id: source_peer_id.clone(),
+                manifest_source_peer_height: *source_peer_height,
+                attempt_time: *attempt_time,
+                total_batches,
+                verified_batches: 0,
+                in_flight: 0,
+            }))
+    }
+}
+
+impl Handler<EpochSyncBatchRequestMessage> for ClientActor {
+    fn handle(
+        &mut self,
+        EpochSyncBatchRequestMessage {
+            from_peer,
+            batch_index,
+            recv_permit: _,
+            response_permit,
+        }: EpochSyncBatchRequestMessage,
+    ) {
+        self.spawn_batched_epoch_sync_response(
+            "respond to epoch sync batch request",
+            move |response| {
+                let Some(batch) = response.batches.get(batch_index as usize) else {
+                    tracing::debug!(
+                        target: "sync",
+                        %from_peer,
+                        batch_index,
+                        num_batches = response.batches.len(),
+                        "ignoring epoch sync batch request for an unknown batch",
+                    );
+                    return None;
+                };
+                Some(NetworkRequests::EpochSyncBatchResponse {
+                    peer_id: from_peer,
+                    batch_index,
+                    batch: batch.clone(),
+                })
+            },
+            response_permit,
+        );
+    }
+}
+
+impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
+    fn handle(
+        &mut self,
+        EpochSyncBatchResponseMessage {
+            from_peer,
+            batch_index,
+            batch,
+            recv_permit: _,
+        }: EpochSyncBatchResponseMessage,
+    ) {
+        let SyncStatus::EpochSync(EpochSyncStatus::FetchingBatches(
+            FetchingEpochSyncBatchesState { manifest_source_peer_id, verified_batches, .. },
+        )) = &mut self.client.sync_handler.sync_status
+        else {
+            tracing::warn!(target: "sync", %from_peer, "ignoring unsolicited epoch proof batch response");
+            return;
+        };
+
+        // As of today, we only request batches from the same peer we requested the manifest from.
+        if *manifest_source_peer_id != from_peer {
+            tracing::warn!(target: "sync", %from_peer, "ignoring epoch sync response from a wrong peer");
+            return;
+        }
+
+        let Some(assembler) = self.client.sync_handler.epoch_sync.proof_assembler.as_mut() else {
+            tracing::error!(target: "sync", "proof assembler is missing, this should never happen");
+            return;
+        };
+
+        if !assembler.is_awaiting_batches(batch_index) {
+            tracing::debug!(target: "sync", %from_peer, batch_index, "ignoring epoch sync proof batch that was not requested");
+            return;
+        }
+
+        let (batch, _) = match batch.decode() {
+            Ok(batch) => batch,
+            Err(err) => {
+                tracing::error!(target: "sync", batch_index, ?err, "failed to uncompress epoch sync proof batch");
+                return;
+            }
+        };
+
+        let batch = batch.into_v1();
+        if batch_index == 0 {
+            if let Err(err) = batch
+                .epochs
+                .first()
+                .ok_or_else(|| Error::Other(String::from("batch 0 was empty")))
+                .and_then(|first_epoch| {
+                    EpochSync::verify_first_epoch_against_genesis(
+                        &self.client.sync_handler.epoch_sync.genesis,
+                        first_epoch,
+                        self.client.epoch_manager.as_ref(),
+                    )
+                })
+            {
+                tracing::warn!(target: "sync", %from_peer, ?err, "rejecting epoch sync proof batch 0 that is not anchored at genesis");
+                return;
+            }
+        }
+
+        match assembler.try_add_batch(batch_index, batch) {
+            Ok(_) => *verified_batches += 1,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "Failed to add batch");
+                return;
+            }
+        }
+
+        if !assembler.is_ready() {
+            return;
+        }
+
+        let proof = match assembler.try_build() {
+            Ok(proof) => proof,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "failed to build epoch sync proof");
+                return;
+            }
+        };
+
+        let restart_epoch_sync = |sync_handler: &mut SyncHandler| {
+            sync_handler.epoch_sync.proof_assembler = None;
+            sync_handler.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
+        };
+
+        match self.client.sync_handler.epoch_sync.validate_proof(
+            &self.client.sync_handler.sync_status,
+            &self.client.chain,
+            &proof,
+            &from_peer,
+            self.client.epoch_manager.as_ref(),
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                restart_epoch_sync(&mut self.client.sync_handler);
+                return;
+            }
+            Err(err) => {
+                tracing::error!(target: "sync", %from_peer, ?err, "failed to validate epoch sync proof");
+                restart_epoch_sync(&mut self.client.sync_handler);
+                return;
+            }
+        }
+
+        // If the proof is valid but the node is stale (data beyond genesis), shut down for data reset immediately
+        if self.request_data_reset_if_stale() {
+            return;
+        }
+
+        self.client.sync_handler.epoch_sync.proof_assembler = None;
+
+        // Apply the validated proof to the store.
+        if let Err(err) = self.client.sync_handler.epoch_sync.apply_validated_proof(
+            &mut self.client.sync_handler.sync_status,
+            &mut self.client.chain,
+            proof,
+            self.client.epoch_manager.as_ref(),
+        ) {
+            tracing::error!(target: "sync", ?err, "failed to apply epoch sync proof");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::EpochSync;
+    use super::{EpochSync, EpochSyncProofAssembler};
     use near_chain::Error;
+    use near_primitives::block::{Block, compute_bp_hash_from_validator_stakes};
+    use near_primitives::epoch_sync::{
+        EPOCHS_PER_BATCH_V1, EpochSyncProofCurrentEpochData, EpochSyncProofEpochData,
+        EpochSyncProofLastEpochData, EpochSyncProofV1,
+    };
+    use near_primitives::genesis::genesis_block;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{Balance, EpochId};
+    use near_primitives::validator_signer::ValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use near_time::{Clock, Utc};
+    use std::sync::Arc;
+
+    fn test_epoch_id(index: usize) -> EpochId {
+        EpochId(CryptoHash::hash_bytes(format!("epoch{index}").as_bytes()))
+    }
+
+    fn test_block_producers(index: usize) -> Vec<ValidatorStake> {
+        vec![ValidatorStake::test(format!("bp{index}").parse().unwrap())]
+    }
+
+    fn test_proof(
+        num_epochs: usize,
+        genesis: &Block,
+        signer: &Arc<ValidatorSigner>,
+    ) -> EpochSyncProofV1 {
+        let all_epochs = (0..num_epochs)
+            .map(|index| {
+                let block =
+                    TestBlockBuilder::from_prev_block(Clock::real(), genesis, signer.clone())
+                        .height(index as u64 + 1)
+                        .epoch_id(test_epoch_id(index))
+                        .next_epoch_id(test_epoch_id(index + 1))
+                        .next_bp_hash(compute_bp_hash_from_validator_stakes(
+                            &test_block_producers(index + 1),
+                            true,
+                        ))
+                        .build();
+                EpochSyncProofEpochData {
+                    block_producers: test_block_producers(index),
+                    use_versioned_bp_hash_format: true,
+                    last_final_block_header: Arc::new(block.header().clone()),
+                    this_epoch_endorsements_for_last_final_block: vec![],
+                }
+            })
+            .collect();
+
+        let genesis_header = Arc::new(genesis.header().clone());
+        EpochSyncProofV1 {
+            all_epochs,
+            last_epoch: EpochSyncProofLastEpochData {
+                epoch_info: Default::default(),
+                next_epoch_info: Default::default(),
+                next_next_epoch_info: Default::default(),
+                first_block_in_epoch: Default::default(),
+                last_block_in_epoch: Default::default(),
+                second_last_block_in_epoch: Default::default(),
+            },
+            current_epoch: EpochSyncProofCurrentEpochData {
+                first_block_header_in_epoch: genesis_header.clone(),
+                last_block_header_in_prev_epoch: genesis_header.clone(),
+                second_last_block_header_in_prev_epoch: genesis_header,
+                merkle_proof_for_first_block: vec![],
+                partial_merkle_tree_for_first_block: Default::default(),
+            },
+        }
+    }
+
+    /// Splitting a proof and feeding the batches back through the assembler must reproduce the
+    /// proof exactly, including when the batches arrive out of order.
+    #[test]
+    fn split_into_batches_and_reassemble_roundtrip() {
+        let signer = Arc::new(create_test_signer("test"));
+        let genesis = genesis_block(
+            PROTOCOL_VERSION,
+            vec![],
+            Utc::UNIX_EPOCH,
+            0,
+            Balance::from_yoctonear(1),
+            Balance::from_yoctonear(1),
+            &vec![],
+        );
+
+        // One full batch plus a remainder, so that both the boundary anchor between batches and
+        // the short last batch are exercised.
+        let num_epochs = EPOCHS_PER_BATCH_V1 as usize + 1;
+        let proof = test_proof(num_epochs, &genesis, &signer);
+
+        let (manifest, batches) = proof.clone().split_into_batches();
+        assert_eq!(manifest.total_epochs, num_epochs as u64);
+        assert_eq!(manifest.expected_num_batches(), 2);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].epochs.len(), EPOCHS_PER_BATCH_V1 as usize);
+        assert_eq!(batches[1].epochs.len(), 1);
+
+        let mut assembler = EpochSyncProofAssembler::new(manifest).unwrap();
+        assert_eq!(assembler.total_batches(), 2);
+        assert!(!assembler.is_ready());
+
+        // Out of order on purpose: a batch is placed by its index and checked against the
+        // manifest, so it must not depend on its neighbours having arrived.
+        for batch_index in [1, 0] {
+            assert!(!assembler.is_awaiting_batches(batch_index));
+            assembler.mark_requested_for_test(batch_index);
+            assert!(assembler.is_awaiting_batches(batch_index));
+            assembler
+                .try_add_batch(batch_index, batches[batch_index as usize].clone())
+                .expect("batch produced by split_into_batches must be accepted");
+        }
+
+        assert!(assembler.is_ready());
+        assert_eq!(assembler.try_build().unwrap(), proof);
+    }
+
+    #[test]
+    fn try_add_batch_rejects_mismatched_batch() {
+        let signer = Arc::new(create_test_signer("test"));
+        let genesis = genesis_block(
+            PROTOCOL_VERSION,
+            vec![],
+            Utc::UNIX_EPOCH,
+            0,
+            Balance::from_yoctonear(1),
+            Balance::from_yoctonear(1),
+            &vec![],
+        );
+        let num_epochs = EPOCHS_PER_BATCH_V1 as usize + 1;
+        let (manifest, batches) = test_proof(num_epochs, &genesis, &signer).split_into_batches();
+
+        // Serving batch 0's epochs under index 1 fails the length check.
+        let mut assembler = EpochSyncProofAssembler::new(manifest.clone()).unwrap();
+        assembler.mark_requested_for_test(1);
+        assert!(assembler.try_add_batch(1, batches[0].clone()).is_err());
+
+        // A batch that is the right length but starts at the wrong epoch fails the anchor check.
+        let mut short_batch = batches[1].clone();
+        short_batch.epochs = vec![batches[0].epochs[0].clone()];
+        let mut assembler = EpochSyncProofAssembler::new(manifest).unwrap();
+        assembler.mark_requested_for_test(1);
+        assert!(assembler.try_add_batch(1, short_batch).is_err());
+    }
 
     /// Regression test: an attacker-supplied epoch sync proof may carry a block header whose height
     /// is u64::MAX. `verify_block_endorsements` computes `block_height + 1`, which would overflow

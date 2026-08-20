@@ -130,6 +130,10 @@ fn is_spice_request(request: &NetworkRequests) -> bool {
         | NetworkRequests::PartialEncodedStateWitnessForward { .. }
         | NetworkRequests::EpochSyncRequest { .. }
         | NetworkRequests::EpochSyncResponse { .. }
+        | NetworkRequests::EpochSyncManifestRequest { .. }
+        | NetworkRequests::EpochSyncManifestResponse { .. }
+        | NetworkRequests::EpochSyncBatchRequest { .. }
+        | NetworkRequests::EpochSyncBatchResponse { .. }
         | NetworkRequests::ChunkContractAccesses { .. }
         | NetworkRequests::ContractCodeRequest { .. }
         | NetworkRequests::ContractCodeResponse { .. }
