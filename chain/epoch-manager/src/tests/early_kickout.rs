@@ -43,6 +43,8 @@ use near_store::DBCol;
 #[cfg(feature = "nightly")]
 use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+use std::sync::Arc;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
@@ -534,13 +536,54 @@ fn get_chunk_producer_blacklist_blacklists_miss_heavy_producer() {
     assert_eq!(bl, HashMap::from([(shard_id, HashSet::from([0]))]));
 }
 
-/// Drives `count` blocks in epoch 0 simulating `down` as a non-producing node, using
-/// **blacklist-aware** assignment (mirrors the write path): at each height the chunk is
-/// assigned to `sample_chunk_producer_excluding(current_blacklist)`. If that producer is
-/// `down` the chunk is missed (mask=false); otherwise it is produced (mask=true). So once
-/// `down` is blacklisted its slots reassign to a live producer that actually produces —
-/// exactly what happens in production, with no phantom misses for the replacement.
-/// Returns the recorded block hashes (index = height).
+/// The single-shard epoch-0 context every blacklist-aware driver below records against.
+#[cfg(feature = "nightly")]
+struct ChainCtx<'a> {
+    handle: &'a EpochManagerHandle,
+    epoch_info: &'a EpochInfo,
+    layout: &'a ShardLayout,
+    shard_id: ShardId,
+}
+
+#[cfg(feature = "nightly")]
+impl ChainCtx<'_> {
+    /// Records `cur` on top of `prev` using **blacklist-aware** assignment (mirrors the
+    /// write path): the height's chunk goes to
+    /// `sample_chunk_producer_excluding(blacklist at prev)`, and is missed (mask=false)
+    /// exactly when that producer is `target`. So once `target` is blacklisted its slots
+    /// reassign to a live producer that actually produces — what happens in production,
+    /// with no phantom misses for the replacement.
+    ///
+    /// The blacklist read here is anchored at `prev`, while the row consensus reads is
+    /// anchored one block earlier, so at the single height per blacklist flip the two can
+    /// disagree and credit `target` one spurious `produced`. Harmless at these thresholds:
+    /// a flip needs a full run of fresh misses and `target` never recovers.
+    fn step(
+        &self,
+        prev: CryptoHash,
+        cur: CryptoHash,
+        height: u64,
+        target: ValidatorId,
+    ) -> CryptoHash {
+        let empty = HashSet::new();
+        let blacklist = self.handle.get_chunk_producer_blacklist(&prev).unwrap();
+        let assigned = self
+            .epoch_info
+            .sample_chunk_producer_excluding(
+                self.layout,
+                self.shard_id,
+                height,
+                blacklist.get(&self.shard_id).unwrap_or(&empty),
+            )
+            .unwrap();
+        let produced = assigned != target;
+        record_block_with_mask(&mut self.handle.write(), prev, cur, height, vec![produced]);
+        cur
+    }
+}
+
+/// Drives `count` blocks in epoch 0 simulating `down` as a non-producing node, one
+/// [`ChainCtx::step`] per height. Returns the recorded block hashes (index = height).
 #[cfg(feature = "nightly")]
 fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -> Vec<CryptoHash> {
     let h: Vec<CryptoHash> = (0..=count).map(|i| hash(&i.to_le_bytes())).collect();
@@ -549,27 +592,10 @@ fn drive_down_node(handle: &EpochManagerHandle, count: u64, down: ValidatorId) -
     let layout = handle.get_shard_layout(&epoch_id).unwrap();
     let shard_id = layout.shard_ids().next().unwrap();
     let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    let empty = HashSet::new();
+    let ctx = ChainCtx { handle, epoch_info: epoch_info.as_ref(), layout: &layout, shard_id };
     let mut prev = h[0];
     for height in 1..=count {
-        let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
-        let assigned = epoch_info
-            .sample_chunk_producer_excluding(
-                &layout,
-                shard_id,
-                height,
-                blacklist.get(&shard_id).unwrap_or(&empty),
-            )
-            .unwrap();
-        let produced = assigned != down;
-        record_block_with_mask(
-            &mut handle.write(),
-            prev,
-            h[height as usize],
-            height,
-            vec![produced],
-        );
-        prev = h[height as usize];
+        prev = ctx.step(prev, h[height as usize], height, down);
     }
     h
 }
@@ -1728,94 +1754,124 @@ fn fork_block_hash(branch: u8, height: u64) -> CryptoHash {
     hash(&[&[branch][..], &height.to_le_bytes()[..]].concat())
 }
 
-/// Records one block on `branch` at `height`, extending `prev`, using the same
-/// blacklist-aware assignment as `drive_down_node`: the chunk is missed when the test's
-/// model schedules `target`, sampling with the accessor blacklist at `prev`. The stored
-/// row consensus reads anchors one block earlier, so at the single height per blacklist
-/// flip the two can disagree and credit `target` one spurious `produced` — harmless at
-/// these thresholds (a flip needs 10 fresh misses and `target` never recovers). Returns
-/// the new tip. Shared by the two fork tests below.
+/// Shared context for the two fork tests: the epoch-0 single-shard chain they both build
+/// on, plus the genesis block they both fork from.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
-fn fork_step(
-    handle: &EpochManagerHandle,
-    epoch_info: &EpochInfo,
-    layout: &ShardLayout,
+struct ForkFixture {
+    handle: EpochManagerHandle,
+    epoch_info: Arc<EpochInfo>,
+    layout: ShardLayout,
     shard_id: ShardId,
-    prev: CryptoHash,
-    branch: u8,
-    height: u64,
-    target: ValidatorId,
-) -> CryptoHash {
-    let cur = fork_block_hash(branch, height);
-    let empty = HashSet::new();
-    let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
-    let assigned = epoch_info
-        .sample_chunk_producer_excluding(
-            layout,
-            shard_id,
-            height,
-            blacklist.get(&shard_id).unwrap_or(&empty),
-        )
-        .unwrap();
-    let produced = assigned != target;
-    record_block_with_mask(&mut handle.write(), prev, cur, height, vec![produced]);
-    cur
+    epoch_id: EpochId,
+    genesis: CryptoHash,
 }
 
-/// Drives one branch forward via `fork_step` until `done(tip)` holds, starting from
-/// `(prev, height)`. Every phase of the fork tests is driven by an observable condition
-/// rather than a fixed block count, because the sampler and the two-block finality lag
-/// decide when a condition becomes true. Panics with the full fork state if `cap` steps
-/// pass first. Returns the tip and its height.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
-fn drive_until(
-    handle: &EpochManagerHandle,
-    epoch_info: &EpochInfo,
-    layout: &ShardLayout,
-    shard_id: ShardId,
-    mut prev: CryptoHash,
-    mut height: u64,
-    branch: u8,
-    target: ValidatorId,
-    cap: u64,
-    phase: &str,
-    mut done: impl FnMut(&EpochManagerHandle, CryptoHash) -> bool,
-) -> (CryptoHash, u64) {
-    for _ in 0..cap {
-        if done(handle, prev) {
+impl ForkFixture {
+    /// 3 validators so blacklisting two producers on one branch does not trip the keep-one
+    /// valve; the contamination a leak would cause then shows up in the blacklist itself.
+    /// The epoch is long enough that everything stays inside epoch 0 (no boundary reset).
+    fn new() -> Self {
+        let validators = vec![
+            ("test0".parse().unwrap(), STAKE),
+            ("test1".parse().unwrap(), STAKE),
+            ("test2".parse().unwrap(), STAKE),
+        ];
+        let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
+        let epoch_id = EpochId::default();
+        let layout = handle.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = layout.shard_ids().next().unwrap();
+        let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
+
+        // Premise of both tests: producers are exactly {0, 1, 2}.
+        let shard_index = layout.get_shard_index(shard_id).unwrap();
+        assert_eq!(
+            epoch_info.chunk_producers_settlement()[shard_index]
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([0, 1, 2]),
+            "fork test needs chunk producers exactly {{0, 1, 2}}",
+        );
+
+        let genesis = fork_block_hash(0, 0);
+        record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
+        Self { handle, epoch_info, layout, shard_id, epoch_id, genesis }
+    }
+
+    fn ctx(&self) -> ChainCtx<'_> {
+        ChainCtx {
+            handle: &self.handle,
+            epoch_info: self.epoch_info.as_ref(),
+            layout: &self.layout,
+            shard_id: self.shard_id,
+        }
+    }
+
+    /// One [`ChainCtx::step`] at the hash `branch` reserves for `height`. Returns the tip.
+    fn fork_step(
+        &self,
+        prev: CryptoHash,
+        branch: u8,
+        height: u64,
+        target: ValidatorId,
+    ) -> CryptoHash {
+        self.ctx().step(prev, fork_block_hash(branch, height), height, target)
+    }
+
+    /// Drives one branch forward via [`Self::fork_step`] until `done(tip)` holds, starting
+    /// from `(prev, height)`. Every phase of the fork tests is driven by an observable
+    /// condition rather than a fixed block count, because the sampler and the two-block
+    /// finality lag decide when a condition becomes true. Panics with the full fork state
+    /// if `cap` steps pass first. Returns the tip and its height.
+    fn drive_until(
+        &self,
+        mut prev: CryptoHash,
+        mut height: u64,
+        branch: u8,
+        target: ValidatorId,
+        cap: u64,
+        phase: &str,
+        mut done: impl FnMut(&EpochManagerHandle, CryptoHash) -> bool,
+    ) -> (CryptoHash, u64) {
+        for _ in 0..cap {
+            if done(&self.handle, prev) {
+                return (prev, height);
+            }
+            height += 1;
+            prev = self.fork_step(prev, branch, height, target);
+        }
+        if done(&self.handle, prev) {
             return (prev, height);
         }
-        height += 1;
-        prev = fork_step(handle, epoch_info, layout, shard_id, prev, branch, height, target);
+        let (basis, watermark, cache) = {
+            let read = self.handle.read();
+            let info = read.get_block_info(&prev).unwrap();
+            (
+                *info.last_final_block_hash(),
+                read.largest_final_height,
+                read.epoch_info_aggregator.last_block_hash,
+            )
+        };
+        let shard_id = self.shard_id;
+        let target_stats = self
+            .handle
+            .read()
+            .get_epoch_info_aggregator_upto_last(&basis)
+            .ok()
+            .and_then(|agg| agg.shard_tracker.get(&shard_id).and_then(|m| m.get(&target).cloned()))
+            .map(|s| (s.produced(), s.expected()))
+            .unwrap_or((0, 0));
+        let blacklist = self.handle.get_chunk_producer_blacklist(&prev).unwrap();
+        panic!(
+            "phase {phase:?}: cap {cap} exceeded on branch {branch} at height {height}; anchor \
+             {prev} basis {basis} cache {cache} watermark {watermark}; target {target} produced \
+             {} expected {} missed {}; blacklist {blacklist:?}",
+            target_stats.0,
+            target_stats.1,
+            target_stats.1.saturating_sub(target_stats.0),
+        );
     }
-    if done(handle, prev) {
-        return (prev, height);
-    }
-    let (basis, watermark, cache) = {
-        let read = handle.read();
-        let info = read.get_block_info(&prev).unwrap();
-        (
-            *info.last_final_block_hash(),
-            read.largest_final_height,
-            read.epoch_info_aggregator.last_block_hash,
-        )
-    };
-    let target_stats = handle
-        .read()
-        .get_epoch_info_aggregator_upto_last(&basis)
-        .ok()
-        .and_then(|agg| agg.shard_tracker.get(&shard_id).and_then(|m| m.get(&target).cloned()))
-        .map(|s| (s.produced(), s.expected()))
-        .unwrap_or((0, 0));
-    let blacklist = handle.get_chunk_producer_blacklist(&prev).unwrap();
-    panic!(
-        "phase {phase:?}: cap {cap} exceeded on branch {branch} at height {height}; anchor {prev} \
-         basis {basis} cache {cache} watermark {watermark}; target {target} produced {} expected {} \
-         missed {}; blacklist {blacklist:?}",
-        target_stats.0,
-        target_stats.1,
-        target_stats.1.saturating_sub(target_stats.0),
-    );
 }
 
 // v152+ protocol: two sibling forks off a shared prefix starve different producers, and the
@@ -1824,71 +1880,32 @@ fn drive_until(
 // inferring it from blacklist equality. Also pins the strict `>` watermark gate at a
 // final-height tie and the persisted rows under the inherited {0, 1} blacklist.
 //
-// Lowered test-only thresholds (10 misses past a 20-block grace) keep it cheap. The prior
-// fixture forked an equal-depth sibling at height 1; that ancient fork point pinned the cached
-// aggregator to genesis, so every per-block seed walk ran to genesis and recording cost was
-// quadratic in the sibling depth. Forking at the shared-prefix tip (at or above the cached
-// last-final block) makes the sibling grow linearly, so real thresholds would also work here at
-// ~1500 blocks — the lowered thresholds are for speed, not correctness. Real thresholds stay
+// Thresholds are lowered (10 misses past a 20-block grace) for speed; real thresholds stay
 // covered by the canonical tests.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
 #[test]
 fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
-    // 3 validators so blacklisting two producers on the sibling does not trip the keep-one
-    // valve; the contamination a leak would cause then shows up in the blacklist itself.
-    let validators = vec![
-        ("test0".parse().unwrap(), STAKE),
-        ("test1".parse().unwrap(), STAKE),
-        ("test2".parse().unwrap(), STAKE),
-    ];
-    // Epoch length large enough that everything stays inside epoch 0 (no boundary reset).
-    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
-    let epoch_id = EpochId::default();
-    let layout = handle.get_shard_layout(&epoch_id).unwrap();
-    let shard_id = layout.shard_ids().next().unwrap();
-    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-    // Premise: producers are exactly {0, 1, 2}. The sibling blacklists 0 (inherited from the
-    // prefix) and 1 (branch-local), so 2 is the unique remaining eligible producer and the
-    // keep-one valve stays quiet.
-    let shard_index = layout.get_shard_index(shard_id).unwrap();
-    assert_eq!(
-        epoch_info.chunk_producers_settlement()[shard_index]
-            .iter()
-            .copied()
-            .collect::<HashSet<_>>(),
-        HashSet::from([0, 1, 2]),
-        "fork test needs chunk producers exactly {{0, 1, 2}}",
-    );
-
-    let genesis = fork_block_hash(0, 0);
-    record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
+    let fx = ForkFixture::new();
+    // The sibling blacklists 0 (inherited from the prefix) and 1 (branch-local), so 2 is the
+    // unique remaining eligible producer and the keep-one valve stays quiet.
+    let (handle, epoch_info, layout, shard_id) =
+        (&fx.handle, &fx.epoch_info, &fx.layout, fx.shard_id);
 
     // Phase 1: shared prefix on branch 0, starving producer 0, until the accessor is
     // exactly {0}. The fork point is this prefix tip — at or above the cached last-final
     // block, so both forks descend from the cached position (linear seed walks).
     let only_0 = HashMap::from([(shard_id, HashSet::from([0]))]);
-    let (fork_point, fork_point_height) = drive_until(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
-        genesis,
-        0,
-        0,
-        0,
-        256,
-        "shared prefix -> {0}",
-        |h, tip| h.get_chunk_producer_blacklist(&tip).unwrap() == only_0,
-    );
+    let (fork_point, fork_point_height) =
+        fx.drive_until(fx.genesis, 0, 0, 0, 256, "shared prefix -> {0}", |h, tip| {
+            h.get_chunk_producer_blacklist(&tip).unwrap() == only_0
+        });
 
     // Phase 2: branch a canonical child (keeps starving 0) and a sibling child (starves 1)
     // off the shared fork point.
     let first_height = fork_point_height + 1;
-    let canonical_first =
-        fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, fork_point, 1, first_height, 0);
-    let sibling_first =
-        fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, fork_point, 2, first_height, 1);
+    let canonical_first = fx.fork_step(fork_point, 1, first_height, 0);
+    let sibling_first = fx.fork_step(fork_point, 2, first_height, 1);
     assert_ne!(canonical_first, sibling_first, "sibling branches must have distinct hashes");
 
     // Phase 3: aggregating to the first sibling block (not the accessor's basis for that
@@ -1923,11 +1940,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // Phase 4: extend the canonical branch until its anchor's last-final block is
     // canonical-only (past the shared prefix), then snapshot the finality watermark and the
     // cache position (the canonical anchor's last-final block).
-    let (canonical_tip, _) = drive_until(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
+    let (canonical_tip, _) = fx.drive_until(
         canonical_first,
         first_height,
         1,
@@ -1952,11 +1965,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // sibling must not move the watermark or the cached aggregator (a `>=` would flap the
     // cache by arrival order). Rows are still seeded for these blocks; only the cache state
     // must stay put.
-    let (sibling_tie, tie_height) = drive_until(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
+    let (sibling_tie, tie_height) = fx.drive_until(
         sibling_first,
         first_height,
         2,
@@ -1987,11 +1996,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // sibling's own last-final block), and its blacklist is exactly {0, 1}. The monotone
     // `largest_final_height` gate is what keeps the sibling from mutating the cache until it
     // genuinely overtakes; passing it replaces the cache with a fresh walk onto the sibling.
-    let (sibling_tip, sibling_height) = drive_until(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
+    let (sibling_tip, sibling_height) = fx.drive_until(
         sibling_tie,
         tie_height,
         2,
@@ -2070,15 +2075,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
             expected_bl,
             "sibling blacklist drifted from {{0, 1}} while scanning rows",
         );
-        let witness = assert_seeded_row_matches_blacklist(
-            &handle,
-            epoch_info.as_ref(),
-            &layout,
-            shard_id,
-            &epoch_id,
-            tip,
-            &full_blacklist,
-        );
+        let witness = fx.assert_seeded_row(tip, &full_blacklist);
         assert_eq!(witness.expected, 2, "excluding {{0, 1}} from {{0, 1, 2}} must leave 2");
         assert_eq!(witness.stored, 2, "stored row must be the sole non-blacklisted producer");
         let without_inherited = epoch_info
@@ -2107,7 +2104,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         // be a tip whose row was actually scanned.
         if attempt + 1 < SCAN_CAP {
             height += 1;
-            tip = fork_step(&handle, epoch_info.as_ref(), &layout, shard_id, tip, 2, height, 1);
+            tip = fx.fork_step(tip, 2, height, 1);
         }
     }
     let (basis, basis_height, cache, watermark) = {
@@ -2141,107 +2138,95 @@ struct SeededRowWitness {
     stored: ValidatorId,
 }
 
-/// Reads the persisted `DBCol::ChunkProducers` row for `tip` and asserts it is the
-/// blacklist-aware sample and not blacklisted. The anchor height comes from `tip`'s own
-/// `BlockInfo`, so the row read and the expected sample cannot diverge. Note the two samplers
-/// draw from different distributions, so they can differ even at heights where the plain pick
-/// is not blacklisted.
 #[cfg(all(feature = "nightly", feature = "test_features"))]
-fn assert_seeded_row_matches_blacklist(
-    handle: &EpochManagerHandle,
-    epoch_info: &EpochInfo,
-    layout: &ShardLayout,
-    shard_id: ShardId,
-    epoch_id: &EpochId,
-    tip: CryptoHash,
-    shard_blacklist: &HashSet<ValidatorId>,
-) -> SeededRowWitness {
-    let anchor_height = handle.read().get_block_info(&tip).unwrap().height();
-    let chunk_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
-    let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
-    let expected = epoch_info
-        .sample_chunk_producer_excluding(layout, shard_id, chunk_height, shard_blacklist)
-        .unwrap();
-    let stored_stake = handle
-        .get_chunk_producer_info_anchored(Some(&tip), epoch_id, chunk_height, shard_id)
-        .unwrap();
-    let stored = epoch_info.get_validator_id(stored_stake.account_id()).copied().unwrap();
-    assert_eq!(stored, expected, "seeded row must be the blacklist-aware sample");
-    assert!(!shard_blacklist.contains(&stored), "seeded row must not be a blacklisted producer");
-    SeededRowWitness { chunk_height, plain, expected, stored }
-}
-
-/// Drives `branch` off the shared `fork_point`, starving `target`, until it blacklists
-/// exactly `{target}`, then manufactures a non-vacuous anchor and asserts the seeded
-/// `DBCol::ChunkProducers` row (the row consensus actually reads) reflects that branch's
-/// blacklist: it excludes `target` at a height where the plain sampler would have picked it.
-#[cfg(all(feature = "nightly", feature = "test_features"))]
-fn assert_branch_seeds_own_blacklist(
-    handle: &EpochManagerHandle,
-    epoch_info: &EpochInfo,
-    layout: &ShardLayout,
-    shard_id: ShardId,
-    epoch_id: &EpochId,
-    fork_point: CryptoHash,
-    fork_point_height: u64,
-    branch: u8,
-    target: ValidatorId,
-) {
-    let only_target = HashMap::from([(shard_id, HashSet::from([target]))]);
-    let (mut tip, mut height) = drive_until(
-        handle,
-        epoch_info,
-        layout,
-        shard_id,
-        fork_point,
-        fork_point_height,
-        branch,
-        target,
-        256,
-        "reach single-producer blacklist",
-        |h, t| h.get_chunk_producer_blacklist(&t).unwrap() == only_target,
-    );
-
-    // Extend (target stays down, so the blacklist stays {target}) until the PLAIN sampler
-    // at the anchor offset picks the blacklisted producer — only such an anchor proves the
-    // seeder rerouted away from a blacklisted canonical pick. With one blacklisted producer
-    // of three, the anchors the drive happened to leave need not contain one.
-    const PLAIN_PICK_CAP: u64 = 128;
-    for attempt in 0..PLAIN_PICK_CAP {
-        let blacklist = handle.get_chunk_producer_blacklist(&tip).unwrap();
-        let shard_blacklist = blacklist.get(&shard_id).cloned().unwrap_or_default();
-        assert_eq!(
-            shard_blacklist,
-            HashSet::from([target]),
-            "branch {branch} blacklist drifted from {{{target}}}",
+impl ForkFixture {
+    /// Reads the persisted `DBCol::ChunkProducers` row for `tip` and asserts it is the
+    /// blacklist-aware sample and not blacklisted. The anchor height comes from `tip`'s own
+    /// `BlockInfo`, so the row read and the expected sample cannot diverge. Note the two
+    /// samplers draw from different distributions, so they can differ even at heights where
+    /// the plain pick is not blacklisted.
+    fn assert_seeded_row(
+        &self,
+        tip: CryptoHash,
+        shard_blacklist: &HashSet<ValidatorId>,
+    ) -> SeededRowWitness {
+        let (epoch_info, layout, shard_id) =
+            (self.epoch_info.as_ref(), &self.layout, self.shard_id);
+        let anchor_height = self.handle.read().get_block_info(&tip).unwrap().height();
+        let chunk_height = anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
+        let plain = epoch_info.sample_chunk_producer(layout, shard_id, chunk_height).unwrap();
+        let expected = epoch_info
+            .sample_chunk_producer_excluding(layout, shard_id, chunk_height, shard_blacklist)
+            .unwrap();
+        let stored_stake = self
+            .handle
+            .get_chunk_producer_info_anchored(Some(&tip), &self.epoch_id, chunk_height, shard_id)
+            .unwrap();
+        let stored = epoch_info.get_validator_id(stored_stake.account_id()).copied().unwrap();
+        assert_eq!(stored, expected, "seeded row must be the blacklist-aware sample");
+        assert!(
+            !shard_blacklist.contains(&stored),
+            "seeded row must not be a blacklisted producer"
         );
-        let witness = assert_seeded_row_matches_blacklist(
-            handle,
-            epoch_info,
-            layout,
-            shard_id,
-            epoch_id,
-            tip,
-            &shard_blacklist,
-        );
-        if shard_blacklist.contains(&witness.plain) {
-            assert_ne!(
-                witness.stored, witness.plain,
-                "branch {branch}: seeder must reassign away from the blacklisted plain pick",
-            );
-            return;
-        }
-        // Do not step past the last inspected tip: the panic below reports `tip`, which must
-        // be a tip whose row was actually scanned.
-        if attempt + 1 < PLAIN_PICK_CAP {
-            height += 1;
-            tip = fork_step(handle, epoch_info, layout, shard_id, tip, branch, height, target);
-        }
+        SeededRowWitness { chunk_height, plain, expected, stored }
     }
-    panic!(
-        "branch {branch}: no anchor whose plain pick is the blacklisted producer within \
-         {PLAIN_PICK_CAP} blocks: tip {tip} at height {height}"
-    );
+
+    /// Drives `branch` off the shared `fork_point`, starving `target`, until it blacklists
+    /// exactly `{target}`, then manufactures a non-vacuous anchor and asserts the seeded
+    /// `DBCol::ChunkProducers` row (the row consensus actually reads) reflects that branch's
+    /// blacklist: it excludes `target` at a height where the plain sampler would have picked
+    /// it.
+    fn assert_branch_seeds_own_blacklist(
+        &self,
+        fork_point: CryptoHash,
+        fork_point_height: u64,
+        branch: u8,
+        target: ValidatorId,
+    ) {
+        let only_target = HashMap::from([(self.shard_id, HashSet::from([target]))]);
+        let (mut tip, mut height) = self.drive_until(
+            fork_point,
+            fork_point_height,
+            branch,
+            target,
+            256,
+            "reach single-producer blacklist",
+            |h, t| h.get_chunk_producer_blacklist(&t).unwrap() == only_target,
+        );
+
+        // Extend (target stays down, so the blacklist stays {target}) until the PLAIN sampler
+        // at the anchor offset picks the blacklisted producer — only such an anchor proves the
+        // seeder rerouted away from a blacklisted canonical pick. With one blacklisted
+        // producer of three, the anchors the drive happened to leave need not contain one.
+        const PLAIN_PICK_CAP: u64 = 128;
+        for attempt in 0..PLAIN_PICK_CAP {
+            let blacklist = self.handle.get_chunk_producer_blacklist(&tip).unwrap();
+            let shard_blacklist = blacklist.get(&self.shard_id).cloned().unwrap_or_default();
+            assert_eq!(
+                shard_blacklist,
+                HashSet::from([target]),
+                "branch {branch} blacklist drifted from {{{target}}}",
+            );
+            let witness = self.assert_seeded_row(tip, &shard_blacklist);
+            if shard_blacklist.contains(&witness.plain) {
+                assert_ne!(
+                    witness.stored, witness.plain,
+                    "branch {branch}: seeder must reassign away from the blacklisted plain pick",
+                );
+                return;
+            }
+            // Do not step past the last inspected tip: the panic below reports `tip`, which
+            // must be a tip whose row was actually scanned.
+            if attempt + 1 < PLAIN_PICK_CAP {
+                height += 1;
+                tip = self.fork_step(tip, branch, height, target);
+            }
+        }
+        panic!(
+            "branch {branch}: no anchor whose plain pick is the blacklisted producer within \
+             {PLAIN_PICK_CAP} blocks: tip {tip} at height {height}"
+        );
+    }
 }
 
 // v152+ protocol, seeded-row companion to the fork isolation test: consensus reads the
@@ -2253,43 +2238,11 @@ fn assert_branch_seeds_own_blacklist(
 #[test]
 fn fork_seeded_rows_reflect_each_branch_blacklist() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
-    let validators = vec![
-        ("test0".parse().unwrap(), STAKE),
-        ("test1".parse().unwrap(), STAKE),
-        ("test2".parse().unwrap(), STAKE),
-    ];
-    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
-    let epoch_id = EpochId::default();
-    let layout = handle.get_shard_layout(&epoch_id).unwrap();
-    let shard_id = layout.shard_ids().next().unwrap();
-    let epoch_info = handle.get_epoch_info(&epoch_id).unwrap();
-
-    let genesis = fork_block_hash(0, 0);
-    record_block(&mut handle.write(), CryptoHash::default(), genesis, 0, vec![]);
+    let fx = ForkFixture::new();
 
     // Two forks off genesis, each starving its own producer. Each branch's blacklist is
     // self-contained: a non-ancestor branch aggregates afresh from the epoch boundary, so the
     // assertions hold regardless of which branch the aggregator cache currently sits on.
-    assert_branch_seeds_own_blacklist(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
-        &epoch_id,
-        genesis,
-        0,
-        1,
-        0,
-    );
-    assert_branch_seeds_own_blacklist(
-        &handle,
-        epoch_info.as_ref(),
-        &layout,
-        shard_id,
-        &epoch_id,
-        genesis,
-        0,
-        2,
-        1,
-    );
+    fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 1, 0);
+    fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 2, 1);
 }
