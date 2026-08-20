@@ -45,6 +45,7 @@ pub(crate) use messages::{
 pub(crate) use reputation::{Misbehavior, Reputation, ReputationConfig, ReputationPolicy};
 pub(crate) use scheduler::{Backoff, DeadlineScheduler, TimingConfig};
 
+use near_async::time::Instant;
 use near_primitives::types::BlockHeight;
 use std::collections::{BTreeMap, HashMap};
 
@@ -162,7 +163,7 @@ impl SpiceDataManager {
         Ok(())
     }
 
-    /// A due deadline fired (after `drain_due`'s validation against `next_deadline`). First
+    /// A due deadline fired (one id from [`Self::due_items`]). First
     /// converts `in_flight` entries older than `request_timeout` into `note_timeout(source)`;
     /// then (re)issues the pull: the missing ordinals are split disjointly between
     /// `pull_fanout` producers from `select_sources`, so each ordinal goes to one peer.
@@ -171,6 +172,14 @@ impl SpiceDataManager {
     /// not when a later backoff deadline fires. A timeout-triggered wake re-requests
     /// without advancing the backoff ladder.
     pub(crate) fn on_deadline(&mut self, _id: &DataId) {}
+
+    /// Pops the scheduler's due entries and keeps the ones that are still real wake-ups:
+    /// the item exists, is still `Collecting`, and the popped instant is its
+    /// `next_deadline`. Without the last check every completion or re-arm would fire a
+    /// spurious pull off the entry it left in the heap.
+    pub(crate) fn due_items(&mut self, _now: Instant) -> Vec<DataId> {
+        Vec::new() // sketch
+    }
 
     /// Certified execution results were processed. Runs the certification comparator: for
     /// each chunk we endorsed, our result hash vs the certified one. A mismatch emits a

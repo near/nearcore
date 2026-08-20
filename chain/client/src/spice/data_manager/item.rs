@@ -155,8 +155,9 @@ pub(crate) struct FetchItem {
     pub(crate) backoff: Backoff,
     /// When the first unit arrived — starts the `first_unit_pull_delay` clock.
     pub(crate) first_unit_at: Option<Instant>,
-    /// The currently armed deadline. `drain_due` validates popped heap entries against
-    /// this and discards stale ones (heap entries can't be removed).
+    /// The currently armed deadline. [`super::SpiceDataManager::due_items`] validates
+    /// popped heap entries against this and discards stale ones (heap entries can't be
+    /// removed).
     pub(crate) next_deadline: Option<Instant>,
 }
 

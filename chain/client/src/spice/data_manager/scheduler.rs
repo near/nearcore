@@ -106,12 +106,12 @@ pub(crate) struct DeadlineScheduler {
 impl DeadlineScheduler {
     pub(crate) fn arm(&mut self, _id: DataId, _at: Instant, _lane: Lane) {}
 
-    /// Pop everything due at/before `now`. Heap entries can't be removed, so completed/
-    /// expired/re-armed items leave stale entries behind — the engine must validate each
-    /// popped id (still exists, still `Collecting`, popped `at` == the item's
-    /// `next_deadline`) and discard mismatches, else every completion triggers a spurious
-    /// pull.
-    pub(crate) fn drain_due(&mut self, _now: Instant) -> Vec<DataId> {
+    /// Pops everything due at/before `now`, paired with the instant it was armed for.
+    /// Entries are not validated here — heap entries can't be removed, so completed,
+    /// expired and re-armed items leave stale ones behind, and only the item map can tell
+    /// them apart. [`super::SpiceDataManager::due_items`] applies that rule; the armed
+    /// instant is returned so it can compare against `next_deadline`.
+    pub(crate) fn pop_due(&mut self, _now: Instant) -> Vec<(DataId, Instant)> {
         Vec::new() // sketch
     }
 }
