@@ -2,3 +2,13 @@ version: v1
 breaking:
   use:
     - WIRE
+lint:
+  use:
+    - DEFAULT
+  ignore_only:
+    # Renaming the package to network.v1, or moving the file into a network/
+    # directory, changes the package and so fails the WIRE breaking check.
+    PACKAGE_DIRECTORY_MATCH:
+      - chain/network/src/network_protocol/network.proto
+    PACKAGE_VERSION_SUFFIX:
+      - chain/network/src/network_protocol/network.proto
