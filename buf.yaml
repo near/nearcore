@@ -6,8 +6,9 @@ lint:
   use:
     - DEFAULT
   ignore_only:
-    # Renaming the package to network.v1, or moving the file into a network/
-    # directory, changes the package and so fails the WIRE breaking check.
+    # network.proto predates both rules. Renaming the package fails the WIRE
+    # breaking check; matching the directory means moving the file out of the
+    # crate that owns it.
     PACKAGE_DIRECTORY_MATCH:
       - chain/network/src/network_protocol/network.proto
     PACKAGE_VERSION_SUFFIX:
