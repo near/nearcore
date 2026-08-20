@@ -36,7 +36,11 @@ pub(crate) fn action_deterministic_state_init(
         }
     };
     if account.contract().is_none() {
-        // `uninit` -> `active` account state transition
+        // `uninit` -> `active` account state transition. "uninit" here is the
+        // NEP-616 sense, a deterministic account with no contract yet, not
+        // `Account::Uninitialized`: a `0u` id can never reach this, because
+        // `validate_deterministic_state_init` pins the receiver to the derived
+        // `0s` id.
         deploy_deterministic_account(
             state_update,
             account,

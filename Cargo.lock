@@ -2603,9 +2603,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.8"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5017294ff4bb30944501348f6f8e42e6ad28f42c8bbef7a74029aff064a4e3c2"
+checksum = "a9f37a958b41b3b19ee2707c06439c0e9e547e847223eb791ecb0cb821c65e27"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2680,11 +2680,6 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-dependencies = [
- "allocator-api2",
- "equivalent",
- "foldhash 0.2.0",
-]
 
 [[package]]
 name = "hashbrown"
@@ -2692,6 +2687,8 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
  "serde",
  "serde_core",
@@ -3666,11 +3663,11 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.16.3"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
+checksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
 ]
 
 [[package]]
@@ -3950,7 +3947,7 @@ name = "near-cache"
 version = "0.0.0"
 dependencies = [
  "bencher",
- "lru 0.16.3",
+ "lru 0.18.2",
  "parking_lot 0.12.1",
  "rand 0.8.5",
 ]
@@ -3969,7 +3966,7 @@ dependencies = [
  "enum-map",
  "insta",
  "itertools 0.14.0",
- "lru 0.16.3",
+ "lru 0.18.2",
  "near-async",
  "near-cache",
  "near-chain-configs",
@@ -4047,7 +4044,7 @@ version = "0.0.0"
 dependencies = [
  "assert_matches",
  "itertools 0.14.0",
- "lru 0.16.3",
+ "lru 0.18.2",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4086,7 +4083,7 @@ dependencies = [
  "criterion",
  "futures",
  "itertools 0.14.0",
- "lru 0.16.3",
+ "lru 0.18.2",
  "near-async",
  "near-cache",
  "near-chain",
@@ -4114,7 +4111,6 @@ dependencies = [
  "reed-solomon-erasure",
  "regex",
  "reqwest 0.13.2",
- "rust-s3",
  "serde",
  "serde_json",
  "strum",
@@ -4573,7 +4569,7 @@ dependencies = [
  "futures-util",
  "imbl",
  "itertools 0.14.0",
- "lru 0.16.3",
+ "lru 0.18.2",
  "named-lock",
  "near-async",
  "near-chain-configs",
@@ -4930,7 +4926,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "itoa",
- "lru 0.16.3",
+ "lru 0.18.2",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -5077,7 +5073,7 @@ dependencies = [
  "finite-wasm 0.5.1",
  "finite-wasm 0.6.1",
  "hex",
- "lru 0.16.3",
+ "lru 0.18.2",
  "near-crypto",
  "near-o11y",
  "near-parameters",

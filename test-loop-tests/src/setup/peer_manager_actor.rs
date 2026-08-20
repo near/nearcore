@@ -23,9 +23,7 @@ use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage,
 };
-use near_network::spice::data_distribution::{
-    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
-};
+use near_network::spice::data_distribution::{SpiceDataRequestMessage, SpiceIncomingPartialData};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -44,7 +42,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{BTreeMap, BTreeSet, btree_map};
+use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -82,7 +80,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
-    pub data_requests: Sender<SpicePartialDataRequestMessage>,
+    pub data_requests: Sender<SpiceDataRequestMessage>,
     pub contract_accesses: Sender<SpiceChunkContractAccessesMessage>,
     pub contract_code_request: Sender<SpiceContractCodeRequestMessage>,
     pub contract_code_response: Sender<SpiceContractCodeResponseMessage>,
@@ -106,6 +104,10 @@ pub enum HandlerResult {
 }
 
 pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
+
+/// Sees every outgoing request without consuming it, so several observers coexist and none of them
+/// competes with the handlers above.
+pub type NetworkRequestObserver = Box<dyn Fn(&NetworkRequests)>;
 
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.
@@ -132,6 +134,7 @@ pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> HandlerResult>;
 /// - Override handler to modify data and simulate malicious behavior.
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
+    observers: Vec<NetworkRequestObserver>,
 
     clock: Clock,
     client_sender: ClientSenderForTestLoopNetwork,
@@ -195,12 +198,19 @@ impl TestLoopPeerManagerActor {
         ];
         Self {
             handlers,
+            observers: Vec::new(),
             clock,
             client_sender,
             shared_state: shared_state.clone(),
             genesis_id,
             last_block_headers: BTreeMap::new(),
         }
+    }
+
+    /// Register an observer of every outgoing request. Observers run before the handlers and cannot
+    /// consume a request, so registering one never changes which handler takes it.
+    pub fn register_observer(&mut self, observer: NetworkRequestObserver) {
+        self.observers.push(observer);
     }
 
     /// Register a new handler to override the default handlers.
@@ -502,6 +512,25 @@ impl TestLoopNetworkSharedState {
         guard.senders.get(peer_id).unwrap().clone()
     }
 
+    /// The recipients a message from `origin` reaches, dropping the ones behind a severed link. For
+    /// handlers that deliver messages themselves instead of going through `senders_for_account`.
+    pub(crate) fn reachable_from(
+        &self,
+        origin: &AccountId,
+        recipients: &HashSet<AccountId>,
+    ) -> Vec<AccountId> {
+        let guard = self.0.lock();
+        let origin_peer_id = &guard.account_to_peer_id[origin];
+        recipients
+            .iter()
+            .filter(|recipient| {
+                let peer_id = &guard.account_to_peer_id[*recipient];
+                !Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id)
+            })
+            .cloned()
+            .collect()
+    }
+
     pub(crate) fn senders_for_peer(
         &self,
         origin: &PeerId,
@@ -622,6 +651,10 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
             panic!("Unexpected message: {:?}", msg);
         };
+
+        for observer in &self.observers {
+            observer(&request);
+        }
 
         // Iterate over the handlers in reverse order to allow for overriding the default handlers.
         let mut request = Some(request);
@@ -1087,15 +1120,12 @@ fn network_message_to_spice_data_distributor_handler(
             }
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
-        NetworkRequests::SpicePartialDataRequest { producer, request } => {
+        NetworkRequests::SpiceDataRequest { producer, request } => {
             assert!(producer != my_account_id, "Sending message to self not supported.");
             shared_state
                 .senders_for_account(&my_account_id, &producer)
                 .spice_data_distributor_actor
-                .send(SpicePartialDataRequestMessage {
-                    request,
-                    recv_permit: RecvMessagePermit::none(),
-                });
+                .send(SpiceDataRequestMessage { request, recv_permit: RecvMessagePermit::none() });
             HandlerResult::Handled(NetworkResponses::NoResponse)
         }
         NetworkRequests::SpiceChunkContractAccesses(targets, accesses) => {

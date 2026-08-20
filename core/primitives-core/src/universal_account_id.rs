@@ -1,27 +1,17 @@
 //! Codec for `0u` universal account ids (UAIDs).
 //!
-//! A UAID encodes a 32-byte hash as
-//! `0u` + 52 Crockford-base32 symbols of the hash + a 6-symbol Bech32m BCH checksum
-//! = 60 characters, all lowercase `[0-9a-z]`, which is a valid NEAR account id.
+//! A UAID encodes a 32-byte hash as `0u` + 52 Crockford-base32 symbols of the hash
+//! = 54 characters, all lowercase `[0-9a-z]`, which is a valid NEAR account id.
 //!
-//! This is a pure codec: it turns a hash into an address and back and validates
-//! the checksum. Hashing a `StateInit` into the 32-byte input lives with the
-//! account-id derivation, not here.
+//! This is a pure codec: it turns a hash into an address and back. Hashing a
+//! `StateInit` into the 32-byte input lives with the account-id derivation, not here.
 //!
-//! The base32 and checksum are implemented in this module rather than taken from
-//! an external crate. No existing crate fits the whole codec: the `bech32` crates
-//! implement full Bech32/Bech32m framing and their own alphabet, which we don't
-//! use, and a base32 crate would cover only the encoding half while the checksum
-//! still lives here, so it would add a dependency to this foundational crate
-//! without shrinking what we maintain. Keeping both halves together also avoids a
-//! glyph-to-value pass, since they share one 5-bit symbol pipeline. The
-//! implementation was cross-checked against the `data-encoding` crate over 40M
-//! random cases with zero correctness divergence and on-par performance.
-//!
-//! The checksum reuses the Bech32m polymod from
-//! [BIP-350](https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki).
+//! The base32 is implemented here rather than taken from a crate: it is a handful of
+//! lines and not worth a dependency in this foundational crate. The implementation was
+//! cross-checked against the `data-encoding` crate over 40M random cases with zero
+//! correctness divergence and on-par performance.
 
-// cspell:words bech polymod crockford uaid nbits kats multibyte
+// cspell:words crockford uaid nbits kats multibyte
 
 use crate::types::AccountId;
 
@@ -29,10 +19,8 @@ use crate::types::AccountId;
 pub const UAID_PREFIX: &str = "0u";
 /// Base32 symbols encoding the 256-bit hash (`ceil(256 / 5)`).
 pub const UAID_DATA_SYMBOLS: usize = 52;
-/// Checksum symbols.
-pub const UAID_CHECKSUM_SYMBOLS: usize = 6;
-/// Total UAID length: prefix + data + checksum.
-pub const UAID_LEN: usize = UAID_PREFIX.len() + UAID_DATA_SYMBOLS + UAID_CHECKSUM_SYMBOLS;
+/// Total UAID length: prefix + data.
+pub const UAID_LEN: usize = UAID_PREFIX.len() + UAID_DATA_SYMBOLS;
 
 /// Crockford base32, lowercase, excluding `i l o u` to reduce transcription errors.
 const CROCKFORD: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz"; // cspell:disable-line
@@ -51,20 +39,6 @@ const fn build_decode_table() -> [i8; 256] {
     table
 }
 
-/// Bech32m polymod generators and constant (BIP-350). We reuse only this math;
-/// the symbols themselves are emitted in the Crockford alphabet, not Bech32's.
-const GEN: [u32; 5] = [0x3b6a_57b2, 0x2650_8e6d, 0x1ea1_19fa, 0x3d42_33dd, 0x2a14_62b3];
-const BECH32M_CONST: u32 = 0x2bc8_30a3;
-
-/// `hrp_expand("0u")` per BIP-173: `[c >> 5 …] ++ [0] ++ [c & 31 …]`.
-/// Assumes a 2-symbol prefix (checked in tests).
-const HRP_EXPANDED: [u8; 5] = hrp_expanded();
-
-const fn hrp_expanded() -> [u8; 5] {
-    let hrp = UAID_PREFIX.as_bytes();
-    [hrp[0] >> 5, hrp[1] >> 5, 0, hrp[0] & 31, hrp[1] & 31]
-}
-
 /// Error returned when parsing a `0u` universal account id.
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum ParseUaidError {
@@ -76,17 +50,14 @@ pub enum ParseUaidError {
     InvalidSymbol,
     #[error("non-canonical universal account id encoding: padding bits set")]
     NonCanonical,
-    #[error("universal account id checksum mismatch")]
-    BadChecksum,
 }
 
 /// Encode a 32-byte hash as a `0u` universal account id.
 pub fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
     let data = base32_encode(hash);
-    let checksum = create_checksum(&data);
     let mut s = String::with_capacity(UAID_LEN);
     s.push_str(UAID_PREFIX);
-    for &v in data.iter().chain(checksum.iter()) {
+    for &v in &data {
         s.push(CROCKFORD[v as usize] as char);
     }
     debug_assert_eq!(s.len(), UAID_LEN);
@@ -95,7 +66,7 @@ pub fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
 }
 
 /// Parse and fully validate a `0u` universal account id (prefix, length, charset,
-/// checksum, canonicity), returning its 32-byte hash.
+/// canonicity), returning its 32-byte hash.
 pub fn decode_universal_account_id(id: &str) -> Result<[u8; 32], ParseUaidError> {
     let bytes = id.as_bytes();
     if bytes.len() != UAID_LEN {
@@ -104,22 +75,16 @@ pub fn decode_universal_account_id(id: &str) -> Result<[u8; 32], ParseUaidError>
     if !id.starts_with(UAID_PREFIX) {
         return Err(ParseUaidError::BadPrefix);
     }
-    let body = &bytes[UAID_PREFIX.len()..];
+    let body: &[u8; UAID_DATA_SYMBOLS] =
+        bytes[UAID_PREFIX.len()..].try_into().map_err(|_| ParseUaidError::BadLength)?;
     let mut data = [0u8; UAID_DATA_SYMBOLS];
-    for (slot, &c) in data.iter_mut().zip(&body[..UAID_DATA_SYMBOLS]) {
+    for (slot, &c) in data.iter_mut().zip(body) {
         *slot = decode_symbol(c)?;
-    }
-    let mut checksum = [0u8; UAID_CHECKSUM_SYMBOLS];
-    for (slot, &c) in checksum.iter_mut().zip(&body[UAID_DATA_SYMBOLS..]) {
-        *slot = decode_symbol(c)?;
-    }
-    if !verify_checksum(&data, &checksum) {
-        return Err(ParseUaidError::BadChecksum);
     }
     base32_decode(&data)
 }
 
-/// Whether `id` is structurally a UAID with a valid checksum. No allocation.
+/// Whether `id` is structurally a UAID. No allocation.
 /// Used later by account-type classification.
 pub fn is_universal_account_id(id: &str) -> bool {
     decode_universal_account_id(id).is_ok()
@@ -182,61 +147,25 @@ fn base32_decode(data: &[u8; UAID_DATA_SYMBOLS]) -> Result<[u8; 32], ParseUaidEr
     Ok(out)
 }
 
-fn create_checksum(data: &[u8; UAID_DATA_SYMBOLS]) -> [u8; UAID_CHECKSUM_SYMBOLS] {
-    let values = HRP_EXPANDED
-        .iter()
-        .copied()
-        .chain(data.iter().copied())
-        .chain([0u8; UAID_CHECKSUM_SYMBOLS]);
-    let poly = polymod(values) ^ BECH32M_CONST;
-    let mut out = [0u8; UAID_CHECKSUM_SYMBOLS];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = ((poly >> (5 * (5 - i))) & 0x1f) as u8;
-    }
-    out
-}
-
-fn verify_checksum(data: &[u8; UAID_DATA_SYMBOLS], checksum: &[u8; UAID_CHECKSUM_SYMBOLS]) -> bool {
-    let values =
-        HRP_EXPANDED.iter().copied().chain(data.iter().copied()).chain(checksum.iter().copied());
-    polymod(values) == BECH32M_CONST
-}
-
-fn polymod(values: impl IntoIterator<Item = u8>) -> u32 {
-    let mut chk: u32 = 1;
-    for v in values {
-        let b = chk >> 25;
-        chk = ((chk & 0x01ff_ffff) << 5) ^ v as u32;
-        for i in 0..5 {
-            if (b >> i) & 1 == 1 {
-                chk ^= GEN[i];
-            }
-        }
-    }
-    chk
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn layout_constants() {
-        // hrp_expanded() hardcodes a 2-symbol prefix.
-        assert_eq!(UAID_PREFIX.len(), 2);
         // Stay within the 64-char account-id limit.
-        assert_eq!(UAID_LEN, 60);
+        assert_eq!(UAID_LEN, 54);
         assert!(UAID_LEN <= 64);
     }
 
-    /// Canonical known-answer vectors, cross-checked against an independent
-    /// BIP-350 bech32 reference over the Crockford alphabet. Keep these stable:
-    /// they are reused by derivation tests and the NEP.
+    /// Canonical known-answer vectors, cross-checked against the `data-encoding`
+    /// crate's Crockford base32. Keep these stable: they are reused by derivation
+    /// tests and the NEP.
     const KATS: &[(&[u8; 32], &str)] = &[
         // all zero
-        (&[0x00; 32], "0u00000000000000000000000000000000000000000000000000007d5yhp"),
+        (&[0x00; 32], "0u0000000000000000000000000000000000000000000000000000"),
         // all 0xff (note the final data symbol is `g`, not `z`: it carries 4 zero pad bits)
-        (&[0xff; 32], "0uzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzg5k6fr1"), // cspell:disable-line
+        (&[0xff; 32], "0uzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzg"), // cspell:disable-line
         // 0x00..=0x1f
         (
             &[
@@ -244,7 +173,7 @@ mod tests {
                 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
                 0x1c, 0x1d, 0x1e, 0x1f,
             ],
-            "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfgesewhf",
+            "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg",
         ),
         // (7 * i) mod 256
         (
@@ -253,7 +182,7 @@ mod tests {
                 0x62, 0x69, 0x70, 0x77, 0x7e, 0x85, 0x8c, 0x93, 0x9a, 0xa1, 0xa8, 0xaf, 0xb6, 0xbd,
                 0xc4, 0xcb, 0xd2, 0xd9,
             ],
-            "0u003gw58w4cn32e1z8s6n8pv2d5r7ezm5hj9sn8d8nyvbvh6btbcgwk3mk3",
+            "0u003gw58w4cn32e1z8s6n8pv2d5r7ezm5hj9sn8d8nyvbvh6btbcg",
         ),
     ];
 
@@ -280,67 +209,31 @@ mod tests {
         }
     }
 
+    /// The last symbol holds 1 real hash bit (its top bit) and 4 padding bits (its
+    /// low 4 bits), which must be zero. So only 2 of the 32 symbols are valid
+    /// there; anything else is a second spelling of the same address. Sweep all 32
+    /// to pin the accepted set exactly, not just to reject a few known-bad ones.
     #[test]
-    fn rejects_single_symbol_substitution() {
-        let id = encode_universal_account_id(&[0x42; 32]).as_str().to_owned();
-        let original = id.into_bytes();
-        for pos in UAID_PREFIX.len()..UAID_LEN {
-            for &sym in CROCKFORD {
-                if sym == original[pos] {
-                    continue;
+    fn accepts_exactly_the_canonical_encodings() {
+        let base = encode_universal_account_id(&[0x5a; 32]).as_str().to_owned();
+        let mut accepted = 0;
+        for (v, &sym) in CROCKFORD.iter().enumerate() {
+            let mut bytes = base.clone().into_bytes();
+            *bytes.last_mut().unwrap() = sym;
+            let s = String::from_utf8(bytes).unwrap();
+            match decode_universal_account_id(&s) {
+                Ok(hash) => {
+                    assert_eq!(v & 0b1111, 0, "final symbol {} has padding set", sym as char);
+                    assert_eq!(encode_universal_account_id(&hash).as_str(), s);
+                    accepted += 1;
                 }
-                let mut corrupted = original.clone();
-                corrupted[pos] = sym;
-                let corrupted = String::from_utf8(corrupted).unwrap();
-                assert!(
-                    decode_universal_account_id(&corrupted).is_err(),
-                    "substitution at {pos} to {} was accepted",
-                    sym as char
-                );
+                Err(e) => {
+                    assert_ne!(v & 0b1111, 0, "canonical final symbol {} rejected", sym as char);
+                    assert_eq!(e, ParseUaidError::NonCanonical, "final symbol {}", sym as char);
+                }
             }
         }
-    }
-
-    #[test]
-    fn rejects_adjacent_transposition() {
-        let id = encode_universal_account_id(&[0x9a; 32]).as_str().to_owned();
-        let original = id.into_bytes();
-        for pos in UAID_PREFIX.len()..UAID_LEN - 1 {
-            if original[pos] == original[pos + 1] {
-                continue; // swapping equal symbols is a no-op
-            }
-            let mut swapped = original.clone();
-            swapped.swap(pos, pos + 1);
-            let swapped = String::from_utf8(swapped).unwrap();
-            assert!(
-                decode_universal_account_id(&swapped).is_err(),
-                "adjacent transposition at {pos} was accepted"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_non_canonical_padding() {
-        // The last data symbol holds 1 real hash bit (its top bit) and 4 padding bits
-        // (its low 4 bits), which must be zero for a canonical encoding. Every non-zero
-        // padding pattern must be rejected.
-        for padding in 1..=0b1111 {
-            let mut data = base32_encode(&[0x00; 32]); // last symbol starts at 0
-            data[UAID_DATA_SYMBOLS - 1] = padding; // inject the padding bits under test
-            let checksum = create_checksum(&data);
-
-            let mut s = String::with_capacity(UAID_LEN);
-            s.push_str(UAID_PREFIX);
-            for &v in data.iter().chain(checksum.iter()) {
-                s.push(CROCKFORD[v as usize] as char);
-            }
-
-            assert_eq!(
-                decode_universal_account_id(&s),
-                Err(ParseUaidError::NonCanonical),
-                "padding pattern {padding:#06b} in the final data symbol was accepted",
-            );
-        }
+        assert_eq!(accepted, 2);
     }
 
     #[test]
@@ -373,17 +266,6 @@ mod tests {
                 "char {bad} should be rejected"
             );
         }
-    }
-
-    #[test]
-    fn rejects_bad_checksum_by_variant() {
-        // Flip a checksum symbol within the alphabet: the data stays canonical, so
-        // only the checksum can reject, pinning the exact variant.
-        let mut bytes = encode_universal_account_id(&[0x11; 32]).as_str().to_owned().into_bytes();
-        let last = UAID_LEN - 1;
-        bytes[last] = if bytes[last] == b'z' { b'0' } else { b'z' };
-        let s = String::from_utf8(bytes).unwrap();
-        assert_eq!(decode_universal_account_id(&s), Err(ParseUaidError::BadChecksum));
     }
 
     #[test]
@@ -431,10 +313,10 @@ mod tests {
         assert!(!is_universal_account_id("alice.near"));
         assert!(!is_universal_account_id(&valid[..UAID_LEN - 1]));
 
-        // A single flipped checksum symbol is not a UAID.
+        // A set padding bit in the final symbol is not a UAID.
         let mut bytes = valid.into_bytes();
-        let last = UAID_LEN - 1;
-        bytes[last] = if bytes[last] == b'0' { b'1' } else { b'0' };
+        let last = bytes.last_mut().unwrap();
+        *last = CROCKFORD[DECODE[*last as usize] as usize ^ 1];
         let bad = String::from_utf8(bytes).unwrap();
         assert!(!is_universal_account_id(&bad));
     }

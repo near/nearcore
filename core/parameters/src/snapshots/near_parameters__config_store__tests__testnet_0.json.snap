@@ -228,7 +228,7 @@ snapshot_kind: text
     "implicit_account_creation": true,
     "eth_implicit_accounts": false,
     "limit_config": {
-      "max_gas_burnt": 200000000000000,
+      "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,

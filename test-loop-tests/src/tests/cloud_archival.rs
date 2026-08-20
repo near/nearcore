@@ -7,8 +7,9 @@ use crate::utils::cloud_archival::{
     assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced,
     assert_writer_inverse_deltas, bootstrap_reader, build_shard_tries, check_account_balance,
     check_data_at_height_for_shards, gc_and_heads_sanity_checks, get_cloud_head, get_cloud_storage,
-    get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
-    simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
+    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
+    run_until_one_epoch_after_resharding, simulate_lagging_shard, snapshots_sanity_check,
+    stop_and_restart_node,
 };
 use borsh::to_vec;
 use near_async::time::Duration;
@@ -860,7 +861,6 @@ fn test_cloud_archival_single_skipped_slot() {
     // start and target straddle an epoch boundary, so reconstruction crosses it.
     assert_ne!(epoch_of(start), epoch_of(target), "start and target must be in different epochs");
     let target_epoch_data = cloud_storage.get_epoch_data(epoch_of(target)).unwrap();
-    let sync_block_height = target_epoch_data.sync_block_height();
     // The dropped slot is in the target epoch within the bootstrap range; it
     // pushes that epoch's sync block past the target, so the reader cannot use
     // the target epoch's own snapshot and must walk back to an earlier one.
@@ -868,6 +868,12 @@ fn test_cloud_archival_single_skipped_slot() {
         target_epoch_data.epoch_start_height() <= dropped_height && dropped_height < target,
         "dropped slot {dropped_height} must be in the target epoch and the bootstrap range"
     );
+    let chain_store = h.writer_store().chain_store();
+    let sync_hash = chain_store
+        .get_current_epoch_sync_hash(&epoch_of(target))
+        .expect("sync hash is retained while the writer has not archived past that epoch");
+    let sync_block_height = chain_store.get_block_header(&sync_hash).unwrap().height();
+    // This test aims to test the bootstrap under these conditions.
     assert!(
         sync_block_height > target,
         "sync block {sync_block_height} must be past target {target}"
@@ -1011,6 +1017,95 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
 
     h.shutdown();
 }
+
+/// Bootstraps a reader over a range where one shard has no chunk at the block
+/// the state snapshot is taken against, so state reconstruction must start that
+/// shard at an earlier height than the others.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_anchor_below_sync_prev() {
+    const EPOCH_LENGTH: BlockHeightDelta = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
+    // The drop patterns index offsets 1 to 4, and the bootstrap range reaches
+    // offset 7, so both have to fit.
+    assert!(EPOCH_LENGTH > 7);
+    let shard_ids = CloudArchiveHarness::all_shard_ids();
+    // A sync hash is recorded once every shard has had two new chunks in the
+    // epoch, so a shard can take its two early and then miss the block the
+    // snapshot is taken against, offset 4 here.
+    let shard_missing_late_chunks = shard_ids[0];
+    let shard_with_all_chunks = shard_ids[1];
+    let shard_missing_early_chunks = shard_ids[2];
+
+    let mut late_drop_pattern = vec![true; EPOCH_LENGTH as usize];
+    late_drop_pattern[3] = false;
+    late_drop_pattern[4] = false;
+    let mut early_drop_pattern = vec![true; EPOCH_LENGTH as usize];
+    early_drop_pattern[1] = false;
+    early_drop_pattern[2] = false;
+
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_chunks(shard_missing_late_chunks, late_drop_pattern)
+        .drop_chunks(shard_missing_early_chunks, early_drop_pattern)
+        .build();
+    h.run_until_epoch(4);
+
+    // Any archived epoch will do, since the drop patterns repeat every epoch. Step
+    // back from the archive head so the one we pick is finished and snapshotted.
+    let cloud_storage = get_cloud_storage(&h.env, &h.archival_id);
+    // TODO(cloud_archival): a shared helper for the epoch at a height; several
+    // tests spell this chain out.
+    let probe_height = h.cloud_head() - EPOCH_LENGTH;
+    let epoch_id =
+        *cloud_storage.get_block_data(probe_height).unwrap().unwrap().block().header().epoch_id();
+    let epoch_data = cloud_storage.get_epoch_data(epoch_id).unwrap();
+    let epoch_start = epoch_data.epoch_start_height();
+
+    // The snapshot is taken at the first height where every shard has had two new
+    // chunks in the epoch.
+    let snapshot_height = epoch_start + 4;
+    let bootstrap_start = snapshot_height + 1;
+    let bootstrap_target = snapshot_height + 3;
+
+    // Where reconstruction starts for each shard: the last height at or below the
+    // snapshot height with a chunk for it.
+    let expected_starts = [
+        (shard_missing_late_chunks, snapshot_height - 2),
+        (shard_with_all_chunks, snapshot_height),
+        (shard_missing_early_chunks, snapshot_height),
+    ];
+    let reconstruction_start_of = |shard_id| {
+        get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id).chunk_height_included()
+    };
+    let has_chunk_at = |height, shard_id| {
+        cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().chunk().is_some()
+    };
+    for (shard_id, reconstruction_start) in expected_starts {
+        assert_eq!(
+            reconstruction_start_of(shard_id),
+            reconstruction_start,
+            "reconstruction start, shard {shard_id}"
+        );
+        assert!(
+            has_chunk_at(reconstruction_start, shard_id),
+            "shard {shard_id} must have a chunk at height {reconstruction_start}"
+        );
+        for height in reconstruction_start + 1..=snapshot_height {
+            assert!(
+                !has_chunk_at(height, shard_id),
+                "shard {shard_id} must have no chunk at height {height}"
+            );
+        }
+    }
+
+    // The check this test exists for: reconstruction completes for all three shards.
+    h.bootstrap_reader(bootstrap_start, bootstrap_target);
+    h.kill_reader();
+    h.shutdown();
+}
+
+// TODO(cloud_archival): cover epoch data publication at initialization, plus an
+// upload error for a batch that crosses an epoch boundary.
 
 /// One shard's chunk producer is offline at some heights; the offline
 /// shard's batch entry must be `None` at those heights while other shards

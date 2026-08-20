@@ -18,6 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
@@ -220,8 +221,21 @@ pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> A
     cloud_storage.clone().unwrap()
 }
 
+/// One shard's state header, with the epoch height it is stored under looked up
+/// from the epoch's own data.
+pub(crate) fn get_state_header_for_epoch(
+    cloud_storage: &CloudStorage,
+    epoch_id: EpochId,
+    shard_id: ShardId,
+) -> ShardStateSyncResponseHeader {
+    let epoch_height = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_info().epoch_height();
+    cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap()
+}
+
 /// Writer's stored min head: highest height up to which all components are
 /// known archived (by us or another writer).
+// TODO(cloud_archival): rename the head accessors to clearly state whether the
+// head is taken from local or external storage.
 pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
     hot_store
@@ -387,8 +401,8 @@ pub fn snapshots_sanity_check(
         (1..final_epoch_height).filter(|h| h % snapshot_every_n_epochs == 0).collect();
     assert_eq!(epoch_heights_with_snapshot, expected_snapshots);
 
-    // Epoch data is uploaded by the cloud archival writer at the last block of each
-    // epoch, so it covers all epochs fully passed by the cloud head.
+    // Every epoch through the last one the writer finished archiving. A batch that
+    // ended exactly at an epoch's last block published the next epoch's data too.
     let last_archived_epoch_last_block: CryptoHash =
         store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY).unwrap();
     let last_archived_epoch_id =
@@ -397,7 +411,7 @@ pub fn snapshots_sanity_check(
         &store.get(DBCol::EpochInfo, last_archived_epoch_id.as_ref()).unwrap(),
     )
     .unwrap();
-    let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height());
+    let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height() + 1);
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
@@ -562,14 +576,13 @@ pub fn bootstrap_reader(
         // loaded from cloud state parts, then apply deltas forward to the target.
         let (snapshot_epoch_height, snapshot_epoch_id) =
             find_snapshot_at_or_before(&cloud_storage, start_height, shard_id).unwrap();
-        let snapshot_epoch_data = cloud_storage.get_epoch_data(snapshot_epoch_id).unwrap();
-        let sync_block =
-            cloud_storage.get_block_data(snapshot_epoch_data.sync_block_height()).unwrap().unwrap();
-        let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
-        let state_sync_state_root = cloud_storage
+        // Both values come off the header's single chunk, so the state root and
+        // the height it applies at cannot disagree.
+        let state_header = cloud_storage
             .get_state_header(snapshot_epoch_height, snapshot_epoch_id, shard_id)
-            .unwrap()
-            .chunk_prev_state_root();
+            .unwrap();
+        let state_sync_state_root = state_header.chunk_prev_state_root();
+        let reconstruction_start_height = state_header.chunk_height_included();
 
         assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
         execute_future(download_and_apply_state_snapshot(
@@ -594,7 +607,7 @@ pub fn bootstrap_reader(
             &store,
             &tries,
             state_sync_state_root,
-            sync_prev_block_height,
+            reconstruction_start_height,
             target_block_height,
             shard_uid,
         );

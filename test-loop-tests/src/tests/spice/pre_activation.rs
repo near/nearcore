@@ -17,8 +17,8 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
-    SpiceContractCodeResponseMessage, SpiceIncomingPartialData, SpicePartialDataRequest,
-    SpicePartialDataRequestMessage,
+    SpiceContractCodeResponseMessage, SpiceDataRequest, SpiceDataRequestMessage,
+    SpiceIncomingPartialData,
 };
 use near_network::types::NetworkRequests;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
@@ -38,7 +38,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Balance, ChunkExecutionResult, SpiceChunkId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::DBCol;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use strum::IntoEnumIterator as _;
@@ -103,7 +103,7 @@ fn is_spice_request(request: &NetworkRequests) -> bool {
     match request {
         NetworkRequests::SpicePartialData { .. }
         | NetworkRequests::SpiceChunkEndorsement { .. }
-        | NetworkRequests::SpicePartialDataRequest { .. }
+        | NetworkRequests::SpiceDataRequest { .. }
         | NetworkRequests::SpiceChunkContractAccesses { .. }
         | NetworkRequests::SpiceContractCodeRequest { .. }
         | NetworkRequests::SpiceContractCodeResponse { .. } => true,
@@ -297,8 +297,8 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
         ),
         recv_permit: RecvMessagePermit::none(),
     });
-    node_data.spice_data_distributor_sender.send(SpicePartialDataRequestMessage {
-        request: SpicePartialDataRequest { data_id, requester },
+    node_data.spice_data_distributor_sender.send(SpiceDataRequestMessage {
+        request: SpiceDataRequest::new(BTreeMap::from([(data_id, BTreeSet::from([0]))]), requester),
         recv_permit: RecvMessagePermit::none(),
     });
     node_data.spice_data_distributor_sender.send(SpiceContractCodeRequestMessage(
@@ -355,7 +355,7 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
             // Injected twice, once naming a known pre-spice block and once an unknown one.
             SpiceMessageKind::ChunkEndorsement => (core_writer.spice_dropped_count(kind), 2),
             SpiceMessageKind::PartialData
-            | SpiceMessageKind::PartialDataRequest
+            | SpiceMessageKind::DataRequest
             | SpiceMessageKind::ContractCodeRequest => (distributor.spice_dropped_count(kind), 1),
             // Gated at the validator, at the far end of the distributor's forwarding hop.
             SpiceMessageKind::ContractAccesses

@@ -12,7 +12,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
 use near_primitives::action::delegate::{
     VersionedDelegateActionRef, VersionedSignedDelegateActionRef,
@@ -40,6 +40,21 @@ use near_store::{
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
+
+/// Reports a rejected account-state change as a storage inconsistency.
+///
+/// An uninitialized account has no access keys, so no receipt can name one as its
+/// actor. Reaching any of these call sites means the state is corrupt, not that a
+/// user did something wrong.
+pub(crate) trait OrInconsistentState {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError>;
+}
+
+impl OrInconsistentState for Result<(), InvalidAccountState> {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError> {
+        self.map_err(|err| StorageError::StorageInconsistentState(format!("{account_id}: {err}")))
+    }
+}
 
 pub(crate) fn action_stake(
     account: &mut Account,
@@ -80,7 +95,7 @@ pub(crate) fn action_stake(
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
             account.set_amount(new_balance);
-            account.set_locked(stake.stake);
+            account.set_locked(stake.stake).or_inconsistent_state(account_id)?;
         }
     } else {
         result.result = Err(ActionErrorKind::TriesToStake {
@@ -277,7 +292,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
+    account.set_contract(AccountContract::Local(*code.hash())).or_inconsistent_state(account_id)?;
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
