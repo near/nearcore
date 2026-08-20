@@ -678,6 +678,9 @@ impl JsonRpcHandler {
             "tx" => {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
             }
+            "tx_status" | "EXPERIMENTAL_tx_status" => {
+                process_method_call(request, |params| self.tx_status_common(params, true)).await
+            }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
@@ -788,9 +791,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_receipt_to_tx" => {
                 process_method_call(request, |params| self.receipt_to_tx(params)).await
-            }
-            "EXPERIMENTAL_tx_status" => {
-                process_method_call(request, |params| self.tx_status_common(params, true)).await
             }
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
