@@ -105,6 +105,10 @@ pub struct ContractCodeView {
     pub hash: CryptoHash,
 }
 
+// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized account
+// is reported as an ordinary one. That hits `view_account` and, via
+// `StateChangeValueView::AccountUpdate`, everything downstream of state
+// changes. Needs fixing before universal accounts stabilize.
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         let (global_contract_hash, global_contract_account_id) =
@@ -128,28 +132,6 @@ impl From<&Account> for AccountView {
 impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         (&account).into()
-    }
-}
-
-// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized
-// account round-trips back as an initialized one and `view_account` cannot tell
-// the two apart. Universal accounts need that distinction exposed here.
-impl From<&AccountView> for Account {
-    fn from(view: &AccountView) -> Self {
-        let contract = match &view.global_contract_account_id {
-            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
-            None => match view.global_contract_hash {
-                Some(hash) => AccountContract::Global(hash),
-                None => AccountContract::from_local_code_hash(view.code_hash),
-            },
-        };
-        Account::new(view.amount, view.locked, contract, view.storage_usage)
-    }
-}
-
-impl From<AccountView> for Account {
-    fn from(view: AccountView) -> Self {
-        (&view).into()
     }
 }
 
