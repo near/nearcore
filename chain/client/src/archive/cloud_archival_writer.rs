@@ -380,8 +380,8 @@ impl CloudArchivalWriter {
         // Before any head write, so a block head never advertises an epoch with no
         // epoch data.
         if self.config.archive_block_data {
-            if let Some(last_block_hash) = epoch_ending_block_hash {
-                self.archive_next_epoch_data(last_block_hash).await?;
+            if let Some(prev_epoch_end) = epoch_ending_block_hash {
+                self.archive_next_epoch_data(prev_epoch_end).await?;
             }
         }
 
@@ -694,10 +694,10 @@ impl CloudArchivalWriter {
         Ok(shard_batches)
     }
 
-    /// Initializes the cloud archive writer: validates bucket config and
-    /// reconciles cloud heads with local state. Missing components start at the
-    /// previous epoch's end so the first uploaded `EpochData` reflects a
-    /// fully-archived epoch; existing ones are clamped to `hot_final_height - 1`.
+    /// Initializes the cloud archive writer: validates bucket config, reconciles
+    /// cloud heads with local state, and publishes epoch data for the epoch it
+    /// starts in. Missing components start at the previous epoch's end; existing
+    /// ones are clamped to `hot_final_height - 1`.
     // TODO(cloud_archival) Cover this logic with tests.
     async fn initialize(
         &self,
@@ -719,9 +719,9 @@ impl CloudArchivalWriter {
         self.log_initialization_status(block_head_ext, &shard_heads_ext, init_state.prev_epoch_end);
         self.set_local_heads(&init_state)?;
 
-        // We are the first block writer for this bucket, so upload epoch data for
-        // the epoch we start in.
-        if self.config.archive_block_data && block_head_ext.is_none() {
+        // Publishing otherwise happens at the previous epoch's last block. We upload
+        // idempotently on node start in case it didn't happen, e.g. fresh bucket.
+        if self.config.archive_block_data {
             let prev_epoch_end = self.compute_initial_prev_epoch_end(init_state.min_height)?;
             self.archive_next_epoch_data(prev_epoch_end).await?;
         }
