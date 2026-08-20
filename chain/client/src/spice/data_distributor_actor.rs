@@ -194,6 +194,9 @@ pub(crate) const FALLBACK_WITNESS_PULL_GRACE: BlockHeight = 2;
 /// fallback eligible within this many blocks. Only decides whether to buffer the parts.
 pub(crate) const FALLBACK_WITNESS_PUSH_LOOKAHEAD: BlockHeight = 2;
 
+/// How often the distributor re-requests the data it is still waiting on.
+pub const DATA_REQUEST_INTERVAL: Duration = Duration::milliseconds(1000);
+
 /// Share of the parts an item is encoded into that suffice to decode it.
 pub const DATA_PARTS_RATIO: f64 = 0.6;
 
@@ -743,6 +746,11 @@ impl SpiceDataDistributorActor {
         };
 
         // TODO(spice): Check that encoded_length isn't too large.
+        // TODO(spice-data-distribution): verify every part before inserting any, keep the ones that
+        // verified, and report the sender for the rest. Today the first bad part aborts the loop
+        // without undoing the inserts before it, so what a message contributes depends on where the
+        // bad part sits; and the tracker below is allocated for an unverified commitment, sized by a
+        // length the sender chose, before a single proof is checked.
         let encoded_length = commitment.encoded_length;
         let total_parts = producers.len();
         let entry = waiting.parts_by_commitment.entry(commitment.clone()).or_insert_with(|| {
@@ -1364,7 +1372,7 @@ impl SpiceDataDistributorActor {
         ctx.run_later(
             "SpiceDataDistributorActor request waiting on data",
             // TODO(spice): Make duration configurable.
-            Duration::milliseconds(1000),
+            DATA_REQUEST_INTERVAL,
             move |act, ctx| {
                 act.schedule_data_fetching(ctx);
             },

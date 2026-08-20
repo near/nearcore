@@ -100,6 +100,12 @@ impl SpicePartialData {
         }
     }
 
+    pub fn id(&self) -> &SpiceDataIdentifier {
+        match self {
+            Self::V1(v1) => &v1.inner.id,
+        }
+    }
+
     pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
         match self {
             Self::V1(v1) => {
