@@ -3279,25 +3279,31 @@ fn test_witness_is_pushed_only_once() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_fallback_only_witness_is_pushed_without_waiting_for_the_delay() {
+fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved() {
     // More validators than mandates per shard, so some are outside every chunk's designated set.
     let (_genesis, mut chain) = setup(2, 100);
     let chunk_id = grow_chain_to_fallback_only_chunk(&mut chain);
-    let witness = save_test_witness_for_chunk(&chain, &chunk_id);
 
-    let head_block = latest_block(&chain);
+    let chunk_block = latest_block(&chain);
     let producer = chain
         .epoch_manager
-        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), chunk_id.shard_id)
+        .get_epoch_chunk_producers_for_shard(chunk_block.header().epoch_id(), chunk_id.shard_id)
         .unwrap()
         .swap_remove(0);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    // A scheduled chunk is eligible on its own block, but its witness only exists once the
+    // producer applies the chunk, which needs the previous block certified.
+    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+
+    let witness = save_test_witness_for_chunk(&chain, &chunk_id);
+    let next_block = produce_block(&mut chain, &chunk_block);
+    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
-    assert_eq!(pushes.len(), 1, "the scheduled chunk's witness was not pushed on its own block");
+    assert_eq!(pushes.len(), 1, "the push was not retried once the witness was saved");
     let (partial_data, recipients) = pushes.swap_remove(0);
     assert_eq!(partial_data.block_hash(), &witness.chunk_id().block_hash);
     assert_eq!(recipients, fallback_witness_recipients(&chain, &chunk_id));
@@ -3353,6 +3359,70 @@ fn pushed_witness_data(chain: &Chain, chunk_id: &SpiceChunkId) -> SpicePartialDa
     incoming.data
 }
 
+/// Processes into `chain` every block of `source` up to and including `target`.
+fn catch_up_to(chain: &mut Chain, source: &Chain, target: &Block) {
+    let mut blocks = Vec::new();
+    let mut block = source.chain_store.get_block(target.hash()).unwrap();
+    while !chain.chain_store.block_exists(block.hash()) {
+        blocks.push(block.clone());
+        block = source.chain_store.get_block(block.header().prev_hash()).unwrap();
+    }
+    for block in blocks.into_iter().rev() {
+        process_block_sync(
+            chain,
+            block.into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+    }
+}
+
+/// The non-designated validator the fallback push for `chunk_id` targets.
+fn fallback_witness_recipient(chain: &Chain, chunk_id: &SpiceChunkId) -> AccountId {
+    fallback_witness_recipients(chain, chunk_id)
+        .into_iter()
+        .sorted()
+        .next()
+        .expect("no non-designated validator; increase the validator count")
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (genesis, mut chain) = setup(2, 100);
+    // Cloned before the chunk block exists, so this receiver lags behind the push below.
+    let mut receiver_chain = new_chain(&chain, &genesis);
+
+    let chunk_id = grow_chain_to_fallback_only_chunk(&mut chain);
+    let data = pushed_witness_data(&chain, &chunk_id);
+    let validator = fallback_witness_recipient(&chain, &chunk_id);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &validator);
+
+    // A scheduled chunk is eligible on its own block, so the push can reach a receiver that does
+    // not have that block yet. The parts wait for it rather than being refused.
+    actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
+    assert_eq!(actor.pending_partial_data_size(), 1);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+
+    let chunk_block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
+    catch_up_to(&mut receiver_chain, &chain, &chunk_block);
+    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::ChunkStateWitnessMessage(SpiceChunkStateWitnessMessage {
+        witness, ..
+    }) = message
+    else {
+        panic!("expected the pushed witness to be reassembled");
+    };
+    assert_eq!(witness.chunk_id(), &chunk_id);
+    assert_eq!(actor.pending_partial_data_size(), 0);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_pushed_fallback_witness_is_kept_when_head_is_within_the_lookahead() {
@@ -3364,11 +3434,7 @@ fn test_pushed_fallback_witness_is_kept_when_head_is_within_the_lookahead() {
     let chunk_id =
         grow_chain_toward_fallback_opening(&mut chain, shard_id, FALLBACK_WITNESS_PUSH_LOOKAHEAD);
     let data = pushed_witness_data(&chain, &chunk_id);
-    let validator = fallback_witness_recipients(&chain, &chunk_id)
-        .into_iter()
-        .sorted()
-        .next()
-        .expect("no non-designated validator; increase the validator count");
+    let validator = fallback_witness_recipient(&chain, &chunk_id);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
@@ -3396,11 +3462,7 @@ fn test_pushed_fallback_witness_is_dropped_when_head_is_beyond_the_lookahead() {
         FALLBACK_WITNESS_PUSH_LOOKAHEAD + 1,
     );
     let data = pushed_witness_data(&chain, &chunk_id);
-    let validator = fallback_witness_recipients(&chain, &chunk_id)
-        .into_iter()
-        .sorted()
-        .next()
-        .expect("no non-designated validator; increase the validator count");
+    let validator = fallback_witness_recipient(&chain, &chunk_id);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
