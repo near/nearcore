@@ -317,12 +317,11 @@ impl Account {
         }
     }
 
-    // TODO(universal-accounts): for an uninitialized account this says "no contract"
-    // where the truth is "no state", an important distinction for future RPC. Replace return
-    // type with Option, but be careful about call sites, because AccountContract already
-    // has is_some/is_none methods.
     #[inline]
     pub fn contract(&self) -> Cow<'_, AccountContract> {
+        // NOTE: Returning `AccountContract::None` for uninitialized accounts is
+        // a conscious choice. It's almost always treated by the callers exactly
+        // the same way as an initialized account with no contract.
         match self {
             Self::Uninitialized(_) => Cow::Owned(AccountContract::None),
             Self::Initialized(account) => account.contract(),
