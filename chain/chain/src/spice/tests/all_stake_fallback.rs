@@ -636,7 +636,7 @@ fn ordinary_chunk_info(certifiable_since_height: Option<BlockHeight>) -> SpiceUn
 
 #[test]
 fn test_fallback_only_chunk_is_eligible_before_it_is_certifiable() {
-    // A scheduled chunk has no delay to wait out, so it certifies as soon as its endorsements
+    // A fallback-only chunk has no delay to wait out, so it certifies as soon as its endorsements
     // arrive. certifiable_since_height is only set in a later block than the chunk's own, so
     // gating on it would add a wait this chunk is meant not to have.
     assert!(fallback_eligible(1, &fallback_only_chunk_info(None)));
