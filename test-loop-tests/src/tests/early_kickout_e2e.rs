@@ -1303,6 +1303,14 @@ fn slow_test_early_kickout_across_resharding() {
         &target_account,
         target_child_shard,
     );
+    // Absent stats read as (0, 0), which the growth assert below would report as
+    // "0 -> 0" — indistinguishable from misses simply not accumulating. Name the real
+    // suspect first: the target is blacklisted on this shard, so it must have slots here.
+    assert!(
+        trigger_expected > 0,
+        "target is blacklisted on child shard {target_child_shard} but has no expected \
+         slots there at the blacklist basis — shard-key mismatch across the split?"
+    );
     assert!(
         trigger_expected > entry_expected,
         "child-epoch expected slots must have grown, got {entry_expected} -> {trigger_expected}"
@@ -1313,7 +1321,15 @@ fn slow_test_early_kickout_across_resharding() {
          got {trigger_produced}/{trigger_expected}"
     );
     // Runway so chunks whose grandparent anchor blacklists the target exist to check.
-    env.node_runner(0).run_for_number_of_blocks(20);
+    // Waits on the FINAL head, not the head: everything below reads `final_head`, and the
+    // row walk's width bound is stated in terms of how far the final head advanced past
+    // the trigger. Copy the height out because the liveness window below still needs
+    // `post_trigger_head`.
+    let post_trigger_height = post_trigger_head.height;
+    env.node_runner(0).run_until(
+        move |node| node.final_head().height >= post_trigger_height + 20,
+        Duration::seconds(EPOCH_LENGTH as i64),
+    );
     assert_eq!(
         env.node(0).final_head().epoch_id,
         split_epoch_id,
@@ -1348,7 +1364,13 @@ fn slow_test_early_kickout_across_resharding() {
     // is a global counter: it proves the window holds at least one blacklist-driven
     // reassignment; the child scan above pins the post-split region specifically.
     // `cross_epoch_heights > 0` pins that the cross-epoch resolver arm ran.
-    let low = pre_trigger_head.height.saturating_sub(5);
+    //
+    // A short pre-boundary margin is all the base-layout side needs for this claim, which
+    // is about resolution ACROSS the split. Each same-epoch height re-aggregates from its
+    // own epoch start, so reaching back through whole earlier epochs costs much more
+    // without covering anything new; the pre-trigger region gets its own walk below.
+    const PRE_SPLIT_MARGIN: u64 = 10;
+    let low = epoch_start.saturating_sub(PRE_SPLIT_MARGIN);
     assert!(
         low > observe.tail() + 2,
         "walk floor {low} must stay above the GC tail {} plus the anchor offset",
@@ -1357,7 +1379,12 @@ fn slow_test_early_kickout_across_resharding() {
     let label = "cross-resharding walk";
     let walk = walk_anchor_rows(&observe, final_head.last_block_hash, low)
         .unwrap_or_else(|err| panic!("{label} failed before reaching {low}: {err:?}"));
-    assert_walk_window(&walk, final_head.height - low + 1, label);
+    // The walk reaches exactly `low`, so passing `final_head.height - low + 1` here would
+    // compare the width against itself. The runway above makes a real bound provable: the
+    // blacklist cannot fire inside the grace, so the trigger sits at least
+    // TEST_EPOCH_GRACE_BLOCKS into the epoch, and the runway then carries the final head 20
+    // further.
+    assert_walk_window(&walk, EPOCH_LENGTH / 2, label);
     assert_blacklist_read_everywhere(&walk, label);
     assert!(
         walk.reassigned_rows > 0,
@@ -1385,6 +1412,37 @@ fn slow_test_early_kickout_across_resharding() {
     );
     assert!(history.base_layout_blocks > 0, "no base-layout blocks walked ({history:?})");
     assert!(history.new_layout_blocks > 0, "no new-layout blocks walked ({history:?})");
+
+    // The window above starts just before the split, so the PRE-split trigger gets its own
+    // short walk: base-layout rows resolved as the base-layout blacklist came into force.
+    // The window straddles the trigger rather than sitting below it — below it the blacklist
+    // is still empty, so those rows would say nothing about exclusion. Height
+    // `pre_trigger_head.height + 2` is inside the window and anchors ON `pre_trigger_head`,
+    // whose blacklist was asserted non-empty above, so at least one walked row is
+    // blacklist-affected and `blacklisted_rows` cannot be vacuously zero.
+    const PRE_TRIGGER_WALK_ABOVE: u64 = 5;
+    const PRE_TRIGGER_WALK_BELOW: u64 = 5;
+    let pre_top = observe
+        .client()
+        .chain
+        .get_block_hash_by_height(pre_trigger_head.height + PRE_TRIGGER_WALK_ABOVE)
+        .expect("canonical block a few heights above the pre-split trigger");
+    let pre_low = pre_trigger_head.height.saturating_sub(PRE_TRIGGER_WALK_BELOW);
+    assert!(
+        pre_low > observe.tail() + 3,
+        "pre-trigger walk floor {pre_low} must stay above the GC tail {}",
+        observe.tail()
+    );
+    let pre_label = "pre-split trigger walk";
+    let pre_walk = walk_anchor_rows(&observe, pre_top, pre_low)
+        .unwrap_or_else(|err| panic!("{pre_label} failed before reaching {pre_low}: {err:?}"));
+    assert_walk_window(&pre_walk, PRE_TRIGGER_WALK_ABOVE + PRE_TRIGGER_WALK_BELOW, pre_label);
+    assert_blacklist_read_everywhere(&pre_walk, pre_label);
+    assert!(
+        pre_walk.blacklisted_rows() > 0,
+        "{pre_label}: no row resolved against a non-empty base-layout blacklist, so the \
+         window sits entirely before the pre-split trigger ({pre_walk:?})"
+    );
 
     // Requirement 3: liveness. After the post-split kickout, the target's child shard
     // must carry a chunk in EVERY observed block of the window (its slots are covered by
@@ -1416,9 +1474,5 @@ fn slow_test_early_kickout_across_resharding() {
         sibling_blocks >= 2,
         "sibling child shard {sibling_child} must produce chunks at different heights in \
          the liveness window, got {sibling_blocks}"
-    );
-    assert!(
-        final_head.height >= post_trigger_head.height + 15,
-        "final head did not advance past the post-split kickout"
     );
 }
