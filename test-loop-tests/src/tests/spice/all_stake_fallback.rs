@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use itertools::Itertools;
@@ -406,6 +407,29 @@ fn assert_certified_by_all_stake(
     );
 }
 
+/// Runs to `epoch_length`, then asserts every chunk the schedule marked fallback-only over that
+/// span certified through the all-stake path.
+fn assert_every_fallback_only_chunk_certifies(
+    env: &mut TestLoopEnv,
+    epoch_length: BlockHeightDelta,
+) {
+    // The schedule is read off block headers, so the blocks have to exist first.
+    env.node_runner(0).run_until_head_height(epoch_length);
+    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
+    assert_eq!(
+        fallback_schedule.len() as u64,
+        NUM_SHARDS,
+        "one slot per shard over the first epoch_length blocks"
+    );
+
+    // The schedule is ascending, so certifying the last entry means every one of them is certified.
+    let (last_height, _) = *fallback_schedule.last().unwrap();
+    env.node_runner(0).run_until_certified(last_height);
+    for &(chunk_height, shard_id) in &fallback_schedule {
+        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
+    }
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_fallback_only_chunk_certifies_on_a_healthy_network() {
@@ -422,21 +446,7 @@ fn slow_test_spice_fallback_only_chunk_certifies_on_a_healthy_network() {
         .clients(accounts)
         .build();
 
-    // The schedule is read off block headers, so the blocks have to exist first.
-    env.node_runner(0).run_until_head_height(epoch_length);
-    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
-    assert_eq!(
-        fallback_schedule.len() as u64,
-        NUM_SHARDS,
-        "one slot per shard over the first epoch_length blocks"
-    );
-
-    // The schedule is ascending, so certifying the last entry means every one of them is certified.
-    let (last_height, _) = *fallback_schedule.last().unwrap();
-    env.node_runner(0).run_until_certified(last_height);
-    for &(chunk_height, shard_id) in &fallback_schedule {
-        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
-    }
+    assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }
 
 #[test]
@@ -459,19 +469,7 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_execution_lags() {
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
-    env.node_runner(0).run_until_head_height(epoch_length);
-    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
-    assert_eq!(
-        fallback_schedule.len() as u64,
-        NUM_SHARDS,
-        "one slot per shard over the first epoch_length blocks"
-    );
-
-    let (last_height, _) = *fallback_schedule.last().unwrap();
-    env.node_runner(0).run_until_certified(last_height);
-    for &(chunk_height, shard_id) in &fallback_schedule {
-        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
-    }
+    assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }
 
 #[test]
@@ -491,17 +489,5 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_validators_track_all_shard
         .track_all_shards()
         .build();
 
-    env.node_runner(0).run_until_head_height(epoch_length);
-    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
-    assert_eq!(
-        fallback_schedule.len() as u64,
-        NUM_SHARDS,
-        "one slot per shard over the first epoch_length blocks"
-    );
-
-    let (last_height, _) = *fallback_schedule.last().unwrap();
-    env.node_runner(0).run_until_certified(last_height);
-    for &(chunk_height, shard_id) in &fallback_schedule {
-        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
-    }
+    assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }
