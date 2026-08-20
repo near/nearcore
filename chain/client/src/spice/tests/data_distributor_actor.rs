@@ -2720,11 +2720,11 @@ fn grow_chain_to_fallback_only_chunk(chain: &mut Chain) -> SpiceChunkId {
     for _ in 0..100 {
         let block = produce_block(chain, &latest_block(chain));
         let chunks = block.chunks();
-        let scheduled = chunks.iter_raw().find(|chunk| {
+        let fallback_only = chunks.iter_raw().find(|chunk| {
             is_fallback_only_chunk(chain.epoch_manager.as_ref(), block.header(), chunk.shard_id())
                 .unwrap()
         });
-        if let Some(chunk) = scheduled {
+        if let Some(chunk) = fallback_only {
             return SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() };
         }
     }
@@ -2837,7 +2837,7 @@ fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved(
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    // A scheduled chunk is eligible on its own block, but its witness only exists once the
+    // A fallback-only chunk is eligible on its own block, but its witness only exists once the
     // producer applies the chunk, which needs the previous block certified.
     actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
@@ -2946,8 +2946,8 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &validator);
 
-    // A scheduled chunk is eligible on its own block, so the push can reach a receiver that does
-    // not have that block yet. The parts wait for it rather than being refused.
+    // A fallback-only chunk is eligible on its own block, so the push can reach a receiver that
+    // does not have that block yet. The parts wait for it rather than being refused.
     actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
     assert_eq!(actor.pending_partial_data_size(), 1);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));

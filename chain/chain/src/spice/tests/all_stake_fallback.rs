@@ -575,7 +575,7 @@ fn test_fallback_only_mark_survives_in_later_blocks() {
     let (mut chain, core_reader) = setup();
     let (fallback_only_block, fallback_only_shard) =
         grow_chain_to_fallback_only_block(&mut chain, 40);
-    let scheduled =
+    let fallback_only_chunk_id =
         SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id: fallback_only_shard };
 
     let later = advance_to_height(
@@ -584,11 +584,10 @@ fn test_fallback_only_mark_survives_in_later_blocks() {
         fallback_only_block.header().height() + 3,
     );
 
-    let still_marked = core_reader
-        .get_uncertified_chunks(later.hash())
-        .unwrap()
-        .into_iter()
-        .any(|chunk_info| chunk_info.chunk_id == scheduled && chunk_info.is_fallback_only);
+    let still_marked =
+        core_reader.get_uncertified_chunks(later.hash()).unwrap().into_iter().any(|chunk_info| {
+            chunk_info.chunk_id == fallback_only_chunk_id && chunk_info.is_fallback_only
+        });
     assert!(still_marked, "the mark was lost when the chunk was carried forward");
 }
 
@@ -695,7 +694,7 @@ fn ordinary_chunk_info(certifiable_since_height: Option<BlockHeight>) -> SpiceUn
 
 #[test]
 fn test_fallback_only_chunk_is_eligible_before_it_is_certifiable() {
-    // A scheduled chunk has no delay to wait out, so it certifies as soon as its endorsements
+    // A fallback-only chunk has no delay to wait out, so it certifies as soon as its endorsements
     // arrive. certifiable_since_height is only set in a later block than the chunk's own, so
     // gating on it would add a wait this chunk is meant not to have.
     assert!(fallback_eligible(1, &fallback_only_chunk_info(None)));

@@ -415,7 +415,7 @@ fn slow_test_spice_fallback_only_chunk_certifies_on_a_healthy_network() {
     let (accounts, genesis, epoch_config_store) =
         FallbackSetup::new().epoch_length(epoch_length).build();
     // Unlike the outage tests above, no endorsements are dropped: the all-stake path runs because
-    // the chunk is scheduled, not because the designated set went missing.
+    // the chunk is fallback-only, not because the designated set went missing.
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
