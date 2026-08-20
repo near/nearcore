@@ -1688,7 +1688,7 @@ impl ClientActor {
     }
 
     /// Check whether need to (continue) sync.
-    /// Also return higher height with known peers at that height.
+    /// Also return the height to sync to, from a peer or from our own header head.
     fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
@@ -1955,7 +1955,7 @@ impl ClientActor {
 
             SyncRequirement::SyncNeeded { highest_height, .. } => {
                 if !currently_syncing {
-                    tracing::info!(target: "client", ?sync, "enabling sync");
+                    tracing::info!(target: "client", %sync, "enabling sync");
                 }
 
                 self.handle_sync_needed(highest_height);
