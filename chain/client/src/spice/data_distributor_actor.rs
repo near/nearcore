@@ -7,8 +7,7 @@ use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
+use crate::spice::data_manager::SpiceData;
 use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::MultiSend;
@@ -46,9 +45,8 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::merkle::verify_path_with_index;
 use near_primitives::reed_solomon;
-use near_primitives::reed_solomon::ReedSolomonEncoderDeserialize;
+use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::reed_solomon::ReedSolomonPartsTracker;
-use near_primitives::reed_solomon::{ReedSolomonEncoderCache, ReedSolomonEncoderSerialize};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
@@ -311,16 +309,6 @@ impl WaitingOnDataEntry {
         Self { parts_by_commitment: HashMap::new(), request_from_height }
     }
 }
-
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-enum SpiceData {
-    ReceiptProof(ReceiptProof),
-    StateWitness(Box<SpiceChunkStateWitness>),
-}
-
-impl ReedSolomonEncoderSerialize for SpiceData {}
-
-impl ReedSolomonEncoderDeserialize for SpiceData {}
 
 #[derive(Debug)]
 pub struct SpiceDistributorOutgoingReceipts {
