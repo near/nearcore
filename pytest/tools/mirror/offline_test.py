@@ -380,8 +380,10 @@ class MlDsa65Test(MirrorTestCase):
         self.added_signer = mirror_utils.AddedKey(self.added_key)
         self.access_recipient = mirror_utils.ImplicitAccount()
         self.added_recipient = mirror_utils.ImplicitAccount()
+        self.gas_recipient = mirror_utils.ImplicitAccount()
         self.fork_access_nonce = None
-        self._sent = {'access': 0, 'added': 0}
+        self.fork_gas_nonces = None
+        self._sent = {'access': 0, 'added': 0, 'gas': 0}
 
     def signers(self):
         return [('access', self.access_signer, self.access_recipient),
@@ -394,6 +396,9 @@ class MlDsa65Test(MirrorTestCase):
         mirror_utils.send_add_mldsa65_gas_key(ctx.node, ctx.signer_key,
                                               self.gas_key, self.gas_num_nonces,
                                               ctx.next_nonce(), ctx.bhash)
+        mirror_utils.fund_mldsa65_gas_key(ctx.node,
+                                          ctx.signer_key, self.gas_key, 10**24,
+                                          ctx.next_nonce(), ctx.bhash)
         return []
 
     def check_fork(self, node):
@@ -440,6 +445,12 @@ class MlDsa65Test(MirrorTestCase):
         assert len(nonces) == self.gas_num_nonces, \
             f'expected {self.gas_num_nonces} nonce indexes on forked ' \
             f'state, got {len(nonces)}'
+        # Baseline for check(): replayed V1 txs must push these past this.
+        self.fork_gas_nonces = nonces
+        balance = mirror_utils.get_gas_key_balance(node, 'test0',
+                                                   gas_mapped.full_pk)
+        assert balance is not None and balance > 0, \
+            f'mapped ML-DSA-65 gas key has no balance on forked state: {balance}'
 
         logger.info(f'{self.name}: forked state carries both mapped '
                     'ML-DSA-65 keys')
@@ -469,6 +480,19 @@ class MlDsa65Test(MirrorTestCase):
                             f'{self._sent[label]} tx(s) to '
                             f'{recipient.account_id()}')
 
+        # The gas key signs V1 txs instead, so the mirror maps its full pubkey
+        # through NonceKind::GasKey(i) / view_gas_key_nonces rather than the
+        # access key path. One tx per nonce index: a gas key V1 nonce is keyed
+        # by (nonce, nonce_index), and * 1000000 + 1 keeps it above the current
+        # access key nonce.
+        nonce_index = self._sent['gas']
+        if nonce_index < self.txs_per_key:
+            mirror_utils.send_gas_key_transfer(ctx.node, self.gas_key,
+                                               self.gas_recipient.account_id(),
+                                               10**24, ctx.nonce * 1000000 + 1,
+                                               nonce_index, ctx.bhash)
+            self._sent['gas'] = nonce_index + 1
+
     def check(self, node):
         for label, mldsa_key in [('access', self.access_key),
                                  ('gas', self.gas_key),
@@ -489,10 +513,28 @@ class MlDsa65Test(MirrorTestCase):
                     f'no tx signed with the mapped ML-DSA-65 access key ' \
                     f'landed on target, nonce is still {nonce}'
 
+        # The mapped gas key's per-index nonces only move if the mirror
+        # re-signed V1 txs with it, which goes through fetch_gas_key_nonces
+        # with the full 1952-byte pubkey.
+        gas_mapped = mirror_utils.map_mldsa65_key_no_secret(self.gas_key)
+        nonces = mirror_utils.get_gas_key_nonces(node, 'test0',
+                                                 gas_mapped.full_pk)
+        assert nonces is not None, \
+            f'no gas key nonces for mapped {gas_mapped.pk} on target'
+        assert len(nonces) == self.gas_num_nonces, \
+            f'expected {self.gas_num_nonces} nonces on target, got {len(nonces)}'
+        for i in range(self.txs_per_key):
+            assert nonces[i] > self.fork_gas_nonces[i], \
+                f'no V1 tx signed with the mapped ML-DSA-65 gas key landed ' \
+                f'on target for nonce index {i}: {nonces[i]} vs forked ' \
+                f'{self.fork_gas_nonces[i]}'
+
         for label, count in self._sent.items():
             assert count == self.txs_per_key, \
                 f'ML-DSA-65 {label} key signed only {count} source txs'
-        for label, _, recipient in self.signers():
+        for label, recipient in [('access', self.access_recipient),
+                                 ('added', self.added_recipient),
+                                 ('gas', self.gas_recipient)]:
             mapped_id = mirror_utils.map_account_no_secret(
                 recipient.account_id())
             res = node.get_account(mapped_id, do_assert=False)

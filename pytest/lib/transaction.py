@@ -237,9 +237,9 @@ def create_gas_key_full_access_key_action(pk,
     return action
 
 
-def create_transfer_to_gas_key_action(pk, deposit):
+def create_transfer_to_gas_key_action(pk, deposit, key_type=KEY_TYPE_ED25519):
     transferToGasKey = TransferToGasKey()
-    transferToGasKey.publicKey = make_public_key(pk)
+    transferToGasKey.publicKey = make_public_key(pk, key_type)
     transferToGasKey.deposit = deposit
     action = Action()
     action.enum = 'transferToGasKey'
@@ -257,11 +257,18 @@ def create_withdraw_from_gas_key_action(pk, amount):
     return action
 
 
-def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
-                                      blockHash, accountId, pk, sk):
+def sign_and_serialize_transaction_v1(receiverId,
+                                      nonce,
+                                      nonce_index,
+                                      actions,
+                                      blockHash,
+                                      accountId,
+                                      pk,
+                                      sk,
+                                      key_type=KEY_TYPE_ED25519):
     tx = TransactionV1()
     tx.signerId = accountId
-    tx.publicKey = make_public_key(pk)
+    tx.publicKey = make_public_key(pk, key_type)
     txNonce = TransactionNonce()
     txNonce.enum = 'gasKeyNonce'
     nonceData = GasKeyNonceData()
@@ -283,7 +290,8 @@ def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
     tx_bytes = bytes(serializer.array)
 
     hash_bytes = hashlib.sha256(tx_bytes).digest()
-    serializer.serialize_struct(make_signature(sign_hash(hash_bytes, sk)))
+    serializer.serialize_struct(
+        make_signature(sign_hash(hash_bytes, sk, key_type), key_type))
     return bytes(serializer.array)
 
 

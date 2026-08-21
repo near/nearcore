@@ -228,7 +228,7 @@ def send_add_access_key(node, key, target_key, nonce, block_hash):
         f'sent add key tx for {target_key.account_id} {target_key.pk}: {res}')
 
 
-def send_mldsa65_add_key(node, key, action, nonce, block_hash, label):
+def send_mldsa65_setup_tx(node, key, action, nonce, block_hash, label):
     tx = transaction.sign_and_serialize_transaction(key.account_id, nonce,
                                                     [action], block_hash,
                                                     key.account_id,
@@ -238,13 +238,13 @@ def send_mldsa65_add_key(node, key, action, nonce, block_hash, label):
     assert 'error' not in res, f'ML-DSA-65 {label} tx failed: {res}'
     status = res['result']['status']
     assert 'SuccessValue' in status, f'ML-DSA-65 {label} tx failed: {status}'
-    logger.info(f'added ML-DSA-65 {label} to {key.account_id}')
+    logger.info(f'sent ML-DSA-65 {label} for {key.account_id}')
 
 
 def send_add_mldsa65_access_key(node, key, mldsa65_key, nonce, block_hash):
     action = transaction.create_full_access_key_action(
         mldsa65_key.decoded_pk(), key_type=transaction.KEY_TYPE_MLDSA65)
-    send_mldsa65_add_key(node, key, action, nonce, block_hash, 'access key')
+    send_mldsa65_setup_tx(node, key, action, nonce, block_hash, 'access key')
 
 
 def send_add_mldsa65_gas_key(node, key, mldsa65_key, num_nonces, nonce,
@@ -253,7 +253,26 @@ def send_add_mldsa65_gas_key(node, key, mldsa65_key, num_nonces, nonce,
         mldsa65_key.decoded_pk(),
         num_nonces,
         key_type=transaction.KEY_TYPE_MLDSA65)
-    send_mldsa65_add_key(node, key, action, nonce, block_hash, 'gas key')
+    send_mldsa65_setup_tx(node, key, action, nonce, block_hash, 'gas key')
+
+
+def fund_mldsa65_gas_key(node, key, mldsa65_key, amount, nonce, block_hash):
+    action = transaction.create_transfer_to_gas_key_action(
+        mldsa65_key.decoded_pk(), amount, transaction.KEY_TYPE_MLDSA65)
+    send_mldsa65_setup_tx(node, key, action, nonce, block_hash,
+                          'gas key funding')
+    # fork-network snapshots the last final block, and pre-fork traffic ends a
+    # couple of blocks later, so waiting for execution is not enough: the
+    # deposit has to be final or the forked state carries a zero balance.
+    for _ in range(TIMEOUT):
+        balance = get_gas_key_balance(node, mldsa65_key.account_id,
+                                      mldsa65_key.full_pk)
+        if balance:
+            logger.info(f'ML-DSA-65 gas key deposit final: {balance}')
+            return
+        time.sleep(1)
+    assert False, \
+        f'ML-DSA-65 gas key deposit never became final on {key.account_id}'
 
 
 def create_subaccount(node,
@@ -393,7 +412,8 @@ def send_gas_key_transfer(node, gas_key, receiver_id, amount, nonce,
                                                        block_hash,
                                                        gas_key.account_id,
                                                        gas_key.decoded_pk(),
-                                                       gas_key.decoded_sk())
+                                                       gas_key.decoded_sk(),
+                                                       gas_key.key_type)
     res = node.send_tx(tx)
     logger.info(
         f'sent gas key V1 transfer from {gas_key.account_id} nonce_index={nonce_index} to {receiver_id}: {res}'
