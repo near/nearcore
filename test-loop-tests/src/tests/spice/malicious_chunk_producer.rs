@@ -1,17 +1,21 @@
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::utils::account::create_account_id;
+use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
+use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::near_chain_primitives::Error;
 use near_chain_configs::TrackedShardsConfig;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::types::Gas;
-use near_primitives::utils::get_endorsements_key_prefix;
+use near_primitives::types::{BlockHeight, Gas};
+use near_primitives::utils::{get_endorsements_key_prefix, get_spice_invalid_chunk_key_rev};
 use near_store::DBCol;
+use near_store::db::{COLD_HEAD_KEY, Database};
 
 /// Test that a malicious chunk producer sending chunks with corrupted tx_root
 /// triggers the invalid chunk path, and under SPICE the chain still progresses
@@ -197,4 +201,65 @@ fn test_spice_witness_validation_with_invalid_chunk() {
         invalid_chunk_count += 1;
     }
     assert!(invalid_chunk_count > 0, "expected at least one invalid chunk stored as evidence");
+}
+
+/// A malicious chunk's encoded body is the only record of what the producer sent: it gets no
+/// `DBCol::Chunks` row, and `DBCol::PartialChunks` is not archived. Cold storage must keep it.
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_invalid_chunk_copied_to_cold_storage() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .epoch_length(epoch_length)
+        .enable_archival_node(ArchivalKind::Cold)
+        .build();
+
+    let malicious_node = 0;
+    env.node_runner(malicious_node).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
+
+    env.archival_runner()
+        .run_until(|node| !stored_invalid_chunk_keys(node).is_empty(), Duration::seconds(60));
+
+    let invalid_chunk_keys = stored_invalid_chunk_keys(&env.archival_node());
+    let last_invalid_chunk_height = invalid_chunk_keys
+        .iter()
+        .map(|key| get_spice_invalid_chunk_key_rev(key).unwrap().0)
+        .max()
+        .unwrap();
+
+    env.archival_runner().run_until(
+        |node| cold_head_height(node) > last_invalid_chunk_height,
+        Duration::seconds(60),
+    );
+
+    let archival_idx = env.archival_data_idx();
+    let cold_store_sender = env.node_datas[archival_idx].cold_store_sender.as_ref().unwrap();
+    let cold_store_actor = env.test_loop.data.get(&cold_store_sender.actor_handle());
+    let cold_db = cold_store_actor.get_cold_db();
+
+    for key in &invalid_chunk_keys {
+        let (height_created, chunk_hash) = get_spice_invalid_chunk_key_rev(key).unwrap();
+        assert!(
+            cold_db.get_raw_bytes(DBCol::spice_invalid_chunks(), key).is_some(),
+            "invalid chunk {chunk_hash:?} at height {height_created} missing from cold storage",
+        );
+    }
+}
+
+#[cfg(feature = "test_features")]
+fn stored_invalid_chunk_keys(node: &TestLoopNode) -> Vec<Box<[u8]>> {
+    node.store().iter(DBCol::spice_invalid_chunks()).map(|(key, _)| key).collect()
+}
+
+#[cfg(feature = "test_features")]
+fn cold_head_height(node: &TestLoopNode) -> BlockHeight {
+    node.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).map_or(0, |tip| tip.height)
 }

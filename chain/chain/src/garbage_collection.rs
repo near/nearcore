@@ -31,10 +31,12 @@ use std::fmt;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum InvalidChunkReceipts {
-    Delete,
-    /// `clear_redundant_chunk_data` never releases receipts, and nothing else can recompute them.
-    KeepForLegacyArchival,
+enum InvalidChunkCleanup {
+    DeleteEvidence,
+    /// `clear_redundant_chunk_data` drops only what cold storage does not take, and
+    /// `SpiceInvalidChunks` is a cold column. A node still migrating to split storage has not
+    /// copied the row yet.
+    NonSplitArchival,
 }
 
 #[derive(Clone)]
@@ -591,7 +593,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_spice_invalid_chunks_at_height(
                 height,
                 &chunk_hashes,
-                InvalidChunkReceipts::Delete,
+                InvalidChunkCleanup::DeleteEvidence,
             );
 
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
@@ -653,7 +655,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let collected_invalid_chunks = self.gc_spice_invalid_chunks_at_height(
                 height,
                 &chunk_hashes,
-                InvalidChunkReceipts::KeepForLegacyArchival,
+                InvalidChunkCleanup::NonSplitArchival,
             );
             if !chunk_hashes.is_empty() || collected_invalid_chunks {
                 remaining -= 1;
@@ -807,7 +809,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// Deletes the invalid chunks created at `height`, with their partial chunks. The
+    /// Collects the invalid chunks created at `height`, with their partial chunks. The
     /// `ChunkHashesByHeight` loop cannot reach them, since the index never lists an invalid chunk.
     ///
     /// For `chunk_hashes_in_height_index` that loop already deleted the partial chunk and released
@@ -818,7 +820,7 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         height: BlockHeight,
         chunk_hashes_in_height_index: &HashSet<ChunkHash>,
-        receipts_cleanup: InvalidChunkReceipts,
+        cleanup: InvalidChunkCleanup,
     ) -> bool {
         if !cfg!(feature = "protocol_feature_spice") {
             return false;
@@ -834,10 +836,15 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::spice_invalid_chunks(), &key);
                 continue;
             };
-            if !chunk_hashes_in_height_index.contains(&chunk_hash) {
-                if receipts_cleanup == InvalidChunkReceipts::Delete
-                    && let Ok(partial_chunk) = self.get_partial_chunk(&chunk_hash)
-                {
+            let handled_by_height_index = chunk_hashes_in_height_index.contains(&chunk_hash);
+            if cleanup == InvalidChunkCleanup::NonSplitArchival {
+                if !handled_by_height_index {
+                    self.gc_col(DBCol::PartialChunks, chunk_hash.as_bytes());
+                }
+                continue;
+            }
+            if !handled_by_height_index {
+                if let Ok(partial_chunk) = self.get_partial_chunk(&chunk_hash) {
                     for receipts in partial_chunk.prev_outgoing_receipts() {
                         for receipt in &receipts.0 {
                             self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
@@ -1067,7 +1074,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::InvalidChunks, chunk_hash);
         }
 
-        self.gc_spice_invalid_chunks_at_height(height, &chunk_hashes, InvalidChunkReceipts::Delete);
+        self.gc_spice_invalid_chunks_at_height(
+            height,
+            &chunk_hashes,
+            InvalidChunkCleanup::DeleteEvidence,
+        );
 
         // 4. Delete chunk hashes per height
         let key = index_to_bytes(height);
@@ -1291,4 +1302,57 @@ fn gc_state(
     }
     chain_store_update.merge(trie_store_update.into());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::get_chain;
+    use near_async::time::Clock;
+    use near_primitives::hash::hash;
+    use near_primitives::utils::get_spice_invalid_chunk_key;
+
+    fn plant_invalid_chunk(chain: &Chain, height: BlockHeight) -> Vec<u8> {
+        let chunk_hash = ChunkHash(hash(format!("invalid chunk at {height}").as_bytes()));
+        let key = get_spice_invalid_chunk_key(height, &chunk_hash);
+        let mut store_update = chain.chain_store().store().store_update();
+        store_update.insert(DBCol::spice_invalid_chunks(), key.clone(), vec![0]);
+        store_update.commit();
+        key
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn non_split_archival_gc_keeps_invalid_chunk_evidence() {
+        let mut chain = get_chain(Clock::real());
+        let height = chain.chain_store().chunk_tail();
+        let key = plant_invalid_chunk(&chain, height);
+
+        let mut update = chain.mut_chain_store().store_update();
+        update.clear_redundant_chunk_data(height + 1, 10);
+        update.commit().unwrap();
+
+        let store = chain.chain_store().store();
+        assert!(chain.chain_store().chunk_tail() > height, "gc did not pass the height");
+        assert!(
+            store.exists(DBCol::spice_invalid_chunks(), &key),
+            "non-split archival gc dropped evidence cold storage has not copied yet",
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn hot_gc_deletes_invalid_chunk_evidence() {
+        let mut chain = get_chain(Clock::real());
+        let height = chain.chain_store().chunk_tail();
+        let key = plant_invalid_chunk(&chain, height);
+
+        let mut update = chain.mut_chain_store().store_update();
+        update.clear_chunk_data_and_headers(height + 1).unwrap();
+        update.commit().unwrap();
+
+        let store = chain.chain_store().store();
+        assert!(chain.chain_store().chunk_tail() > height, "gc did not pass the height");
+        assert!(!store.exists(DBCol::spice_invalid_chunks(), &key), "hot gc kept evidence");
+    }
 }

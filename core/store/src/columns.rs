@@ -619,9 +619,8 @@ impl DBCol {
             | DBCol::ContractAccesses => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ChunkCertifyingBlock => false,
-            // SpiceInvalidChunks is only needed at head, while the chunk is executed.
             #[cfg(feature = "protocol_feature_spice")]
-            | DBCol::SpiceInvalidChunks => false,
+            | DBCol::SpiceInvalidChunks => true,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
