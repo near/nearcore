@@ -45,7 +45,7 @@ fn test_spice_chain_with_malicious_chunk_producer() {
     let chain_store = node.client().chain.chain_store();
     let epoch_manager = &node.client().epoch_manager;
     let mut invalid_chunk_count = 0;
-    for (_, value) in node.store().iter(DBCol::InvalidChunks) {
+    for (_, value) in node.store().iter(DBCol::spice_invalid_chunks()) {
         let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
         let header = chunk.cloned_header();
         let shard_id = header.shard_id();
@@ -105,7 +105,7 @@ fn test_spice_block_sync_with_malicious_chunks() {
     env.node_runner(honest_node).run_for_number_of_blocks(cache_horizon as usize + 10);
 
     // Sanity check: honest node detected at least one malicious chunk.
-    assert!(env.node(honest_node).store().iter(DBCol::InvalidChunks).count() > 0);
+    assert!(env.node(honest_node).store().iter(DBCol::spice_invalid_chunks()).count() > 0);
 
     // Add a late-joining non-validator node that will block-sync.
     // It must track all shards so it actually fetches and validates chunks.
@@ -128,9 +128,9 @@ fn test_spice_block_sync_with_malicious_chunks() {
     // chunk that the honest node detected.
     let sync_store = env.node_for_account(&sync_account).store();
     let honest_store = env.node(honest_node).store();
-    for (key, _) in honest_store.iter(DBCol::InvalidChunks) {
+    for (key, _) in honest_store.iter(DBCol::spice_invalid_chunks()) {
         assert!(
-            sync_store.exists(DBCol::InvalidChunks, key.as_ref()),
+            sync_store.exists(DBCol::spice_invalid_chunks(), key.as_ref()),
             "syncing node missing invalid chunk that the honest node detected",
         );
     }
@@ -165,7 +165,7 @@ fn test_spice_witness_validation_with_invalid_chunk() {
     let chain_store = node.client().chain.chain_store();
     let epoch_manager = &node.client().epoch_manager;
     let mut invalid_chunk_count = 0;
-    for (_, value) in node.store().iter(DBCol::InvalidChunks) {
+    for (_, value) in node.store().iter(DBCol::spice_invalid_chunks()) {
         let chunk: EncodedShardChunk = borsh::from_slice(&value).unwrap();
         let header = chunk.cloned_header();
         let shard_id = header.shard_id();

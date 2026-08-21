@@ -406,6 +406,13 @@ pub enum DBCol {
     /// - *Content type*: [near_primitives::hash::CryptoHash] (certifying block hash)
     #[cfg(feature = "protocol_feature_spice")]
     ChunkCertifyingBlock,
+    /// For spice, chunks that failed to decode or verify. Unlike [`DBCol::InvalidChunks`], the
+    /// height prefix lets garbage collection reach these rows: an invalid chunk gets no
+    /// [`DBCol::Chunks`] row, so [`DBCol::ChunkHashesByHeight`] does not list it.
+    /// - *Rows*: BlockHeight || ChunkHash (height_created, chunk_hash)
+    /// - *Content type*: [near_primitives::sharding::EncodedShardChunk]
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceInvalidChunks,
     /// Pre-computed chunk producer for the chunk anchored at the given block (its
     /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
     /// Populated during header sync and block processing, gated behind `EarlyKickout`
@@ -503,6 +510,7 @@ impl DBCol {
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults
             | DBCol::SpiceEndorsementStats
+            | DBCol::SpiceInvalidChunks
             | DBCol::ChunkCertifyingBlock => true,
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
@@ -611,6 +619,9 @@ impl DBCol {
             | DBCol::ContractAccesses => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ChunkCertifyingBlock => false,
+            // SpiceInvalidChunks is only needed at head, while the chunk is executed.
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceInvalidChunks => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -726,6 +737,7 @@ impl DBCol {
             | DBCol::ReceiptProofs
             | DBCol::SpiceEndorsementStats
             | DBCol::UncertifiedChunks
+            | DBCol::SpiceInvalidChunks
             | DBCol::UncertifiedExecutionResults
             | DBCol::Witnesses => GcPolicy::Delete,
 
@@ -877,9 +889,18 @@ impl DBCol {
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ChunkCertifyingBlock => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceInvalidChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
+    }
+
+    pub fn spice_invalid_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceInvalidChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn witnesses() -> DBCol {

@@ -1362,6 +1362,14 @@ impl EncodedShardChunk {
     }
 
     #[inline]
+    pub fn height_created(&self) -> BlockHeight {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.height_created,
+            Self::V2(chunk) => chunk.header.height_created(),
+        }
+    }
+
+    #[inline]
     pub fn encoded_merkle_root(&self) -> &CryptoHash {
         match self {
             Self::V1(chunk) => &chunk.header.inner.encoded_merkle_root,

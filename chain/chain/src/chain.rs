@@ -1157,10 +1157,13 @@ impl Chain {
                         // Invalid chunks (SPICE) have no ShardChunk in
                         // DBCol::Chunks because the header commits to
                         // malicious content. The executor uses
-                        // DBCol::InvalidChunks to detect these and skips
+                        // DBCol::SpiceInvalidChunks to detect these and skips
                         // the chunk body read.
                         if !self.chain_store.chunk_exists(chunk_hash)
-                            && self.chain_store.is_invalid_chunk(chunk_hash).is_none()
+                            && self
+                                .chain_store
+                                .is_invalid_chunk(chunk_header.height_created(), chunk_hash)
+                                .is_none()
                         {
                             missing.push(chunk_header.clone());
                         }
