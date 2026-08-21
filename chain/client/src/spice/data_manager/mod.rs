@@ -47,6 +47,7 @@ pub(crate) use scheduler::{Backoff, DeadlineScheduler, TimingConfig};
 
 use near_async::time::Instant;
 use near_primitives::types::BlockHeight;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 /// Fetch/serve lane — a manager-computed attribute, not an ingress-routable label. It attaches to
@@ -59,7 +60,7 @@ use std::collections::{BTreeMap, HashMap};
 /// `Priority` first, and `Background` byte-budgeted (see [`Budgets`]) and shed by admission
 /// before it piles up. Ingress may pre-filter locally-checkable facts (drop unsigned; route
 /// self-declared `Background`, which can only downgrade) but never *grants* `Priority`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lane {
     /// Consensus-critical: we are an assigned validator / next-block producer for it.
     Priority,
@@ -67,6 +68,30 @@ pub(crate) enum Lane {
     /// shard for the next epoch (an intermediate lane for that is an open follow-up; two
     /// lanes for now). Never starves `Priority`.
     Background,
+}
+
+impl Lane {
+    /// Urgency rank; greater is more urgent, so `max` escalates. Hand-rolled rather than
+    /// derived: a derive follows declaration order, where `max(Priority, Background)`
+    /// would be `Background`, and inserting a future lane could silently reshuffle it.
+    fn rank(self) -> u8 {
+        match self {
+            Lane::Background => 0,
+            Lane::Priority => 1,
+        }
+    }
+}
+
+impl Ord for Lane {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.rank().cmp(&other.rank())
+    }
+}
+
+impl PartialOrd for Lane {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Owns all per-item fetch state, sender attribution, scheduling, admission, and
