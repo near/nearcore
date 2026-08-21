@@ -62,6 +62,10 @@ impl<'a> TestLoopNode<'a> {
         self.client().chain.tail()
     }
 
+    pub fn chunk_tail(&self) -> BlockHeight {
+        self.client().chain.chain_store().chunk_tail()
+    }
+
     pub fn head(&self) -> Arc<Tip> {
         self.client().chain.head().unwrap()
     }
