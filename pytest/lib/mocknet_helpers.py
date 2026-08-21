@@ -43,11 +43,12 @@ def get_nonce_for_pk(account_id,
     )
     logger.info(f'get_nonce_for_pk {account_id}')
     logger.info(access_keys)
-    if not access_keys['result']['keys']:
+    keys = access_keys.get('result', {}).get('keys', [])
+    if not keys:
         raise KeyError(account_id)
 
     nonce = next((key['access_key']['nonce']
-                  for key in access_keys['result']['keys']
+                  for key in keys
                   if key['public_key'] == pk), None)
     if nonce is None:
         raise KeyError(f'Nonce for {account_id} {pk} not found')

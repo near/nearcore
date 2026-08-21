@@ -375,6 +375,7 @@ fn process_query_response(
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
         near_jsonrpc_primitives::types::query::RpcQueryError,
     >,
+    is_view_access_key: bool,
 ) -> Result<Value, RpcError> {
     // This match is used here to give backward compatible error message for specific
     // error variants. Should be refactored once structured errors fully shipped
@@ -398,6 +399,18 @@ fn process_query_response(
                 block_hash,
             } => Ok(json!({
                 "error": format!("access key {} does not exist while viewing", public_key),
+                "logs": json!([]),
+                "block_height": block_height,
+                "block_hash": block_hash,
+            })),
+            // Gated: other request types must keep the structured error.
+            // Guarded by sharded_rpc_reliability::test_rpc_coordinator_sequential_retry.
+            near_jsonrpc_primitives::types::query::RpcQueryError::UnknownAccount {
+                requested_account_id,
+                block_height,
+                block_hash,
+            } if is_view_access_key => Ok(json!({
+                "error": format!("account {} does not exist while viewing", requested_account_id),
                 "logs": json!([]),
                 "block_height": block_height,
                 "block_hash": block_hash,
@@ -585,9 +598,13 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
+                let is_view_access_key =
+                    matches!(&params.request, QueryRequest::ViewAccessKey { .. });
                 let result = match source {
                     RequestSource::User => self.query_sharded(params).await,
-                    RequestSource::Coordinator => process_query_response(self.query(params).await),
+                    RequestSource::Coordinator => {
+                        process_query_response(self.query(params).await, is_view_access_key)
+                    }
                 };
                 (metrics_name.to_string(), result)
             }

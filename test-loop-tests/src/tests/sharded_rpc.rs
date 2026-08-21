@@ -183,6 +183,54 @@ fn test_rpc_query_unknown_access_key_error_format() {
     }
 }
 
+/// `query` keeps its flat shape for a missing account, naming the account. See nearcore#16185.
+#[test]
+fn test_rpc_query_unknown_account_error_format() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    let nonexistent: AccountId = "nonexistent.near".parse().unwrap();
+    let bogus_key: near_crypto::PublicKey =
+        "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
+
+    let response = h
+        .env
+        .runner_for_account(&h.zoe_node)
+        .run_with_jsonrpc_client(
+            |client| {
+                let request = Message::request(
+                    "query".to_string(),
+                    serde_json::to_value(RpcQueryRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        request: QueryRequest::ViewAccessKey {
+                            account_id: nonexistent.clone(),
+                            public_key: bogus_key.clone(),
+                        },
+                    })
+                    .unwrap(),
+                );
+                client.transport.send_jsonrpc_request(request, false)
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+
+    match response {
+        Message::Response(resp) => {
+            let value = resp.result.expect("expected Ok result with backward-compat error JSON");
+            assert!(value.get("logs").is_some());
+            assert!(value.get("block_height").is_some());
+            assert!(value.get("block_hash").is_some());
+            let error_msg = value["error"].as_str().unwrap();
+            assert_eq!(
+                error_msg, "account nonexistent.near does not exist while viewing",
+                "error must name the missing account, not the access key: {error_msg}"
+            );
+        }
+        other => panic!("expected Response, got: {other:?}"),
+    }
+}
+
 /// Standard `query` ViewCode should be forwarded to the right shard.
 #[test]
 fn test_rpc_query_view_code_forwarding() {

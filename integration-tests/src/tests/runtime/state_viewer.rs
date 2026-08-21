@@ -1,6 +1,7 @@
 use crate::utils::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use borsh::BorshDeserialize;
 use near_chain_configs::default_view_access_keys_limit;
+use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     account::{Account, AccountContract},
@@ -761,4 +762,101 @@ fn test_view_state_pagination_rejects_after_key_outside_prefix() {
         let result = viewer.view_state(&state_update, &alice, b"aaa", Some(after_key), None, false);
         assert!(matches!(result, Err(errors::ViewStateError::AfterKeyOutsidePrefix)));
     }
+}
+
+#[test]
+fn test_view_access_key_missing_key_on_existing_account() {
+    let (viewer, state_update) = get_test_trie_viewer();
+    let missing_key = PublicKey::empty(KeyType::ED25519);
+
+    let result = viewer.view_access_key(&state_update, &alice_account(), &missing_key);
+
+    assert!(
+        matches!(result, Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { .. })),
+        "existing account with a missing key must still report the key as missing, got {result:?}"
+    );
+}
+
+#[test]
+fn test_view_access_key_missing_account() {
+    let (viewer, state_update) = get_test_trie_viewer();
+    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+    let missing_key = PublicKey::empty(KeyType::ED25519);
+
+    let result = viewer.view_access_key(&state_update, &missing_account, &missing_key);
+
+    match result {
+        Err(errors::ViewAccessKeyError::AccountDoesNotExist { requested_account_id }) => {
+            assert_eq!(requested_account_id, missing_account);
+        }
+        other => panic!("expected AccountDoesNotExist, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_view_access_keys_missing_account() {
+    let (_, tries, root) = get_runtime_and_trie();
+    let trie = tries.get_view_trie_for_shard(TEST_SHARD_UID, root);
+    let viewer = TrieViewer::default();
+    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+
+    let result = viewer.view_access_keys(&trie, &missing_account, None, None);
+
+    match result {
+        Err(errors::ViewAccessKeyError::AccountDoesNotExist { requested_account_id }) => {
+            assert_eq!(requested_account_id, missing_account);
+        }
+        other => panic!("expected AccountDoesNotExist, got {other:?}"),
+    }
+}
+
+/// An existing account with no keys must still list as empty.
+#[test]
+fn test_view_access_keys_empty_for_existing_account() {
+    let (_, tries, root) = get_runtime_and_trie();
+    let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
+    let keyless: AccountId = "keyless.near".parse().unwrap();
+    set_account(
+        &mut state_update,
+        keyless.clone(),
+        &Account::new(Balance::ZERO, Balance::ZERO, AccountContract::None, 0),
+    );
+    let state_update = commit_and_view(tries, state_update);
+    let trie = state_update.trie;
+    let viewer = TrieViewer::default();
+
+    let (keys, last_key) = viewer
+        .view_access_keys(&trie, &keyless, None, None)
+        .expect("an existing account with no keys must list as empty");
+    assert!(keys.is_empty());
+    assert!(last_key.is_none());
+}
+
+#[test]
+fn test_view_gas_key_nonces_missing_account() {
+    let (viewer, state_update) = get_test_trie_viewer();
+    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+    let missing_key = PublicKey::empty(KeyType::ED25519);
+
+    let result = viewer.view_gas_key_nonces(&state_update, &missing_account, &missing_key);
+
+    match result {
+        Err(errors::ViewGasKeyNoncesError::AccountDoesNotExist { requested_account_id }) => {
+            assert_eq!(requested_account_id, missing_account);
+        }
+        other => panic!("expected AccountDoesNotExist, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_view_gas_key_nonces_missing_key_on_existing_account() {
+    let (viewer, state_update) = get_test_trie_viewer();
+    let missing_key = PublicKey::empty(KeyType::ED25519);
+
+    let result = viewer.view_gas_key_nonces(&state_update, &alice_account(), &missing_key);
+
+    assert!(
+        matches!(result, Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { .. })),
+        "existing account with a missing gas key must still report the key as missing, got {result:?}"
+    );
 }
