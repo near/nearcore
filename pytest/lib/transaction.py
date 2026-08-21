@@ -10,11 +10,16 @@ from messages.bridge import *
 schema = dict(tx_schema + crypto_schema + bridge_schema)
 
 
-def make_transaction(receiverId, nonce, actions, blockHash, accountId,
-                     pk) -> Transaction:
+def make_transaction(receiverId,
+                     nonce,
+                     actions,
+                     blockHash,
+                     accountId,
+                     pk,
+                     key_type=KEY_TYPE_ED25519) -> Transaction:
     tx = Transaction()
     tx.signerId = accountId
-    tx.publicKey = make_public_key(pk)
+    tx.publicKey = make_public_key(pk, key_type)
     tx.nonce = nonce
     tx.receiverId = receiverId
     tx.actions = actions
@@ -27,19 +32,30 @@ def compute_transaction_hash(tx: Transaction) -> bytes:
     return hashlib.sha256(msg).digest()
 
 
-def sign_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
-                     sk) -> SignedTransaction:
-    tx = make_transaction(receiverId, nonce, actions, blockHash, accountId, pk)
-    hash_bytes = compute_transaction_hash(tx)
+def sign_hash(hash_bytes, sk, key_type=KEY_TYPE_ED25519) -> bytes:
+    if key_type == KEY_TYPE_MLDSA65:
+        # imported here because it needs cryptography>=48
+        from mldsa65 import MlDsa65Key
+        return MlDsa65Key.sign_with_seed(sk, hash_bytes)
+    return SigningKey(sk[:32]).sign(hash_bytes).signature
 
-    signature = Signature()
-    signature.keyType = 0
-    seed = sk[:32]
-    signature.data = SigningKey(seed).sign(hash_bytes).signature
+
+def sign_transaction(receiverId,
+                     nonce,
+                     actions,
+                     blockHash,
+                     accountId,
+                     pk,
+                     sk,
+                     key_type=KEY_TYPE_ED25519) -> SignedTransaction:
+    tx = make_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
+                          key_type)
+    hash_bytes = compute_transaction_hash(tx)
 
     signedTx = SignedTransaction()
     signedTx.transaction = tx
-    signedTx.signature = signature
+    signedTx.signature = make_signature(sign_hash(hash_bytes, sk, key_type),
+                                        key_type)
     signedTx.id = base58.b58encode(hash_bytes).decode('utf8')
     return signedTx
 
@@ -48,11 +64,17 @@ def serialize_transaction(tx: SignedTransaction) -> bytes:
     return BinarySerializer(schema).serialize(tx)
 
 
-def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
-                                   accountId, pk, sk):
+def sign_and_serialize_transaction(receiverId,
+                                   nonce,
+                                   actions,
+                                   blockHash,
+                                   accountId,
+                                   pk,
+                                   sk,
+                                   key_type=KEY_TYPE_ED25519):
     return serialize_transaction(
         sign_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
-                         sk))
+                         sk, key_type))
 
 
 def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
@@ -80,10 +102,7 @@ def create_signed_delegated_action(senderId, receiverId, actions, nonce,
     delegated_action, hash_ = compute_delegated_action_hash(
         senderId, receiverId, actions, nonce, maxBlockHeight, publicKey)
 
-    signature = Signature()
-    signature.keyType = 0
-    seed = sk[:32]
-    signature.data = SigningKey(seed).sign(hash_).signature
+    signature = make_signature(sign_hash(hash_, sk))
 
     signedDA = SignedDelegate()
     signedDA.delegateAction = delegated_action
@@ -264,13 +283,7 @@ def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
     tx_bytes = bytes(serializer.array)
 
     hash_bytes = hashlib.sha256(tx_bytes).digest()
-    seed = sk[:32]
-    sig_data = SigningKey(seed).sign(hash_bytes).signature
-
-    sig = Signature()
-    sig.keyType = 0
-    sig.data = sig_data
-    serializer.serialize_struct(sig)
+    serializer.serialize_struct(make_signature(sign_hash(hash_bytes, sk)))
     return bytes(serializer.array)
 
 
@@ -331,13 +344,13 @@ def sign_payment_tx(key, to, amount, nonce, blockHash):
     action = create_payment_action(amount)
     return sign_and_serialize_transaction(to, nonce, [action], blockHash,
                                           key.account_id, key.decoded_pk(),
-                                          key.decoded_sk())
+                                          key.decoded_sk(), key.key_type)
 
 
 def sign_payment_tx_and_get_hash(key, to, amount, nonce, block_hash):
     action = create_payment_action(amount)
     tx = make_transaction(to, nonce, [action], block_hash, key.account_id,
-                          key.decoded_pk())
+                          key.decoded_pk(), key.key_type)
     hash_bytes = compute_transaction_hash(tx)
     signed_tx = sign_payment_tx(key, to, amount, nonce, block_hash)
     return signed_tx, base58.b58encode(hash_bytes).decode('utf8')

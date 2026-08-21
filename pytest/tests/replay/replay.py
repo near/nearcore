@@ -4,7 +4,8 @@ from account import Account
 from collections import OrderedDict
 from key import Key
 from messages.tx import *
-from messages.crypto import AccessKey, crypto_schema, make_public_key, Signature
+from messages.crypto import (AccessKey, crypto_schema, make_public_key,
+                             make_signature)
 from messages.bridge import bridge_schema
 from serializer import BinarySerializer
 import mocknet_helpers
@@ -161,9 +162,7 @@ def send_resigned_transactions(tx_path, home_dir):
         tx.publicKey = make_public_key(key_pair.decoded_pk())
         msg = BinarySerializer(schema).serialize(tx)
         hash_ = hashlib.sha256(msg).digest()
-        signature = Signature()
-        signature.keyType = 0
-        signature.data = key_pair.sign_bytes(hash_)
+        signature = make_signature(key_pair.sign_bytes(hash_))
         resigned_tx = SignedTransaction()
         resigned_tx.transaction = tx
         resigned_tx.signature = signature
