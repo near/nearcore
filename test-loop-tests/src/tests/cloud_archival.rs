@@ -16,9 +16,11 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::archive::cloud_archival_reader::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_reader::save_block_data;
+use near_client::archive::cloud_archival_reader::{
+    CloudArchivalRecentReader, find_snapshot_at_or_before,
+};
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -56,6 +58,8 @@ struct CloudArchiveHarness {
     cold_storage_enabled: bool,
     /// Cadence of state snapshots, passed through to assertions.
     snapshot_every_n_epochs: u64,
+    /// Epochs garbage collection keeps, so a test can scale its run off it.
+    gc_num_epochs_to_keep: u64,
     /// Account ID of the historical reader node, set after
     /// `bootstrap_historical_reader()`.
     historical_reader_id: Option<AccountId>,
@@ -75,6 +79,9 @@ struct CloudArchiveHarnessBuilder {
     dropped_chunks_by_shard: HashMap<ShardId, Vec<bool>>,
     /// Whether to schedule a static resharding split.
     resharding_enabled: bool,
+    /// Whether to leave the recent reader's node running as an ordinary node
+    /// instead of switching it over as soon as the harness is built.
+    delay_recent_reader: bool,
     /// Cloud archival batch size in blocks.
     batch_size: u32,
     /// Delay between catch-up batches. Zero by default, so a small batch size
@@ -134,6 +141,13 @@ impl CloudArchiveHarnessBuilder {
     /// the successor protocol version.
     fn enable_resharding(mut self) -> Self {
         self.resharding_enabled = true;
+        self
+    }
+
+    /// Keeps the recent reader's node running as an ordinary node, so the test
+    /// picks the moment itself with `start_recent_reader`.
+    fn delay_recent_reader(mut self) -> Self {
+        self.delay_recent_reader = true;
         self
     }
 
@@ -209,6 +223,9 @@ impl CloudArchiveHarnessBuilder {
         if let Some(count) = self.num_validators {
             builder = builder.validators(count, 0);
         }
+        let recent_reader_id: AccountId =
+            CloudArchiveHarness::RECENT_READER_ACCOUNT.parse().unwrap();
+        builder = builder.add_non_validator_client(&recent_reader_id);
         // Drop conditions must be registered after build but before warmup;
         // delay_warmup splits build/warmup so we can call drop() in between.
         // No-drop tests keep the default auto-warmup.
@@ -225,21 +242,28 @@ impl CloudArchiveHarnessBuilder {
         if has_drops {
             env = env.warmup();
         }
-        CloudArchiveHarness {
+        let harness = CloudArchiveHarness {
             env,
             writer_id,
             epoch_length: CloudArchiveHarness::DEFAULT_EPOCH_LENGTH,
             cold_storage_enabled: self.cold_storage,
             snapshot_every_n_epochs,
+            gc_num_epochs_to_keep: self.gc_num_epochs_to_keep,
             historical_reader_id: None,
             new_shard_layout,
             resharding_boundary,
+        };
+        if !self.delay_recent_reader {
+            harness.start_recent_reader();
         }
+        harness
     }
 }
 
 impl CloudArchiveHarness {
     const DEFAULT_EPOCH_LENGTH: BlockHeightDelta = 10;
+    /// The node the recent reader takes over from. Every test runs one.
+    const RECENT_READER_ACCOUNT: &str = "recent_reader";
     const RESHARDING_BOUNDARY_ACCOUNT: &str = "boundary";
     const TEST_BATCH_SIZE: u32 = 4;
     const USER_ACCOUNT: &str = "user_account";
@@ -259,6 +283,7 @@ impl CloudArchiveHarness {
             dropped_block_heights: HashSet::new(),
             dropped_chunks_by_shard: HashMap::new(),
             resharding_enabled: false,
+            delay_recent_reader: false,
             batch_size: Self::TEST_BATCH_SIZE,
             catch_up_throttle: Duration::ZERO,
         }
@@ -317,6 +342,19 @@ impl CloudArchiveHarness {
     fn kill_historical_reader(&mut self) {
         let reader_id = self.historical_reader_id.take().expect("no historical reader");
         self.env.kill_node(reader_id.as_ref());
+    }
+
+    /// Kills the RPC node the recent reader takes over from and brings up the
+    /// reader on the database that node leaves behind. No gc runs on it from here.
+    fn start_recent_reader(&self) -> CloudArchivalRecentReader {
+        self.env.kill_node(Self::RECENT_READER_ACCOUNT);
+        // TODO(cloud_archival): run the reader over the database that node leaves.
+        CloudArchivalRecentReader::new()
+    }
+
+    fn recent_reader_store(&self) -> Store {
+        let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+        self.env.node_for_account(&reader_id).client().chain.chain_store().store()
     }
 
     fn historical_reader_store(&self) -> Store {
@@ -1898,5 +1936,53 @@ fn test_cloud_archival_resharding_gap_inverse_walk() {
     }
 
     h.kill_historical_reader();
+    h.shutdown();
+}
+
+/// An RPC node runs for a while, becomes the recent reader, and follows the
+/// bucket from there. What gc took before the switch stays gone, and what the
+/// reader holds afterwards is kept, because no gc runs once it has switched.
+#[test]
+// TODO(cloud_archival): un-ignore once the recent reader follows the bucket.
+#[ignore]
+fn test_cloud_archival_recent_reader() {
+    let mut h = CloudArchiveHarness::builder().delay_recent_reader().build();
+    let gced = h.epoch_length / 2;
+    // One epoch past the garbage-collection window, so the probe height is below
+    // the tail by the time the node switches over.
+    h.run_until_epoch(h.gc_num_epochs_to_keep + 1);
+    h.start_recent_reader();
+    let kept = h.recent_reader_store().chain_store().head().unwrap().height;
+    // Twice as far again, so gc would have taken the block held at the switch if
+    // anything still gc-ed this database.
+    h.run_until_epoch(2 * (h.gc_num_epochs_to_keep + 1));
+
+    let reader_store = h.recent_reader_store().chain_store();
+    // Garbage collection never touches the height index, only the block, so
+    // resolve the hash and then look for the block itself.
+    let gced_hash = reader_store.get_block_hash_by_height(gced).unwrap();
+    assert!(
+        reader_store.get_block(&gced_hash).is_err(),
+        "block {gced} was not GC-ed before the switch"
+    );
+
+    let kept_hash = reader_store.get_block_hash_by_height(kept).unwrap();
+    assert!(
+        reader_store.get_block(&kept_hash).is_ok(),
+        "block {kept}, held at the switch, was GC-ed afterwards"
+    );
+
+    // The reader takes whole batches, so its head may trail the bucket by one.
+    let head = reader_store.head().unwrap().height;
+    let bucket_head = get_cloud_storage(&h.env, &h.writer_id)
+        .get_cloud_block_head()
+        .expect("reading the bucket's block head")
+        .expect("the writer published a block head");
+    assert!(head <= bucket_head, "the reader passed the bucket: {head} over {bucket_head}");
+    assert!(
+        head + u64::from(CloudArchiveHarness::TEST_BATCH_SIZE) >= bucket_head,
+        "the reader did not catch up: head {head}, bucket head {bucket_head}"
+    );
+
     h.shutdown();
 }
