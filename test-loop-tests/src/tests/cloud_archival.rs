@@ -344,8 +344,8 @@ impl CloudArchiveHarness {
         self.env.kill_node(reader_id.as_ref());
     }
 
-    /// Stops the node the recent reader takes over from and makes the reader
-    /// that takes its database on. No gc runs on that database from here.
+    /// Kills the RPC node the recent reader takes over from and brings up the
+    /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
         // TODO(cloud_archival): run the reader over the database that node leaves.
