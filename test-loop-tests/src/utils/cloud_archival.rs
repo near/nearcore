@@ -215,15 +215,19 @@ fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
     client.chain.chain_store().store()
 }
 
-pub(crate) fn get_cloud_storage(env: &TestLoopEnv, writer_id: &AccountId) -> Arc<CloudStorage> {
-    let node_data = env.get_node_data_by_account_id(writer_id);
+pub(crate) fn get_cloud_storage(env: &TestLoopEnv, account_id: &AccountId) -> Arc<CloudStorage> {
+    let node_data = env.get_node_data_by_account_id(account_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
 }
 
 /// The epoch a height belongs to, taken from the archived block in the bucket.
 pub(crate) fn epoch_id_at(cloud_storage: &CloudStorage, height: BlockHeight) -> EpochId {
-    *cloud_storage.get_block_data(height).unwrap().unwrap().block().header().epoch_id()
+    let block_data = cloud_storage
+        .get_block_data(height)
+        .unwrap_or_else(|error| panic!("reading the block at {height} from the bucket: {error}"))
+        .unwrap_or_else(|| panic!("no block archived at {height}"));
+    *block_data.block().header().epoch_id()
 }
 
 /// One shard's state header, with the epoch height it is stored under looked up

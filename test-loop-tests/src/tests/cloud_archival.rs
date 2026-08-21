@@ -52,7 +52,7 @@ struct CloudArchiveHarness {
     writer_id: AccountId,
     /// Epoch length in blocks.
     epoch_length: BlockHeightDelta,
-    /// Whether cold (split) storage is enabled on the archival node.
+    /// Whether cold (split) storage is enabled on the writer node.
     cold_storage_enabled: bool,
     /// Cadence of state snapshots, passed through to assertions.
     snapshot_every_n_epochs: u64,
