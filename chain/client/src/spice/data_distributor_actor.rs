@@ -1127,7 +1127,13 @@ impl SpiceDataDistributorActor {
             }
             let Some(mut distribution_data) = self.get_distribution_data(&data_id, producers.len())
             else {
-                tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
+                if chunk_info.is_fallback_only {
+                    // Eligible from its own block, before we applied the chunk that produces the
+                    // witness. Later blocks retry.
+                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not yet produced - chunk not applied");
+                } else {
+                    tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
+                }
                 continue;
             };
             let my_part = distribution_data.parts.swap_remove(my_producer_index);

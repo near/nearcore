@@ -1,6 +1,6 @@
 use crate::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, is_fallback_only_chunk,
-    is_fallback_only_height_for_shard_index,
+    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, fallback_eligible,
+    is_fallback_only_chunk, is_fallback_only_height_for_shard_index,
 };
 use crate::spice::tests::core::{
     block_certification_core_statements, build_block, endorsement_into_core_statement,
@@ -11,10 +11,13 @@ use crate::{Block, Chain};
 use assert_matches::assert_matches;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, ShardId, SpiceChunkId,
+    SpiceUncertifiedChunkInfo,
 };
+use std::collections::HashSet;
 use std::sync::Arc;
 
 fn first_shard_chunk_id(block: &Block) -> SpiceChunkId {
@@ -233,7 +236,7 @@ fn test_validate_admits_non_designated_endorsement_only_when_eligible() {
 }
 
 // Splits `validators` into (designated, non_designated) for `chunk` as of `block`.
-fn split_designated(
+pub(super) fn split_designated(
     chain: &Chain,
     block: &Block,
     chunk: &ShardChunkHeader,
@@ -518,7 +521,10 @@ fn test_a_gap_past_the_next_slot_drops_the_slots_inside_it() {
 
 // Walks the chain until a block carries a fallback-only chunk. Each step certifies the block two
 // heights back, since a block may not skip an earlier chunk's execution result.
-fn grow_chain_to_fallback_only_block(chain: &mut Chain, bound: usize) -> (Arc<Block>, ShardId) {
+pub(super) fn grow_chain_to_fallback_only_block(
+    chain: &mut Chain,
+    bound: usize,
+) -> (Arc<Block>, ShardId) {
     let mut blocks = vec![chain.genesis_block()];
     for _ in 0..bound {
         let parent = blocks.last().unwrap().clone();
@@ -569,7 +575,7 @@ fn test_fallback_only_mark_survives_in_later_blocks() {
     let (mut chain, core_reader) = setup();
     let (fallback_only_block, fallback_only_shard) =
         grow_chain_to_fallback_only_block(&mut chain, 40);
-    let scheduled =
+    let fallback_only_chunk_id =
         SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id: fallback_only_shard };
 
     let later = advance_to_height(
@@ -578,10 +584,174 @@ fn test_fallback_only_mark_survives_in_later_blocks() {
         fallback_only_block.header().height() + 3,
     );
 
-    let still_marked = core_reader
-        .get_uncertified_chunks(later.hash())
+    let still_marked =
+        core_reader.get_uncertified_chunks(later.hash()).unwrap().into_iter().any(|chunk_info| {
+            chunk_info.chunk_id == fallback_only_chunk_id && chunk_info.is_fallback_only
+        });
+    assert!(still_marked, "the mark was lost when the chunk was carried forward");
+}
+
+// Enough validators that a chunk's designated assignment stays under 2/3 of total stake, asserted
+// below.
+pub(super) fn validators_with_minority_designated_stake() -> Vec<String> {
+    (0..150).map(|i| format!("test{i}")).collect()
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() {
+    let validators = validators_with_minority_designated_stake();
+    let (mut chain, core_reader) = setup_with_validators(&validators);
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let chunk_header = fallback_only_block
+        .chunks()
+        .iter_raw()
+        .find(|chunk| chunk.shard_id() == shard_id)
+        .unwrap()
+        .clone();
+    // Certifying the parent leaves the fallback-only chunk as the oldest uncertified one.
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+    let parent_certification = certify_block_designated(&chain, &parent);
+    let tip = append_block(&mut chain, &fallback_only_block, parent_certification);
+    let uncertified = core_reader.get_uncertified_chunks(tip.hash()).unwrap();
+    let chunk_id = SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id };
+    assert!(uncertified.iter().all(|info| info.chunk_id.block_hash != *parent.hash()));
+    assert!(uncertified.iter().any(|info| info.chunk_id == chunk_id && info.is_fallback_only));
+
+    let (designated, non_designated) =
+        split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
+    let all_stake = all_stake_fallback_assignment(
+        chain.epoch_manager.as_ref(),
+        fallback_only_block.header().epoch_id(),
+    )
+    .unwrap();
+    // The whole designated set must fall short of 2/3 of total stake, or a designated-only block
+    // would certify on the all-stake path and prove nothing about the designated rule.
+    let mut endorsers: HashSet<AccountId> = designated.iter().cloned().collect();
+    assert!(!all_stake.is_endorsed(&endorsers));
+
+    let designated_only = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(&designated, &fallback_only_block, &chunk_header),
+    );
+    assert_matches!(
+        core_reader.validate_core_statements_in_block(&designated_only),
+        Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+            reason: "execution results included without enough corresponding endorsement",
+            ..
+        })
+    );
+
+    // Topping the designated set up to 2/3 of total stake certifies, so the rejection above is the
+    // designated rule being skipped, not an unreachable threshold. Stakes are not uniform, so the
+    // set is grown against the assignment rather than by a count.
+    for account in non_designated {
+        if all_stake.is_endorsed(&endorsers) {
+            break;
+        }
+        endorsers.insert(account);
+    }
+    assert!(all_stake.is_endorsed(&endorsers), "fallback set must be able to certify");
+    let mut all_stake_endorsers: Vec<AccountId> = endorsers.into_iter().collect();
+    all_stake_endorsers.sort();
+
+    let all_stake_block = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(
+            &all_stake_endorsers,
+            &fallback_only_block,
+            &chunk_header,
+        ),
+    );
+    core_reader.validate_core_statements_in_block(&all_stake_block).unwrap();
+}
+
+fn chunk_info(
+    certifiable_since_height: Option<BlockHeight>,
+    is_fallback_only: bool,
+) -> SpiceUncertifiedChunkInfo {
+    SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId { block_hash: CryptoHash::default(), shard_id: ShardId::new(0) },
+        missing_endorsements: vec![],
+        present_endorsements: vec![],
+        present_fallback_endorsements: vec![],
+        certifiable_since_height,
+        is_fallback_only,
+    }
+}
+
+fn fallback_only_chunk_info(
+    certifiable_since_height: Option<BlockHeight>,
+) -> SpiceUncertifiedChunkInfo {
+    chunk_info(certifiable_since_height, true)
+}
+
+fn ordinary_chunk_info(certifiable_since_height: Option<BlockHeight>) -> SpiceUncertifiedChunkInfo {
+    chunk_info(certifiable_since_height, false)
+}
+
+#[test]
+fn test_fallback_only_chunk_is_eligible_before_it_is_certifiable() {
+    // A fallback-only chunk has no delay to wait out, so it certifies as soon as its endorsements
+    // arrive. certifiable_since_height is only set in a later block than the chunk's own, so
+    // gating on it would add a wait this chunk is meant not to have.
+    assert!(fallback_eligible(1, &fallback_only_chunk_info(None)));
+    assert!(fallback_eligible(1, &fallback_only_chunk_info(Some(1))));
+}
+
+#[test]
+fn test_ordinary_chunk_waits_the_full_delay_after_becoming_certifiable() {
+    assert!(!fallback_eligible(BlockHeight::MAX, &ordinary_chunk_info(None)));
+    let certifiable_since = 100;
+    let info = ordinary_chunk_info(Some(certifiable_since));
+    assert!(!fallback_eligible(certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY - 1, &info));
+    assert!(fallback_eligible(certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY, &info));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_rejects_skipping_an_uncertified_fallback_only_chunk() {
+    let validators = validators_with_minority_designated_stake();
+    let (mut chain, core_reader) = setup_with_validators(&validators);
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let chunk_of = |block: &Block| {
+        block.chunks().iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone()
+    };
+    let chunk_header = chunk_of(&fallback_only_block);
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+    let parent_certification = certify_block_designated(&chain, &parent);
+    let next_block = append_block(&mut chain, &fallback_only_block, parent_certification);
+
+    // Every designated endorsement lands, which empties missing_endorsements without certifying
+    // the chunk: only 2/3 of total stake can do that.
+    let (designated, _) =
+        split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
+    let tip = append_block(
+        &mut chain,
+        &next_block,
+        endorsement_statements(&designated, &fallback_only_block, &chunk_header),
+    );
+    let chunk_id = SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id };
+    let chunk_info = core_reader
+        .get_uncertified_chunks(tip.hash())
         .unwrap()
         .into_iter()
-        .any(|chunk_info| chunk_info.chunk_id == scheduled && chunk_info.is_fallback_only);
-    assert!(still_marked, "the mark was lost when the chunk was carried forward");
+        .find(|info| info.chunk_id == chunk_id)
+        .expect("the fallback-only chunk is still uncertified");
+    assert!(chunk_info.missing_endorsements.is_empty());
+
+    // Certifying the same shard one height later would endorse a child before its parent.
+    let later_chunk = chunk_of(&next_block);
+    let (later_designated, _) = split_designated(&chain, &next_block, &later_chunk, &validators);
+    let skipping_block = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(&later_designated, &next_block, &later_chunk),
+    );
+    assert_matches!(
+        core_reader.validate_core_statements_in_block(&skipping_block),
+        Err(InvalidSpiceCoreStatementsError::SkippedExecutionResult { .. })
+    );
 }
