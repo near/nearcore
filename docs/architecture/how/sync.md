@@ -26,6 +26,27 @@ periodically in the client actor — if the node is behind by more than
 The sync handler classifies the node into one of two categories based on how
 far behind it is, and routes it through the appropriate path.
 
+### Picking the target height
+
+The height to sync to comes from a peer, and a peer's claim is acted on only
+once its approvals verify against a known epoch's validators (>2/3 stake).
+That check is a pass over about 100 signatures, so the node pays for it only
+when the claim could change the decision:
+
+- A claim at or below `head + sync_height_threshold` is ignored: it cannot
+  start sync. While already syncing the bar is the head itself.
+- A block the node requested proves nothing new. It was requested to reach a
+  height already proved, and block processing checks its approvals anyway.
+- Each distinct header is checked once, whether it passes or fails, however
+  many peers relay it.
+
+A peer with no proved height reads as level with our head, so it stays a
+candidate to download from but never sets the target. Once the head has not
+advanced for about one epoch, the node falls back to the unvalidated claimed
+heights, because the validator sets it knows no longer cover the tip. During
+block sync the node's own header head can also set the target, since header
+sync has already validated it.
+
 ### The two horizons
 
 ```
