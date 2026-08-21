@@ -1,6 +1,9 @@
 // cspell:words hkdf
 use hkdf::Hkdf;
-use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
+use near_crypto::{
+    ED25519PublicKey, ED25519SecretKey, ML_DSA_65_SEED_LENGTH, MlDsa65PublicKeyHandle, PublicKey,
+    PublicKeyHandle, Secp256K1PublicKey, SecretKey, ml_dsa_65_from_seed,
+};
 use near_primitives::types::AccountId;
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives_core::account::id::AccountType;
@@ -93,20 +96,42 @@ fn map_secp256k1(
     secp256k1_from_slice(&mut buf, public)
 }
 
-// This maps the public key to a secret key so that we can sign
-// transactions on the target chain.  If secret is None, then we just
-// use the bytes of the public key directly, otherwise we feed the
-// public key to a key derivation function.
-pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> SecretKey {
-    match key {
-        PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
-        PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
-        // TODO(post-quantum): implement deterministic key mapping for
-        // ML-DSA-65 in mirror. For now, the mirror tool does not support
-        // cross-network mirroring of post-quantum keys.
-        PublicKey::MLDSA65(_) => {
-            panic!("mirror: ML-DSA-65 key mapping not yet implemented")
+fn map_mldsa65(
+    handle: &MlDsa65PublicKeyHandle,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+) -> SecretKey {
+    let seed = match secret {
+        Some(secret) => {
+            let mut seed = [0; ML_DSA_65_SEED_LENGTH];
+            let hk = Hkdf::<Sha256>::new(None, secret);
+            hk.expand(&handle.0, &mut seed).unwrap();
+            seed
         }
+        None => handle.0,
+    };
+
+    ml_dsa_65_from_seed(&seed).expect("ML-DSA-65 key derivation from seed failed")
+}
+
+// This maps the public key to a secret key so that we can sign
+// transactions on the target chain. If secret is None, then we just use the
+// bytes of the public key directly, otherwise we feed the public key to a key
+// derivation function.
+pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> SecretKey {
+    map_key_handle(&key.into(), secret)
+}
+
+// Maps the on-trie key handle to a secret key. If secret is None, then we just
+// use the bytes of the handle directly, otherwise we feed the handle to a key
+// derivation function.
+pub fn map_key_handle(
+    handle: &PublicKeyHandle,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+) -> SecretKey {
+    match handle {
+        PublicKeyHandle::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
+        PublicKeyHandle::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
+        PublicKeyHandle::MlDsa65(h) => map_mldsa65(h, secret),
     }
 }
 

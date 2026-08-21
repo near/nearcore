@@ -24,7 +24,6 @@ pub const ML_DSA_65_SECRET_KEY_LENGTH: usize = 4032;
 /// ML-DSA-65 signature length in bytes.
 pub const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
 /// FIPS 204 seed length in bytes (used to derive an ML-DSA private key).
-#[cfg(feature = "rand")]
 pub const ML_DSA_65_SEED_LENGTH: usize = 32;
 /// SHA3-256 output length used as the on-trie identifier for an
 /// ML-DSA-65 access key. The same digest is expected to be reused as
@@ -553,25 +552,6 @@ impl PublicKeyHandle {
             Self::MlDsa65(_) => KeyType::MLDSA65,
         }
     }
-
-    /// Returns the underlying full public key, if this handle carries
-    /// one (ed25519 / secp256k1). For ML-DSA-65 entries the trie stores
-    /// only a hash, so the full pubkey is not recoverable - returns
-    /// `None` in that case.
-    ///
-    /// TODO(post-quantum): every current caller treats the `None` case as "skip
-    /// this entry" (fork-network and mirror tools), which means
-    /// ML-DSA-65 access keys are silently dropped during network
-    /// forking and mirroring. Grep for `TODO(post-quantum)` to find the call
-    /// sites that need to be taught to recover the full pubkey (e.g.
-    /// via a side index of pubkey-hash → pubkey, or via RPC lookup).
-    pub fn full_pubkey(&self) -> Option<PublicKey> {
-        match self {
-            Self::ED25519(k) => Some(PublicKey::ED25519(k.clone())),
-            Self::SECP256K1(k) => Some(PublicKey::SECP256K1(k.clone())),
-            Self::MlDsa65(_) => None,
-        }
-    }
 }
 
 impl From<PublicKey> for PublicKeyHandle {
@@ -858,7 +838,6 @@ fn ml_dsa_65_secret_from_keypair(kp: &PqdsaKeyPair) -> MlDsa65SecretKey {
 }
 
 /// Helper: build an `MlDsa65SecretKey` from a 32-byte seed (deterministic).
-#[cfg(feature = "rand")]
 fn ml_dsa_65_secret_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<MlDsa65SecretKey, crate::errors::ParseKeyError> {
@@ -877,7 +856,6 @@ fn ml_dsa_65_secret_from_seed(
 /// Build an [`MlDsa65SecretKey`] from a 32-byte seed.
 ///
 /// Wraps `aws_lc_rs::unstable::signature::PqdsaKeyPair::from_seed`.
-#[cfg(feature = "rand")]
 pub fn ml_dsa_65_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<SecretKey, crate::errors::ParseKeyError> {

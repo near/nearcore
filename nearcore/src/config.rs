@@ -32,8 +32,7 @@ use near_chain_configs::{
     default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
     default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
     default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_access_keys_limit,
-    default_view_client_threads, get_initial_supply,
+    default_view_access_keys_limit, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};

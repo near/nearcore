@@ -172,9 +172,6 @@ integration:
 - **Host functions / on-chain verification primitives**: no `ml_dsa_verify`
   host function added. Contracts wanting to verify PQ signatures will
   continue using ed25519 host fn until a separate proposal lands.
-- **Cross-network mirror** (`tools/mirror/src/key_mapping.rs`) panics on
-  ML-DSA-65 pubkey mapping; deterministic-derivation scheme for PQ keys is a
-  follow-up.
 - **ETH wallet contract** (`integration-tests/src/tests/features/wallet_contract.rs`)
   marks ML-DSA-65 unreachable in the AddKey selector path - wallet contracts
   are explicitly ed25519/secp256k1.
@@ -270,20 +267,11 @@ same deferred bucket.
 
 These do not block stabilization and are tracked as follow-up work:
 
-1. **Mirror / fork-network cross-network support for PQ keys.** Behavior is
-    currently inconsistent across entry points and should be unified before any
-    serious mirroring of a PQ-bearing chain:
-    - `tools/mirror/src/genesis.rs` panics loudly when it encounters an
-      ML-DSA-65 access-key or gas-key-nonce record.
-    - `tools/mirror/src/key_util.rs`, `tools/mirror/src/{offline,online}.rs`,
-      and `tools/fork-network/src/cli.rs` silently `filter_map` / `continue`
-      past hash-form entries with no log or warning, so a real ML-DSA-bearing
-      chain would be silently mirrored with access keys missing.
-    Proper support likely needs a deterministic seed-derived mapping
-    (analogous to ed25519/secp256k1 mapping in `key_mapping.rs`). For now the
-    design accepts that PQ keys cannot be mirrored; at minimum the
-    inconsistency above should be unified to "log + skip" so failures are
-    visible. The `TODO(post-quantum)` markers at these call sites track this.
+1. **Mirror `show-keys from-pubkey` only accepts full pubkeys.**
+    `tools/mirror/src/key_util.rs::map_pub_key` parses a `PublicKey`, so the
+    `ml-dsa-65-hash:` form that `view_access_key_list` returns - and that the
+    other `show-keys` subcommands print - is rejected. Every other mirror and
+    fork-network entry point maps ML-DSA-65 keys via `map_key_handle`.
 
 2. **Wallet/SDK story for the view-RPC change.** Add the
    `near-api-js`/`near-cli-rs` side of the change (external repos), document

@@ -9,7 +9,7 @@ use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
     QueryError, Status,
 };
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::{PublicKey, PublicKeyHandle, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::hash::CryptoHash;
@@ -434,12 +434,12 @@ trait ChainAccess {
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError>;
 
-    // returns all public keys with full permissions for the given account
+    // returns handles for all keys with full permissions for the given account
     async fn get_full_access_keys(
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError>;
+    ) -> Result<Vec<PublicKeyHandle>, ChainError>;
 }
 
 fn execution_status_good(status: &ExecutionStatusView) -> bool {
@@ -1240,7 +1240,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 let mut key = None;
                 let mut first_key = None;
                 for k in &keys {
-                    let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref());
+                    let target_secret_key =
+                        crate::key_mapping::map_key_handle(k, self.secret.as_ref());
                     if fetch_access_key_nonce(
                         target_view_client,
                         &target_signer_id,
