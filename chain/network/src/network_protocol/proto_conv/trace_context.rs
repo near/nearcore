@@ -28,12 +28,12 @@ pub(crate) fn extract_span_context(
         // out so that the rest of the spans aren't completely lost.
         let span_id = extract_span_id(&trace_context.span_id).unwrap_or(SpanId::INVALID);
         let sampled = match trace_context.sampling_priority.enum_value() {
-            Ok(SamplingPriority::UserReject) | Ok(SamplingPriority::AutoReject) => {
-                TraceFlags::default()
-            }
-            Ok(SamplingPriority::UserKeep) | Ok(SamplingPriority::AutoKeep) => TraceFlags::SAMPLED,
+            Ok(SamplingPriority::SAMPLING_PRIORITY_USER_REJECT)
+            | Ok(SamplingPriority::SAMPLING_PRIORITY_AUTO_REJECT) => TraceFlags::default(),
+            Ok(SamplingPriority::SAMPLING_PRIORITY_USER_KEEP)
+            | Ok(SamplingPriority::SAMPLING_PRIORITY_AUTO_KEEP) => TraceFlags::SAMPLED,
             // Treat the sampling as DEFERRED instead of erring on extracting the span context
-            Ok(SamplingPriority::UNKNOWN) | Err(_) => TRACE_FLAG_DEFERRED,
+            Ok(SamplingPriority::SAMPLING_PRIORITY_UNSPECIFIED) | Err(_) => TRACE_FLAG_DEFERRED,
         };
         let trace_state = TraceState::default();
         Ok(SpanContext::new(trace_id, span_id, sampled, true, trace_state))
@@ -57,9 +57,9 @@ pub(crate) fn inject_trace_context(cx: &Context) -> MessageField<TraceContext> {
 
         if span_context.trace_flags() & TRACE_FLAG_DEFERRED != TRACE_FLAG_DEFERRED {
             let sampling_priority = if span_context.is_sampled() {
-                SamplingPriority::AutoKeep
+                SamplingPriority::SAMPLING_PRIORITY_AUTO_KEEP
             } else {
-                SamplingPriority::AutoReject
+                SamplingPriority::SAMPLING_PRIORITY_AUTO_REJECT
             };
             trace_context.sampling_priority = EnumOrUnknown::new(sampling_priority);
         }
