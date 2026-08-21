@@ -1158,7 +1158,7 @@ impl Display for ActionErrorKind {
             }
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(
                 f,
-                "DelegateAction nonce {} must be larger than nonce of the used access key {}",
+                "DelegateAction nonce {} is invalid for nonce {} of the used key",
                 delegate_nonce, ak_nonce
             ),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(
