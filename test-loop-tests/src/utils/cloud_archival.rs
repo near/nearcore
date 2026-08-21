@@ -73,21 +73,21 @@ pub struct ReshardingInfo {
 /// Runs the chain one epoch past the resharding to `new_layout`.
 pub fn run_until_one_epoch_after_resharding(
     env: &mut TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     base_layout: &ShardLayout,
     new_layout: &ShardLayout,
     boundary: &AccountId,
     epoch_length: BlockHeightDelta,
 ) -> ReshardingInfo {
     let timeout = Duration::seconds((5 * epoch_length) as i64);
-    env.runner_for_account(archival_id).run_until(
+    env.runner_for_account(writer_id).run_until(
         |node| {
             let epoch_id = node.head().epoch_id;
             node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
         },
         timeout,
     );
-    let node = env.node_for_account(archival_id);
+    let node = env.node_for_account(writer_id);
     let resharding_epoch_id = node.head().epoch_id;
     let epoch_manager = &node.client().epoch_manager;
     let head = node.head().last_block_hash;
@@ -100,9 +100,9 @@ pub fn run_until_one_epoch_after_resharding(
 
     // Advance one epoch from the resharding epoch's first produced block so the
     // resharding epoch fully elapses and its sync_hash gets recorded.
-    run_node_until(env, archival_id, new_epoch_first_height + epoch_length);
+    run_node_until(env, writer_id, new_epoch_first_height + epoch_length);
 
-    let node = env.node_for_account(archival_id);
+    let node = env.node_for_account(writer_id);
     let chain_store = node.client().chain.chain_store().store().chain_store();
     let sync_hash = chain_store
         .get_current_epoch_sync_hash(&resharding_epoch_id)
@@ -143,16 +143,16 @@ pub fn gc_and_heads_sanity_checks(
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
 ) {
-    let cloud_head = get_cloud_head(env, writer_id);
+    let min_head = get_local_min_head(env, writer_id);
     let node = env.node_for_account(writer_id);
     let client = node.client();
     let chain_store = client.chain.chain_store();
     let epoch_store = chain_store.epoch_store();
 
-    // Check if the first block of the epoch containing `cloud_head` is not gc-ed.
-    let cloud_head_hash = chain_store.get_block_hash_by_height(cloud_head).unwrap();
-    let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
-    epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
+    // Check if the first block of the epoch containing `min_head` is not gc-ed.
+    let min_head_hash = chain_store.get_block_hash_by_height(min_head).unwrap();
+    let min_head_block_info = epoch_store.get_block_info(&min_head_hash).unwrap();
+    epoch_store.get_block_info(min_head_block_info.epoch_first_block()).unwrap();
 
     let gc_tail = chain_store.tail();
     if split_store_enabled {
@@ -160,7 +160,7 @@ pub fn gc_and_heads_sanity_checks(
         let cold_head_height = cold_head.unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
-    assert!(cloud_head > gc_tail);
+    assert!(min_head > gc_tail);
     if let Some(min_gc_tail) = num_gced_blocks {
         assert!(gc_tail >= min_gc_tail);
     } else {
@@ -199,7 +199,7 @@ pub(crate) fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str
     env.restart_node(&new_identifier, node_state);
 }
 
-/// Returns the cloud archival writer handle for `archival_id`.
+/// Returns the cloud archival writer handle for `writer_id`.
 pub(crate) fn get_writer_handle<'a>(
     env: &'a TestLoopEnv,
     writer_id: &AccountId,
@@ -215,10 +215,19 @@ fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
     client.chain.chain_store().store()
 }
 
-pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
-    let node_data = env.get_node_data_by_account_id(archival_id);
+pub(crate) fn get_cloud_storage(env: &TestLoopEnv, account_id: &AccountId) -> Arc<CloudStorage> {
+    let node_data = env.get_node_data_by_account_id(account_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
+}
+
+/// The epoch a height belongs to, taken from the archived block in the bucket.
+pub(crate) fn epoch_id_at(cloud_storage: &CloudStorage, height: BlockHeight) -> EpochId {
+    let block_data = cloud_storage
+        .get_block_data(height)
+        .unwrap_or_else(|error| panic!("reading the block at {height} from the bucket: {error}"))
+        .unwrap_or_else(|| panic!("no block archived at {height}"));
+    *block_data.block().header().epoch_id()
 }
 
 /// One shard's state header, with the epoch height it is stored under looked up
@@ -232,11 +241,7 @@ pub(crate) fn get_state_header_for_epoch(
     cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap()
 }
 
-/// Writer's stored min head: highest height up to which all components are
-/// known archived (by us or another writer).
-// TODO(cloud_archival): rename the head accessors to clearly state whether the
-// head is taken from local or external storage.
-pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
+pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
     hot_store
         .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
@@ -306,12 +311,12 @@ pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
 /// Also checks that block data exists if any shards are expected.
 pub(crate) fn check_data_at_height_for_shards(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     height: BlockHeight,
     expected_shards: &[ShardId],
     all_shard_ids: &[ShardId],
 ) {
-    let cloud_storage = get_cloud_storage(env, archival_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
     if !expected_shards.is_empty() {
         assert!(
             matches!(cloud_storage.get_block_data(height), Ok(Some(_))),
@@ -354,13 +359,13 @@ pub fn check_account_balance(
 /// that are multiples of the cadence are expected to carry snapshots.
 pub fn snapshots_sanity_check(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     final_epoch_height: EpochHeight,
     snapshot_every_n_epochs: u64,
 ) {
-    let store = get_hot_store(env, archival_id);
-    let cloud_storage = get_cloud_storage(env, archival_id);
-    let node = env.node_for_account(archival_id);
+    let store = get_hot_store(env, writer_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let node = env.node_for_account(writer_id);
     let client = node.client();
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
     let mut epoch_heights_with_epoch_data = HashSet::<EpochHeight>::new();
@@ -505,13 +510,13 @@ pub fn assert_writer_inverse_deltas(
 /// even though its epoch height is off the snapshot cadence.
 pub fn assert_resharding_epoch_snapshot_forced(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     info: &ReshardingInfo,
     snapshot_every_n_epochs: u64,
 ) {
-    let cloud_storage = get_cloud_storage(env, archival_id);
-    let store = get_hot_store(env, archival_id);
-    let node = env.node_for_account(archival_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let store = get_hot_store(env, writer_id);
+    let node = env.node_for_account(writer_id);
     let epoch_manager = &node.client().epoch_manager;
 
     let gap_block_hash =
@@ -536,7 +541,7 @@ pub fn assert_resharding_epoch_snapshot_forced(
 
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
-pub fn bootstrap_reader(
+pub fn bootstrap_historical_reader(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
     start_height: BlockHeight,
