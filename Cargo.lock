@@ -4145,7 +4145,6 @@ name = "near-cloud-archive-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh",
  "clap",
  "near-chain-configs",
  "near-client",

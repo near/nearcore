@@ -4,6 +4,7 @@ use crate::db::{
     cloud_shard_head_key, cloud_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
+use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 
@@ -53,11 +54,14 @@ impl CloudArchivalStoreAdapter {
     /// Every shard the node has recorded a head for, in shard order.
     pub fn all_shard_heads(&self) -> Vec<(ShardId, BlockHeight)> {
         let mut heads = Vec::new();
-        for (key, value) in self.store.iter_prefix_ser(DBCol::BlockMisc, CLOUD_SHARD_HEAD_PREFIX) {
+        for (key, value) in self.store.iter_prefix(DBCol::BlockMisc, CLOUD_SHARD_HEAD_PREFIX) {
             let Some(shard_id) = cloud_shard_head_key_shard_id(&key) else {
                 continue;
             };
-            heads.push((shard_id, value));
+            let Ok(height) = BlockHeight::try_from_slice(&value) else {
+                continue;
+            };
+            heads.push((shard_id, height));
         }
         heads.sort_by_key(|(shard_id, _)| *shard_id);
         heads
