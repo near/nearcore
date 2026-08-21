@@ -47,7 +47,6 @@ use near_primitives::views::{
     QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
@@ -663,9 +662,7 @@ fn get_epoch_start_height_from_cloud_head_prev_epoch(
     store: &Store,
     epoch_manager: &EpochManager,
 ) -> Result<Option<BlockHeight>, Error> {
-    let Some(prev_epoch_end) =
-        store.get_ser::<CryptoHash>(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
-    else {
+    let Some(prev_epoch_end) = store.cloud_archival_store().prev_epoch_end() else {
         return Ok(None);
     };
     let epoch_start_height = epoch_manager.get_epoch_start_height(&prev_epoch_end)?;

@@ -38,7 +38,6 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
-use near_store::db::cloud_shard_head_key;
 #[cfg(feature = "nightly")]
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
@@ -1635,7 +1634,8 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
 
     let parent_local_head = h
         .writer_store()
-        .get_ser::<BlockHeight>(DBCol::BlockMisc, &cloud_shard_head_key(r.parent_shard))
+        .cloud_archival_store()
+        .shard_head(r.parent_shard)
         .expect("removed parent shard head recorded");
     assert_eq!(
         parent_local_head, r.resharding_block_height,

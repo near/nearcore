@@ -26,7 +26,6 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
-use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -243,9 +242,7 @@ pub(crate) fn get_state_header_for_epoch(
 
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store
-        .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
-        .expect("CLOUD_MIN_HEAD should exist")
+    hot_store.cloud_archival_store().min_head().expect("CLOUD_MIN_HEAD should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -408,8 +405,7 @@ pub fn snapshots_sanity_check(
 
     // Every epoch through the last one the writer finished archiving. A batch that
     // ended exactly at an epoch's last block published the next epoch's data too.
-    let last_archived_epoch_last_block: CryptoHash =
-        store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY).unwrap();
+    let last_archived_epoch_last_block = store.cloud_archival_store().prev_epoch_end().unwrap();
     let last_archived_epoch_id =
         client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
     let last_archived_epoch_info = EpochInfo::try_from_slice(

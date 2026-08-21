@@ -1,5 +1,6 @@
 pub mod chain_store;
 pub mod chunk_store;
+pub mod cloud_archival_store;
 pub mod epoch_store;
 pub mod flat_store;
 pub mod trie_store;
@@ -96,6 +97,10 @@ pub trait StoreAdapter {
         chain_store::ChainStoreAdapter::new(self.store())
     }
 
+    fn cloud_archival_store(&self) -> cloud_archival_store::CloudArchivalStoreAdapter {
+        cloud_archival_store::CloudArchivalStoreAdapter::new(self.store())
+    }
+
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
     }
@@ -123,6 +128,12 @@ pub trait StoreUpdateAdapter: Sized {
 
     fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter<'_> {
         chain_store::ChainStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn cloud_archival_store_update(
+        &mut self,
+    ) -> cloud_archival_store::CloudArchivalStoreUpdateAdapter<'_> {
+        cloud_archival_store::CloudArchivalStoreUpdateAdapter::new(self.store_update())
     }
 
     fn chunk_store_update(&mut self) -> chunk_store::ChunkStoreUpdateAdapter<'_> {

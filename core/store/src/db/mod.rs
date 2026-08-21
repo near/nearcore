@@ -64,6 +64,12 @@ pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
     key
 }
 
+/// The shard a `cloud_shard_head_key` names, or `None` when the suffix is not a shard id.
+pub fn cloud_shard_head_key_shard_id(key: &[u8]) -> Option<ShardId> {
+    let suffix: [u8; 8] = key.get(CLOUD_SHARD_HEAD_PREFIX.len()..)?.try_into().ok()?;
+    Some(ShardId::new(u64::from_le_bytes(suffix)))
+}
+
 // `DBCol::Misc` keys
 pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
