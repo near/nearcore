@@ -241,9 +241,6 @@ pub(crate) fn get_state_header_for_epoch(
     cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap()
 }
 
-/// Min head as the writer's own store holds it: the minimum among the heads of
-/// the components (block or shards) being archivized, so every one of them has
-/// reached at least this height in the bucket.
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
     hot_store
