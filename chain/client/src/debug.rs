@@ -10,7 +10,7 @@ use near_chain::{Block, Chain, ChainStoreAccess, near_chain_primitives};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData,
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatus, DebugStatusResponse,
-    MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
+    MissedHeightInfo, ProductionAtHeight, ShardSizeAndParts, ValidatorStatus,
 };
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_client_primitives::types::Error;
@@ -357,67 +357,56 @@ impl ClientActor {
 
         let sync_hash =
             self.client.chain.get_sync_hash(epoch_start_block_header.hash()).ok().flatten();
-        let hash_to_compute_shard_sizes = match &sync_hash {
-            Some(sync_hash) => sync_hash,
-            None => epoch_start_block_header.hash(),
-        };
+        let hash_to_compute_shard_sizes =
+            sync_hash.as_ref().unwrap_or_else(|| epoch_start_block_header.hash());
+        let block = self.client.chain.get_block(hash_to_compute_shard_sizes).ok();
 
-        let shards_size_and_parts: Vec<(u64, u64)> =
-            if let Ok(block) = self.client.chain.get_block(hash_to_compute_shard_sizes) {
-                block
-                    .chunks()
-                    .iter()
-                    .enumerate()
-                    .map(|(shard_index, chunk)| {
-                        // TODO(spice): chunks in spice no longer contain prev state root.
-                        if chunk.is_spice_chunk() {
-                            return (0, 0);
-                        }
-                        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-                        let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                            shard_id,
-                            epoch_start_block_header.hash(),
-                            &chunk.prev_state_root(),
-                        );
-                        if let Ok(state_root_node) = state_root_node {
-                            (
-                                state_root_node.memory_usage,
-                                get_num_state_parts(state_root_node.memory_usage),
+        let shards_size_and_parts = shard_layout
+            .shard_infos()
+            .map(|shard_info| {
+                let state_header_exists = borsh::to_vec(&StateHeaderKey(
+                    shard_info.shard_id(),
+                    *epoch_start_block_header.hash(),
+                ))
+                .is_ok_and(|key| {
+                    self.client
+                        .chain
+                        .chain_store()
+                        .store()
+                        .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
+                        .is_some()
+                });
+
+                let shard_size = block
+                    .as_ref()
+                    .and_then(|block| {
+                        let prev_state_root = block
+                            .chunks()
+                            .get(shard_info.shard_index())
+                            // TODO(spice): chunks in spice no longer contain prev state root.
+                            .filter(|chunk| !chunk.is_spice_chunk())
+                            .map(|chunk| chunk.prev_state_root())?;
+
+                        self.client
+                            .runtime_adapter
+                            .get_state_root_node(
+                                shard_info.shard_id(),
+                                epoch_start_block_header.hash(),
+                                &prev_state_root,
                             )
-                        } else {
-                            (0, 0)
-                        }
+                            .ok()
+                            .map(|state_root_node| state_root_node.memory_usage)
                     })
-                    .collect()
-            } else {
-                epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
-            };
+                    .unwrap_or_default();
 
-        let state_header_exists: Vec<bool> = shard_layout
-            .shard_ids()
-            .map(|shard_id| {
-                let key =
-                    borsh::to_vec(&StateHeaderKey(shard_id, *epoch_start_block_header.hash()));
-                match key {
-                    Ok(key) => {
-                        matches!(
-                            self.client
-                                .chain
-                                .chain_store()
-                                .store()
-                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
-                            Some(_)
-                        )
-                    }
-                    Err(_) => false,
+                ShardSizeAndParts {
+                    shard_id: shard_info.shard_id(),
+                    shard_index: shard_info.shard_index(),
+                    shard_size,
+                    state_parts_count: get_num_state_parts(shard_size),
+                    state_header_exists,
                 }
             })
-            .collect();
-
-        let shards_size_and_parts = shards_size_and_parts
-            .iter()
-            .zip(state_header_exists.iter())
-            .map(|((a, b), c)| (*a, *b, *c))
             .collect();
 
         // `get_validator_info` is expensive (it can traverse the whole epoch via the
