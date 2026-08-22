@@ -43,8 +43,13 @@ impl SpiceDataIdentifier {
     ProtocolSchema,
 )]
 pub struct SpiceDataCommitment {
+    /// Hash of the serialized data, checked after decoding.
     pub hash: CryptoHash,
+    /// Merkle root over all the parts; each part proves membership by its ordinal.
     pub root: MerkleHash,
+    /// Length of the serialized data, before the split into parts. Not the total sent over
+    /// the wire, which is `encoded_length * total_parts / data_parts`. Each part is exactly
+    /// `ceil(encoded_length / data_parts)` bytes.
     pub encoded_length: u64,
 }
 

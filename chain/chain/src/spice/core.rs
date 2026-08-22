@@ -78,6 +78,28 @@ impl SpiceCoreReader {
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
+    /// Per-shard version of [`get_last_certified_block_header`], with the same shape: the
+    /// highest height whose chunk for `shard_id` is certified as of `chain_head`. Take
+    /// `get_uncertified_chunks`, keep this shard, and return the oldest one's *prev* header
+    /// height (its prev, not height − 1, since heights can skip); no uncertified chunk for
+    /// the shard ⇒ `chain_head`'s height. `None` when nothing is certified for it yet.
+    ///
+    /// Exact: every block adds an uncertified entry for every shard, and missing chunks apply
+    /// as empty new chunks, so a shard has one execution unit per block and no gaps.
+    ///
+    /// `chain_head` must be a chain tip, never a block being seeded: certification is
+    /// per-block state, so a walk over old blocks asking as-of themselves sees a stale
+    /// frontier and never arms. Caller-supplied because each fork is its own view, so the
+    /// result can go down across a fork switch.
+    pub fn highest_certified_height(
+        &self,
+        _chain_head: &CryptoHash,
+        _shard_id: ShardId,
+    ) -> Result<Option<BlockHeight>, Error> {
+        // sketch
+        Ok(None)
+    }
+
     pub fn get_endorsement(
         &self,
         block_hash: &CryptoHash,
