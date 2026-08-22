@@ -43,7 +43,12 @@ def get_nonce_for_pk(account_id,
     )
     logger.info(f'get_nonce_for_pk {account_id}')
     logger.info(access_keys)
-    keys = access_keys.get('result', {}).get('keys', [])
+    if 'error' in access_keys:
+        assert access_keys['error'].get(
+            'cause', {}).get('name') == 'UNKNOWN_ACCOUNT', access_keys
+        raise KeyError(account_id)
+
+    keys = access_keys['result']['keys']
     if not keys:
         raise KeyError(account_id)
 
