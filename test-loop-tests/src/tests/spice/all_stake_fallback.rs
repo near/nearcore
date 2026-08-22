@@ -4,7 +4,9 @@ use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain::spice::all_stake_fallback::all_stake_fallback_assignment;
+use near_chain::spice::all_stake_fallback::{
+    SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
+};
 use near_chain_configs::Genesis;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -13,11 +15,18 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, AccountInfo, Balance, BlockHeightDelta};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ShardId,
+    SpiceChunkId,
+};
 use std::collections::HashSet;
 
+/// Shards in [`FallbackSetup`].
+const NUM_SHARDS: NumShards = 6;
+
 /// Genesis, epoch config, and client accounts for the fallback tests: 14 equal-stake validators
-/// over 6 shards with 2 mandates each, keeping each chunk's designated subset under 1/3 of stake.
+/// over `NUM_SHARDS` shards with 2 mandates each, keeping each chunk's designated subset under 1/3
+/// of stake.
 #[derive(Default)]
 struct FallbackSetup {
     epoch_length: Option<BlockHeightDelta>,
@@ -56,7 +65,7 @@ impl FallbackSetup {
             ValidatorsSpec::raw(all_validators, num_producers, num_producers, num_validators);
 
         let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
-            .shard_layout(ShardLayout::multi_shard(6, 0))
+            .shard_layout(ShardLayout::multi_shard(NUM_SHARDS, 0))
             .validators_spec(validators_spec);
         if let Some(epoch_length) = self.epoch_length {
             genesis_builder = genesis_builder.epoch_length(epoch_length);
@@ -304,4 +313,195 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     );
     let frontier = env.rpc_node().last_certified_block_header();
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
+}
+
+fn fallback_only_certification_schedule(
+    node: &TestLoopNode,
+    from_height: BlockHeight,
+    to_height: BlockHeight,
+) -> Vec<(BlockHeight, ShardId)> {
+    let client = node.client();
+    let chain_store = client.chain.chain_store();
+    let epoch_manager = client.epoch_manager.as_ref();
+    let mut fallback_schedule = Vec::new();
+    for height in from_height..=to_height {
+        let block = node.block(chain_store.get_block_hash_by_height(height).unwrap());
+        let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+        for shard_id in shard_layout.shard_ids() {
+            if is_fallback_only_chunk(epoch_manager, block.header(), shard_id).unwrap() {
+                fallback_schedule.push((height, shard_id));
+            }
+        }
+    }
+    fallback_schedule
+}
+
+/// The height of the block carrying `chunk_id`'s execution result, with every account that endorsed
+/// the chunk on chain up to and including it.
+fn certifying_height_and_endorsers(
+    node: &TestLoopNode,
+    chunk_id: &SpiceChunkId,
+) -> Option<(BlockHeight, HashSet<AccountId>)> {
+    let chain_store = node.client().chain.chain_store();
+    let chunk_height = chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
+    let mut endorsers = HashSet::new();
+    for height in chunk_height..=node.head().height {
+        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+            continue;
+        };
+        let block = node.block(block_hash);
+        endorsers.extend(
+            block
+                .spice_core_statements()
+                .iter_endorsements()
+                .filter(|endorsement| endorsement.chunk_id() == chunk_id)
+                .map(|endorsement| endorsement.account_id().clone()),
+        );
+        if block.spice_core_statements().iter_execution_results().any(|(id, _)| id == chunk_id) {
+            return Some((height, endorsers));
+        }
+    }
+    None
+}
+
+/// Asserts the chunk certified with non-designated validators endorsing it on chain. An ordinary
+/// chunk never admits those on a healthy network: it is not fallback-eligible until it has been
+/// stuck for the full window.
+fn assert_certified_by_all_stake(
+    node: &TestLoopNode,
+    chunk_height: BlockHeight,
+    shard_id: ShardId,
+) {
+    let client = node.client();
+    let chain_store = client.chain.chain_store();
+    let epoch_manager = client.epoch_manager.as_ref();
+    let chunk_block_hash = chain_store.get_block_hash_by_height(chunk_height).unwrap();
+    let chunk_id = SpiceChunkId { block_hash: chunk_block_hash, shard_id };
+    let chunk_block = chain_store.get_block_header(&chunk_block_hash).unwrap();
+
+    // The designated set alone must fall short of 2/3 of total stake, or the chunk could certify
+    // before any non-designated endorsement lands. This is the 2/3 form, not the 1/3 form
+    // `assert_fallback_has_enough_stake` checks for the outage tests.
+    let designated = epoch_manager
+        .get_chunk_validator_assignments(chunk_block.epoch_id(), shard_id, chunk_height)
+        .unwrap();
+    let all_stake = all_stake_fallback_assignment(epoch_manager, chunk_block.epoch_id()).unwrap();
+    let designated_accounts: HashSet<AccountId> =
+        designated.assignments().iter().map(|(account_id, _)| account_id.clone()).collect();
+    assert!(!all_stake.is_endorsed(&designated_accounts));
+
+    let (certifying_height, endorsers) = certifying_height_and_endorsers(node, &chunk_id)
+        .unwrap_or_else(|| panic!("fallback-only chunk {chunk_id:?} was not certified"));
+    // Inside the ordinary fallback window, so the schedule opened the all-stake path rather than
+    // the chunk sitting stuck long enough for the normal one to open.
+    let delay = certifying_height - chunk_height;
+    assert!(
+        delay < SPICE_FALLBACK_CERTIFICATION_DELAY,
+        "fallback-only chunk {chunk_id:?} took {delay} blocks, no better than the ordinary window",
+    );
+
+    assert!(
+        endorsers.iter().any(|account_id| !designated.contains(account_id)),
+        "fallback-only chunk {chunk_id:?} has only designated endorsers on chain",
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_fallback_only_chunk_certifies_on_a_healthy_network() {
+    init_test_logger();
+
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) =
+        FallbackSetup::new().epoch_length(epoch_length).build();
+    // Unlike the outage tests above, no endorsements are dropped: the all-stake path runs because
+    // the chunk is scheduled, not because the designated set went missing.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .build();
+
+    // The schedule is read off block headers, so the blocks have to exist first.
+    env.node_runner(0).run_until_head_height(epoch_length);
+    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
+    assert_eq!(
+        fallback_schedule.len() as u64,
+        NUM_SHARDS,
+        "every shard is scheduled once per epoch length"
+    );
+
+    // The schedule is ascending, so certifying the last entry means every one of them is certified.
+    let (last_height, _) = *fallback_schedule.last().unwrap();
+    env.node_runner(0).run_until_certified(last_height);
+    for &(chunk_height, shard_id) in &fallback_schedule {
+        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_fallback_only_chunk_certifies_when_execution_lags() {
+    init_test_logger();
+
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) =
+        FallbackSetup::new().epoch_length(epoch_length).build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .delay_warmup()
+        .build();
+    // Holding endorsements back puts certification behind consensus, so a chunk's endorsements can
+    // reach the chain in the same block that first makes the chunk certifiable.
+    let execution_delay = 4;
+    env.delay_endorsements_propagation(execution_delay);
+    let mut env = env.warmup();
+
+    env.node_runner(0).run_until_head_height(epoch_length);
+    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
+    assert_eq!(
+        fallback_schedule.len() as u64,
+        NUM_SHARDS,
+        "every shard is scheduled once per epoch length"
+    );
+
+    let (last_height, _) = *fallback_schedule.last().unwrap();
+    env.node_runner(0).run_until_certified(last_height);
+    for &(chunk_height, shard_id) in &fallback_schedule {
+        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_fallback_only_chunk_certifies_when_validators_track_all_shards() {
+    init_test_logger();
+
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) =
+        FallbackSetup::new().epoch_length(epoch_length).build();
+    // Every validator tracks every shard, so they apply the chunk themselves rather than pulling
+    // its witness. Nothing is pushed for a fallback-only chunk, so this is the one path left.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .track_all_shards()
+        .build();
+
+    env.node_runner(0).run_until_head_height(epoch_length);
+    let fallback_schedule = fallback_only_certification_schedule(&env.node(0), 1, epoch_length);
+    assert_eq!(
+        fallback_schedule.len() as u64,
+        NUM_SHARDS,
+        "every shard is scheduled once per epoch length"
+    );
+
+    let (last_height, _) = *fallback_schedule.last().unwrap();
+    env.node_runner(0).run_until_certified(last_height);
+    for &(chunk_height, shard_id) in &fallback_schedule {
+        assert_certified_by_all_stake(&env.node(0), chunk_height, shard_id);
+    }
 }

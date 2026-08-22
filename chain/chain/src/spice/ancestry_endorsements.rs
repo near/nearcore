@@ -55,14 +55,22 @@ impl<'a> AncestryEndorsements<'a> {
             .is_some_and(|info| fallback_eligible(carrying_height, info))
     }
 
+    /// `chunk_id`'s record, absent once the chunk is certified in the ancestry.
+    pub(crate) fn uncertified_chunk_info(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Option<&'a SpiceUncertifiedChunkInfo> {
+        self.uncertified_chunks.get(chunk_id).copied()
+    }
+
     /// Whether `(chunk_id, account_id)`'s endorsement is already on chain in the ancestry.
     pub(crate) fn is_on_chain(&self, chunk_id: &SpiceChunkId, account_id: &AccountId) -> bool {
         self.on_chain.get(chunk_id).is_some_and(|endorsers| endorsers.contains_key(account_id))
     }
 
-    /// Chunks awaiting a designated endorsement on chain (with repeats per missing validator).
-    pub(crate) fn pending_designated_chunks(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
-        self.pending_designated.iter().map(|(chunk_id, _)| *chunk_id)
+    /// Every chunk still uncertified in the ancestry.
+    pub(crate) fn uncertified_chunk_ids(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
+        self.uncertified_chunks.keys().copied()
     }
 
     /// Endorsements (designated and non-designated) already on chain for `chunk_id`.
