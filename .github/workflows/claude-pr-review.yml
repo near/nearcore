@@ -25,7 +25,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
 
     steps:
       # secrets are not allowed in step-level `if:` expressions, so record the
@@ -41,19 +40,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
-          # On pull_request events checkout defaults to the PR merge ref. On
-          # issue_comment (@claude review) events it defaults to the base
-          # branch, so Read/Grep would see base code instead of the PR — pin it
-          # to the PR merge ref explicitly.
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
+          # Fetch comments and review instructions only from the trusted base
+          # branch. A fork PR can modify either script in its merge ref.
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
-
-      - name: symlink fix workaround
-        run: |
-          # see https://github.com/anthropics/claude-code-action/issues/1205#issuecomment-4248704481
-          rm -f CLAUDE.md
-          cp -f AGENTS.md CLAUDE.md
 
       - name: Fetch PR Comments Context
         id: fetch-comments
@@ -85,6 +76,19 @@ jobs:
             echo '</review_instructions>'
             echo "$DELIM"
           } >> "$GITHUB_ENV"
+
+      - name: Checkout pull request
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number || github.event.issue.number }}/merge
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: symlink fix workaround
+        run: |
+          # see https://github.com/anthropics/claude-code-action/issues/1205#issuecomment-4248704481
+          rm -f CLAUDE.md
+          cp -f AGENTS.md CLAUDE.md
 
       - name: Run Claude Code Review
         id: claude-review
