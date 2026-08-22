@@ -1,3 +1,4 @@
+pub use approval_verification::BlockHeaderApprovalVerification;
 pub use block_processing_utils::BlockProcessingArtifact;
 pub use chain::{Chain, MemtrieLoadingSpawner, collect_receipts};
 pub use chain_update::ChainUpdate;
