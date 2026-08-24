@@ -26,7 +26,7 @@ use near_primitives::views::{
 };
 use testlib::fees_utils::FeeHelper;
 
-fn query_gas_key_and_balance(
+pub(crate) fn query_gas_key_and_balance(
     node: &TestLoopNode<'_>,
     account_id: &AccountId,
     public_key: &PublicKey,

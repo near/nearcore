@@ -211,6 +211,14 @@ fn validate_delegate_action(
         });
     }
     let actions = delegate_action.get_actions();
+    // As with the `DelegateV2` removal above, receipts created before this rule
+    // are still in flight and must keep executing.
+    if mode == ValidateReceiptMode::NewReceipt
+        && ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.enabled(current_protocol_version)
+        && actions.iter().any(|action| matches!(action, Action::WithdrawFromGasKey(_)))
+    {
+        return Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate);
+    }
     let inner_receiver =
         if ProtocolFeature::FixDelegatedDeterministicStateInit.enabled(current_protocol_version) {
             // This is the correct receiver id to use for the check.
@@ -582,7 +590,9 @@ mod tests {
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedSignedDelegateAction,
     };
-    use near_primitives::action::{GlobalContractDeployMode, UniversalStateInitAction};
+    use near_primitives::action::{
+        GlobalContractDeployMode, UniversalStateInitAction, WithdrawFromGasKeyAction,
+    };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
@@ -1154,6 +1164,60 @@ mod tests {
             &delegate_v2_action(),
             &alice_account(),
             ProtocolFeature::RejectDelegateV2.protocol_version() - 1,
+        )
+        .expect("valid action");
+    }
+
+    fn delegate_with_withdraw_from_gas_key() -> Action {
+        let withdraw = Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+            public_key: PublicKey::empty(KeyType::ED25519),
+            amount: Balance::from_yoctonear(1),
+        }));
+        Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: alice_account(),
+                receiver_id: alice_account(),
+                actions: vec![withdraw.try_into().unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }))
+    }
+
+    #[test]
+    fn test_validate_action_delegated_withdraw_from_gas_key_rejected_in_new_receipt() {
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &delegate_with_withdraw_from_gas_key(),
+                &alice_account(),
+                ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.protocol_version(),
+            ),
+            Err(ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate)
+        );
+    }
+
+    #[test]
+    fn test_validate_action_delegated_withdraw_from_gas_key_allowed_in_existing_receipt() {
+        validate_action_with_mode(
+            &test_limit_config(),
+            &delegate_with_withdraw_from_gas_key(),
+            &alice_account(),
+            ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.protocol_version(),
+            ValidateReceiptMode::ExistingReceipt,
+        )
+        .expect("in-flight receipts must keep executing across the new rule");
+    }
+
+    #[test]
+    fn test_validate_action_delegated_withdraw_from_gas_key_allowed_before_rule() {
+        validate_action(
+            &test_limit_config(),
+            &delegate_with_withdraw_from_gas_key(),
+            &alice_account(),
+            ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.protocol_version() - 1,
         )
         .expect("valid action");
     }
