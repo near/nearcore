@@ -761,9 +761,16 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     eth_implicit_accounts_enabled: bool,
+    receiver_is_universal: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
+    // A `0u` receiver has no `AccountType` variant and reads as `NamedAccount`,
+    // so it is handled before the match. Like a deterministic account, the
+    // transfer creates it; its keys arrive later with the state init.
+    if receiver_is_universal {
+        return transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap();
+    }
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,
@@ -790,9 +797,16 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     eth_implicit_accounts_enabled: bool,
+    receiver_is_universal: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    // See `transfer_exec_fee`: `0u` receivers are not an `AccountType`.
+    if receiver_is_universal {
+        return transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap();
+    }
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,

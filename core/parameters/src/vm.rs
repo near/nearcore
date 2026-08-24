@@ -220,6 +220,10 @@ pub struct Config {
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
+    /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
+    /// implicit so a transfer can fund one before its state init is applied.
+    pub universal_accounts: bool,
+
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
@@ -301,6 +305,7 @@ impl Config {
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
+        self.universal_accounts = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;

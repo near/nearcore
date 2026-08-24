@@ -14,6 +14,15 @@ use near_parameters::{
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
+use near_primitives_core::universal_account_id::is_universal_account_id;
+
+/// Whether a transfer to `receiver_id` creates a `0u` universal account, which
+/// carries the same implied `CreateAccount` fee as a deterministic account.
+fn receiver_is_universal(config: &RuntimeConfig, receiver_id: &AccountId) -> bool {
+    // TODO(universal-accounts): replace with an `AccountType::Universal` check
+    // once `near-account-id` supports 0u accounts.
+    config.wasm_config.universal_accounts && is_universal_account_id(receiver_id.as_str())
+}
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -121,6 +130,7 @@ pub fn total_send_fees(
                     fees,
                     sender_is_receiver,
                     config.wasm_config.eth_implicit_accounts,
+                    receiver_is_universal(config, receiver_id),
                     receiver_id.get_account_type(),
                 )
             }
@@ -371,6 +381,7 @@ pub fn exec_fee(
             transfer_exec_fee(
                 fees,
                 config.wasm_config.eth_implicit_accounts,
+                receiver_is_universal(config, receiver_id),
                 receiver_id.get_account_type(),
             )
         }

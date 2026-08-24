@@ -139,6 +139,19 @@ impl Env {
         );
         self.run_tx(tx);
     }
+
+    fn transfer(&mut self, receiver: &AccountId, amount: Balance) {
+        let signer = create_user_test_signer(&self.user_account);
+        let tx = SignedTransaction::send_money(
+            self.next_nonce(),
+            self.user_account.clone(),
+            receiver.clone(),
+            &signer,
+            amount,
+            self.block_hash(),
+        );
+        self.run_tx(tx);
+    }
 }
 
 /// A key-only universal account is created and its access key is installed as a
@@ -235,5 +248,56 @@ fn test_universal_state_init_repeated() {
     assert_eq!(
         balance_after_first, balance_after_second,
         "repeated init must not add balance to the account"
+    );
+}
+
+/// A `0u` id can be funded before its state init exists: the transfer creates an
+/// uninitialized account holding nothing but balance, and a later state init
+/// installs the state on top of it without losing the funds.
+#[test]
+fn test_universal_state_init_after_transfer() {
+    if !feature_enabled() {
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-prefunded").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = derive_universal_account_id(&state_init);
+
+    // Funding a `0u` id that has no state yet creates the account.
+    let transferred = Balance::from_near(3);
+    env.transfer(&account, transferred);
+    let funded = env.view_account(&account);
+    assert_eq!(funded.amount, transferred, "transfer should credit the uninitialized account");
+    assert_eq!(funded.code_hash, CryptoHash::default(), "uninitialized account has no contract");
+
+    // The state init then installs the state, keeping the balance.
+    env.create_universal_account(state_init, &account, Balance::from_near(1));
+
+    let initialized = env.view_account(&account);
+    assert!(
+        initialized.amount >= transferred,
+        "balance funded before init must survive it: {} < {}",
+        initialized.amount,
+        transferred
+    );
+    assert!(
+        initialized.storage_usage > funded.storage_usage,
+        "installing state must grow storage usage: {} !> {}",
+        initialized.storage_usage,
+        funded.storage_usage
+    );
+
+    // The installed key works, so the account is fully usable after the init.
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
+    assert!(
+        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
+        "installed key must be full access, got {:?}",
+        access_key.permission
     );
 }

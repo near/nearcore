@@ -1,9 +1,10 @@
 use crate::access_keys::initial_nonce_value;
+use crate::actions::OrInconsistentState;
 use crate::deterministic_account_id::settle_state_init_deposit;
 use crate::global_contracts::use_global_contract;
 use crate::{ActionResult, ApplyState};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::UniversalStateInitAction;
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
@@ -28,27 +29,25 @@ pub(crate) fn action_universal_state_init(
     let fees = &apply_state.config.fees;
     let storage_usage_config = &fees.storage_usage_config;
 
-    // A `0u` account can only come into existence through this action, so
-    // an account that already exists here is the one this action initialized.
-    // Initialize on first sight; on repeat, skip straight to the deposit
-    // handling without touching the installed state.
+    // The account may already exist without its state: a transfer to a `0u` id
+    // creates an uninitialized account holding nothing but balance. Install on
+    // the first state init and skip straight to the deposit handling on a
+    // repeat, without touching the state already there.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),
-    // so `Some(account)` always means a completed install.
-    let needs_init = maybe_account.is_none();
+    // so an initialized account always means a completed install.
     let account = match maybe_account {
         Some(account) => account,
         // Create without changing actor_id, so a same-receipt follow-up can't hijack the account.
-        None => maybe_account.insert(Account::new(
+        None => maybe_account.insert(Account::new_uninitialized(
             Balance::ZERO,
-            Balance::ZERO,
-            AccountContract::None,
             storage_usage_config.num_bytes_account,
         )),
     };
 
-    if needs_init {
+    if !account.is_initialized() {
+        account.initialize().or_inconsistent_state(account_id)?;
         install_universal_account(
             state_update,
             account,

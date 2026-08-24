@@ -9,7 +9,9 @@ use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::universal_account_id::encode_universal_account_id;
+use near_primitives_core::universal_account_id::{
+    encode_universal_account_id, is_universal_account_id,
+};
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -445,7 +447,19 @@ where
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
 /// based on whether ETH-implicit accounts are enabled.
-pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
+///
+/// `0u` universal ids are handled separately: `AccountType` has no variant for
+/// them, so they parse as `NamedAccount` and are recognized by their prefix.
+pub fn account_is_implicit(
+    account_id: &AccountId,
+    eth_implicit_accounts_enabled: bool,
+    universal_accounts_enabled: bool,
+) -> bool {
+    // TODO(universal-accounts): replace with an `AccountType::Universal` check
+    // once `near-account-id` supports 0u accounts.
+    if universal_accounts_enabled && is_universal_account_id(account_id.as_str()) {
+        return true;
+    }
     if eth_implicit_accounts_enabled {
         account_id.get_account_type().is_implicit()
     } else {

@@ -60,6 +60,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (129, include_config!("129.yaml")),
     // Price gas-key exec fees on trie_id_len() and send fees on len().
     (153, include_config!("153.yaml")),
+    // Make `0u` ids implicit, so a transfer can fund a universal account
+    // before its state init is applied.
+    (154, include_config!("154.yaml")),
     (155, include_config!("155.yaml")),
     // Enable the sha3_256, sha3_384 and sha3_512 host functions.
     (156, include_config!("156.yaml")),
@@ -455,5 +458,13 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
+    }
+
+    /// Make sure that protocol feature flag and runtime config are in sync for universal accounts.
+    #[test]
+    fn test_universal_accounts_enabled() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let config = store.get_config(ProtocolFeature::UniversalAccounts.protocol_version());
+        assert!(config.wasm_config.universal_accounts)
     }
 }

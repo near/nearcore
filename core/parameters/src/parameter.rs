@@ -248,6 +248,7 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     EthImplicitAccounts,
+    UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
     ReftypesBulkMemory,
