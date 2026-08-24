@@ -95,10 +95,7 @@ impl CloudStorage {
                 "header".into(),
             ),
             CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id) => (
-                format!(
-                    "epoch_height={}/epoch_id={}/shard_id={}",
-                    epoch_height, epoch_id.0, shard_id,
-                ),
+                format!("epoch_height={epoch_height}/epoch_id={}/shard_id={shard_id}", epoch_id.0),
                 format!("state_part_{:06}_of_{:06}", part_id.idx, part_id.total),
             ),
         };
