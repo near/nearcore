@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.16"
+    "version": "1.3.17"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2835,38 +2835,15 @@
             "properties": {
               "UniversalStateInit": {
                 "properties": {
-                  "access_keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/PublicKeyHandle"
-                    },
-                    "type": "array"
-                  },
-                  "code": {
-                    "anyOf": [
-                      {
-                        "$ref": "#/components/schemas/GlobalContractIdentifierView"
-                      },
-                      {
-                        "enum": [
-                          null
-                        ],
-                        "nullable": true
-                      }
-                    ]
-                  },
-                  "data": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": "object"
-                  },
                   "deposit": {
                     "$ref": "#/components/schemas/NearToken"
+                  },
+                  "state_init": {
+                    "$ref": "#/components/schemas/UniversalStateInit"
                   }
                 },
                 "required": [
-                  "data",
-                  "access_keys",
+                  "state_init",
                   "deposit"
                 ],
                 "type": "object"

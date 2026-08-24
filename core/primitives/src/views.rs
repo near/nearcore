@@ -47,7 +47,7 @@ use crate::types::{
     StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
-use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use crate::universal_state_init::UniversalStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -1574,11 +1574,7 @@ pub enum ActionView {
         amount: Balance,
     } = 15,
     UniversalStateInit {
-        code: Option<GlobalContractIdentifierView>,
-        #[serde_as(as = "BTreeMap<Base64, Base64>")]
-        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        access_keys: Vec<PublicKeyHandle>,
+        state_init: UniversalStateInit,
         deposit: Balance,
     } = 17,
 }
@@ -1651,12 +1647,10 @@ impl From<Action> for ActionView {
                 public_key: action.public_key,
                 amount: action.amount,
             },
-            Action::UniversalStateInit(action) => {
-                let (code, data, access_keys) = action.state_init.take();
-                let code = code.map(Into::into);
-                let access_keys = access_keys.into_iter().collect();
-                ActionView::UniversalStateInit { code, data, access_keys, deposit: action.deposit }
-            }
+            Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
+                state_init: action.state_init,
+                deposit: action.deposit,
+            },
         }
     }
 }
@@ -1740,13 +1734,9 @@ impl TryFrom<ActionView> for Action {
                     amount,
                 }))
             }
-            ActionView::UniversalStateInit { code, data, access_keys, deposit } => {
+            ActionView::UniversalStateInit { state_init, deposit } => {
                 Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                    state_init: UniversalStateInit::V1(UniversalStateInitV1 {
-                        code: code.map(GlobalContractIdentifier::from),
-                        data,
-                        access_keys: access_keys.into_iter().collect(),
-                    }),
+                    state_init,
                     deposit,
                 }))
             }

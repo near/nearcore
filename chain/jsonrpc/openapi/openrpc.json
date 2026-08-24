@@ -1683,35 +1683,15 @@
             "properties": {
               "UniversalStateInit": {
                 "properties": {
-                  "access_keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/PublicKeyHandle"
-                    },
-                    "type": "array"
-                  },
-                  "code": {
-                    "oneOf": [
-                      {
-                        "$ref": "#/components/schemas/GlobalContractIdentifierView"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "data": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": "object"
-                  },
                   "deposit": {
                     "$ref": "#/components/schemas/NearToken"
+                  },
+                  "state_init": {
+                    "$ref": "#/components/schemas/UniversalStateInit"
                   }
                 },
                 "required": [
-                  "data",
-                  "access_keys",
+                  "state_init",
                   "deposit"
                 ],
                 "type": "object"
