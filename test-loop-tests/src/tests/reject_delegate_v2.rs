@@ -14,7 +14,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::{Action, SignedTransaction, TransactionNonce, TransferAction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex, ProtocolVersion};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 const NONCE_INDEX: NonceIndex = 0;
@@ -65,6 +65,11 @@ fn test_reject_delegate_v2_protocol_upgrade() {
 
     let new_protocol = ProtocolFeature::RejectDelegateV2.protocol_version();
     let old_protocol = new_protocol - 1;
+    assert!(
+        old_protocol >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "no supported protocol version still admits DelegateV2, so there is nothing left to \
+         test here - remove this test"
+    );
 
     let sender = create_account_id("alice");
     let relayer = create_account_id("relayer");

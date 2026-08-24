@@ -19,7 +19,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, AccessKeyView, FinalExecutionOutcomeView, FinalExecutionStatus,
     QueryRequest, QueryResponseKind,
@@ -183,6 +183,11 @@ fn test_gas_key_delegate_v2_meta_transaction() {
     // `RejectDelegateV2` removes gas key meta transactions, so this runs on the
     // last protocol version that still admits them.
     let last_supported_protocol_version = ProtocolFeature::RejectDelegateV2.protocol_version() - 1;
+    assert!(
+        last_supported_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "no supported protocol version still admits gas key meta transactions, so there is \
+         nothing left to test here - remove this test"
+    );
 
     let user_accounts = create_account_ids(["account0", "account1", "account2"]);
     let initial_balance = Balance::from_near(1_000_000);
