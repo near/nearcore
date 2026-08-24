@@ -98,7 +98,7 @@ impl SpiceDataManager {
                     self.items.get(*id).is_some_and(|item| item.height() == *height)
                 })
             })
-            .filter(|&id| seen.insert(id.clone()))
+            .filter(|&id| seen.insert(id))
             .cloned()
             .collect()
     }
@@ -106,7 +106,9 @@ impl SpiceDataManager {
     /// Removes live items at or below `height` and drains their index entries.
     pub(crate) fn expire_through(&mut self, height: BlockHeight) -> Vec<(DataId, Item)> {
         let mut expiring = take(&mut self.items_by_height);
-        self.items_by_height = expiring.split_off(&height.saturating_add(1));
+        if let Some(next) = height.checked_add(1) {
+            self.items_by_height = expiring.split_off(&next);
+        }
         let mut expired = Vec::new();
         for (indexed_height, ids) in expiring {
             for id in ids {

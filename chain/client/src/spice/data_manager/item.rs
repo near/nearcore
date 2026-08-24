@@ -147,6 +147,15 @@ pub(crate) enum FetchState {
     ProcessedLocally { attribution: DataAttribution },
 }
 
+/// Runs a state transition that needs ownership of the current state; the state `f`
+/// returns is written back before this returns.
+fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchState, T)) -> T {
+    // The transient `Need` is never observable.
+    let (next, result) = f(replace(state, FetchState::Need));
+    *state = next;
+    result
+}
+
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
     pub(crate) lane: Lane,
@@ -240,51 +249,40 @@ impl FetchItem {
         &mut self,
         completed: CompletedCodedData,
     ) -> Result<SpiceData, AssemblyError> {
-        let FetchState::Collecting(mut assembly) = replace(&mut self.state, FetchState::Need)
-        else {
-            return Err(AssemblyError::NotCollecting);
-        };
-        match assembly.take_attribution(&completed.commitment) {
-            Ok(attribution) => {
-                self.state = FetchState::Delivered { attribution, residual: assembly };
-                Ok(completed.data)
+        transition(&mut self.state, |state| match state {
+            FetchState::Collecting(mut assembly) => {
+                match assembly.take_attribution(&completed.commitment) {
+                    Ok(attribution) => {
+                        let delivered = FetchState::Delivered { attribution, residual: assembly };
+                        (delivered, Ok(completed.data))
+                    }
+                    Err(error) => (FetchState::Collecting(assembly), Err(error)),
+                }
             }
-            Err(error) => {
-                self.state = FetchState::Collecting(assembly);
-                Err(error)
-            }
-        }
+            state => (state, Err(AssemblyError::NotCollecting)),
+        })
     }
 
     pub(crate) fn mark_verified(&mut self) -> Result<(), AssemblyError> {
-        let state = replace(&mut self.state, FetchState::Need);
-        match state {
+        transition(&mut self.state, |state| match state {
             FetchState::Delivered { attribution, .. } => {
-                self.state = FetchState::ProcessedLocally { attribution };
-                Ok(())
+                (FetchState::ProcessedLocally { attribution }, Ok(()))
             }
-            state => {
-                self.state = state;
-                Err(AssemblyError::NotDelivered)
-            }
-        }
+            state => (state, Err(AssemblyError::NotDelivered)),
+        })
     }
 
     pub(crate) fn mark_failed(&mut self, clock: &Clock) -> Result<Vec<AccountId>, AssemblyError> {
-        let state = replace(&mut self.state, FetchState::Need);
-        match state {
+        transition(&mut self.state, |state| match state {
             FetchState::Delivered { attribution, residual } => {
                 let contributors = attribution.contributors();
                 self.banned_commitments.insert(attribution.winning);
+                // the wait for the verdict does not count toward the pull timer
                 self.first_unit_at = residual.has_parts().then(|| clock.now());
-                self.state = FetchState::Collecting(residual);
-                Ok(contributors)
+                (FetchState::Collecting(residual), Ok(contributors))
             }
-            state => {
-                self.state = state;
-                Err(AssemblyError::NotDelivered)
-            }
-        }
+            state => (state, Err(AssemblyError::NotDelivered)),
+        })
     }
 }
 
@@ -301,6 +299,8 @@ impl Assembly {
         Self::Coded { encoder, trackers: HashMap::new() }
     }
 
+    /// A returned `Complete` must be resolved (delivered or failed) before the next
+    /// insert; a completed tracker never survives the call that completed it.
     pub(crate) fn insert_verified_coded_part(
         &mut self,
         commitment: &SpiceDataCommitment,
@@ -311,6 +311,10 @@ impl Assembly {
         let Self::Coded { encoder, trackers } = self else {
             return Err(AssemblyError::WrongTransferUnit);
         };
+        debug_assert!(
+            !trackers.values().any(CodedTracker::is_complete),
+            "a completion was left unresolved"
+        );
         if ordinal >= encoder.total_parts() {
             return Err(AssemblyError::InvalidOrdinal);
         }
@@ -339,7 +343,8 @@ impl Assembly {
                 }))
             }
             TrackerInsertResult::Garbage => {
-                let tracker = trackers.remove(commitment).expect("tracker was just inserted into");
+                let tracker =
+                    trackers.remove(commitment).expect("tracker should exist for this commitment");
                 Ok(PartInsertResult::Garbage { contributors: tracker.contributors() })
             }
         }

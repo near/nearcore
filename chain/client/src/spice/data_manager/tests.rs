@@ -211,6 +211,16 @@ fn wrong_length_part_does_not_create_or_back_a_tracker() {
         assert!(matches!(error, AssemblyError::WrongPartLength));
     }
 
+    // A hostile encoded_length must reject the part, not overflow computing the length.
+    let huge = SpiceDataCommitment {
+        hash: CryptoHash::default(),
+        root: CryptoHash::default(),
+        encoded_length: u64::MAX,
+    };
+    let error =
+        assembly.insert_verified_coded_part(&huge, &sender, 0, Box::new([0u8; 8])).unwrap_err();
+    assert!(matches!(error, AssemblyError::WrongPartLength));
+
     // The rejected parts backed nothing, so the same sender may back another commitment,
     // and no tracker for `first` widens the missing set.
     assembly.insert_verified_coded_part(&second, &sender, 0, second_parts.remove(0)).unwrap();
@@ -329,6 +339,40 @@ fn verdict_on_an_item_that_was_never_delivered_is_rejected() {
         panic!("item left collecting");
     };
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn mark_delivered_outside_collecting_preserves_the_state() {
+    let fake_clock = FakeClock::default();
+    let clock = fake_clock.clock();
+    let encoder = encoder();
+    let (winner, winner_parts) = encode(&encoder, &receipt_data(0, 1));
+    let (other, other_parts) = encode(&encoder, &receipt_data(0, 2));
+    let mut item = coded_fetch_item(encoder.clone(), 10);
+    let completed = complete(&mut item, &clock, &winner, winner_parts, "winner");
+    item.mark_delivered(completed).unwrap();
+
+    let spare = complete(
+        &mut coded_fetch_item(encoder.clone(), 10),
+        &clock,
+        &other,
+        other_parts.clone(),
+        "other",
+    );
+    let error = item.mark_delivered(spare).unwrap_err();
+
+    assert!(matches!(error, AssemblyError::NotCollecting));
+    let FetchState::Delivered { attribution, .. } = &item.state else {
+        panic!("delivered state was not preserved");
+    };
+    assert_eq!(attribution.winning, winner);
+
+    item.mark_verified().unwrap();
+    let spare = complete(&mut coded_fetch_item(encoder, 10), &clock, &other, other_parts, "other");
+    let error = item.mark_delivered(spare).unwrap_err();
+
+    assert!(matches!(error, AssemblyError::NotCollecting));
+    assert!(matches!(item.state, FetchState::ProcessedLocally { .. }));
 }
 
 #[test]
@@ -515,7 +559,7 @@ fn expiry_takes_only_heights_at_or_below_the_final_head() {
     let high = DataId::Witness(chunk(10, 0));
     let mut manager = SpiceDataManager::default();
     manager.insert(low.clone(), Item::Fetch(coded_fetch_item(encoder.clone(), 5)));
-    manager.insert(high.clone(), Item::Fetch(coded_fetch_item(encoder, 10)));
+    manager.insert(high.clone(), Item::Fetch(coded_fetch_item(encoder.clone(), 10)));
 
     let expired = manager.expire_through(5).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
 
@@ -523,6 +567,12 @@ fn expiry_takes_only_heights_at_or_below_the_final_head() {
     assert_eq!(manager.items_in_height_range(5, 10), vec![high.clone()]);
     assert!(manager.get(&high).is_some());
     assert_eq!(manager.expire_through(10).len(), 1);
+
+    // "At or below" holds at the type boundary too.
+    let top = DataId::Witness(chunk(u64::MAX, 0));
+    manager.insert(top.clone(), Item::Fetch(coded_fetch_item(encoder, u64::MAX)));
+    assert_eq!(manager.expire_through(u64::MAX).len(), 1);
+    assert!(manager.get(&top).is_none());
 }
 
 #[test]
