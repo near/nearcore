@@ -347,7 +347,7 @@ impl CloudArchiveHarness {
     fn start_recent_reader(&self) {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
         // TODO(cloud_archival): consider splitting the chain store, we do not need
-        // transaction_validity_period in our usecase.
+        // transaction_validity_period in our use case.
         let chain_store = ChainStore::new(
             self.recent_reader_store(),
             true,
