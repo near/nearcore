@@ -18,9 +18,9 @@ pub enum BlockData {
 }
 
 // TODO(cloud_archival): remove this note once the cloud blob format is stabilized.
-// Pre-stabilization there is no committed blob-format contract, so appending a field
+// Pre-stabilization there is no committed blob-format contract, so adding a field
 // to `V1` is fine: no stable blobs exist to break. Once the format freezes, add a
-// `BlockData::V2` variant instead of appending here.
+// `BlockData::V2` variant instead of changing `V1`.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BlockDataV1 {
     /// Read from `DBCol::Block`.
