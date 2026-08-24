@@ -1875,7 +1875,9 @@ fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     // `save_block_data` writes them back byte-for-byte into a fresh store; only
     // ChunkProducers is asserted.
     let fresh = create_test_store();
-    save_block_data(&fresh, &block_data);
+    let mut update = fresh.store_update();
+    save_block_data(&mut update, &block_data);
+    update.commit();
     let fresh_rows: BTreeMap<Vec<u8>, Vec<u8>> = fresh
         .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
         .map(|(k, v)| (k.into_vec(), v.into_vec()))

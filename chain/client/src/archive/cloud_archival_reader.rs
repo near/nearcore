@@ -1,3 +1,4 @@
+use anyhow::bail;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::archive::cloud_storage::{
@@ -15,19 +16,17 @@ pub enum CloudArchivalReaderError {
     NoSnapshotFound,
 }
 
-/// Writes block-level data from cloud storage into the local store.
+/// Writes block-level columns from a cloud `BlockData` into `update`.
 ///
 /// Block, BlockHeader, BlockInfo (content-addressed by hash) and, on nightly,
 /// ChunkProducers all use `insert_ser` (insert-only columns). BlockHeight and
 /// BlockMerkleTree use `set_ser` (regular columns, keyed by height or hash, safe
 /// to overwrite).
-pub fn save_block_data(store: &Store, block_data: &BlockData) {
+pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     let block = block_data.block();
     let header = block.header();
     let block_hash = *header.hash();
     let height = header.height();
-
-    let mut update = store.store_update();
 
     update.insert_ser(DBCol::BlockHeader, block_hash.as_ref(), header);
     update.insert_ser(DBCol::Block, block_hash.as_ref(), block);
@@ -43,8 +42,6 @@ pub fn save_block_data(store: &Store, block_data: &BlockData) {
             stake,
         );
     }
-
-    update.commit();
 }
 
 /// Writes epoch-level data from cloud storage into the local store.
@@ -82,6 +79,7 @@ pub fn bootstrap_range(
     while height <= end_height {
         let batch = cloud_storage.get_block_batch_for_height(height)?;
         let last_in_batch = std::cmp::min(batch.end_height(), end_height);
+        let mut update = store.store_update();
         for h in height..=last_in_batch {
             let Some(block_data) = batch.get_block_at_height(h) else {
                 continue;
@@ -91,18 +89,18 @@ pub fn bootstrap_range(
                 let epoch_data = save_new_epoch(store, cloud_storage, &epoch_id)?;
                 first_epoch_data.get_or_insert(epoch_data);
             }
-            save_block_data(store, block_data);
+            save_block_data(&mut update, block_data);
             if (h - start_height).is_multiple_of(log_interval) || h == end_height {
                 let percent_done = (h - start_height + 1) * 100 / range_length;
                 tracing::info!(height = h, end_height, percent_done, "bootstrap progress");
             }
         }
+        update.commit();
         height = last_in_batch + 1;
     }
 
     let Some(first_epoch_data) = first_epoch_data else {
-        tracing::info!(start_height, end_height, "no block in the range");
-        return Ok(());
+        bail!("no block found in [{start_height}, {end_height}]");
     };
 
     // Reconstruct chunks over the requested range.
