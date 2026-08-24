@@ -171,13 +171,17 @@ impl PendingAccount {
 /// Returns true if the action is a deploy-like action per NEP-611:
 /// DeployContract, UseGlobalContract, DeterministicStateInit, or
 /// Delegate wrapping a deploy-like action.
+///
+/// The criterion is whether the action can set the contract field of an account.
+///
+/// A `UniversalStateInit` without code is not deploy-like.
 fn is_deploy_like_action(action: &Action) -> bool {
     match action {
         Action::DeployContract(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
-        | Action::DeterministicStateInit(_)
-        | Action::UniversalStateInit(_) => true,
+        | Action::DeterministicStateInit(_) => true,
+        Action::UniversalStateInit(action) => action.state_init.code().is_some(),
         Action::Delegate(signed_delegate) => {
             signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
         }
@@ -553,8 +557,11 @@ impl PendingTxSession {
 mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::action::{DeployContractAction, TransferAction};
+    use near_primitives::action::{
+        DeployContractAction, GlobalContractIdentifier, TransferAction, UniversalStateInitAction,
+    };
     use near_primitives::transaction::{SignedTransaction, TransactionNonce};
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 
     const TEST_SHARD_UID: ShardUId = ShardUId { version: 0, shard_id: 0 };
     const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
@@ -587,6 +594,31 @@ mod tests {
             signer.get_account_id(),
             signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 10] })],
+            CryptoHash::default(),
+        )
+    }
+
+    fn make_universal_state_init_tx(
+        signer: &Signer,
+        nonce: Nonce,
+        with_code: bool,
+    ) -> SignedTransaction {
+        let code = with_code
+            .then(|| GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(&[7u8; 4])));
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code,
+            data: Default::default(),
+            access_keys: Default::default(),
+        });
+        SignedTransaction::from_actions(
+            nonce,
+            signer.get_account_id(),
+            signer.get_account_id(),
+            signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init,
+                deposit: Balance::ZERO,
+            }))],
             CryptoHash::default(),
         )
     }
@@ -743,6 +775,20 @@ mod tests {
 
         with_shard_ptq(&sharded, |ptq| ptq.clear());
         with_shard_ptq(&sharded, |ptq| assert!(ptq.is_empty()));
+    }
+
+    /// Per NEP-611 a deploy-like action is one that can set the contract field of
+    /// an account, so a key-only `UniversalStateInit` is not deploy-like and must
+    /// not consume the signer's exclusivity slot.
+    #[test]
+    fn test_universal_state_init_is_deploy_like_only_with_code() {
+        let signer = test_signer();
+
+        let with_code = make_universal_state_init_tx(&signer, 1, true);
+        assert!(has_deploy_action(with_code.transaction.actions()));
+
+        let key_only = make_universal_state_init_tx(&signer, 2, false);
+        assert!(!has_deploy_action(key_only.transaction.actions()));
     }
 
     #[test]
