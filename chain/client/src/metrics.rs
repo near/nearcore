@@ -271,7 +271,8 @@ pub(crate) static SYNC_HIGHEST_PEER_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|
     try_create_int_gauge(
         "near_sync_highest_peer_height",
         "Highest block height known from peers. Unlike the head height, this keeps \
-         advancing while the node is syncing, so it shows how far behind the node is.",
+         advancing while the node is syncing, so it shows how far behind the node is. \
+         Holds the last observed tip while no peer reports one.",
     )
     .unwrap()
 });
