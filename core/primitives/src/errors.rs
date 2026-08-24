@@ -488,6 +488,13 @@ pub enum ActionsValidationError {
     } = 24,
     /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
     MalformedUniversalStateInit = 25,
+    /// The transaction includes a feature that was removed at or before the
+    /// current protocol version. The counterpart of
+    /// `UnsupportedProtocolFeature`, which covers features not yet available.
+    RemovedProtocolFeature {
+        protocol_feature: String,
+        version: ProtocolVersion,
+    } = 26,
 }
 
 /// Describes the error for validating a receipt.
@@ -642,6 +649,13 @@ impl Display for ActionsValidationError {
                 write!(
                     f,
                     "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
+                    protocol_feature, version,
+                )
+            }
+            ActionsValidationError::RemovedProtocolFeature { protocol_feature, version } => {
+                write!(
+                    f,
+                    "Transaction requires protocol feature {} which was removed and is not supported at protocol version {}",
                     protocol_feature, version,
                 )
             }

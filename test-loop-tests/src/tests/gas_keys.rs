@@ -18,7 +18,8 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyPermissionView, AccessKeyView, FinalExecutionOutcomeView, FinalExecutionStatus,
     QueryRequest, QueryResponseKind,
@@ -61,7 +62,7 @@ fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
 }
 
 /// Get the nonce for a gas key with specific nonce_index.
-fn get_gas_key_nonce(
+pub(crate) fn get_gas_key_nonce(
     env: &TestLoopEnv,
     account_id: &AccountId,
     public_key: &PublicKey,
@@ -179,11 +180,19 @@ fn test_gas_key_transaction() {
 fn test_gas_key_delegate_v2_meta_transaction() {
     init_test_logger();
 
+    // `RejectDelegateV2` removes gas key meta transactions, so this runs on the
+    // last protocol version that still admits them.
+    let last_supported_protocol_version = ProtocolFeature::RejectDelegateV2.protocol_version() - 1;
+
     let user_accounts = create_account_ids(["account0", "account1", "account2"]);
     let initial_balance = Balance::from_near(1_000_000);
     let gas_price = Balance::from_yoctonear(1);
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
+        .protocol_version(last_supported_protocol_version)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            last_supported_protocol_version,
+        ))
         .add_user_accounts(&user_accounts, initial_balance)
         .gas_prices(gas_price, gas_price)
         .build();

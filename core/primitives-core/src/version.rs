@@ -447,6 +447,12 @@ pub enum ProtocolFeature {
     ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
+    /// Reject `Action::DelegateV2`. Its inner nonce advances a gas key of the
+    /// delegate sender, which the SPICE pending transaction queue does not
+    /// track: the queue reads only the outer transaction's signer, public key
+    /// and nonce index. The action and payload types stay in the codebase to
+    /// hold a place for a future delegate action version.
+    RejectDelegateV2,
     EnforcePerReceiptStorageProofLimit,
     /// Extend the per-receipt storage proof limit to every action kind. The
     /// `RecordedStorageCounter` only runs inside the VM, so it bounds
@@ -603,6 +609,7 @@ impl ProtocolFeature {
 
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
+            ProtocolFeature::RejectDelegateV2 => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
