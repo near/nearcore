@@ -106,8 +106,7 @@ impl UniversalStateInit {
         }
     }
 
-    /// Summed length of all storage keys and values, in bytes. Multiplied by
-    /// the per-byte state-init fee, matching the deterministic-account rule.
+    /// Summed length of all storage keys and values, in bytes.
     pub fn len_bytes(&self) -> usize {
         state_init_data_len_bytes(self.data())
     }
