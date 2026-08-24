@@ -40,6 +40,7 @@ impl StateSyncProgressTracker {
         let SyncStatus::StateSync(status) = sync_status else {
             self.prev_sample = None;
             self.rates = None;
+            self.last_deadline_warning = None;
             return None;
         };
         let heights = status.heights?;
@@ -416,5 +417,15 @@ mod tests {
         let progress = format_state_sync_progress(&status, Some(stalled)).unwrap();
         assert!(progress.contains("download ETA >99h"), "{progress}");
         assert!(progress.ends_with("· WILL MISS"), "{progress}");
+    }
+
+    #[test]
+    fn leaving_state_sync_clears_the_warning_throttle() {
+        let clock = fake_clock();
+        let mut tracker = tracker_with_established_rates(&clock);
+        tracker.last_deadline_warning = Some(clock.clock().now());
+
+        tracker.update_rates_and_warn(&clock.clock(), &SyncStatus::NoSync);
+        assert!(tracker.last_deadline_warning.is_none());
     }
 }
