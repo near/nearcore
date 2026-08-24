@@ -155,6 +155,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
         DBCol::Block
             | DBCol::BlockInfo
             | DBCol::NextBlockHashes
+            | DBCol::BlockMerkleTree
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight
@@ -180,7 +181,6 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // From EpochData.
             | DBCol::EpochInfo
             | DBCol::EpochStart
-            | DBCol::BlockMerkleTree
 
             // From a state snapshot.
             | DBCol::State
