@@ -6,6 +6,7 @@ use near_chain_primitives::Error;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
@@ -28,6 +29,8 @@ pub struct BlockDataV1 {
     block_info: BlockInfo,
     /// Read from `DBCol::NextBlockHashes`.
     next_block_hash: CryptoHash,
+    /// Read from `DBCol::BlockMerkleTree`.
+    block_merkle_tree: PartialMerkleTree,
     /// Rows of `DBCol::ChunkProducers` for this block, keyed by shard_id; empty
     /// when EarlyKickout/nightly is off.
     chunk_producers: Vec<(ShardId, ValidatorStake)>,
@@ -52,10 +55,12 @@ pub fn build_block_data(
     let block = (*store.get_block(&block_hash)?).clone();
     let block_info = store.epoch_store().get_block_info(&block_hash)?;
     let next_block_hash = store.get_next_block_hash(&block_hash)?;
+    let block_merkle_tree = store.get_block_merkle_tree(&block_hash)?;
     // `read_chunk_producers` needs the base `Store`, not the chain-store adapter
     // that shadows `store` above.
     let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash)?;
-    let block_data = BlockDataV1 { block, block_info, next_block_hash, chunk_producers };
+    let block_data =
+        BlockDataV1 { block, block_info, next_block_hash, block_merkle_tree, chunk_producers };
     Ok(Some(BlockData::V1(block_data)))
 }
 
@@ -103,6 +108,12 @@ impl BlockData {
     pub fn next_block_hash(&self) -> &CryptoHash {
         match self {
             BlockData::V1(data) => &data.next_block_hash,
+        }
+    }
+
+    pub fn block_merkle_tree(&self) -> &PartialMerkleTree {
+        match self {
+            BlockData::V1(data) => &data.block_merkle_tree,
         }
     }
 
