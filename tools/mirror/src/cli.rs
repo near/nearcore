@@ -240,8 +240,8 @@ impl ShowKeysCmd {
             }
         };
         for key in &keys {
-            if let Some(k) = &key.original_key {
-                println!("original pub key: {}", k);
+            if let Some(k) = &key.original_handle {
+                println!("original handle: {}", k);
             }
             println!(
                 "mapped secret key: {}\nmapped public key: {}",
