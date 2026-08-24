@@ -24,7 +24,7 @@ pub(super) mod epoch_data;
 pub(super) mod file_id;
 pub(super) mod shards;
 
-pub use file_id::ListableCloudDir;
+pub use file_id::{CloudStorageFileID, ListableCloudDir};
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
@@ -41,14 +41,6 @@ impl CloudStorage {
         bucket_config: BucketConfig,
     ) -> Self {
         Self { external, chain_id, bucket_config }
-    }
-
-    pub fn connection(&self) -> &ExternalConnection {
-        &self.external
-    }
-
-    pub fn chain_id(&self) -> &str {
-        &self.chain_id
     }
 
     pub fn batch_size(&self) -> u32 {

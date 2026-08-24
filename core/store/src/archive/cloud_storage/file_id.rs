@@ -1,5 +1,6 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::batch::BatchId;
+use near_primitives::state_part::PartId;
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
 
 /// Cloud directories that can be safely listed (recursively).
@@ -43,6 +44,8 @@ pub enum CloudStorageFileID {
     ShardBatch(ShardId, BatchId),
     /// Identifier of the state snapshot header file for the given epoch and shard.
     StateHeader(EpochHeight, EpochId, ShardId),
+    /// Identifier of one state snapshot part file for the given epoch and shard.
+    StatePart(EpochHeight, EpochId, ShardId, PartId),
 }
 
 impl CloudStorageFileID {
@@ -56,6 +59,7 @@ impl CloudStorageFileID {
             CloudStorageFileID::BlockBatch(_) => "block_batch",
             CloudStorageFileID::ShardBatch(..) => "shard_batch",
             CloudStorageFileID::StateHeader(..) => "state_header",
+            CloudStorageFileID::StatePart(..) => "state_part",
         }
     }
 }
@@ -82,11 +86,17 @@ impl CloudStorage {
                 "data".into(),
             ),
             CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id) => (
-                format!(
-                    "epoch_height={}/epoch_id={}/headers/shard_id={}",
-                    epoch_height, epoch_id.0, shard_id,
-                ),
+                ListableCloudDir::StateHeader {
+                    epoch_height: *epoch_height,
+                    epoch_id: *epoch_id,
+                    shard_id: *shard_id,
+                }
+                .path(),
                 "header".into(),
+            ),
+            CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id) => (
+                format!("epoch_height={epoch_height}/epoch_id={}/shard_id={shard_id}", epoch_id.0),
+                format!("state_part_{:06}_of_{:06}", part_id.idx, part_id.total),
             ),
         };
         dir_path = format!("chain_id={}/{}", self.chain_id, dir_path);
