@@ -267,6 +267,24 @@ pub(crate) static TRACKED_SHARDS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 pub(crate) static SYNC_STATUS: LazyLock<IntGauge> =
     LazyLock::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
 
+pub(crate) static SYNC_HIGHEST_PEER_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_sync_highest_peer_height",
+        "Highest block height known from peers. Unlike the head height, this keeps \
+         advancing while the node is syncing, so it shows how far behind the node is.",
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_STALE_DEADLINE_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_state_sync_stale_deadline_height",
+        "Height at which the state sync hash goes stale, after which the node wipes \
+         its database and restarts. Zero when state sync is not running.",
+    )
+    .unwrap()
+});
+
 pub(crate) static EPOCH_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_epoch_height", "Height of the epoch at the head of the blockchain")
         .unwrap()

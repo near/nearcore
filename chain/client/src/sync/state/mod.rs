@@ -17,7 +17,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{BlockHeader, BlockProcessingArtifact, Chain};
 use near_chain_configs::{StateSyncConfig, SyncConcurrency};
 use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
-use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
+use near_client_primitives::types::{ShardSyncStatus, StateSyncHeights, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::StateResponse;
@@ -278,13 +278,24 @@ impl StateSync {
         let sync_hash = sync_status.sync_hash;
         let block_header = chain.get_block_header(&sync_hash)?;
 
+        // Recorded so the status line can show the remaining headroom.
+        let stale_deadline_height =
+            block_header.height() + chain.epoch_length + STALE_SYNC_HASH_THRESHOLD;
+        sync_status.heights = Some(StateSyncHeights {
+            sync_block: block_header.height(),
+            stale_deadline: stale_deadline_height,
+            highest: highest_height,
+        });
+        metrics::STATE_SYNC_STALE_DEADLINE_HEIGHT.set(stale_deadline_height as i64);
+
         // If the network has moved past this epoch, state parts are no longer
         // available. Trigger a data reset so the node can restart fresh.
-        if highest_height > block_header.height() + chain.epoch_length + STALE_SYNC_HASH_THRESHOLD {
+        if highest_height > stale_deadline_height {
             tracing::warn!(
                 target: "sync",
                 ?block_header,
                 highest_height,
+                stale_deadline_height,
                 "stale sync hash detected, triggering data reset"
             );
             return Ok(StateSyncResult::StaleSyncHash);
@@ -386,6 +397,12 @@ impl StateSync {
                 }
             };
             sync_status.sync_status.insert(*shard_id, status);
+            // Both phases report the same part count.
+            if let ShardSyncStatus::StateDownloadParts { total, .. }
+            | ShardSyncStatus::StateApplyInProgress { total, .. } = status
+            {
+                sync_status.parts_per_shard.insert(*shard_id, total);
+            }
             metrics::STATE_SYNC_STAGE
                 .with_label_values(&[&shard_id.to_string()])
                 .set(status.repr() as i64);

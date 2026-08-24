@@ -56,6 +56,7 @@ mod prepare_transactions;
 mod rpc_handler;
 pub mod spice;
 mod state_request_actor;
+mod state_sync_progress;
 pub mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;

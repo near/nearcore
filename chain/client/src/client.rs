@@ -2570,12 +2570,7 @@ impl Client {
                             self.state_sync_future_spawner.clone(),
                             true,
                         ),
-                        sync_status: StateSyncStatus {
-                            sync_hash,
-                            sync_status: HashMap::new(),
-                            download_tasks: Vec::new(),
-                            computation_tasks: Vec::new(),
-                        },
+                        sync_status: StateSyncStatus::new(sync_hash),
                         catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
                     }
                 });
