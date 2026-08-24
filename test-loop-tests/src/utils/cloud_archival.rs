@@ -9,15 +9,12 @@ use near_client::archive::cloud_archival_reader::{
     bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::sync::external::{
-    StateFileType, StateSyncConnection, external_storage_location, list_state_parts,
-};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::PartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -592,7 +589,7 @@ pub fn bootstrap_historical_reader(
             &snapshot_epoch_id,
             snapshot_epoch_height,
             shard_uid,
-            state_sync_state_root,
+            &state_header,
         ));
         assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
 
@@ -649,21 +646,19 @@ async fn download_and_apply_state_snapshot(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     shard_uid: ShardUId,
-    state_root: CryptoHash,
+    state_header: &ShardStateSyncResponseHeader,
 ) {
     let shard_id = shard_uid.shard_id();
-    let connection = StateSyncConnection::from_cloud_storage(cloud_storage);
-    let chain_id = cloud_storage.chain_id();
-    let num_parts =
-        list_state_parts(&connection, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
-    for part_id in 0..num_parts {
-        let file_type = StateFileType::StatePart { part_id, num_parts };
-        let location =
-            external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
-        let bytes = connection.get_file(shard_id, &location, &file_type).await.unwrap();
-        let partial_state = StatePart::from_bytes(bytes).unwrap().to_partial_state().unwrap();
-        let apply_result =
-            Trie::apply_state_part(&state_root, PartId::new(part_id, num_parts), partial_state);
+    let state_root = state_header.chunk_prev_state_root();
+    let num_parts = state_header.num_state_parts();
+    for part_index in 0..num_parts {
+        let part_id = PartId::new(part_index, num_parts);
+        let state_part = cloud_storage
+            .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
+            .await
+            .unwrap();
+        let partial_state = state_part.to_partial_state().unwrap();
+        let apply_result = Trie::apply_state_part(&state_root, part_id, partial_state);
         let mut store_update = tries.store_update();
         tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         store_update.commit();
