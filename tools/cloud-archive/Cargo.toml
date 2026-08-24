@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-borsh.workspace = true
 clap.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing.workspace = true

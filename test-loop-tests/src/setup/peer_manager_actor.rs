@@ -40,9 +40,10 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -284,6 +285,12 @@ impl TestLoopPeerManagerActor {
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
+/// Broadcast blocks withheld from one account, with a count of how many were withheld.
+struct SuppressedBlockDelivery {
+    heights: Range<BlockHeight>,
+    count: usize,
+}
+
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: BTreeMap<AccountId, PeerId>,
     senders: BTreeMap<PeerId, Arc<OneClientSenders>>,
@@ -291,6 +298,7 @@ struct TestLoopNetworkSharedStateInner {
     drop_events_senders: Arc<OneClientSenders>,
     route_back: BTreeMap<CryptoHash, PeerId>,
     disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
+    suppressed_block_recipients: BTreeMap<AccountId, SuppressedBlockDelivery>,
     archival_peer_ids: BTreeSet<PeerId>,
     /// Per-account tracked-shards config, populated when a client is added.
     tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
@@ -355,6 +363,7 @@ impl TestLoopNetworkSharedState {
             drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
             route_back: BTreeMap::new(),
             disallowed_peer_links: BTreeMap::new(),
+            suppressed_block_recipients: BTreeMap::new(),
             archival_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
             snapshot_hosts: BTreeMap::new(),
@@ -415,6 +424,35 @@ impl TestLoopNetworkSharedState {
     pub fn allow_all_requests(&self) {
         let mut guard = self.0.lock();
         guard.disallowed_peer_links = BTreeMap::new();
+    }
+
+    /// Stops delivery of broadcast blocks to `account_id` while the height is in `heights`.
+    /// Peer height announcements and requested blocks still arrive.
+    pub fn suppress_block_delivery(&self, account_id: &AccountId, heights: Range<BlockHeight>) {
+        let suppressed = SuppressedBlockDelivery { heights, count: 0 };
+        self.0.lock().suppressed_block_recipients.insert(account_id.clone(), suppressed);
+    }
+
+    /// How many broadcast blocks were withheld from `account_id`. Lets a test check that its
+    /// height window actually covered the behaviour under test.
+    pub fn suppressed_block_count(&self, account_id: &AccountId) -> usize {
+        let guard = self.0.lock();
+        guard.suppressed_block_recipients.get(account_id).map_or(0, |s| s.count)
+    }
+
+    fn is_block_delivery_suppressed(&self, account_id: &AccountId, height: BlockHeight) -> bool {
+        let guard = self.0.lock();
+        guard
+            .suppressed_block_recipients
+            .get(account_id)
+            .is_some_and(|s| s.heights.contains(&height))
+    }
+
+    fn count_suppressed_block(&self, account_id: &AccountId) {
+        let mut guard = self.0.lock();
+        if let Some(suppressed) = guard.suppressed_block_recipients.get_mut(account_id) {
+            suppressed.count += 1;
+        }
     }
 
     pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
@@ -650,15 +688,19 @@ fn network_message_to_client_handler(
 
                 let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
-                let future = senders.client_sender.send_async(
-                    BlockResponse {
-                        block: block.clone(),
-                        peer_id: my_peer_id.clone(),
-                        was_requested: false,
-                    }
-                    .span_wrap(),
-                );
-                drop(future);
+                if shared_state.is_block_delivery_suppressed(&account_id, block.header().height()) {
+                    shared_state.count_suppressed_block(&account_id);
+                } else {
+                    let future = senders.client_sender.send_async(
+                        BlockResponse {
+                            block: block.clone(),
+                            peer_id: my_peer_id.clone(),
+                            was_requested: false,
+                        }
+                        .span_wrap(),
+                    );
+                    drop(future);
+                }
 
                 senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
                     peer: PeerInfo {

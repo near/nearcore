@@ -5,7 +5,6 @@ use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
-use near_store::archive::cloud_storage::CloudStorage;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -59,13 +58,6 @@ impl StateSyncConnection {
         let connection =
             ExternalConnection::new(location, credentials_file, Some(s3_access_config));
         Self { connection }
-    }
-
-    // TODO(cloud_archival): state parts come through here, and `get_file` below reads with no
-    // credentials, which a private bucket refuses. Give them a `CloudStorageFileID` and
-    // retrieve them like every other archive object.
-    pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
-        Self { connection: cloud_storage.connection().clone() }
     }
 
     pub async fn get_file(
@@ -334,16 +326,52 @@ pub async fn download_and_apply_state_parts_sequentially(
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
-        ExternalConnection, StateFileType, StateSyncConnection, get_num_parts_from_filename,
-        get_part_id_from_filename, is_part_filename,
+        ExternalConnection, StateFileType, StateSyncConnection, external_storage_location,
+        get_num_parts_from_filename, get_part_id_from_filename, is_part_filename,
     };
     use near_chain_configs::ExternalStorageLocation;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::types::ShardId;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::state_part::PartId;
+    use near_primitives::types::{EpochId, ShardId};
+    use near_store::archive::cloud_storage::{BucketConfig, CloudStorage, CloudStorageFileID};
     use rand::distributions::{Alphanumeric, DistString};
+    use std::path::PathBuf;
 
     fn random_string(rand_len: usize) -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), rand_len)
+    }
+
+    /// For every kind of state file, the archive's key is where the state sync dumper writes it.
+    #[test]
+    fn test_state_file_keys_match_dump_location() {
+        let chain_id = "test";
+        let epoch_id = EpochId(CryptoHash::hash_bytes(b"epoch"));
+        let epoch_height = 7;
+        let shard_id = ShardId::new(3);
+        let part_id = PartId::new(5, 15);
+        let cloud_storage = CloudStorage::new(
+            ExternalConnection::Filesystem { root_dir: PathBuf::new() },
+            chain_id.to_string(),
+            BucketConfig::canonical(),
+        );
+
+        let kinds = [
+            (
+                StateFileType::StatePart { part_id: part_id.idx, num_parts: part_id.total },
+                CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id),
+            ),
+            (
+                StateFileType::StateHeader,
+                CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id),
+            ),
+        ];
+        for (file_type, file_id) in kinds {
+            assert_eq!(
+                cloud_storage.file_path(&file_id),
+                external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type),
+            );
+        }
     }
 
     #[test]
