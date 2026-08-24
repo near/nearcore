@@ -68,6 +68,8 @@ pub(crate) fn action_deterministic_state_init(
 /// storage-staking requirement: top up exactly what is missing and refund the
 /// rest, or fail with `LackBalanceForState` if the deposit can't cover it.
 /// Shared by the deterministic and universal state-init handlers.
+///
+/// See <https://github.com/near/NEPs/blob/master/neps/nep-0616.md#stateinit-action>.
 pub(crate) fn settle_state_init_deposit(
     account: &mut Account,
     deposit: Balance,
