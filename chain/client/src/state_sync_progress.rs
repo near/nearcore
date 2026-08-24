@@ -96,7 +96,7 @@ impl StateSyncProgressTracker {
             target: "sync",
             parts_downloaded = downloaded,
             parts_total = total,
-            parts_per_sec = format!("{:.2}", rates.parts_per_sec),
+            parts_per_sec = (rates.parts_per_sec * 100.0).round() / 100.0,
             download_eta = format_duration(projection.download_seconds),
             deadline_in = format_duration(projection.deadline_seconds),
             sync_block_height = heights.sync_block,
@@ -188,7 +188,7 @@ fn format_duration(seconds: f64) -> String {
 }
 
 /// Renders overall part progress and the deadline race, for example
-/// `parts 7981/8885 (90%) · download ETA 8m · deadline in 1975 blk (~43m) · OK`.
+/// `downloaded 7981/8885 (90%) · download ETA 8m · deadline in 1975 blk (~43m) · OK`.
 pub fn format_state_sync_progress(
     status: &StateSyncStatus,
     rates: Option<SyncRates>,
@@ -199,7 +199,7 @@ pub fn format_state_sync_progress(
     }
     let projection = rates.and_then(|rates| deadline_projection(status, rates));
 
-    let mut res = format!("parts {downloaded}/{total} ({}%)", downloaded * 100 / total);
+    let mut res = format!("downloaded {downloaded}/{total} ({}%)", downloaded * 100 / total);
     if let Some(projection) = projection {
         write!(res, " · download ETA {}", format_duration(projection.download_seconds)).unwrap();
     }
@@ -280,7 +280,7 @@ mod tests {
         );
         let rates = SyncRates { parts_per_sec: 3.0, blocks_per_sec: 1.0 };
         let progress = format_state_sync_progress(&status, Some(rates)).unwrap();
-        assert!(progress.starts_with("parts 100/1000 (10%)"), "{progress}");
+        assert!(progress.starts_with("downloaded 100/1000 (10%)"), "{progress}");
         assert!(progress.contains("download ETA 5m"), "{progress}");
         assert!(progress.ends_with("· OK"), "{progress}");
     }
@@ -306,7 +306,7 @@ mod tests {
             1_000,
         );
         let progress = format_state_sync_progress(&status, None).unwrap();
-        assert_eq!(progress, "parts 100/1000 (10%) · deadline in 43300 blk");
+        assert_eq!(progress, "downloaded 100/1000 (10%) · deadline in 43300 blk");
     }
 
     #[test]
