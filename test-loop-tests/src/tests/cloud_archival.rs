@@ -16,11 +16,10 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
-use near_client::archive::cloud_archival_reader::save_block_data;
-use near_client::archive::cloud_archival_reader::{
-    CloudArchivalRecentReader, find_snapshot_at_or_before,
-};
+use near_client::archive::cloud_archival_utils::save_block_data;
+use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;

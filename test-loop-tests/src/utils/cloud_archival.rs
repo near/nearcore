@@ -5,10 +5,11 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_reader::{
-    bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
+use near_client::archive::cloud_archival_utils::{
+    find_present_block_at_or_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
