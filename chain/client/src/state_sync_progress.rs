@@ -10,8 +10,19 @@ const NEW_SAMPLE_WEIGHT: f64 = 0.3;
 /// How often to repeat the warning that state sync will miss its deadline.
 const DEADLINE_WARNING_INTERVAL_SECONDS: f64 = 60.0;
 
+/// Shortest span the network head rate is measured over. The head arrives in
+/// bursts, so a short span reports anything between zero and several blocks a
+/// second.
+const MIN_HEAD_RATE_SPAN_SECONDS: f64 = 60.0;
+
+fn weighted_average(previous: f64, sample: f64) -> f64 {
+    previous * (1.0 - NEW_SAMPLE_WEIGHT) + sample * NEW_SAMPLE_WEIGHT
+}
+
+#[derive(Clone, Copy)]
 struct SyncSample {
     sampled_at: Instant,
+    sync_block: BlockHeight,
     parts_downloaded: u64,
     highest_height: BlockHeight,
 }
@@ -20,6 +31,10 @@ struct SyncSample {
 /// projected against the deadline at which the node wipes its database.
 #[derive(Default)]
 pub struct StateSyncProgressTracker {
+    /// First sample of the current attempt. Parts arrive steadily and are
+    /// averaged over the last few ticks, but the network head jumps in bursts,
+    /// so its rate is averaged over the whole attempt instead.
+    first_sample: Option<SyncSample>,
     prev_sample: Option<SyncSample>,
     rates: Option<SyncRates>,
     last_deadline_warning: Option<Instant>,
@@ -31,6 +46,13 @@ impl StateSyncProgressTracker {
         self.rates
     }
 
+    fn forget(&mut self) {
+        self.first_sample = None;
+        self.prev_sample = None;
+        self.rates = None;
+        self.last_deadline_warning = None;
+    }
+
     /// Returns the rates once two samples exist.
     pub fn update_rates_and_warn(
         &mut self,
@@ -38,32 +60,41 @@ impl StateSyncProgressTracker {
         sync_status: &SyncStatus,
     ) -> Option<SyncRates> {
         let SyncStatus::StateSync(status) = sync_status else {
-            self.prev_sample = None;
-            self.rates = None;
-            self.last_deadline_warning = None;
+            self.forget();
             return None;
         };
         let heights = status.heights?;
+        // A different sync block is a new attempt, so earlier samples say
+        // nothing about this one.
+        if self.first_sample.is_some_and(|first| first.sync_block != heights.sync_block) {
+            self.forget();
+        }
         let now = clock.now();
         let (parts_downloaded, _) = status.parts_progress();
-        let previous = self.prev_sample.replace(SyncSample {
+        let sample = SyncSample {
             sampled_at: now,
+            sync_block: heights.sync_block,
             parts_downloaded,
             highest_height: heights.highest,
-        });
+        };
+        let first = *self.first_sample.get_or_insert(sample);
+        let previous = self.prev_sample.replace(sample);
 
         let previous = previous?;
-        let elapsed = now.signed_duration_since(previous.sampled_at).as_seconds_f64();
-        if elapsed <= 0.0 {
+        let since_previous = now.signed_duration_since(previous.sampled_at).as_seconds_f64();
+        let since_first = now.signed_duration_since(first.sampled_at).as_seconds_f64();
+        if since_previous <= 0.0 || since_first < MIN_HEAD_RATE_SPAN_SECONDS {
             return self.rates;
         }
-        let sample = SyncRates {
-            parts_per_sec: parts_downloaded.saturating_sub(previous.parts_downloaded) as f64
-                / elapsed,
-            blocks_per_sec: heights.highest.saturating_sub(previous.highest_height) as f64
-                / elapsed,
+        let parts_sample =
+            parts_downloaded.saturating_sub(previous.parts_downloaded) as f64 / since_previous;
+        let rates = SyncRates {
+            parts_per_sec: self
+                .rates
+                .map_or(parts_sample, |rates| weighted_average(rates.parts_per_sec, parts_sample)),
+            blocks_per_sec: heights.highest.saturating_sub(first.highest_height) as f64
+                / since_first,
         };
-        let rates = self.rates.map_or(sample, |previous| previous.weighted_average_with(sample));
         self.rates = Some(rates);
         self.warn_if_deadline_will_be_missed(status, rates, now);
         Some(rates)
@@ -116,18 +147,6 @@ pub struct SyncRates {
     pub parts_per_sec: f64,
     /// Rate at which the network head advances.
     pub blocks_per_sec: f64,
-}
-
-impl SyncRates {
-    fn weighted_average_with(self, sample: SyncRates) -> SyncRates {
-        let weighted_average = |previous: f64, sample: f64| {
-            previous * (1.0 - NEW_SAMPLE_WEIGHT) + sample * NEW_SAMPLE_WEIGHT
-        };
-        SyncRates {
-            parts_per_sec: weighted_average(self.parts_per_sec, sample.parts_per_sec),
-            blocks_per_sec: weighted_average(self.blocks_per_sec, sample.blocks_per_sec),
-        }
-    }
 }
 
 /// The race between finishing the state part download and the sync hash going
@@ -350,13 +369,47 @@ mod tests {
         FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap())
     }
 
-    /// Two samples 10s apart, establishing 3 parts/s and 2 blocks/s.
+    /// Two samples 60s apart, establishing 0.5 parts/s and 1 block/s.
     fn tracker_with_established_rates(clock: &FakeClock) -> StateSyncProgressTracker {
         let mut tracker = StateSyncProgressTracker::default();
         tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
-        clock.advance(Duration::seconds(10));
-        tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_020));
+        clock.advance(Duration::seconds(60));
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060));
         tracker
+    }
+
+    #[test]
+    fn bursty_head_does_not_swing_block_rate() {
+        // The head jumps 120 blocks in one tick and none in the next. Averaging
+        // over the attempt keeps the rate at the true 1 block/s either way.
+        let clock = fake_clock();
+        let mut tracker = StateSyncProgressTracker::default();
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
+        clock.advance(Duration::seconds(60));
+        let burst = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060)).unwrap();
+        clock.advance(Duration::seconds(60));
+        let stall = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_120)).unwrap();
+        assert_eq!(burst.blocks_per_sec, 1.0);
+        assert_eq!(stall.blocks_per_sec, 1.0);
+
+        // A tick where the head does not move at all must not crater the rate.
+        clock.advance(Duration::seconds(60));
+        let quiet = tracker.update_rates_and_warn(&clock.clock(), &downloading(90, 1_120)).unwrap();
+        assert!(quiet.blocks_per_sec > 0.6, "{}", quiet.blocks_per_sec);
+    }
+
+    #[test]
+    fn new_sync_block_starts_fresh_attempt() {
+        let clock = fake_clock();
+        let mut tracker = tracker_with_established_rates(&clock);
+        assert!(tracker.rates().is_some());
+
+        let mut status = downloading(0, 1_000);
+        if let SyncStatus::StateSync(s) = &mut status {
+            s.heights.as_mut().unwrap().sync_block += 1;
+        }
+        assert!(tracker.update_rates_and_warn(&clock.clock(), &status).is_none());
+        assert!(tracker.rates().is_none());
     }
 
     #[test]
@@ -372,27 +425,27 @@ mod tests {
         let clock = fake_clock();
         let mut tracker = StateSyncProgressTracker::default();
         tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
-        clock.advance(Duration::seconds(10));
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_020)).unwrap();
-        assert_eq!(rates.parts_per_sec, 3.0);
-        assert_eq!(rates.blocks_per_sec, 2.0);
+        clock.advance(Duration::seconds(60));
+        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060)).unwrap();
+        assert_eq!(rates.parts_per_sec, 0.5);
+        assert_eq!(rates.blocks_per_sec, 1.0);
     }
 
     #[test]
     fn stalled_sample_does_not_erase_established_rate() {
         let clock = fake_clock();
         let mut tracker = tracker_with_established_rates(&clock);
-        clock.advance(Duration::seconds(10));
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_020)).unwrap();
-        assert!((rates.parts_per_sec - 3.0 * (1.0 - NEW_SAMPLE_WEIGHT)).abs() < 1e-9);
+        clock.advance(Duration::seconds(60));
+        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_120)).unwrap();
+        assert!((rates.parts_per_sec - 0.5 * (1.0 - NEW_SAMPLE_WEIGHT)).abs() < 1e-9);
     }
 
     #[test]
     fn second_sample_at_same_instant_keeps_previous_rates() {
         let clock = fake_clock();
         let mut tracker = tracker_with_established_rates(&clock);
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_040)).unwrap();
-        assert_eq!(rates.parts_per_sec, 3.0);
+        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_120)).unwrap();
+        assert_eq!(rates.parts_per_sec, 0.5);
     }
 
     #[test]
@@ -420,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn leaving_state_sync_clears_the_warning_throttle() {
+    fn leaving_state_sync_clears_warning_throttle() {
         let clock = fake_clock();
         let mut tracker = tracker_with_established_rates(&clock);
         tracker.last_deadline_warning = Some(clock.clock().now());
