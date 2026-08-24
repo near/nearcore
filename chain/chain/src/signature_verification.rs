@@ -131,20 +131,44 @@ fn verify_anchored_chunk_key(
                          height {expected_height}"
                     )));
                 }
-                // Without the parent the grandchild's epoch is not derivable, and this branch
-                // binds only the height. At an epoch tail the grandchild sits in the next
-                // epoch, so a sender-claimed `epoch_id` would go unchecked. Defer tail anchors
-                // until the parent is known; the parent-known branch above binds the epoch.
-                // `epoch_length` comes from the anchor's own (trusted) epoch, never the claimed
-                // one. The `epoch_length <= 3` arm closes the false negative left by
-                // `is_next_block_in_next_epoch_impl`, which drops the `+ 3` slack for tiny
-                // epochs; it runs before the penultimate predicate so those anchors skip that
-                // predicate's extra ancestry read.
+                // This branch binds only the height, so at an epoch tail a sender-claimed
+                // `epoch_id` would go unchecked while the grandchild really sits in the next
+                // epoch. Three-way split, with `epoch_length` always read from the anchor's own
+                // (trusted) epoch, never the claimed one:
+                // - tiny epochs: `is_next_block_in_next_epoch_impl` drops the `+ 3` slack, so
+                //   the penultimate predicate is untrustworthy AND the grandchild of a
+                //   last-of-epoch anchor can itself cross another boundary (epoch_length 1).
+                //   Defer every non-default anchor. Must run first: the bind below is unsound
+                //   for tiny epochs.
+                // - last-of-epoch anchor: definitive from the anchor's own `BlockInfo` (the
+                //   same function block processing uses to assign the parent's epoch). With
+                //   `epoch_length > 3` the parent is the next epoch's first block and the
+                //   grandchild at anchor + 2 shares its epoch, so the claimed epoch is
+                //   derivable — bind it here instead of deferring. A mismatch is a quiet
+                //   deferral like every other pre-parent disposition, never a ban.
+                // - penultimate anchor: the parent may or may not close the epoch, so the
+                //   grandchild's epoch is genuinely ambiguous. The predicate is
+                //   false-positive-only, so this arm fails closed.
                 let epoch_length = epoch_manager.get_epoch_config(anchor.epoch_id())?.epoch_length;
-                if epoch_manager.is_next_block_epoch_start(prev_prev_block_hash)?
-                    || epoch_length <= 3
-                    || epoch_manager
-                        .is_next_block_possibly_last_in_epoch(anchor.height(), anchor.prev_hash())?
+                if epoch_length <= 3 {
+                    return Err(Error::DBNotFoundErr(format!(
+                        "{msg_label} anchor {prev_prev_block_hash:?} is in a tiny epoch; \
+                         deferring until parent {prev_block_hash:?} is known"
+                    )));
+                }
+                if epoch_manager.is_next_block_epoch_start(prev_prev_block_hash)? {
+                    let expected_epoch_id =
+                        epoch_manager.get_epoch_id_from_prev_block(prev_prev_block_hash)?;
+                    if epoch_id != &expected_epoch_id {
+                        return Err(Error::DBNotFoundErr(format!(
+                            "{msg_label} claimed epoch {epoch_id:?} does not match the epoch \
+                             implied by last-of-epoch anchor {prev_prev_block_hash:?}; \
+                             deferring until parent {prev_block_hash:?} is known"
+                        )));
+                    }
+                    // Claimed epoch bound; fall through to the height checks.
+                } else if epoch_manager
+                    .is_next_block_possibly_last_in_epoch(anchor.height(), anchor.prev_hash())?
                 {
                     return Err(Error::DBNotFoundErr(format!(
                         "{msg_label} anchor {prev_prev_block_hash:?} is an epoch tail; \
@@ -238,7 +262,7 @@ pub fn resolve_and_verify_anchored_producer(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_and_verify_anchored_producer, verify_anchored_chunk_key};
+    use super::verify_anchored_chunk_key;
     use crate::test_utils::setup_with_tx_validity_period;
     use crate::{Chain, ChainStoreAccess};
     use assert_matches::assert_matches;
@@ -388,14 +412,16 @@ mod tests {
         assert_matches!(check(expected_height - 1), Err(Error::InvalidPartialChunkStateWitness(_)));
     }
 
-    /// The parent-missing branch binds only the height, so it cannot notice that the chunk
-    /// crossed into the next epoch. Every anchor whose grandchild really changes epoch must be
-    /// deferred, and both tail arms (last-of-epoch and penultimate) must be exercised.
+    /// The parent-missing branch binds only the height, so at an epoch tail a sender-chosen
+    /// `epoch_id` would go unchecked. A last-of-epoch anchor determines its grandchild's epoch,
+    /// so the claimed epoch is bound instead: the honest claim keeps the parent-missing
+    /// optimization and a forged (old-epoch) claim defers. A penultimate anchor is genuinely
+    /// ambiguous, so it defers outright.
     #[test]
     // TestBlockBuilder does not maintain spice's prev_last_certified_block_epoch_id
     // across epoch boundaries, so header validation rejects the boundary block.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-    fn test_anchored_key_parent_absent_defers_epoch_tail_anchors() {
+    fn test_anchored_key_parent_absent_binds_or_defers_epoch_tail_anchors() {
         let fixture = ChainFixture::new(5, 14);
 
         let (mut last_of_epoch, mut penultimate, mut mid_epoch) = (0, 0, 0);
@@ -404,19 +430,38 @@ mod tests {
             if !fixture.is_epoch_tail(anchor) {
                 continue;
             }
-            // An honest chunk at exactly `anchor + 2` used to pass the height-only bind with a
-            // sender-chosen `epoch_id`. It must now be deferred instead.
-            assert_matches!(
-                result,
-                Err(Error::DBNotFoundErr(_)),
-                "epoch-tail anchor at index {anchor} must be deferred"
-            );
-            // The anchor is the last block of its epoch, so `is_next_block_epoch_start` is
-            // definitive; otherwise the parent is, and only the conservative
-            // `is_next_block_possibly_last_in_epoch` can catch it.
+            let height = fixture.height(anchor) + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET;
             if fixture.epoch_of(anchor + 1) != fixture.epoch_of(anchor) {
+                // Last-of-epoch anchor: `is_next_block_epoch_start` is definitive and the
+                // grandchild's epoch is derivable from the anchor alone.
+                assert_matches!(
+                    result,
+                    Ok(()),
+                    "honest claim at last-of-epoch anchor {anchor} must resolve"
+                );
+                // The forged claim of the anchor's own (old) epoch used to pass the
+                // height-only bind.
+                let forged = fixture.epoch_of(anchor);
+                assert_matches!(
+                    fixture.verify_missing_parent(anchor, &forged, height),
+                    Err(Error::DBNotFoundErr(_)),
+                    "forged old-epoch claim at last-of-epoch anchor {anchor} must defer"
+                );
+                // The epoch bind does not weaken the height pin: a skipped slot still defers.
+                assert_matches!(
+                    fixture.verify_missing_parent(anchor, &fixture.chunk_epoch(anchor), height + 1),
+                    Err(Error::DBNotFoundErr(_)),
+                    "skipped-slot chunk at last-of-epoch anchor {anchor} must defer"
+                );
                 last_of_epoch += 1;
             } else {
+                // Penultimate anchor: only the conservative false-positive-only predicate can
+                // catch it, so even the honest claim waits for the parent.
+                assert_matches!(
+                    result,
+                    Err(Error::DBNotFoundErr(_)),
+                    "penultimate epoch-tail anchor at index {anchor} must be deferred"
+                );
                 penultimate += 1;
             }
         }
@@ -493,19 +538,29 @@ mod tests {
         assert!(catch_all_only > 0, "test must cover anchors only the catch-all defers");
     }
 
-    /// A real genesis block hash as the anchor is an epoch tail by definition, so it is
-    /// deferred. The `CryptoHash::default()` sentinel keeps its own genesis handling.
+    /// A real genesis block hash as the anchor is a last-of-epoch anchor by definition
+    /// (`is_next_block_epoch_start(genesis)` is true), so the claimed epoch is bound: the
+    /// honest claim resolves without the parent and a forged claim defers. The
+    /// `CryptoHash::default()` sentinel keeps its own genesis handling.
     #[test]
     fn test_anchored_key_genesis_anchors() {
         let fixture = ChainFixture::new(1000, 3);
 
-        // `is_next_block_epoch_start(genesis)` is true, so a chunk at genesis + 2 with an
-        // unprocessed parent waits for that parent.
         assert!(fixture.epoch_manager.is_next_block_epoch_start(&fixture.hashes[0]).unwrap());
         assert_matches!(
             fixture.verify_missing_parent_at_offset(0),
+            Ok(()),
+            "genesis-anchored chunk with the honest claim must resolve without the parent"
+        );
+        let forged = EpochId(missing_hash(9));
+        assert_matches!(
+            fixture.verify_missing_parent(
+                0,
+                &forged,
+                fixture.height(0) + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+            ),
             Err(Error::DBNotFoundErr(_)),
-            "genesis-anchored chunk with a missing parent must be deferred"
+            "forged-epoch genesis-anchored chunk must defer"
         );
 
         // The default-anchor sentinel means the chunk has no grandparent at all. Nothing pins
@@ -531,7 +586,9 @@ mod tests {
     #[cfg(feature = "nightly")]
     mod nightly {
         use super::{ChainFixture, missing_hash};
-        use crate::signature_verification::verify_anchored_chunk_key;
+        use crate::signature_verification::{
+            resolve_and_verify_anchored_producer, verify_anchored_chunk_key,
+        };
         use assert_matches::assert_matches;
         use near_chain_primitives::Error;
         use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
@@ -609,7 +666,7 @@ mod tests {
             key: &ChunkProductionKey,
             anchor_hash: &CryptoHash,
         ) -> Result<near_primitives::types::validator_stake::ValidatorStake, Error> {
-            super::resolve_and_verify_anchored_producer(
+            resolve_and_verify_anchored_producer(
                 fixture.epoch_manager.as_ref(),
                 key,
                 &missing_hash(42),

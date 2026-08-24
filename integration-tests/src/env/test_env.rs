@@ -272,17 +272,26 @@ impl TestEnv {
             NetworkRequests::PartialEncodedChunkRequest { target, request, .. },
         ) = request
         {
-            let target_id = self.account_indices.index(&target.account_id.unwrap());
-            let response = self.get_partial_encoded_chunk_response(target_id, request);
-            tracing::info!(?response, "got response for partial encoded chunk request");
-            if let Some(response) = response {
-                self.shards_manager_adapters[id].send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
-                        partial_encoded_chunk_response: response,
-                        received_time: Instant::now(),
-                        recv_permit: RecvMessagePermit::none(),
-                    },
-                );
+            // A request without an account id is peer-routed in production (any peer
+            // tracking the shard). TestEnv has no peer layer, so emulate it by asking
+            // the other clients until one can serve the chunk.
+            let target_ids = match &target.account_id {
+                Some(account) => vec![self.account_indices.index(account)],
+                None => (0..self.clients.len()).filter(|i| *i != id).collect(),
+            };
+            for target_id in target_ids {
+                let response = self.get_partial_encoded_chunk_response(target_id, request.clone());
+                tracing::info!(?response, "got response for partial encoded chunk request");
+                if let Some(response) = response {
+                    self.shards_manager_adapters[id].send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                            partial_encoded_chunk_response: response,
+                            received_time: Instant::now(),
+                            recv_permit: RecvMessagePermit::none(),
+                        },
+                    );
+                    break;
+                }
             }
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
