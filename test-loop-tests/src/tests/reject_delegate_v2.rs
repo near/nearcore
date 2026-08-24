@@ -98,8 +98,8 @@ fn test_reject_delegate_v2_protocol_upgrade() {
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(10));
 
-    // The relayer picks the gas key nonces, so track them here the way a relayer
-    // would rather than reading them back between submissions.
+    // The loop below submits without waiting for execution, so the nonce at the
+    // head block goes stale. Read it once and count up from there.
     let mut gas_key_nonce =
         get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), NONCE_INDEX);
     let mut next_gas_key_nonce = || {
