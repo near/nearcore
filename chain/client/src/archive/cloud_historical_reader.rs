@@ -1,8 +1,9 @@
 use crate::archive::cloud_archival_utils::{save_block_data, save_new_epoch, save_shard_data};
 use anyhow::bail;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, EpochData};
-use near_store::{Store, set_cloud_reader_store};
 use std::collections::HashSet;
 
 /// Downloads block, epoch, and per-shard chunk data for `[start_height,
@@ -13,10 +14,15 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    // Before the first write, so an interrupted bootstrap leaves the store marked too.
-    let mut update = store.store_update();
-    set_cloud_reader_store(&mut update);
-    update.commit();
+    // Before the first write, so an interrupted bootstrap leaves a store a node
+    // refuses. Seeded below the range, nothing in it being written yet.
+    // TODO(cloud_archival): advance this head as the range is written, and resume
+    // from it.
+    if store.cloud_archival_store().reader_head().is_none() {
+        let mut update = store.cloud_archival_store().store_update();
+        update.set_reader_head(start_height - 1);
+        update.commit();
+    }
 
     let mut saved_epochs = HashSet::<EpochId>::new();
     let mut first_epoch_data: Option<EpochData> = None;

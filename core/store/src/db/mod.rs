@@ -51,12 +51,13 @@ pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
 /// Hash of the last block of the latest epoch this writer archived its assigned
 /// components for. GC stops at the start of that epoch.
 pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
-/// Set once a cloud-archive reader has written into this store. A running node refuses
-/// such a store; only the cloud-archive tool may use it.
+/// Highest height a cloud-archive reader has written every component through. Present
+/// only in a reader's store, which a running node refuses; only the cloud-archive
+/// tool may use one.
 // TODO(cloud_archival): consider supporting a normal node on a store that was a recent
 // reader's. It is missing at least the epoch info for the epoch after the head; what else
 // it needs is unknown.
-pub const CLOUD_READER_STORE_KEY: &[u8] = b"CLOUD_READER_STORE";
+pub const CLOUD_READER_HEAD_KEY: &[u8] = b"CLOUD_READER_HEAD";
 
 pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
     let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();

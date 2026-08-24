@@ -12,8 +12,9 @@ use crate::utils::cloud_archival::{
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
+use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -260,6 +261,7 @@ impl CloudArchiveHarness {
     const DEFAULT_EPOCH_LENGTH: BlockHeightDelta = 10;
     /// The node the recent reader takes over from. Every test runs one.
     const RECENT_READER_ACCOUNT: &str = "recent_reader";
+    const RECENT_READER_POLLING_INTERVAL: Duration = Duration::seconds(1);
     const RESHARDING_BOUNDARY_ACCOUNT: &str = "boundary";
     const TEST_BATCH_SIZE: u32 = 4;
     const USER_ACCOUNT: &str = "user_account";
@@ -342,10 +344,26 @@ impl CloudArchiveHarness {
 
     /// Kills the RPC node the recent reader takes over from and brings up the
     /// reader on the database that node leaves behind. No gc runs on it from here.
-    fn start_recent_reader(&self) -> CloudArchivalRecentReader {
+    fn start_recent_reader(&self) {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        // TODO(cloud_archival): run the reader over the database that node leaves.
-        CloudArchivalRecentReader::new()
+        // TODO(cloud_archival): consider splitting the chain store, we do not need
+        // transaction_validity_period in our usecase.
+        let chain_store = ChainStore::new(
+            self.recent_reader_store(),
+            true,
+            self.env.shared_state.genesis.config.transaction_validity_period,
+        );
+        let reader = CloudArchivalRecentReader::new(
+            self.env.test_loop.clock(),
+            chain_store,
+            Self::RECENT_READER_POLLING_INTERVAL,
+        );
+        self.env
+            .test_loop
+            .future_spawner("CloudArchivalRecentReader")
+            .spawn("cloud archival recent reader", async move {
+                reader.cloud_archival_loop().await.expect("the recent reader stopped")
+            });
     }
 
     fn recent_reader_store(&self) -> Store {

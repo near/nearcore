@@ -1,3 +1,4 @@
+use near_chain::Error;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::archive::cloud_storage::{
@@ -10,6 +11,8 @@ use near_store::{DBCol, Store, StoreUpdate};
 pub enum CloudArchivalReaderError {
     #[error(transparent)]
     Retrieval(#[from] CloudRetrievalError),
+    #[error(transparent)]
+    Chain(#[from] Error),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
 }
