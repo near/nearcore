@@ -486,6 +486,8 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 24,
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    MalformedUniversalStateInit = 25,
 }
 
 /// Describes the error for validating a receipt.
@@ -713,6 +715,9 @@ impl Display for ActionsValidationError {
                     "UniversalStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
+            ActionsValidationError::MalformedUniversalStateInit => {
+                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+            }
         }
     }
 }
@@ -897,6 +902,10 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
+    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
+    /// Action validation rejects such an action before it runs, so this only fires
+    /// if that check was bypassed.
+    MalformedUniversalStateInit = 29,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1248,6 +1257,9 @@ impl Display for ActionErrorKind {
             }
             ActionErrorKind::ReceiptStorageProofSizeExceeded { limit } => {
                 write!(f, "Receipt exceeded the storage proof size limit of {} bytes", limit)
+            }
+            ActionErrorKind::MalformedUniversalStateInit => {
+                write!(f, "UniversalStateInit payload is not a valid state init")
             }
         }
     }

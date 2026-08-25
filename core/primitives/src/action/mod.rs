@@ -4,7 +4,8 @@ pub mod delegate;
 // runtime. Reexporting it here avoids breakage on depending crates.
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit,
-    trie_key::GlobalContractCodeIdentifier, universal_state_init::UniversalStateInit,
+    trie_key::GlobalContractCodeIdentifier,
+    universal_state_init::{RawStateInit, UniversalStateInit},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -224,6 +225,10 @@ pub struct DeterministicStateInitAction {
 /// Create a `0u` universal account from its state init. The receiver id must
 /// equal `derive_universal_account_id(state_init)`; the attached `deposit`
 /// covers the new account's storage staking.
+///
+/// The state init travels as the bytes the producer serialized, because the
+/// receiver id commits to exactly those bytes. The typed [`UniversalStateInit`]
+/// is a decoded view of them, used where the state has to be installed or priced.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -237,7 +242,7 @@ pub struct DeterministicStateInitAction {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct UniversalStateInitAction {
-    pub state_init: UniversalStateInit,
+    pub state_init: RawStateInit,
     pub deposit: Balance,
 }
 
@@ -461,8 +466,15 @@ impl Action {
             | Action::UseGlobalContract(_)
             | Action::DeterministicStateInit(_) => false,
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
+            // A state init that does not decode carries no keys as far as this is
+            // concerned; it is rejected by action validation before it can run.
             Action::UniversalStateInit(a) => {
-                a.state_init.access_keys().iter().any(|handle| handle.key_type().is_post_quantum())
+                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+                    state_init
+                        .access_keys()
+                        .iter()
+                        .any(|handle| handle.key_type().is_post_quantum())
+                })
             }
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),

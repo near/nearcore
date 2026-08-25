@@ -12,6 +12,7 @@ use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::universal_state_init::UniversalStateInit;
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_vm_runner::logic::LimitConfig;
@@ -485,19 +486,22 @@ fn validate_universal_state_init(
         current_protocol_version,
     )?;
 
-    let state_init = &action.state_init;
-
-    if let Some(code) = state_init.code() {
-        validate_global_contract_identifier(code)?;
-    }
-
-    // The account id must be exactly the one derived from the state init.
-    let derived_id = derive_universal_account_id(state_init);
+    // The account id must be exactly the one derived from the bytes the producer
+    // serialized, so this hashes the wire form rather than any decoded view of it.
+    let derived_id = derive_universal_account_id(&action.state_init);
     if derived_id != *receiver_id {
         return Err(ActionsValidationError::InvalidUniversalStateInitReceiver {
             derived_id,
             receiver_id: receiver_id.clone(),
         });
+    }
+
+    // Everything below inspects the contents, so the bytes have to decode.
+    let state_init = UniversalStateInit::from_raw(&action.state_init)
+        .map_err(|_| ActionsValidationError::MalformedUniversalStateInit)?;
+
+    if let Some(code) = state_init.code() {
+        validate_global_contract_identifier(code)?;
     }
 
     // Individual storage keys and values must respect the trie limits.
@@ -562,7 +566,9 @@ mod tests {
     use near_primitives::transaction::{
         AddKeyAction, CreateAccountAction, DeleteKeyAction, TransactionNonce, TransferAction,
     };
-    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::universal_state_init::{
+        RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    };
     use near_primitives::version::PROTOCOL_VERSION;
     use std::collections::{BTreeMap, BTreeSet};
     use testlib::runtime_utils::alice_account;
@@ -1376,7 +1382,7 @@ mod tests {
 
         let action_for = |state_init: &UniversalStateInit| {
             Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init: state_init.clone(),
+                state_init: state_init.to_raw(),
                 deposit: Balance::ZERO,
             }))
         };
@@ -1397,7 +1403,7 @@ mod tests {
         // Happy path: receiver equals the derived id, feature enabled. Both a
         // contract account and a key-only account are valid.
         for state_init in [&contract, &key_only] {
-            let receiver = derive_universal_account_id(state_init);
+            let receiver = state_init.derive_account_id();
             assert_eq!(
                 validate_action(&limit, &action_for(state_init), &receiver, feature_version),
                 Ok(())
@@ -1405,14 +1411,14 @@ mod tests {
         }
 
         // Pre-feature: rejected as an unsupported protocol feature.
-        let receiver = derive_universal_account_id(&contract);
+        let receiver = contract.derive_account_id();
         assert!(matches!(
             validate_action(&limit, &action_for(&contract), &receiver, feature_version - 1),
             Err(ActionsValidationError::UnsupportedProtocolFeature { .. })
         ));
 
         // Receiver id that does not match the derived id.
-        let wrong = derive_universal_account_id(&key_only);
+        let wrong = key_only.derive_account_id();
         assert!(matches!(
             validate_action(&limit, &action_for(&contract), &wrong, feature_version),
             Err(ActionsValidationError::InvalidUniversalStateInitReceiver { .. })
@@ -1426,7 +1432,7 @@ mod tests {
             data: BTreeMap::new(),
             access_keys: BTreeSet::new(),
         });
-        let empty_receiver = derive_universal_account_id(&empty);
+        let empty_receiver = empty.derive_account_id();
         assert_eq!(
             validate_action(&limit, &action_for(&empty), &empty_receiver, feature_version),
             Ok(())
@@ -1441,7 +1447,7 @@ mod tests {
             })
         };
         let check = |state_init: &UniversalStateInit| {
-            let receiver = derive_universal_account_id(state_init);
+            let receiver = state_init.derive_account_id();
             validate_action(&limit, &action_for(state_init), &receiver, feature_version)
         };
 
@@ -1459,6 +1465,19 @@ mod tests {
                 length: 4_194_305,
                 limit: 4_194_304,
             })
+        );
+
+        // Bytes that are not a state init pass the receiver check, since the id is
+        // just their hash, and are then rejected for not decoding.
+        let malformed = RawStateInit(vec![7, 7, 7]);
+        let receiver = derive_universal_account_id(&malformed);
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: malformed,
+            deposit: Balance::ZERO,
+        }));
+        assert_eq!(
+            validate_action(&limit, &action, &receiver, feature_version),
+            Err(ActionsValidationError::MalformedUniversalStateInit)
         );
     }
 

@@ -23,7 +23,6 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKeyHandle;
-use near_primitives_core::deterministic_account_id::state_init_data_len_bytes;
 use near_primitives_core::global_contract::GlobalContractIdentifier;
 pub use near_primitives_core::universal_state_init::RawStateInit;
 use near_schema_checker_lib::ProtocolSchema;
@@ -106,11 +105,6 @@ impl UniversalStateInit {
         }
     }
 
-    /// Summed length of all storage keys and values, in bytes.
-    pub fn len_bytes(&self) -> usize {
-        state_init_data_len_bytes(self.data())
-    }
-
     /// Take the fields without cloning:
     /// `let (code, data, access_keys) = state_init.take();`.
     #[allow(clippy::type_complexity)]
@@ -130,9 +124,7 @@ impl UniversalStateInit {
 
     /// Decode `raw` into a typed value. Accepts any well-formed borsh encoding,
     /// rejecting only trailing or malformed bytes; a non-canonical encoding of
-    /// the same logical value is accepted (it hashes to a different id). Callers
-    /// that need a stable id should mint it through the typed `to_raw` / `derive`
-    /// path, which always serializes canonically.
+    /// the same logical value is accepted (it hashes to a different id).
     pub fn from_raw(raw: &RawStateInit) -> Result<Self, io::Error> {
         Self::try_from_slice(&raw.0)
     }

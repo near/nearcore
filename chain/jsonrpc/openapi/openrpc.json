@@ -1280,6 +1280,11 @@
             ],
             "title": "ReceiptStorageProofSizeExceeded",
             "type": "object"
+          },
+          {
+            "const": "MalformedUniversalStateInit",
+            "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
+            "type": "string"
           }
         ],
         "title": "ActionErrorKind"
@@ -1687,7 +1692,7 @@
                     "$ref": "#/components/schemas/NearToken"
                   },
                   "state_init": {
-                    "$ref": "#/components/schemas/UniversalStateInit"
+                    "$ref": "#/components/schemas/RawStateInit"
                   }
                 },
                 "required": [
@@ -2267,6 +2272,11 @@
             ],
             "title": "UniversalStateInitValueLengthExceeded",
             "type": "object"
+          },
+          {
+            "const": "MalformedUniversalStateInit",
+            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
+            "type": "string"
           }
         ],
         "title": "ActionsValidationError"
@@ -7825,6 +7835,11 @@
         "title": "PublicKeyHandle",
         "type": "string"
       },
+      "RawStateInit": {
+        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Two encodings of the same logical value\nare two different accounts, which is deliberate: canonical encoding cannot be\nenforced end to end anyway, since contracts serialize their own nested state\ninside the opaque storage values.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
+        "title": "RawStateInit",
+        "type": "string"
+      },
       "ReceiptEnumView": {
         "oneOf": [
           {
@@ -12855,33 +12870,14 @@
         ],
         "title": "TxExecutionStatus"
       },
-      "UniversalStateInit": {
-        "description": "Versioned initial state of a `0u` universal account. New fields or semantics\narrive as a new variant (`V2`, ...); the discriminant is the only version marker.",
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "v1": {
-                "$ref": "#/components/schemas/UniversalStateInitV1"
-              }
-            },
-            "required": [
-              "v1"
-            ],
-            "title": "V1",
-            "type": "object"
-          }
-        ],
-        "title": "UniversalStateInit"
-      },
       "UniversalStateInitAction": {
-        "description": "Create a `0u` universal account from its state init. The receiver id must\nequal `derive_universal_account_id(state_init)`; the attached `deposit`\ncovers the new account's storage staking.",
+        "description": "Create a `0u` universal account from its state init. The receiver id must\nequal `derive_universal_account_id(state_init)`; the attached `deposit`\ncovers the new account's storage staking.\n\nThe state init travels as the bytes the producer serialized, because the\nreceiver id commits to exactly those bytes. The typed [`UniversalStateInit`]\nis a decoded view of them, used where the state has to be installed or priced.",
         "properties": {
           "deposit": {
             "$ref": "#/components/schemas/NearToken"
           },
           "state_init": {
-            "$ref": "#/components/schemas/UniversalStateInit"
+            "$ref": "#/components/schemas/RawStateInit"
           }
         },
         "required": [
@@ -12889,38 +12885,6 @@
           "deposit"
         ],
         "title": "UniversalStateInitAction",
-        "type": "object"
-      },
-      "UniversalStateInitV1": {
-        "properties": {
-          "access_keys": {
-            "description": "Full-access keys as compact on-trie handles. Sorted for a canonical encoding.",
-            "items": {
-              "$ref": "#/components/schemas/PublicKeyHandle"
-            },
-            "type": "array",
-            "uniqueItems": true
-          },
-          "code": {
-            "description": "Contract code, or `None` for a key-only (EOA) account.",
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/GlobalContractIdentifier"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "data": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Initial storage; empty unless seeded. Sorted keys give a canonical encoding.",
-            "type": "object"
-          }
-        },
-        "title": "UniversalStateInitV1",
         "type": "object"
       },
       "UseGlobalContractAction": {

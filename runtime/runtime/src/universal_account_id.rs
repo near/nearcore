@@ -6,7 +6,7 @@ use crate::{ActionResult, ApplyState};
 use near_parameters::RuntimeFeesConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::UniversalStateInitAction;
-use near_primitives::errors::{IntegerOverflowError, RuntimeError};
+use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
@@ -47,12 +47,22 @@ pub(crate) fn action_universal_state_init(
     };
 
     if !account.is_initialized() {
+        // The action carries the bytes the producer serialized; installing the
+        // state needs them decoded. Every receipt is validated before its actions
+        // run and validation rejects a state init that does not decode, so this
+        // only fires if that invariant has been broken. Failing the action rather
+        // than the chunk keeps a hypothetical gap in that coverage from becoming a
+        // halt, since the payload comes from outside.
+        let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init) else {
+            result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
+            return Ok(());
+        };
         account.initialize().or_inconsistent_state(account_id)?;
         install_universal_account(
             state_update,
             account,
             account_id,
-            &action.state_init,
+            &state_init,
             result,
             fees,
             apply_state.block_height,

@@ -14,7 +14,8 @@ use crate::utils::account::{
 };
 use crate::utils::transactions;
 use near_async::time::Duration;
-use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
+use near_client_primitives::types::QueryError;
+use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{
@@ -25,7 +26,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::universal_state_init::{
+    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+};
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{AccessKeyPermissionView, AccountView};
@@ -96,9 +99,14 @@ impl Env {
     }
 
     fn view_account(&mut self, account: &AccountId) -> AccountView {
+        self.try_view_account(account).unwrap()
+    }
+
+    /// Like [`Self::view_account`], but for accounts that may not exist.
+    fn try_view_account(&mut self, account: &AccountId) -> Result<AccountView, QueryError> {
         // Let the RPC node catch up with previously submitted txs.
         self.env.test_loop.run_for(Duration::seconds(2));
-        self.env.rpc_node().view_account_query(account).unwrap()
+        self.env.rpc_node().view_account_query(account)
     }
 
     /// Deploy the standard test contract as a global contract, addressed by the
@@ -121,7 +129,7 @@ impl Env {
     /// signed and paid for by the user account.
     fn create_universal_account(
         &mut self,
-        state_init: UniversalStateInit,
+        state_init: RawStateInit,
         receiver: &AccountId,
         deposit: Balance,
     ) {
@@ -170,9 +178,9 @@ fn test_universal_state_init_key_only() {
         data: BTreeMap::new(),
         access_keys: BTreeSet::from([handle]),
     });
-    let account = derive_universal_account_id(&state_init);
+    let account = state_init.derive_account_id();
 
-    env.create_universal_account(state_init, &account, Balance::from_near(1));
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
 
     // The account now exists with state (a key-only account is a zero-balance
     // account, so its balance may legitimately be zero)...
@@ -203,8 +211,8 @@ fn test_universal_state_init_contract() {
         data: BTreeMap::new(),
         access_keys: BTreeSet::new(),
     });
-    let account = derive_universal_account_id(&state_init);
-    env.create_universal_account(state_init, &account, Balance::from_near(1));
+    let account = state_init.derive_account_id();
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
 
     // The deployed contract is usable: a function call succeeds (run_tx asserts success).
     let caller = env.global_contract_account.clone();
@@ -237,13 +245,13 @@ fn test_universal_state_init_repeated() {
         data: BTreeMap::new(),
         access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
     });
-    let account = derive_universal_account_id(&state_init);
+    let account = state_init.derive_account_id();
 
-    env.create_universal_account(state_init.clone(), &account, Balance::from_near(1));
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
     let balance_after_first = env.view_account(&account).amount;
 
     // Second init of the same account succeeds and leaves its balance unchanged.
-    env.create_universal_account(state_init, &account, Balance::from_near(1));
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
     let balance_after_second = env.view_account(&account).amount;
     assert_eq!(
         balance_after_first, balance_after_second,
@@ -267,7 +275,7 @@ fn test_universal_state_init_after_transfer() {
         data: BTreeMap::new(),
         access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
     });
-    let account = derive_universal_account_id(&state_init);
+    let account = state_init.derive_account_id();
 
     // Funding a `0u` id that has no state yet creates the account.
     let transferred = Balance::from_near(3);
@@ -277,7 +285,7 @@ fn test_universal_state_init_after_transfer() {
     assert_eq!(funded.code_hash, CryptoHash::default(), "uninitialized account has no contract");
 
     // The state init then installs the state, keeping the balance.
-    env.create_universal_account(state_init, &account, Balance::from_near(1));
+    env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
 
     let initialized = env.view_account(&account);
     assert!(
@@ -299,5 +307,68 @@ fn test_universal_state_init_after_transfer() {
         matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
         "installed key must be full access, got {:?}",
         access_key.permission
+    );
+}
+
+/// A state init whose borsh is valid but is not what the typed form would write:
+/// the storage entries are in descending key order, which borsh accepts and
+/// re-sorts on decode. Hand-assembled, since the typed API cannot express it.
+fn non_canonical_state_init(public_key: &PublicKey) -> RawStateInit {
+    let mut bytes = vec![
+        0, // V1
+        0, // code: None
+    ];
+    bytes.extend_from_slice(&2u32.to_le_bytes()); // data: 2 entries, descending
+    for (key, value) in [(b"b", b"2"), (b"a", b"1")] {
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(key);
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(value);
+    }
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // access_keys: 1
+    let handle = PublicKeyHandle::from(public_key.clone());
+    bytes.extend_from_slice(&borsh::to_vec(&handle).expect("borsh must not fail"));
+    RawStateInit(bytes)
+}
+
+/// The account created is the one derived from the bytes the sender serialized,
+/// not from re-encoding the struct they decode to. Two encodings of the same
+/// logical state init are two different accounts, which is what lets a producer
+/// whose serializer does not sort `BTree*` containers still address its account.
+#[test]
+fn test_universal_state_init_derives_from_supplied_bytes() {
+    if !feature_enabled() {
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical").public_key();
+    let raw = non_canonical_state_init(&public_key);
+
+    // Without this the test proves nothing: it has to be an encoding the typed
+    // form would not have written.
+    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
+    assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
+
+    let from_supplied = derive_universal_account_id(&raw);
+    let from_re_encoding = decoded.derive_account_id();
+    assert_ne!(from_supplied, from_re_encoding, "the two encodings must derive different ids");
+
+    env.create_universal_account(raw, &from_supplied, Balance::from_near(1));
+
+    // The account exists at the id derived from the bytes that were sent...
+    let view = env.view_account(&from_supplied);
+    assert!(view.storage_usage > 0, "the supplied bytes should have created the account");
+    let access_key = env.env.rpc_node().view_access_key_query(&from_supplied, &public_key).unwrap();
+    assert!(
+        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
+        "installed key must be full access, got {:?}",
+        access_key.permission
+    );
+
+    // ...and nothing exists at the id their re-encoding would have derived.
+    assert!(
+        env.try_view_account(&from_re_encoding).is_err(),
+        "re-encoding the decoded state init must not be what the id follows"
     );
 }

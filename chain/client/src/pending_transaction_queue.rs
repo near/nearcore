@@ -6,6 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
+use near_primitives::universal_state_init::UniversalStateInit;
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap};
@@ -174,14 +175,16 @@ impl PendingAccount {
 ///
 /// The criterion is whether the action can set the contract field of an account.
 ///
-/// A `UniversalStateInit` without code is not deploy-like.
+/// A `UniversalStateInit` without code is not deploy-like, and neither is one
+/// whose bytes do not decode, since it cannot execute at all.
 fn is_deploy_like_action(action: &Action) -> bool {
     match action {
         Action::DeployContract(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::DeterministicStateInit(_) => true,
-        Action::UniversalStateInit(action) => action.state_init.code().is_some(),
+        Action::UniversalStateInit(action) => UniversalStateInit::from_raw(&action.state_init)
+            .is_ok_and(|state_init| state_init.code().is_some()),
         Action::Delegate(signed_delegate) => {
             signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
         }
@@ -616,7 +619,7 @@ mod tests {
             signer.get_account_id(),
             signer,
             vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init,
+                state_init: state_init.to_raw(),
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),

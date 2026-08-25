@@ -47,7 +47,7 @@ use crate::types::{
     StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
-use crate::universal_state_init::UniversalStateInit;
+use crate::universal_state_init::RawStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -1574,7 +1574,7 @@ pub enum ActionView {
         amount: Balance,
     } = 15,
     UniversalStateInit {
-        state_init: UniversalStateInit,
+        state_init: RawStateInit,
         deposit: Balance,
     } = 17,
 }
