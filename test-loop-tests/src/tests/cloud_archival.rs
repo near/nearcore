@@ -20,7 +20,7 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_utils::save_block_data;
-use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
+use near_client::archive::cloud_recent_reader::{CloudArchivalRecentReader, take_over_store};
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -353,6 +353,9 @@ impl CloudArchiveHarness {
             true,
             self.env.shared_state.genesis.config.transaction_validity_period,
         );
+        let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+        let epoch_manager = self.env.node_for_account(&reader_id).client().epoch_manager.clone();
+        take_over_store(&chain_store, epoch_manager.as_ref()).expect("taking the store over");
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
             chain_store,
@@ -1961,7 +1964,13 @@ fn test_cloud_archival_recent_reader() {
     // the tail by the time the node switches over.
     h.run_until_epoch(h.gc_num_epochs_to_keep + 1);
     let reader = h.start_recent_reader();
-    let kept = h.recent_reader_store().chain_store().head().unwrap().height;
+    let store = h.recent_reader_store();
+    let kept = store.chain_store().final_head().unwrap().height;
+    assert_eq!(
+        store.cloud_archival_store().reader_head(),
+        Some(kept),
+        "the take-over did not seed the reader head from the final head"
+    );
     // Twice as far again, so gc would have taken the block held at the switch if
     // anything still gc-ed this database.
     h.run_until_epoch(2 * (h.gc_num_epochs_to_keep + 1));

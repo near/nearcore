@@ -1,6 +1,9 @@
 use near_chain::Error;
+use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
@@ -15,6 +18,8 @@ pub enum CloudArchivalReaderError {
     Chain(#[from] Error),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
+    #[error("the store carries no reader head")]
+    NoReaderHead,
 }
 
 /// Writes block-level columns from a cloud `BlockData` into `update`.
@@ -66,6 +71,57 @@ pub(crate) fn save_shard_data(update: &mut StoreUpdate, shard_id: ShardId, shard
     if let Some(outgoing_receipts) = shard_data.outgoing_receipts() {
         update.set_ser(DBCol::OutgoingReceipts, &block_shard_id, outgoing_receipts);
     }
+}
+
+/// Hash of the last block of the epoch before the one containing `block_hash`, or the
+/// genesis block when there is no earlier epoch.
+pub fn prev_epoch_end_hash(
+    store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<CryptoHash, Error> {
+    let chain_store = store.chain_store();
+    let epoch_start = epoch_manager.get_epoch_start_height(block_hash)?;
+    let genesis_height = chain_store.get_genesis_height();
+    // The genesis epoch has no earlier epoch; floor at the genesis block.
+    if epoch_start <= genesis_height {
+        return chain_store.get_block_hash_by_height(genesis_height);
+    }
+    let first_block_hash = chain_store.get_block_hash_by_height(epoch_start)?;
+    let first_block_header = chain_store.get_block_header(&first_block_hash)?;
+    Ok(*first_block_header.prev_hash())
+}
+
+/// Hash of the first block at or below `height` that the store holds.
+pub fn find_present_block_hash_at_or_below(
+    store: &Store,
+    height: BlockHeight,
+) -> Result<CryptoHash, Error> {
+    let chain_store = store.chain_store();
+    let genesis_height = chain_store.get_genesis_height();
+    for h in (genesis_height..=height).rev() {
+        match chain_store.get_block_hash_by_height(h) {
+            Ok(hash) => return Ok(hash),
+            Err(Error::DBNotFoundErr(_)) => continue,
+            Err(other) => return Err(other),
+        }
+    }
+    unreachable!("genesis block must be present")
+}
+
+/// The prev epoch end to start from at `height`.
+pub fn compute_initial_prev_epoch_end(
+    store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    height: BlockHeight,
+) -> Result<CryptoHash, Error> {
+    // `height` may be a skipped slot, so walk down to the nearest present block.
+    let block_hash = find_present_block_hash_at_or_below(store, height)?;
+    // If the block itself ends an epoch, it is the prev-epoch end.
+    if epoch_manager.is_next_block_epoch_start(&block_hash)? {
+        return Ok(block_hash);
+    }
+    prev_epoch_end_hash(store, epoch_manager, &block_hash)
 }
 
 /// First present block at or below `height`. Errors if no such block exists

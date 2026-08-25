@@ -1,5 +1,6 @@
 //! Cloud archival writer: moves finalized data from the hot store to the cloud storage.
 //! Runs in a loop until the cloud head catches up with the hot final head.
+use crate::archive::cloud_archival_utils::{compute_initial_prev_epoch_end, prev_epoch_end_hash};
 use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
@@ -726,7 +727,11 @@ impl CloudArchivalWriter {
         // Publishing otherwise happens at the previous epoch's last block. We upload
         // idempotently on node start in case it didn't happen, e.g. fresh bucket.
         if self.config.archive_block_data {
-            let prev_epoch_end = self.compute_initial_prev_epoch_end(init_state.min_height)?;
+            let prev_epoch_end = compute_initial_prev_epoch_end(
+                &self.hot_store,
+                self.epoch_manager.as_ref(),
+                init_state.min_height,
+            )?;
             self.archive_next_epoch_data(prev_epoch_end).await?;
         }
 
@@ -833,23 +838,6 @@ impl CloudArchivalWriter {
         })
     }
 
-    /// Hash of the last block of the epoch before the one containing
-    /// `block_hash`, or the genesis block when there is no earlier epoch.
-    fn prev_epoch_end_hash(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<CryptoHash, near_chain_primitives::Error> {
-        let chain_store = self.hot_store.chain_store();
-        let epoch_start = self.epoch_manager.get_epoch_start_height(block_hash)?;
-        // The genesis epoch has no earlier epoch; floor at the genesis block.
-        if epoch_start <= self.genesis_height {
-            return chain_store.get_block_hash_by_height(self.genesis_height);
-        }
-        let first_block_hash = chain_store.get_block_hash_by_height(epoch_start)?;
-        let first_block_header = chain_store.get_block_header(&first_block_hash)?;
-        Ok(*first_block_header.prev_hash())
-    }
-
     /// Height of the last block of the epoch before the one containing `height`,
     /// flooring at genesis when there is no earlier epoch.
     fn prev_epoch_end_height(
@@ -858,7 +846,8 @@ impl CloudArchivalWriter {
     ) -> Result<BlockHeight, near_chain_primitives::Error> {
         let chain_store = self.hot_store.chain_store();
         let block_hash = chain_store.get_block_hash_by_height(height)?;
-        let prev_epoch_end = self.prev_epoch_end_hash(&block_hash)?;
+        let prev_epoch_end =
+            prev_epoch_end_hash(&self.hot_store, self.epoch_manager.as_ref(), &block_hash)?;
         Ok(chain_store.get_block_header(&prev_epoch_end)?.height())
     }
 
@@ -963,7 +952,12 @@ impl CloudArchivalWriter {
             store_update.set_shard_head(shard_id, height);
         }
         store_update.set_min_head(min_height);
-        store_update.set_prev_epoch_end(self.compute_initial_prev_epoch_end(min_height)?);
+        let prev_epoch_end = compute_initial_prev_epoch_end(
+            &self.hot_store,
+            self.epoch_manager.as_ref(),
+            min_height,
+        )?;
+        store_update.set_prev_epoch_end(prev_epoch_end);
         store_update.commit();
         // No shard retires during initialization.
         let head_updates: Vec<ShardHeadUpdate> = shard_heads
@@ -1002,34 +996,6 @@ impl CloudArchivalWriter {
             }
         }
         metrics::CLOUD_ARCHIVAL_HEAD_HEIGHT.with_label_values(&["min"]).set(min_height as i64);
-    }
-
-    fn compute_initial_prev_epoch_end(
-        &self,
-        height: BlockHeight,
-    ) -> Result<CryptoHash, near_chain_primitives::Error> {
-        // `height` may be a skipped slot, so walk down to the nearest present block.
-        let block_hash = self.find_present_block_at_or_below(height)?;
-        // If the block itself ends an epoch, it is the prev-epoch end.
-        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
-            return Ok(block_hash);
-        }
-        self.prev_epoch_end_hash(&block_hash)
-    }
-
-    fn find_present_block_at_or_below(
-        &self,
-        height: BlockHeight,
-    ) -> Result<CryptoHash, near_chain_primitives::Error> {
-        let chain_store = self.hot_store.chain_store();
-        for h in (self.genesis_height..=height).rev() {
-            match chain_store.get_block_hash_by_height(h) {
-                Ok(hash) => return Ok(hash),
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => continue,
-                Err(other) => return Err(other),
-            }
-        }
-        unreachable!("genesis block must be present")
     }
 
     /// Advances local heads after archiving at `height`. Only updates heads for

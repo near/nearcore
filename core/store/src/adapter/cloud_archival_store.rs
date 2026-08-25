@@ -46,7 +46,7 @@ impl CloudArchivalStoreAdapter {
         self.store.get_ser(DBCol::BlockMisc, &cloud_shard_head_key(shard_id))
     }
 
-    /// Last block of the latest fully archivized epoch.
+    /// Last block of the epoch below the one being worked on.
     pub fn prev_epoch_end(&self) -> Option<CryptoHash> {
         self.store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
     }
