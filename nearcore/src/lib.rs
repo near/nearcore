@@ -104,7 +104,8 @@ fn resolve_compiler_daemon_binary(
         } else {
             configured_path.to_path_buf()
         };
-        if is_usable_compiler_daemon_binary(&configured_path) {
+        if let Some(configured_path) = canonicalize_usable_compiler_daemon_binary(&configured_path)
+        {
             return Some(configured_path);
         }
         tracing::warn!(
@@ -115,7 +116,12 @@ fn resolve_compiler_daemon_binary(
 
     let sibling =
         current_exe?.parent()?.join(format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX));
-    is_usable_compiler_daemon_binary(&sibling).then_some(sibling)
+    canonicalize_usable_compiler_daemon_binary(&sibling)
+}
+
+fn canonicalize_usable_compiler_daemon_binary(path: &Path) -> Option<PathBuf> {
+    let path = fs::canonicalize(path).ok()?;
+    (path.is_absolute() && is_usable_compiler_daemon_binary(&path)).then_some(path)
 }
 
 fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
@@ -127,8 +133,8 @@ fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
+        use rustix::fs::{Access, AtFlags, CWD, accessat};
+        accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
     }
     #[cfg(not(unix))]
     {
@@ -180,18 +186,59 @@ mod compiler_daemon_binary_tests {
     }
 
     #[test]
-    fn relative_configured_daemon_binary_is_resolved_from_home() {
-        let temp_dir = TempDir::new().unwrap();
-        let configured = create_executable(temp_dir.path(), "configured-daemon");
+    fn relative_configured_daemon_binary_is_canonicalized() {
+        let current_dir = env::current_dir().unwrap();
+        let temp_dir = TempDir::new_in(&current_dir).unwrap();
+        let relative_home = temp_dir.path().strip_prefix(current_dir).unwrap();
+        assert!(relative_home.is_relative());
+        let configured = create_executable(relative_home, "configured-daemon");
+        let expected = fs::canonicalize(&configured).unwrap();
 
-        assert_eq!(
-            resolve_compiler_daemon_binary(
-                temp_dir.path(),
-                Some(Path::new("configured-daemon")),
-                None
-            ),
-            Some(configured)
+        let resolved = resolve_compiler_daemon_binary(
+            relative_home,
+            Some(Path::new("configured-daemon")),
+            None,
         );
+
+        assert_eq!(resolved, Some(expected.clone()));
+        assert!(expected.is_absolute());
+    }
+
+    #[test]
+    fn relative_default_daemon_binary_is_canonicalized() {
+        let current_dir = env::current_dir().unwrap();
+        let temp_dir = TempDir::new_in(&current_dir).unwrap();
+        let relative_home = temp_dir.path().strip_prefix(current_dir).unwrap();
+        assert!(relative_home.is_relative());
+        let current_exe = current_exe(relative_home);
+        let sibling = create_executable(relative_home, &daemon_binary_name());
+        let expected = fs::canonicalize(sibling).unwrap();
+
+        let resolved =
+            resolve_compiler_daemon_binary(Path::new(""), None, Some(current_exe.as_path()));
+
+        assert_eq!(resolved, Some(expected.clone()));
+        assert!(expected.is_absolute());
+    }
+
+    #[test]
+    fn directory_is_not_a_usable_daemon_binary() {
+        let temp_dir = TempDir::new().unwrap();
+        let directory = temp_dir.path().join("daemon-directory");
+        fs::create_dir(&directory).unwrap();
+
+        assert_eq!(resolve_compiler_daemon_binary(temp_dir.path(), Some(&directory), None), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_file_is_not_a_usable_daemon_binary() {
+        let temp_dir = TempDir::new().unwrap();
+        let daemon = temp_dir.path().join("daemon");
+        File::create(&daemon).unwrap();
+        fs::set_permissions(&daemon, fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert_eq!(resolve_compiler_daemon_binary(temp_dir.path(), Some(&daemon), None), None);
     }
 
     #[test]
