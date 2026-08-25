@@ -224,6 +224,8 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
+                // Stays empty until EarlyKickout activates.
+                || col == DBCol::ChunkProducers
                 || num_checks > 0
         );
     }
@@ -371,6 +373,8 @@ fn test_cold_db_copy_with_height_skips() {
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
+                    // Stays empty until EarlyKickout activates.
+                    || col == DBCol::ChunkProducers
                     || num_checks > 0
             );
         }
