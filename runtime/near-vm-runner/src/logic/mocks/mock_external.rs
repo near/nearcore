@@ -9,6 +9,7 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::{CryptoHash, YieldId, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
+use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -42,6 +43,11 @@ pub enum MockAction {
     DeterministicStateInit {
         receipt_index: ReceiptIndex,
         state_init: DeterministicAccountStateInit,
+        amount: Balance,
+    },
+    UniversalStateInit {
+        receipt_index: ReceiptIndex,
+        state_init: Vec<u8>,
         amount: Balance,
     },
     FunctionCallWeight {
@@ -383,6 +389,27 @@ impl External for MockedExternal {
             }
             _ => Err(HostError::InvalidActionIndex { receipt_index, action_index }.into()),
         }
+    }
+
+    /// Records the state init verbatim. The byte count matches what the runtime
+    /// reports, but the entry and key counts come back as zero: they need the
+    /// typed `UniversalStateInit`, which lives in `near-primitives`, out of this
+    /// crate's reach. Fees driven by those two are exercised against the real
+    /// runtime instead.
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    ) -> UniversalStateInitCounts {
+        let counts =
+            UniversalStateInitCounts { num_bytes: state_init.0.len() as u64, ..Default::default() };
+        self.action_log.push(MockAction::UniversalStateInit {
+            receipt_index,
+            state_init: state_init.0,
+            amount,
+        });
+        counts
     }
 
     fn append_action_function_call_weight(

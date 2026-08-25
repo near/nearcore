@@ -218,6 +218,12 @@ imports! {
         state_init_ptr: u64,
         register_id: u64
     ] -> []>,
+    #[universal_accounts] promise_batch_action_universal_state_init<[
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64
+    ] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

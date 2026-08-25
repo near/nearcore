@@ -1,10 +1,11 @@
+use crate::logic::HostError;
 use crate::logic::mocks::mock_external::MockAction;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, PromiseResult};
 use crate::map;
 use near_crypto::PublicKey;
-use near_parameters::{ActionCosts, ExtCosts};
+use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -456,6 +457,141 @@ fn test_promise_batch_then() {
         receiver_id: "rick.test".parse().unwrap(),
     };
     assert_eq!(actions, &[expected_receipt.clone(), expected_receipt]);
+}
+
+/// The smallest well-formed `UniversalStateInit::V1`: version tag, `code: None`,
+/// an empty data map and an empty access-key set, all borsh zeroes.
+const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
+
+#[test]
+fn test_promise_batch_action_universal_state_init() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    // The receiver is not the account this state init identifies. The VM does not
+    // check that; validating the receipt it creates does.
+    let receiver = "rick.test";
+    let index = promise_batch_create(&mut logic, &receiver).expect("should create a promise");
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    reset_costs_counter();
+
+    logic
+        .promise_batch_action_universal_state_init(
+            index,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect("should append a universal state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: state_init.len + amount.len,
+    });
+
+    let profile = logic.gas_counter().profile_data();
+    // action_universal_state_init
+    //    send 0.50 Tgas
+    //    exec 7.43 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_base].as_gigagas(),
+        500,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_universal_state_init_per_byte, over the payload's own length
+    //    send 0.000_072 per byte
+    //    exec 0.000_070 per byte
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_byte].as_gas(),
+        72_000_000 * EMPTY_STATE_INIT.len() as u64,
+        "unexpected action gas usage {profile:?}"
+    );
+    // `MockedExternal` cannot decode the state init, so it reports no entries and
+    // no keys. Those fees are exercised end to end in `test-loop-tests`.
+    for cost in [ActionCosts::universal_state_init_entry, ActionCosts::add_full_access_key] {
+        assert_eq!(profile.actions_profile[cost].as_gas(), 0, "unexpected {cost:?} {profile:?}");
+    }
+
+    assert_eq!(
+        logic_builder.ext.action_log,
+        &[
+            MockAction::CreateReceipt {
+                receipt_indices: vec![],
+                receiver_id: "rick.test".parse().unwrap(),
+            },
+            MockAction::UniversalStateInit {
+                receipt_index: 0,
+                state_init: EMPTY_STATE_INIT.to_vec(),
+                amount: Balance::from_yoctonear(110),
+            },
+        ]
+    );
+}
+
+/// The payload's own length is paid for before the host is handed the payload, so
+/// a call that cannot afford the per-byte fee never reaches the decode. Charging
+/// the other way round would leave the decode bounded only by the much cheaper
+/// cost of reading the bytes in.
+#[test]
+fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
+    let gas_limit = 10u64.pow(13);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
+    // Priced so that the payload's ten bytes alone exhaust the whole limit.
+    let per_byte = gas_limit / EMPTY_STATE_INIT.len() as u64 + 1;
+    logic_builder.fees_config.action_fees[ActionCosts::universal_state_init_byte] =
+        Fee::new(per_byte, per_byte, 1);
+    let mut logic = logic_builder.build();
+
+    let index = promise_batch_create(&mut logic, &"rick.test").expect("should create a promise");
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_universal_state_init(
+            index,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect_err("the per-byte fee should exhaust the gas");
+
+    assert_eq!(
+        logic_builder.ext.action_log,
+        &[MockAction::CreateReceipt {
+            receipt_indices: vec![],
+            receiver_id: "rick.test".parse().unwrap(),
+        }],
+        "the state init must not reach the host before its bytes are paid for"
+    );
+}
+
+#[test]
+fn test_promise_batch_action_universal_state_init_prohibited_in_view() {
+    let mut logic_builder = VMLogicBuilder::view();
+    let mut logic = logic_builder.build();
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+
+    assert_eq!(
+        logic
+            .promise_batch_action_universal_state_init(
+                0,
+                state_init.len,
+                state_init.ptr,
+                amount.ptr
+            )
+            .unwrap_err(),
+        HostError::ProhibitedInView {
+            method_name: "promise_batch_action_universal_state_init".to_string()
+        }
+        .into()
+    );
 }
 
 #[test]

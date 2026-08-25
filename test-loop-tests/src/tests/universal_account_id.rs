@@ -3,6 +3,12 @@
 //! `DeterministicStateInit` but additionally installs access keys and supports
 //! key-only (code-less) accounts.
 //!
+//! The same account can also be created from inside a contract, through the two
+//! universal-account host functions:
+//!
+//! - `universal_state_init_to_account_id`
+//! - `promise_batch_action_universal_state_init`
+//!
 //! These are gated on `ProtocolFeature::UniversalAccounts`: on binaries where
 //! the feature is not yet enabled they log a skip and return, per the project
 //! convention for protocol features that are not yet stabilized.
@@ -13,6 +19,7 @@ use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
 use crate::utils::transactions;
+use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_client_primitives::types::QueryError;
 use near_crypto::{KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey};
@@ -21,6 +28,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{
     Action, GlobalContractDeployMode, GlobalContractIdentifier, UniversalStateInitAction,
 };
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -31,7 +39,9 @@ use near_primitives::universal_state_init::{
 };
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{AccessKeyPermissionView, AccountView, FinalExecutionStatus};
+use near_primitives::views::{
+    AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
@@ -40,12 +50,14 @@ struct Env {
     env: TestLoopEnv,
     user_account: AccountId,
     global_contract_account: AccountId,
+    caller_account: AccountId,
     nonce: u64,
 }
 
 impl Env {
     fn setup() -> Self {
-        let [user_account, global_contract_account] = create_account_ids(["account0", "account"]);
+        let [user_account, global_contract_account, caller_account] =
+            create_account_ids(["account0", "account", "account2"]);
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
         let validators_spec = create_validators_spec(2, 2);
@@ -55,7 +67,7 @@ impl Env {
             .validators_spec(validators_spec)
             .shard_layout(shard_layout)
             .add_user_accounts_simple(
-                &[user_account.clone(), global_contract_account.clone()],
+                &[user_account.clone(), global_contract_account.clone(), caller_account.clone()],
                 Balance::from_near(100),
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
@@ -69,7 +81,7 @@ impl Env {
             .runtime_config_store(RuntimeConfigStore::new(None))
             .build();
 
-        Self { env, user_account, global_contract_account, nonce: 1 }
+        Self { env, user_account, global_contract_account, caller_account, nonce: 1 }
     }
 
     fn next_nonce(&mut self) -> u64 {
@@ -158,6 +170,45 @@ impl Env {
             FinalExecutionStatus::SuccessValue(bytes) => bytes,
             other => panic!("contract call failed: {other:?}"),
         }
+    }
+
+    /// Deploy the nightly test contract, the one exposing the universal-account
+    /// host functions, and return the account holding it.
+    fn deploy_caller_contract(&mut self) -> AccountId {
+        let account = self.caller_account.clone();
+        let tx = SignedTransaction::deploy_contract(
+            self.next_nonce(),
+            &account,
+            near_test_contracts::nightly_rs_contract().to_vec(),
+            &create_user_test_signer(&account),
+            self.block_hash(),
+        );
+        self.run_tx(tx);
+        account
+    }
+
+    /// Call the deployed contract's `universal_state_init`, which asks the host for
+    /// the account ID with `universal_state_init_to_account_id` and creates the
+    /// account with `promise_batch_action_universal_state_init`. The raw state
+    /// init is the call's arguments and the deposit funds the new account.
+    fn call_universal_state_init(
+        &mut self,
+        caller: &AccountId,
+        state_init: RawStateInit,
+        deposit: Balance,
+    ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+        let tx = SignedTransaction::call(
+            self.next_nonce(),
+            caller.clone(),
+            caller.clone(),
+            &create_user_test_signer(caller),
+            deposit,
+            "universal_state_init".to_owned(),
+            state_init.0,
+            Gas::from_teragas(300),
+            self.block_hash(),
+        );
+        self.env.rpc_runner().execute_tx(tx, Duration::seconds(5))
     }
 
     fn transfer(&mut self, receiver: &AccountId, amount: Balance) {
@@ -459,4 +510,75 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     // C: and the chain accepts it as the receiver of a state init.
     env.create_universal_account(raw, &derived, Balance::from_near(1));
     assert!(env.view_account(&derived).storage_usage > 0, "the account should have been created");
+}
+
+/// A contract creates a universal account end to end, from bytes it did not
+/// serialize canonically. Both host functions have to agree with the protocol's
+/// own derivation over those exact bytes, or the receipt's receiver check rejects
+/// the state init.
+#[test]
+fn test_universal_state_init_from_contract() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let caller = env.deploy_caller_contract();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-from-contract").public_key();
+    let raw = non_canonical_state_init(&public_key);
+    let decoded = UniversalStateInit::from_raw(&raw).expect("fixture must be valid borsh");
+    assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
+
+    let from_supplied = derive_universal_account_id(&raw);
+    let from_re_encoding = decoded.derive_account_id();
+    assert_ne!(from_supplied, from_re_encoding, "the two encodings must derive different ids");
+
+    let outcome = env
+        .call_universal_state_init(&caller, raw, Balance::from_near(2))
+        .expect("call should be a valid transaction");
+    assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_), "{outcome:?}");
+
+    // The contract addressed the ID derived from the bytes it passed...
+    let view = env.view_account(&from_supplied);
+    assert!(view.storage_usage > 0, "the supplied bytes should have created the account");
+    let access_key = env.env.rpc_node().view_access_key_query(&from_supplied, &public_key).unwrap();
+    assert!(
+        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
+        "installed key must be full access, got {:?}",
+        access_key.permission
+    );
+
+    // ...and nothing exists at the ID their re-encoding would have derived.
+    assert!(
+        env.try_view_account(&from_re_encoding).is_err(),
+        "re-encoding the decoded state init must not be what the ID follows"
+    );
+}
+
+/// Bytes that are not a state init still map to some account ID, so the host
+/// functions accept them and the state-init receipt is what rejects them. The
+/// contract's own call therefore fails only once that receipt is validated.
+#[test]
+fn test_universal_state_init_from_contract_malformed() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let caller = env.deploy_caller_contract();
+
+    let outcome = env
+        .call_universal_state_init(&caller, RawStateInit(vec![7, 7, 7]), Balance::ZERO)
+        .expect("call should be a valid transaction");
+    let status = outcome.status;
+    let FinalExecutionStatus::Failure(error) = &status else {
+        panic!("a malformed state init must fail, got {status:?}");
+    };
+    assert!(
+        format!("{error:?}").contains("MalformedUniversalStateInit"),
+        "expected the receipt to reject the payload, got {error:?}"
+    );
 }

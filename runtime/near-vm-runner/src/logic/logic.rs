@@ -19,7 +19,8 @@ use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, ParameterCost, RuntimeFeesConfig, gas_key_add_key_exec_fee,
     gas_key_add_key_send_fee, gas_key_transfer_exec_fee, gas_key_transfer_send_fee,
-    transfer_exec_fee, transfer_send_fee,
+    transfer_exec_fee, transfer_send_fee, universal_state_init_content_terms,
+    universal_state_init_size_terms,
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
@@ -30,6 +31,7 @@ use near_primitives_core::types::{
 use near_primitives_core::universal_account_id::{
     encode_universal_account_id, is_universal_account_id,
 };
+use near_primitives_core::universal_state_init::RawStateInit;
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -3028,6 +3030,94 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             register_id,
             account_id.as_bytes(),
         )
+    }
+
+    /// Appends a `UniversalStateInit` action to the batch of actions for the given
+    /// promise pointed by `promise_idx`, creating the `0u` universal account the
+    /// state init describes.
+    ///
+    /// `state_init` is the borsh of a `UniversalStateInit` and travels into the
+    /// action verbatim, so the account created is the one those exact bytes
+    /// identify. Forwarding them rather than a decoded form is also what lets a
+    /// contract pass through a state-init version it predates.
+    ///
+    /// Deliberately does not check that the promise's receiver is the account the
+    /// state init derives to. That check belongs to the receipt this creates, and
+    /// runs when that receipt is validated, so bytes that are not a state init at all
+    /// are rejected there rather than here.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns
+    ///   [`HostError::InvalidPromiseIndex`].
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    ///   `promise_and` returns [`HostError::CannotAppendActionToJointPromise`].
+    /// * If called as view function returns [`HostError::ProhibitedInView`].
+    /// * If `state_init_len + state_init_ptr` or `amount_ptr + 16` points outside the
+    ///   memory of the guest or host returns [`HostError::MemoryAccessViolation`].
+    ///
+    /// # Cost
+    ///
+    /// `burnt_gas` := base + cost of reading the state init from memory
+    ///             + cost of reading amount from memory
+    ///             + universal_state_init_base send fee
+    ///             + universal_state_init_byte send fee * num bytes
+    ///             + universal_state_init_entry send fee * num entries
+    ///             + add_full_access_key send fee * num access keys
+    ///
+    /// `used_gas`  := burnt_gas + the same four fees at their exec rate
+    pub fn promise_batch_action_universal_state_init(
+        &mut self,
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64,
+    ) -> Result<()> {
+        self.result_state.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_batch_action_universal_state_init".to_string(),
+            }
+            .into());
+        }
+        let state_init = get_memory_or_register!(self, state_init_ptr, state_init_len)?;
+        let state_init = RawStateInit(state_init.into_owned());
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        // Charged before the host is handed the payload, because decoding it is
+        // the work the per-byte fee pays for: charging afterwards would leave the
+        // decode bounded only by the far cheaper cost of reading the bytes in.
+        let num_bytes = state_init.0.len() as u64;
+        self.pay_universal_state_init_terms(universal_state_init_size_terms(num_bytes), sir)?;
+
+        self.result_state.deduct_balance(amount)?;
+        let counts = self.ext.append_action_universal_state_init(receipt_idx, state_init, amount);
+        debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
+        self.pay_universal_state_init_terms(universal_state_init_content_terms(counts), sir)
+    }
+
+    /// Charge the given terms of the `UniversalStateInit` action fee.
+    ///
+    /// The terms come from `near_parameters`, shared with
+    /// `node_runtime::config::universal_state_init_fee`, so a contract-created
+    /// action prepays exactly the exec fee it is charged when it runs.
+    ///
+    /// The content terms are charged after the action is built, since the entry
+    /// and key counts are only known once the host has decoded the state init.
+    /// Charging them late is safe: running out of gas aborts the whole function
+    /// call, and an aborted call emits none of the receipts it created.
+    ///
+    /// `pay_action_per_byte` is just "fee times count". Entries and keys are
+    /// counted rather than measured in bytes, and the base term's count is one.
+    fn pay_universal_state_init_terms(
+        &mut self,
+        terms: [(ActionCosts, u64); 2],
+        sir: bool,
+    ) -> Result<()> {
+        terms.into_iter().try_for_each(|(cost, units)| self.pay_action_per_byte(cost, units, sir))
     }
 
     /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by

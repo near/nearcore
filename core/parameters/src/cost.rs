@@ -6,6 +6,7 @@ use near_primitives_core::account::{AccessKey, GasKeyInfo};
 use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{Balance, Compute, Gas, NonceIndex};
+use near_primitives_core::universal_state_init::UniversalStateInitCounts;
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -939,4 +940,32 @@ pub fn gas_key_add_key_exec_fee(
         .checked_mul(num_nonces)
         .unwrap();
     GasKeyAddFee { base, per_byte }
+}
+
+/// What the length of a `UniversalStateInit` payload prices: the action's base
+/// cost, and its per-byte cost. Known without looking inside the payload.
+///
+/// Together with [`universal_state_init_content_terms`] this is the action's whole
+/// fee, as `(cost, units)` pairs. Both sides of the protocol walk these two lists:
+/// `node_runtime::config` sums them into the send and exec fee, and the VM charges
+/// the size terms before it hands a contract's bytes to the host and the content
+/// terms once the counts come back. A term added here is picked up by both, so what
+/// a contract prepays cannot drift from what the action is charged when it runs.
+pub fn universal_state_init_size_terms(num_bytes: u64) -> [(ActionCosts, u64); 2] {
+    [
+        (ActionCosts::universal_state_init_base, 1),
+        (ActionCosts::universal_state_init_byte, num_bytes),
+    ]
+}
+
+/// What the contents of a `UniversalStateInit` payload price, known only once it
+/// has been decoded. See [`universal_state_init_size_terms`].
+pub fn universal_state_init_content_terms(
+    counts: UniversalStateInitCounts,
+) -> [(ActionCosts, u64); 2] {
+    [
+        (ActionCosts::universal_state_init_entry, counts.num_entries),
+        // Each installed key is a full-access key write, priced the same as `AddKey`.
+        (ActionCosts::add_full_access_key, counts.num_keys),
+    ]
 }
