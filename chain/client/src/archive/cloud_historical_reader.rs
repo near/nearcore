@@ -2,7 +2,7 @@ use crate::archive::cloud_archival_utils::{save_block_data, save_new_epoch, save
 use anyhow::bail;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::Store;
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, EpochData};
 use std::collections::HashSet;
 
@@ -14,16 +14,6 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    // Before the first write, so an interrupted bootstrap leaves a store a node
-    // refuses. Seeded below the range, nothing in it being written yet.
-    // TODO(cloud_archival): advance this head as the range is written, and resume
-    // from it.
-    if store.cloud_archival_store().reader_head().is_none() {
-        let mut update = store.cloud_archival_store().store_update();
-        update.set_reader_head(start_height - 1);
-        update.commit();
-    }
-
     let mut saved_epochs = HashSet::<EpochId>::new();
     let mut first_epoch_data: Option<EpochData> = None;
 
@@ -52,6 +42,9 @@ pub fn bootstrap_range(
                 tracing::info!(height = h, end_height, percent_done, "bootstrap progress");
             }
         }
+        // A presence marker, so far: nothing reads the height it names.
+        // TODO(cloud_archival): resume from it, counting the shard rows too.
+        update.cloud_archival_store_update().set_reader_head(last_in_batch);
         update.commit();
         height = last_in_batch + 1;
     }

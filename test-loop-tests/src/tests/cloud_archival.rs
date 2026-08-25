@@ -344,7 +344,7 @@ impl CloudArchiveHarness {
 
     /// Kills the RPC node the recent reader takes over from and brings up the
     /// reader on the database that node leaves behind. No gc runs on it from here.
-    fn start_recent_reader(&self) {
+    fn start_recent_reader(&self) -> CloudArchivalRecentReader {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
         // TODO(cloud_archival): consider splitting the chain store, we do not need
         // transaction_validity_period in our use case.
@@ -358,12 +358,14 @@ impl CloudArchiveHarness {
             chain_store,
             Self::RECENT_READER_POLLING_INTERVAL,
         );
+        let handle = reader.clone();
         self.env
             .test_loop
             .future_spawner("CloudArchivalRecentReader")
             .spawn("cloud archival recent reader", async move {
                 reader.cloud_archival_loop().await.expect("the recent reader stopped")
             });
+        handle
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -1958,7 +1960,7 @@ fn test_cloud_archival_recent_reader() {
     // One epoch past the garbage-collection window, so the probe height is below
     // the tail by the time the node switches over.
     h.run_until_epoch(h.gc_num_epochs_to_keep + 1);
-    h.start_recent_reader();
+    let reader = h.start_recent_reader();
     let kept = h.recent_reader_store().chain_store().head().unwrap().height;
     // Twice as far again, so gc would have taken the block held at the switch if
     // anything still gc-ed this database.
@@ -1991,5 +1993,6 @@ fn test_cloud_archival_recent_reader() {
         "the reader did not catch up: head {head}, bucket head {bucket_head}"
     );
 
+    reader.stop();
     h.shutdown();
 }

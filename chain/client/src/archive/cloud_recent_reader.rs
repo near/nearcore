@@ -55,11 +55,18 @@ impl CloudArchivalRecentReader {
         tracing::info!(target: "cloud_archival", reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {
-            let outcome = self.try_pull_next_batch()?;
-            tracing::trace!(target: "cloud_archival", ?outcome, "pull");
-            let sleep_duration = match outcome {
-                PullOutcome::Pulled { .. } => Duration::ZERO,
-                PullOutcome::WaitingForBucket => self.polling_interval,
+            let sleep_duration = match self.try_pull_next_batch() {
+                Ok(outcome) => {
+                    tracing::trace!(target: "cloud_archival", ?outcome, "pull");
+                    match outcome {
+                        PullOutcome::Pulled { .. } => Duration::ZERO,
+                        PullOutcome::WaitingForBucket => self.polling_interval,
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(target: "cloud_archival", ?error, "pulling a batch failed");
+                    self.polling_interval
+                }
             };
             self.clock.sleep(sleep_duration).await;
         }
