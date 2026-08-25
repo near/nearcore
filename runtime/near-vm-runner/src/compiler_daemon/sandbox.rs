@@ -8,6 +8,7 @@
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use super::super::protocol::IsolationStatus;
     use landlock::{
         ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, LandlockStatus, Ruleset,
         RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope,
@@ -18,8 +19,13 @@ mod linux {
 
     #[derive(Debug)]
     pub struct SandboxStatus {
-        #[cfg(feature = "test_features")]
         effective_abi: ABI,
+    }
+
+    impl SandboxStatus {
+        pub fn isolation_status(&self) -> IsolationStatus {
+            IsolationStatus::LinuxLandlock { abi: self.effective_abi as u32 }
+        }
     }
 
     /// Enter a deny-all Landlock domain.
@@ -63,17 +69,14 @@ mod linux {
         if status.ruleset == RulesetStatus::NotEnforced {
             return Err(format!("landlock ruleset was not enforced: {status:?}"));
         }
-        let _effective_abi = match status.landlock {
+        let effective_abi = match status.landlock {
             LandlockStatus::Available { effective_abi, .. } if effective_abi >= ABI::V1 => {
                 effective_abi
             }
             _ => return Err(format!("landlock is unavailable: {status:?}")),
         };
 
-        Ok(SandboxStatus {
-            #[cfg(feature = "test_features")]
-            effective_abi: _effective_abi,
-        })
+        Ok(SandboxStatus { effective_abi })
     }
 
     /// Landlock domains apply to the calling thread and threads created by it.
@@ -130,6 +133,13 @@ pub use linux::{SandboxStatus, apply};
 #[cfg(not(target_os = "linux"))]
 #[derive(Debug)]
 pub struct SandboxStatus;
+
+#[cfg(not(target_os = "linux"))]
+impl SandboxStatus {
+    pub fn isolation_status(&self) -> super::protocol::IsolationStatus {
+        super::protocol::IsolationStatus::Unavailable
+    }
+}
 
 /// Landlock is Linux-specific. Other supported development platforms retain
 /// process isolation but cannot enforce this filesystem policy.

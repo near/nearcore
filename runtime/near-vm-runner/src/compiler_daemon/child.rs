@@ -9,9 +9,11 @@
 // cspell:words landlock landlocks sandboxing
 
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
-use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame, write_frame};
+use super::protocol::{
+    CompileRequest, CompileResponse, DaemonStartup, DaemonStatus, read_frame, write_frame,
+};
 use super::sandbox::{self, SandboxStatus};
-use crate::wasmtime_runner::create_compiler_engine;
+use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
 use std::collections::{HashMap, hash_map};
 use std::fmt::Display;
 use std::process::exit;
@@ -33,7 +35,13 @@ pub fn daemon_main() -> ! {
             std::process::exit(1);
         }
     };
-    let startup = DaemonStartup::Ready;
+    let compiler_compatibility_hash = compiler_compatibility_hash().unwrap_or_else(|err| {
+        abort_worker(format!("failed to create compatibility engine: {err}"))
+    });
+    let startup = DaemonStartup::Ready(DaemonStatus {
+        compiler_compatibility_hash,
+        isolation: sandbox_status.isolation_status(),
+    });
     if write_frame(&mut writer, &borsh::to_vec(&startup).unwrap()).is_err() {
         std::process::exit(1);
     }

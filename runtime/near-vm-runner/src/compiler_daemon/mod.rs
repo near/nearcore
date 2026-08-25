@@ -21,6 +21,7 @@ pub use parent::{
 };
 pub use parent::{
     compile_in_subprocess, is_daemon_configured, set_daemon_binary, set_daemon_pool_size,
+    start_daemon,
 };
 use std::time::Duration;
 

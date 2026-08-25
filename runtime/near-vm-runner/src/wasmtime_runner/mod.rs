@@ -27,6 +27,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
 use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, OnceLock};
 use wasmtime::{
@@ -223,6 +224,16 @@ pub(crate) fn create_compiler_engine(max_memory_pages: u32) -> wasmtime::Result<
     let max_memory_size = guest_memory_size(max_memory_pages).unwrap_or(usize::MAX);
     apply_compiler_config(&mut config, max_memory_size);
     Engine::new(&config)
+}
+
+/// Return Wasmtime's compatibility fingerprint for the compiler engine.
+pub(crate) fn compiler_compatibility_hash() -> wasmtime::Result<u64> {
+    // The memory reservation is part of Wasmtime's compatibility key. Use a
+    // fixed value so the parent and child can compare their startup probes.
+    let engine = create_compiler_engine(2048)?;
+    let mut hasher = DefaultHasher::new();
+    engine.precompile_compatibility_hash().hash(&mut hasher);
+    Ok(hasher.finish())
 }
 
 struct InstancePermit<'a> {

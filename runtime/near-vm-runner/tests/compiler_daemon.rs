@@ -27,6 +27,7 @@ fn main() {
     )));
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
 
+    test_startup_probe();
     test_basic_compilation();
     #[cfg(all(target_os = "linux", feature = "test_features"))]
     test_landlock_sandbox();
@@ -39,6 +40,18 @@ fn main() {
     test_worker_crash_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_engine_creation_failure_is_not_cached();
+}
+
+fn test_startup_probe() {
+    let status = compiler_daemon::start_daemon().unwrap();
+    assert_ne!(status.compiler_compatibility_hash, 0);
+    #[cfg(target_os = "linux")]
+    assert_matches!(
+        status.isolation,
+        compiler_daemon::protocol::IsolationStatus::LinuxLandlock { abi: 1.. }
+    );
+    #[cfg(not(target_os = "linux"))]
+    assert_eq!(status.isolation, compiler_daemon::protocol::IsolationStatus::Unavailable);
 }
 
 fn test_config() -> near_parameters::vm::Config {

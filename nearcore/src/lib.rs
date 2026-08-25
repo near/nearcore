@@ -145,6 +145,7 @@ fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
 
 #[cfg(test)]
 mod compiler_daemon_binary_tests {
+    use super::config::Config;
     use super::resolve_compiler_daemon_binary;
     use std::env;
     use std::fs::{self, File};
@@ -155,6 +156,16 @@ mod compiler_daemon_binary_tests {
 
     fn daemon_binary_name() -> String {
         format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX)
+    }
+
+    #[test]
+    fn compiler_daemon_is_disabled_by_default_and_can_be_enabled() {
+        assert!(!Config::default().enable_compiler_daemon);
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "enable_compiler_daemon": true
+        }))
+        .unwrap();
+        assert!(config.enable_compiler_daemon);
     }
 
     fn create_executable(dir: &Path, name: &str) -> PathBuf {
@@ -571,16 +582,30 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let current_exe = env::current_exe().ok();
-    if let Some(daemon_binary) = resolve_compiler_daemon_binary(
-        home_dir,
-        config.config.compiler_daemon_binary_path.as_deref(),
-        current_exe.as_deref(),
-    ) {
-        tracing::info!(path = %daemon_binary.display(), "using compiler daemon binary");
-        near_vm_runner::compiler_daemon::set_daemon_binary(daemon_binary);
+    if config.config.enable_compiler_daemon {
+        let current_exe = env::current_exe().ok();
+        if let Some(daemon_binary) = resolve_compiler_daemon_binary(
+            home_dir,
+            config.config.compiler_daemon_binary_path.as_deref(),
+            current_exe.as_deref(),
+        ) {
+            tracing::info!(path = %daemon_binary.display(), "using compiler daemon binary");
+            near_vm_runner::compiler_daemon::set_daemon_binary(daemon_binary);
+            let status = near_vm_runner::compiler_daemon::start_daemon()
+                .map_err(anyhow::Error::msg)
+                .context("failed to start compiler daemon")?;
+            tracing::info!(
+                compatibility_hash = status.compiler_compatibility_hash,
+                isolation = ?status.isolation,
+                "compiler daemon worker is ready"
+            );
+        } else {
+            tracing::debug!(
+                "compiler daemon binary unavailable, WASM compilation will run in-process"
+            );
+        }
     } else {
-        tracing::debug!("compiler daemon binary unavailable, WASM compilation will run in-process");
+        tracing::info!("compiler daemon is disabled, WASM compilation will run in-process");
     }
 
     let storage = open_storage(home_dir, &config)?;

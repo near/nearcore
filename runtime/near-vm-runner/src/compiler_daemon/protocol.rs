@@ -16,9 +16,23 @@ pub enum TestAction {
     LandlockProbe,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum IsolationStatus {
+    LinuxLandlock { abi: u32 },
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct DaemonStatus {
+    /// Hash supplied by Wasmtime for deciding whether serialized artifacts can
+    /// be loaded by another engine.
+    pub compiler_compatibility_hash: u64,
+    pub isolation: IsolationStatus,
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 pub enum DaemonStartup {
-    Ready,
+    Ready(DaemonStatus),
     Err(String),
 }
 

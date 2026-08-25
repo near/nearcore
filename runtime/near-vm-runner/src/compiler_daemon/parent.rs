@@ -8,7 +8,10 @@
 //! Worker checkout is priority-ordered: when a worker frees up, the most urgent
 //! waiting caller is served first (see [`CompilePriority`]).
 
-use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame, write_frame};
+use super::protocol::{
+    CompileRequest, CompileResponse, DaemonStartup, DaemonStatus, IsolationStatus, read_frame,
+    write_frame,
+};
 use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::{
@@ -16,6 +19,7 @@ use crate::compiler_daemon::{
     MAX_POOL_SIZE, MAX_SPAWN_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
+use crate::wasmtime_runner::compiler_compatibility_hash;
 use near_parameters::vm::LimitConfig;
 use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
@@ -31,6 +35,7 @@ use std::time::{Duration, Instant};
 static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
 static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
 static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
+static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
 
 #[cfg(feature = "test_features")]
 thread_local! {
@@ -82,6 +87,7 @@ struct DaemonProcess {
     stdout: ChildStdout,
     stderr_thread: Option<JoinHandle<()>>,
     watchdog: ProcessWatchdog,
+    status: Option<DaemonStatus>,
 }
 
 impl DaemonProcess {
@@ -130,12 +136,12 @@ impl DaemonProcess {
                 return Err(err);
             }
         };
-        let mut process = Self { child, stdin, stdout, stderr_thread, watchdog };
-        process.wait_for_startup()?;
+        let mut process = Self { child, stdin, stdout, stderr_thread, watchdog, status: None };
+        process.status = Some(process.wait_for_startup()?);
         Ok(process)
     }
 
-    fn wait_for_startup(&mut self) -> std::io::Result<()> {
+    fn wait_for_startup(&mut self) -> std::io::Result<DaemonStatus> {
         let generation = self
             .watchdog
             .arm(DAEMON_STARTUP_TIMEOUT)
@@ -146,7 +152,7 @@ impl DaemonProcess {
                 let startup: DaemonStartup = borsh::from_slice(&bytes)
                     .map_err(|err| format!("failed to deserialize startup response: {err}"))?;
                 match startup {
-                    DaemonStartup::Ready => Ok(()),
+                    DaemonStartup::Ready(status) => validate_daemon_status(status),
                     DaemonStartup::Err(err) => Err(err),
                 }
             });
@@ -190,6 +196,10 @@ impl DaemonProcess {
         }
     }
 
+    fn status(&self) -> &DaemonStatus {
+        self.status.as_ref().expect("daemon startup status unavailable")
+    }
+
     fn is_alive(&self) -> bool {
         matches!(self.child.lock().try_wait(), Ok(None))
     }
@@ -200,6 +210,30 @@ impl DaemonProcess {
     fn id(&self) -> u32 {
         self.child.lock().id()
     }
+}
+
+fn validate_daemon_status(status: DaemonStatus) -> Result<DaemonStatus, String> {
+    let expected_hash = EXPECTED_COMPILER_COMPATIBILITY_HASH
+        .get_or_init(|| {
+            compiler_compatibility_hash()
+                .map_err(|err| format!("failed to create local compatibility engine: {err}"))
+        })
+        .clone()?;
+    if status.compiler_compatibility_hash != expected_hash {
+        return Err(format!(
+            "compiler compatibility mismatch: daemon reported {}, expected {expected_hash}",
+            status.compiler_compatibility_hash
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    if !matches!(status.isolation, IsolationStatus::LinuxLandlock { abi: 1.. }) {
+        return Err(format!("compiler daemon did not enable landlock: {:?}", status.isolation));
+    }
+    #[cfg(not(target_os = "linux"))]
+    if status.isolation != IsolationStatus::Unavailable {
+        return Err(format!("unexpected compiler daemon isolation: {:?}", status.isolation));
+    }
+    Ok(status)
 }
 
 fn compilation_request_timeout(_request: &CompileRequest) -> Option<Duration> {
@@ -466,6 +500,18 @@ fn get_or_init_pool() -> &'static DaemonPool {
             avail: from_fn(|_| Condvar::new()),
         }
     })
+}
+
+/// Eagerly start and validate one worker, leaving it idle in the pool.
+///
+/// This verifies IPC compatibility, compiler settings, and effective process
+/// isolation before the node starts serving requests.
+pub fn start_daemon() -> Result<DaemonStatus, String> {
+    let pool = get_or_init_pool();
+    let worker = pool.checkout(CompilePriority::Critical)?;
+    let status = worker.status().clone();
+    Lease { pool, worker: Some(worker) }.check_in();
+    Ok(status)
 }
 
 /// Compile prepared WASM code in an out-of-process daemon worker.
