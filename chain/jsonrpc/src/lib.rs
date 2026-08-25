@@ -686,10 +686,14 @@ impl JsonRpcHandler {
             "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
-                process_method_call(request, |params| self.tx_status_common(params, false)).await
+                process_method_call(request, |params| self.tx_status_common(params, false, "tx"))
+                    .await
             }
-            "tx_status" | "EXPERIMENTAL_tx_status" => {
-                process_method_call(request, |params| self.tx_status_common(params, true)).await
+            "tx_status" => {
+                process_method_call(request, |params| {
+                    self.tx_status_common(params, true, "tx_status")
+                })
+                .await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
@@ -810,6 +814,12 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_receipt_to_tx" => {
                 process_method_call(request, |params| self.receipt_to_tx(params)).await
+            }
+            "EXPERIMENTAL_tx_status" => {
+                process_method_call(request, |params| {
+                    self.tx_status_common(params, true, "EXPERIMENTAL_tx_status")
+                })
+                .await
             }
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
@@ -1941,11 +1951,12 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
         fetch_receipt: bool,
+        method_name: &str,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        metrics::report_wait_until_metric("tx_status", &request_data.wait_until);
+        metrics::report_wait_until_metric(method_name, &request_data.wait_until);
 
         let tx_status = self
             .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
