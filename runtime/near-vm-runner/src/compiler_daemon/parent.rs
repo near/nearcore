@@ -300,17 +300,31 @@ impl DaemonPool {
                 continue;
             }
 
-            // 1. Reuse an idle worker, draining any that have died.
+            // 1. Reuse an idle worker, draining any that have died. Reap dead
+            // workers without holding the pool lock because their destructors
+            // join threads and wait for processes.
+            let mut dead_workers = Vec::new();
             while let Some(worker) = inner.idle.pop() {
                 if worker.is_alive() {
                     inner.waiters[idx] -= 1;
-                    if !inner.idle.is_empty() {
+                    if !dead_workers.is_empty() || !inner.idle.is_empty() {
                         self.wake_one(&inner);
                     }
+                    drop(inner);
+                    drop(dead_workers);
                     return Ok(worker);
                 }
-                // Dead idle worker: release its permit and let it drop (reaped).
                 inner.live -= 1;
+                dead_workers.push(worker);
+            }
+            if !dead_workers.is_empty() {
+                // The current caller can consume one freed permit. Wake
+                // another waiter so it can consume the remaining capacity.
+                self.wake_one(&inner);
+                drop(inner);
+                drop(dead_workers);
+                inner = self.inner.lock();
+                continue;
             }
 
             // 2. No idle worker: spawn one if we have headroom. Reserve the
@@ -511,6 +525,20 @@ pub fn compile_in_subprocess(
 #[cfg(feature = "test_features")]
 pub fn spawned_worker_high_water() -> usize {
     get_or_init_pool().inner.lock().high_water
+}
+
+/// Current worker counts for tests checking that all pool leases were returned.
+#[cfg(feature = "test_features")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkerPoolState {
+    pub live: usize,
+    pub idle: usize,
+}
+
+#[cfg(feature = "test_features")]
+pub fn worker_pool_state() -> WorkerPoolState {
+    let inner = get_or_init_pool().inner.lock();
+    WorkerPoolState { live: inner.live, idle: inner.idle.len() }
 }
 
 #[cfg(test)]

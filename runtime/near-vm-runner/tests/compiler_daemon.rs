@@ -217,6 +217,8 @@ fn test_worker_timeout_is_unknown_compilation_error() {
     };
     assert!(debug_message.contains("timed out during compilation request"), "{debug_message}");
     assert!(started.elapsed() < Duration::from_secs(5), "daemon timeout took too long");
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "timeout leaked a worker permit: {state:?}");
 
     let prepared = prepared_module(&config, 99, 1);
     let compiled = compiler_daemon::compile_in_subprocess(
@@ -241,6 +243,8 @@ fn test_worker_crash_is_unknown_compilation_error() {
         CompilePriority::Critical,
     );
     assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "worker crash leaked a worker permit: {state:?}");
 }
 
 /// Engine construction depends on local process resources and configuration.
