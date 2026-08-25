@@ -1,4 +1,4 @@
-use crate::state::PartialState;
+use crate::state::{PARTIAL_STATE_HEADER_LEN, PartialState};
 use crate::state_sync::STATE_PART_MEMORY_LIMIT;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::MIB;
@@ -93,7 +93,14 @@ impl StatePartV1 {
         // We add +1 so we can detect when decompressed size exceeds the limit
         let mut decoder_with_limit = std::io::Read::take(decoder, PART_SIZE_LIMIT + 1);
 
-        let mut decoded = Vec::new();
+        // Reject an oversized entry count before the rest of the stream is
+        // decompressed into memory.
+        let mut header = [0u8; PARTIAL_STATE_HEADER_LEN];
+        std::io::Read::read_exact(&mut decoder_with_limit, &mut header)?;
+        PartialState::check_entry_limit(&header, PART_ENTRY_LIMIT)?;
+
+        // Seeding with the header keeps the `PART_SIZE_LIMIT + 1` budget accurate.
+        let mut decoded = header.to_vec();
         std::io::Read::read_to_end(&mut decoder_with_limit, &mut decoded)?;
         if decoded.len() > PART_SIZE_LIMIT as usize {
             return Err(borsh::io::Error::new(
@@ -101,7 +108,7 @@ impl StatePartV1 {
                 "decompression limit exceeded",
             ));
         }
-        PartialState::try_from_slice_with_entry_limit(&decoded, PART_ENTRY_LIMIT)
+        PartialState::try_from_slice(&decoded)
     }
 }
 
