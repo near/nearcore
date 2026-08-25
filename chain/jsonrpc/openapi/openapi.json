@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.18"
+    "version": "1.3.19"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -7226,6 +7226,22 @@
               }
             ],
             "description": "Cost per reading trie node from DB"
+          },
+          "universal_state_init_to_account_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of deriving a `0u` account id from a raw state init."
+          },
+          "universal_state_init_to_account_id_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte of the raw state init."
           },
           "utf16_decoding_base": {
             "allOf": [

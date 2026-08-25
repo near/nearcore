@@ -27,7 +27,9 @@ use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
-use near_primitives_core::universal_account_id::is_universal_account_id;
+use near_primitives_core::universal_account_id::{
+    encode_universal_account_id, is_universal_account_id,
+};
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -2979,6 +2981,53 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.ext.set_deterministic_state_init_data_entry(receipt_idx, action_index, key, value)?;
 
         Ok(())
+    }
+
+    /// Derives the `0u` universal account ID of `state_init` and writes it to
+    /// `register_id`.
+    ///
+    /// `state_init` is the borsh of a `UniversalStateInit`, and the ID is SHA3-256
+    /// over exactly those bytes, encoded with the UAID address codec. It commits to
+    /// the bytes as given, so a contract can hand the same bytes to
+    /// `promise_batch_action_universal_state_init` and know the promise it
+    /// creates will pass the receiver check.
+    ///
+    /// Nothing here inspects the contents: any byte string maps to some ID. A
+    /// string that is not a well-formed state init maps to an account that can
+    /// never be initialized, which the receipt's own validation catches.
+    ///
+    /// # Errors
+    ///
+    /// * If `state_init_len + state_init_ptr` points outside the memory of the guest
+    ///   or host returns [`HostError::MemoryAccessViolation`].
+    ///
+    /// # Cost
+    ///
+    /// `universal_state_init_to_account_id_base
+    ///  + universal_state_init_to_account_id_byte * num_bytes
+    ///  + cost of reading the state init from memory
+    ///  + cost of writing the account ID to the register`
+    pub fn universal_state_init_to_account_id(
+        &mut self,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        use sha3::Digest;
+
+        self.result_state.gas_counter.pay_base(universal_state_init_to_account_id_base)?;
+        let state_init = get_memory_or_register!(self, state_init_ptr, state_init_len)?;
+        self.result_state
+            .gas_counter
+            .pay_per(universal_state_init_to_account_id_byte, state_init.len() as u64)?;
+
+        let account_id = encode_universal_account_id(&sha3::Sha3_256::digest(&state_init).into());
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            account_id.as_bytes(),
+        )
     }
 
     /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by

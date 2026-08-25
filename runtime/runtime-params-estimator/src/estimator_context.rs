@@ -58,6 +58,7 @@ pub(crate) struct CachedCosts {
     pub(crate) ed25519_verify_base: Option<GasCost>,
     pub(crate) p256_verify_base: Option<GasCost>,
     pub(crate) ml_dsa_verify_base: Option<GasCost>,
+    pub(crate) universal_state_init_to_account_id_base: Option<GasCost>,
     pub(crate) function_call_base: Option<GasCost>,
     pub(crate) yield_create_base: Option<GasCost>,
     pub(crate) yield_create_with_id_base: Option<GasCost>,

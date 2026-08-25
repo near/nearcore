@@ -213,6 +213,14 @@ wasm_p256_verify_byte: 13_000_000
 # ML-DSA-65 (FIPS 204) verification, cost derived from measurements relative to ed25519
 wasm_ml_dsa_verify_base: 540_000_000_000
 wasm_ml_dsa_verify_byte: 11_000_000
+# `universal_state_init_to_account_id` is SHA3-256 over the bytes it is given plus a
+# base32 encoding of the 32-byte digest. Calibrated by icount against sha3_256 measured
+# in the same run: per byte it is the same hash over the same bytes (33.96 vs 33.97
+# instructions/byte), so it reuses that cost. Its base is 1.45x sha3_256's (11_784 vs
+# 8_141 instructions) for the encoding, the account id parse and the allocation, so the
+# base is scaled by that ratio to inherit sha3_256's safety margin.
+wasm_universal_state_init_to_account_id_base: 8_610_000_000
+wasm_universal_state_init_to_account_id_byte: 21_471_105
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000

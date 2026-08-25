@@ -159,6 +159,8 @@ impl ExtCostsConfig {
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
             // SHA3-256 shares the keccak-f permutation, so it gets the same costs.
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2870000000,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::sha3_256_base => SAFETY_MULTIPLIER * 1959830425,
             ExtCosts::sha3_256_byte => SAFETY_MULTIPLIER * 7157035,
             // SHA3-384/512 share the keccak-f permutation; sha3_512 matches keccak512's rate
@@ -368,6 +370,8 @@ pub enum ExtCosts {
     sha3_512_byte = 93,
     ml_dsa_verify_base = 94,
     ml_dsa_verify_byte = 95,
+    universal_state_init_to_account_id_base = 96,
+    universal_state_init_to_account_id_byte = 97,
 }
 
 // Type of an action, used in fees logic.
@@ -450,6 +454,12 @@ impl ExtCosts {
             ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
             ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
             ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::universal_state_init_to_account_id_base => {
+                Parameter::WasmUniversalStateInitToAccountIdBase
+            }
+            ExtCosts::universal_state_init_to_account_id_byte => {
+                Parameter::WasmUniversalStateInitToAccountIdByte
+            }
             ExtCosts::sha3_256_base => Parameter::WasmSha3256Base,
             ExtCosts::sha3_256_byte => Parameter::WasmSha3256Byte,
             ExtCosts::sha3_384_base => Parameter::WasmSha3384Base,

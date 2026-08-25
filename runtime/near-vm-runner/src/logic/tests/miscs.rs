@@ -7,6 +7,7 @@ use near_parameters::ExtCosts;
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
@@ -127,6 +128,66 @@ fn test_sha3_256() {
         ExtCosts::sha3_256_base: 1,
         ExtCosts::sha3_256_byte: data.len,
     });
+}
+
+/// The smallest well-formed `UniversalStateInit::V1`: version tag, `code: None`,
+/// an empty data map and an empty access-key set, all borsh zeroes.
+const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
+
+fn expected_account_id(state_init: &[u8]) -> AccountId {
+    use sha3::Digest;
+    encode_universal_account_id(&sha3::Sha3_256::digest(state_init).into())
+}
+
+#[test]
+fn test_universal_state_init_to_account_id() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    logic.universal_state_init_to_account_id(state_init.len, state_init.ptr, 0).unwrap();
+
+    let expected = expected_account_id(&EMPTY_STATE_INIT);
+    logic.assert_read_register(expected.as_bytes(), 0);
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: state_init.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: expected.len() as u64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: expected.len() as u64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: expected.len() as u64,
+        ExtCosts::universal_state_init_to_account_id_base: 1,
+        ExtCosts::universal_state_init_to_account_id_byte: state_init.len,
+    });
+}
+
+#[test]
+fn test_universal_state_init_to_account_id_from_register() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    logic.wrapped_internal_write_register(1, &EMPTY_STATE_INIT).unwrap();
+    logic.universal_state_init_to_account_id(u64::MAX, 1, 0).unwrap();
+
+    let expected = expected_account_id(&EMPTY_STATE_INIT);
+    assert_eq!(logic.registers().get_for_free(0).unwrap(), expected.as_bytes());
+}
+
+/// The derivation commits to the bytes as given and looks at nothing else, so a
+/// string that is not a state init still maps to an account id. That account is
+/// unusable, which the state-init receipt's own validation catches.
+#[test]
+fn test_universal_state_init_to_account_id_accepts_any_bytes() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
+    logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap();
+    logic.assert_read_register(expected_account_id(&[7u8, 7, 7]).as_bytes(), 0);
 }
 
 #[test]
