@@ -1,7 +1,7 @@
 pub(crate) mod sync_utils;
 pub mod test_utils;
 
-use crate::db::{CLOUD_READER_STORE_KEY, GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
+use crate::db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 use crate::trie::AccessOptions;
 use crate::{
     DBCol, GENESIS_STATE_ROOTS_KEY, KeyLookupMode, Store, StoreUpdate, TrieAccess, TrieUpdate,
@@ -576,14 +576,6 @@ pub fn remove_account(
 
 pub fn get_genesis_state_roots(store: &Store) -> Option<Vec<StateRoot>> {
     store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
-}
-
-pub fn is_cloud_reader_store(store: &Store) -> bool {
-    store.get_ser::<bool>(DBCol::BlockMisc, CLOUD_READER_STORE_KEY).unwrap_or(false)
-}
-
-pub fn set_cloud_reader_store(store_update: &mut StoreUpdate) {
-    store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_STORE_KEY, &true);
 }
 
 pub fn get_genesis_congestion_infos(store: &Store) -> Option<Vec<CongestionInfo>> {

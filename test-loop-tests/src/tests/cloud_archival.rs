@@ -12,8 +12,9 @@ use crate::utils::cloud_archival::{
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
+use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -260,6 +261,7 @@ impl CloudArchiveHarness {
     const DEFAULT_EPOCH_LENGTH: BlockHeightDelta = 10;
     /// The node the recent reader takes over from. Every test runs one.
     const RECENT_READER_ACCOUNT: &str = "recent_reader";
+    const RECENT_READER_POLLING_INTERVAL: Duration = Duration::seconds(1);
     const RESHARDING_BOUNDARY_ACCOUNT: &str = "boundary";
     const TEST_BATCH_SIZE: u32 = 4;
     const USER_ACCOUNT: &str = "user_account";
@@ -344,8 +346,26 @@ impl CloudArchiveHarness {
     /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        // TODO(cloud_archival): run the reader over the database that node leaves.
-        CloudArchivalRecentReader::new()
+        // TODO(cloud_archival): consider splitting the chain store, we do not need
+        // transaction_validity_period in our use case.
+        let chain_store = ChainStore::new(
+            self.recent_reader_store(),
+            true,
+            self.env.shared_state.genesis.config.transaction_validity_period,
+        );
+        let reader = CloudArchivalRecentReader::new(
+            self.env.test_loop.clock(),
+            chain_store,
+            Self::RECENT_READER_POLLING_INTERVAL,
+        );
+        let handle = reader.clone();
+        self.env
+            .test_loop
+            .future_spawner("CloudArchivalRecentReader")
+            .spawn("cloud archival recent reader", async move {
+                reader.cloud_archival_loop().await.expect("the recent reader stopped")
+            });
+        handle
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -1940,7 +1960,7 @@ fn test_cloud_archival_recent_reader() {
     // One epoch past the garbage-collection window, so the probe height is below
     // the tail by the time the node switches over.
     h.run_until_epoch(h.gc_num_epochs_to_keep + 1);
-    h.start_recent_reader();
+    let reader = h.start_recent_reader();
     let kept = h.recent_reader_store().chain_store().head().unwrap().height;
     // Twice as far again, so gc would have taken the block held at the switch if
     // anything still gc-ed this database.
@@ -1973,5 +1993,6 @@ fn test_cloud_archival_recent_reader() {
         "the reader did not catch up: head {head}, bucket head {bucket_head}"
     );
 
+    reader.stop();
     h.shutdown();
 }

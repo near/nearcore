@@ -1,7 +1,7 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{
-    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY, CLOUD_SHARD_HEAD_PREFIX,
-    cloud_shard_head_key, cloud_shard_head_key_shard_id,
+    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY, CLOUD_READER_HEAD_KEY,
+    CLOUD_SHARD_HEAD_PREFIX, cloud_shard_head_key, cloud_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::BorshDeserialize;
@@ -49,6 +49,12 @@ impl CloudArchivalStoreAdapter {
     /// Last block of the latest fully archivized epoch.
     pub fn prev_epoch_end(&self) -> Option<CryptoHash> {
         self.store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
+    }
+
+    /// Height a reader has written every component through, absent unless this store
+    /// is a reader's.
+    pub fn reader_head(&self) -> Option<BlockHeight> {
+        self.store.get_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY)
     }
 
     /// Every shard the node has recorded a head for, in shard order.
@@ -110,5 +116,9 @@ impl<'a> CloudArchivalStoreUpdateAdapter<'a> {
 
     pub fn set_prev_epoch_end(&mut self, block_hash: CryptoHash) {
         self.store_update.set_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY, &block_hash);
+    }
+
+    pub fn set_reader_head(&mut self, height: BlockHeight) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, &height);
     }
 }
