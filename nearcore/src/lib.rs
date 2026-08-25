@@ -134,6 +134,7 @@ fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use rustix::fs::{Access, AtFlags, CWD, accessat};
+        // cspell:ignore EACCESS
         accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
     }
     #[cfg(not(unix))]
