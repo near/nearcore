@@ -140,7 +140,6 @@ impl StatePart {
 mod tests {
     use crate::state::PartialState;
     use crate::state_part::{PART_ENTRY_LIMIT, PART_SIZE_LIMIT, StatePart, StatePartV0};
-    use crate::state_sync::STATE_PART_MEMORY_LIMIT;
     use itertools::Itertools;
     use std::sync::Arc;
 

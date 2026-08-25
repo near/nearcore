@@ -41,8 +41,9 @@ impl PartialState {
     }
 
     /// Deserializes a partial state, rejecting an entry count above `max_entries`
-    /// before any entry is read. Borsh allocates one heap block per entry as it
-    /// decodes, so the count has to be checked from the length prefix first.
+    /// before any entry is read. Each `TrieValues` entry is an `Arc<[u8]>` and
+    /// costs a heap allocation as borsh decodes it, so the count has to be taken
+    /// from the length prefix first.
     pub fn try_from_slice_with_entry_limit(
         bytes: &[u8],
         max_entries: u32,

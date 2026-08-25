@@ -154,6 +154,7 @@ impl<'a> AccessOptions<'a> {
     }
 }
 
+// MIN_MEMORY_USAGE_PER_PART_ENTRY in near-primitives mirrors node_cost; a test keeps them equal.
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Copy, Hash)]
