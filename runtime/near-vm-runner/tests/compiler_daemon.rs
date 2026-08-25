@@ -185,14 +185,17 @@ fn test_mixed_priority_compilation() {
 #[cfg(all(target_os = "linux", feature = "test_features"))]
 fn test_landlock_sandbox() {
     let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::LandlockProbe,
+    );
     let result = compiler_daemon::compile_in_subprocess(
-        compiler_daemon::protocol::TEST_LANDLOCK_PROBE_REQUEST,
+        &[],
         &config.limit_config,
         CompilePriority::Critical,
     )
     .unwrap()
     .unwrap();
-    assert_eq!(result, compiler_daemon::protocol::TEST_LANDLOCK_PROBE_RESPONSE);
+    assert!(result.is_empty());
 }
 
 /// A worker that stops responding is killed and its request is reported as an
@@ -201,8 +204,11 @@ fn test_landlock_sandbox() {
 fn test_worker_timeout_is_unknown_compilation_error() {
     let config = test_config();
     let started = Instant::now();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::Timeout,
+    );
     let result = compiler_daemon::compile_in_subprocess(
-        compiler_daemon::protocol::TEST_TIMEOUT_REQUEST,
+        &[],
         &config.limit_config,
         CompilePriority::Critical,
     );
@@ -228,8 +234,9 @@ fn test_worker_timeout_is_unknown_compilation_error() {
 #[cfg(feature = "test_features")]
 fn test_worker_crash_is_unknown_compilation_error() {
     let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(compiler_daemon::protocol::TestAction::Abort);
     let result = compiler_daemon::compile_in_subprocess(
-        compiler_daemon::protocol::TEST_ABORT_REQUEST,
+        &[],
         &config.limit_config,
         CompilePriority::Critical,
     );
@@ -246,7 +253,9 @@ fn test_engine_creation_failure_is_not_cached() {
         ContractCode::new(wat::parse_str(r#"(module (func (export "main")))"#).unwrap(), None);
     let cache = MockContractRuntimeCache::default();
 
-    compiler_daemon::inject_engine_creation_failure_for_next_request();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::EngineCreationFailure,
+    );
     let result = precompile_contract(&code, config, Some(&cache));
 
     assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));

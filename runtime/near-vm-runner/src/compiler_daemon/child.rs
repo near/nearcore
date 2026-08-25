@@ -63,11 +63,23 @@ fn handle_request(
     request: CompileRequest,
     sandbox_status: &SandboxStatus,
 ) -> CompileResponse {
-    #[cfg(all(target_os = "linux", feature = "test_features"))]
-    if request.prepared_code == super::protocol::TEST_LANDLOCK_PROBE_REQUEST {
-        return match sandbox::run_probe(sandbox_status) {
-            Ok(()) => CompileResponse::Ok(super::protocol::TEST_LANDLOCK_PROBE_RESPONSE.to_vec()),
-            Err(err) => CompileResponse::Err(err),
+    #[cfg(feature = "test_features")]
+    if let Some(action) = request.test_action {
+        return match action {
+            super::protocol::TestAction::Abort => std::process::abort(),
+            super::protocol::TestAction::Timeout => loop {
+                park();
+            },
+            super::protocol::TestAction::EngineCreationFailure => {
+                abort_worker("failed to create engine: test engine creation failure")
+            }
+            #[cfg(target_os = "linux")]
+            super::protocol::TestAction::LandlockProbe => {
+                match sandbox::run_probe(sandbox_status) {
+                    Ok(()) => CompileResponse::Ok(Vec::new()),
+                    Err(err) => CompileResponse::Err(err),
+                }
+            }
         };
     }
     let _ = sandbox_status;
@@ -78,22 +90,6 @@ fn handle_compile(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest,
 ) -> CompileResponse {
-    #[cfg(feature = "test_features")]
-    if request.prepared_code == super::protocol::TEST_ABORT_REQUEST {
-        std::process::abort();
-    }
-    #[cfg(feature = "test_features")]
-    if request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
-        loop {
-            park();
-        }
-    }
-
-    #[cfg(feature = "test_features")]
-    if request.test_fault == Some(super::protocol::TestFaultInjection::EngineCreationFailure) {
-        abort_worker("failed to create engine: test engine creation failure");
-    }
-
     let engine = match engines.entry(request.max_memory_pages) {
         hash_map::Entry::Occupied(e) => e.into_mut(),
         hash_map::Entry::Vacant(e) => e.insert(

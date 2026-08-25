@@ -34,19 +34,17 @@ static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
 
 #[cfg(feature = "test_features")]
 thread_local! {
-    static NEXT_TEST_FAULT: Cell<Option<super::protocol::TestFaultInjection>> = const { Cell::new(None) };
+    static NEXT_TEST_ACTION: Cell<Option<super::protocol::TestAction>> = const { Cell::new(None) };
 }
 
-/// Inject an engine-construction failure into the next compiler request made
-/// by the current thread.
+/// Set test-only behavior for the next compiler request made by the current
+/// thread.
 #[cfg(feature = "test_features")]
-pub fn inject_engine_creation_failure_for_next_request() {
-    NEXT_TEST_FAULT.with(|fault| {
+pub fn set_test_action_for_next_request(action: super::protocol::TestAction) {
+    NEXT_TEST_ACTION.with(|next_action| {
         assert!(
-            fault
-                .replace(Some(super::protocol::TestFaultInjection::EngineCreationFailure))
-                .is_none(),
-            "a compiler daemon test fault is already pending"
+            next_action.replace(Some(action)).is_none(),
+            "a compiler daemon test action is already pending"
         );
     });
 }
@@ -205,7 +203,7 @@ impl DaemonProcess {
 
 fn compilation_request_timeout(_request: &CompileRequest) -> Option<Duration> {
     #[cfg(feature = "test_features")]
-    if _request.prepared_code == super::protocol::TEST_TIMEOUT_REQUEST {
+    if _request.test_action == Some(super::protocol::TestAction::Timeout) {
         return Some(Duration::from_millis(100));
     }
     None
@@ -466,7 +464,7 @@ pub fn compile_in_subprocess(
             .max_elements_per_contract_table
             .map(|v| v as u64),
         #[cfg(feature = "test_features")]
-        test_fault: NEXT_TEST_FAULT.with(Cell::take),
+        test_action: NEXT_TEST_ACTION.with(Cell::take),
     };
 
     let pool = get_or_init_pool();
