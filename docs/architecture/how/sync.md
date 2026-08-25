@@ -26,6 +26,26 @@ periodically in the client actor — if the node is behind by more than
 The sync handler classifies the node into one of two categories based on how
 far behind it is, and routes it through the appropriate path.
 
+### Picking the target height
+
+The height to sync to comes from a peer, and a claim is acted on only once its
+approvals verify against a known epoch's validators (>2/3 stake). That check is
+a pass over about 100 signatures, so the node runs it at the sync step rather
+than when the block arrives; the relay path only records which header a peer
+claimed.
+
+Each step checks the claims that could start sync, highest first, and stops at
+the first that passes, since that is the only claim the decision needs. It walks
+past a claim that fails, so a bogus high claim cannot hide an honest lower one,
+and a peer whose claim failed is passed over for a few steps so it cannot take
+every check. Only a few checks run per step, which bounds the signature work by
+time rather than by how many blocks peers send.
+
+A peer with no proved height reads as level with our head: still a candidate to
+download from, never the target. Once the head has not advanced for about one
+epoch the node falls back to the unvalidated claimed heights, since the
+validator sets it knows no longer cover the tip.
+
 ### The two horizons
 
 ```

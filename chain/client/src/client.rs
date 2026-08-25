@@ -1206,18 +1206,36 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// Record `peer_id`'s verified height if the relayed block is ahead of us
-    /// and its approvals verify as >2/3 of a known epoch's stake; far-ahead
-    /// blocks (unknown epoch) fail that check and are ignored.
-    pub(crate) fn note_verified_peer_height(&mut self, block: &Block, peer_id: &PeerId) {
-        let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
-        self.verified_peer_heights.prune_at_or_below(head_height);
-        let height = block.header().height();
-        if height <= head_height {
+    /// A claim at or below this height cannot change the sync decision, so it needs no proof.
+    pub(crate) fn sync_trigger_height(&self, head_height: BlockHeight) -> BlockHeight {
+        if self.sync_handler.sync_status.is_syncing() {
+            head_height
+        } else {
+            head_height + self.config.sync_height_threshold
+        }
+    }
+
+    /// Remember the height `peer_id` relayed. No approvals are checked here;
+    /// `verify_best_peer_height_claim` does that.
+    pub(crate) fn note_peer_height_claim(&mut self, block: &Block, peer_id: &PeerId) {
+        let Ok(head) = self.chain.head() else {
+            return;
+        };
+        if block.header().height() <= self.sync_trigger_height(head.height) {
             return;
         }
-        self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
-            self.chain.verify_header_approvals_without_ancestry(block.header()).is_ok()
+        self.verified_peer_heights.note_claim(peer_id, block.header());
+    }
+
+    /// Pays for the approval checks the sync decision needs, and no others.
+    pub(crate) fn verify_best_peer_height_claim(&mut self) {
+        let Ok(head) = self.chain.head() else {
+            return;
+        };
+        let min_height = self.sync_trigger_height(head.height);
+        self.verified_peer_heights.prune_at_or_below(head.height);
+        self.verified_peer_heights.check_claims_until_verified(min_height, |header| {
+            self.chain.verify_header_approvals_without_ancestry(header).is_ok()
         });
     }
 
