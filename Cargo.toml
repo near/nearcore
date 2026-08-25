@@ -2,7 +2,7 @@
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -182,7 +182,7 @@ ahash = { version = "0.8" }
 dashmap = { version = "6", default-features = false }
 derive_builder = "0.20.2"
 derive_more = "2.0"
-derive-where = "1.2.7"
+derive-where = "1.6.1"
 dirs = "4"
 easy-ext = "0.2"
 ed25519-dalek = { version = "2.2.0", default-features = false }

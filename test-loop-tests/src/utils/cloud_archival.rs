@@ -5,10 +5,11 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_reader::{
-    bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
+use near_client::archive::cloud_archival_utils::{
+    find_present_block_at_or_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
@@ -714,15 +715,6 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// How the reader is checked against a set of writer rows.
-enum Parity {
-    /// Reader must equal the given writer rows exactly, holding no extra rows.
-    Equality,
-    /// Reader must contain every given writer row, but may hold extra rows
-    /// (e.g. blocks backfilled below `start` to complete the merkle tree chain).
-    Containment,
-}
-
 /// Asserts the reader reproduces the writer's rows over `[start, end]` for every
 /// column the cloud-bootstrapped reader reconstructs today. Caller must
 /// `.disable_gc()` so the writer retains the bootstrap range.
@@ -764,43 +756,15 @@ pub(crate) fn assert_reader_writer_parity(
     let writer_kvs = writer_kvs(writer, &cols, start, end);
 
     for &col in &cols {
-        let parity = match col {
-            // The reader backfills these columns below `start` to complete the merkle
-            // tree chain, so it holds extra rows: check containment, not equality.
-            DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
-                Parity::Containment
-            }
-            #[cfg(feature = "nightly")]
-            DBCol::ChunkProducers => Parity::Containment,
-            _ => Parity::Equality,
-        };
-        assert_keyed_parity(reader, col, &writer_kvs[&col], parity);
+        assert_keyed_parity(reader, col, &writer_kvs[&col]);
     }
 }
 
 /// Compares the writer's rows in `col` against the full reader.
-fn assert_keyed_parity(
-    reader: &Store,
-    col: DBCol,
-    writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
-    parity: Parity,
-) {
+fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
     let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
-    match parity {
-        Parity::Equality => {
-            assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch")
-        }
-        Parity::Containment => {
-            for (key, writer_value) in writer_kvs {
-                assert_eq!(
-                    reader_all_kvs.get(key),
-                    Some(writer_value),
-                    "{col}: writer key {key:?} missing or different at reader"
-                );
-            }
-        }
-    }
+    assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch");
 }
 
 /// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.

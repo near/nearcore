@@ -3,8 +3,6 @@ use crate::adapter::StoreAdapter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_schema_checker_lib::ProtocolSchema;
@@ -24,14 +22,8 @@ pub struct EpochDataV1 {
     /// Provided by the caller of `build_epoch_data`.
     /// From `EpochInfoV5`, this data is already part of `EpochInfo`.
     shard_layout: ShardLayout,
-    /// Read from `DBCol::EpochStart` and `DBCol::BlockHeight`.
+    /// Read from `DBCol::EpochStart`.
     epoch_start_height: BlockHeight,
-    /// Hash of the block immediately before the epoch start (= last block of
-    /// the previous epoch, which is always final). Used by the reader as the
-    /// `BlockMerkleTree` key for `epoch_start_prev_block_merkle_tree`.
-    epoch_start_prev_hash: CryptoHash,
-    /// Read from `DBCol::BlockMerkleTree`.
-    epoch_start_prev_block_merkle_tree: PartialMerkleTree,
 }
 
 /// Builds an `EpochData` object for the given epoch ID by reading data from the store.
@@ -44,19 +36,7 @@ pub fn build_epoch_data(
     let epoch_info = store.get_epoch_info(&epoch_id)?;
     let epoch_start_height = store.get_epoch_start(&epoch_id)?;
 
-    let store = store.chain_store();
-    let epoch_start_block_hash = store.get_block_hash_by_height(epoch_start_height)?;
-    let epoch_start_block = store.get_block(&epoch_start_block_hash)?;
-    let epoch_start_prev_hash = *epoch_start_block.header().prev_hash();
-    let epoch_start_prev_block_merkle_tree = store.get_block_merkle_tree(&epoch_start_prev_hash)?;
-    let epoch_data = EpochDataV1 {
-        epoch_id,
-        epoch_info,
-        shard_layout,
-        epoch_start_height,
-        epoch_start_prev_hash,
-        epoch_start_prev_block_merkle_tree,
-    };
+    let epoch_data = EpochDataV1 { epoch_id, epoch_info, shard_layout, epoch_start_height };
     Ok(EpochData::V1(epoch_data))
 }
 
@@ -82,18 +62,6 @@ impl EpochData {
     pub fn shard_layout(&self) -> &ShardLayout {
         match self {
             EpochData::V1(data) => &data.shard_layout,
-        }
-    }
-
-    pub fn epoch_start_prev_block_merkle_tree(&self) -> &PartialMerkleTree {
-        match self {
-            EpochData::V1(data) => &data.epoch_start_prev_block_merkle_tree,
-        }
-    }
-
-    pub fn epoch_start_prev_hash(&self) -> &CryptoHash {
-        match self {
-            EpochData::V1(data) => &data.epoch_start_prev_hash,
         }
     }
 }

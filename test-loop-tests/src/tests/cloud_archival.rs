@@ -16,17 +16,14 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
-use near_client::archive::cloud_archival_reader::save_block_data;
-use near_client::archive::cloud_archival_reader::{
-    CloudArchivalRecentReader, find_snapshot_at_or_before,
-};
+use near_client::archive::cloud_archival_utils::save_block_data;
+use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "nightly")]
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
@@ -1874,20 +1871,12 @@ fn test_cloud_archival_reader_reconstructs_chunk_producers() {
         .collect();
     assert_eq!(blob_rows, writer_rows, "cloud blob rows must match the writer's rows");
 
-    // `save_block_data` writes them back byte-for-byte into a fresh store. It
-    // extends the merkle chain from prev_hash, so seed a placeholder tree to
-    // keep the non-genesis path from panicking; only ChunkProducers is asserted.
+    // `save_block_data` writes them back byte-for-byte into a fresh store; only
+    // ChunkProducers is asserted.
     let fresh = create_test_store();
-    {
-        let mut update = fresh.store_update();
-        update.set_ser(
-            DBCol::BlockMerkleTree,
-            block_data.block().header().prev_hash().as_ref(),
-            &PartialMerkleTree::default(),
-        );
-        update.commit();
-    }
-    save_block_data(&fresh, &block_data);
+    let mut update = fresh.store_update();
+    save_block_data(&mut update, &block_data);
+    update.commit();
     let fresh_rows: BTreeMap<Vec<u8>, Vec<u8>> = fresh
         .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
         .map(|(k, v)| (k.into_vec(), v.into_vec()))
