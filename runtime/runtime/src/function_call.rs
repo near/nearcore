@@ -338,7 +338,17 @@ pub(crate) fn execute_function_call(
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            panic!("wasm compilation unknown error: {debug_message}");
+            if context.view_config.is_none() {
+                // apply-path: do not commit the potentially non-deterministic
+                // error on chain, prefer panicking
+                panic!("wasm compilation unknown error: {debug_message}");
+            } else {
+                // view-call: do not crash the node, a non-deterministic RPC
+                // response is acceptable
+                return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
+                    CompilationError::WasmtimeCompileError { msg: debug_message },
+                )));
+            }
         }
         Ok(r) => r,
     };
