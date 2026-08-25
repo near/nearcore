@@ -105,18 +105,6 @@ impl UniversalStateInit {
         }
     }
 
-    /// Take the fields without cloning:
-    /// `let (code, data, access_keys) = state_init.take();`.
-    #[allow(clippy::type_complexity)]
-    pub fn take(
-        self,
-    ) -> (Option<GlobalContractIdentifier>, BTreeMap<Vec<u8>, Vec<u8>>, BTreeSet<PublicKeyHandle>)
-    {
-        match self {
-            UniversalStateInit::V1(inner) => (inner.code, inner.data, inner.access_keys),
-        }
-    }
-
     /// Canonical borsh of this state init, ready to wrap in a [`RawStateInit`].
     pub fn to_raw(&self) -> RawStateInit {
         RawStateInit(borsh::to_vec(self).expect("borsh must not fail"))

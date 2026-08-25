@@ -13002,6 +13002,10 @@
             ],
             "description": "See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode)."
           },
+          "universal_accounts": {
+            "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",
+            "type": "boolean"
+          },
           "vm_kind": {
             "allOf": [
               {

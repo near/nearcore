@@ -288,11 +288,9 @@ fn test_universal_state_init_after_transfer() {
     env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
 
     let initialized = env.view_account(&account);
-    assert!(
-        initialized.amount >= transferred,
-        "balance funded before init must survive it: {} < {}",
-        initialized.amount,
-        transferred
+    assert_eq!(
+        initialized.amount, transferred,
+        "balance funded before init must survive it, and the deposit be refunded"
     );
     assert!(
         initialized.storage_usage > funded.storage_usage,
