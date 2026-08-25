@@ -1,23 +1,29 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
+use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{GetBlockProof, GetExecutionOutcome, GetNextLightClientBlock};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{
     Approval, ApprovalInner, compute_bp_hash_from_validator_stakes,
 };
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{
     combine_hash, compute_root_from_path_and_item, verify_hash, verify_path,
 };
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{LightClientBlockLiteView, LightClientBlockView};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 fn light_client_block_hash(block: &LightClientBlockView) -> CryptoHash {
     LightClientBlockLiteView {
@@ -357,4 +363,116 @@ fn check_outcome_proofs(
         // block hash -> light client head's block merkle root.
         assert!(verify_hash(block_merkle_root, &block_proof.proof, outcome_proof.block_hash));
     }
+}
+
+/// A shard that is not split still moves one slot up in the chunk vector when a shard below it
+/// splits. An outcome in that shard's last chunk before the change is confirmed by a block in the
+/// new layout, so the outer merkle path must be taken at the new position.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_light_client_execution_outcome_proof_across_resharding() {
+    init_test_logger();
+
+    let user = create_account_id("user");
+    let base_shard_layout = ShardLayout::multi_shard(3, 3);
+    let epoch_length = 5;
+
+    let base_epoch_config = TestEpochConfigBuilder::new()
+        .shard_layout(base_shard_layout.clone())
+        .epoch_length(epoch_length)
+        .build();
+    let (new_epoch_config, new_shard_layout) =
+        derive_new_epoch_config_from_boundary(&base_epoch_config, &create_account_id("boundary"));
+
+    // The user's shard is untouched by the split, but the split happens below it, so its position
+    // in the chunk vector moves up by one. This is the case that must be covered.
+    let user_shard_id = base_shard_layout.account_id_to_shard_id(&user);
+    let old_shard_index = base_shard_layout.get_shard_index(user_shard_id).unwrap();
+    let new_shard_index = new_shard_layout.get_shard_index(user_shard_id).unwrap();
+    assert_eq!(new_shard_index, old_shard_index + 1);
+
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from([
+        (PROTOCOL_VERSION - 1, Arc::new(base_epoch_config)),
+        (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+    ]));
+
+    let mut env = TestLoopBuilder::new()
+        .protocol_version(PROTOCOL_VERSION - 1)
+        .shard_layout(base_shard_layout.clone())
+        .epoch_length(epoch_length)
+        .add_user_account(&user, Balance::from_near(10))
+        .epoch_config_store(epoch_config_store)
+        .build();
+
+    // One transaction per block, so every block in the range holds an outcome for the user's
+    // shard. The last block before the layout change is therefore always covered.
+    let epoch_manager = env.validator().client().epoch_manager.clone();
+    let mut tx_hashes = Vec::new();
+    while epoch_manager.get_shard_layout(&env.validator().head().epoch_id).unwrap()
+        != new_shard_layout
+    {
+        let tx = env.validator().tx_send_money(&user, &user, Balance::from_millinear(1));
+        tx_hashes.push(env.validator().submit_tx(tx));
+        env.validator_runner().run_for_number_of_blocks(1);
+        assert!(tx_hashes.len() < 20 * epoch_length as usize, "shard layout never changed");
+    }
+
+    // An outcome is only confirmed by a later block with a new chunk for its shard.
+    let last_tx_hash = *tx_hashes.last().unwrap();
+    env.validator_runner().run_until_outcome_available(last_tx_hash, Duration::seconds(5));
+    env.validator_runner().run_for_number_of_blocks(1);
+
+    let responses = {
+        let mut node = env.validator_mut();
+        let view_client = node.view_client_actor();
+        tx_hashes
+            .iter()
+            .map(|tx_hash| {
+                let id = TransactionOrReceiptId::Transaction {
+                    transaction_hash: *tx_hash,
+                    sender_id: user.clone(),
+                };
+                view_client.handle(GetExecutionOutcome { id }).unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let node = env.validator();
+    let chain = &node.client().chain;
+    let mut covered_layout_change = false;
+    for (tx_hash, response) in tx_hashes.iter().zip(responses) {
+        let execution_outcome = chain.get_execution_outcome(tx_hash).unwrap();
+        let execution_epoch_id =
+            *chain.get_block_header(&execution_outcome.block_hash).unwrap().epoch_id();
+
+        // The handler replaces the block hash with the block that confirms the outcome.
+        let confirming_block_hash = response.outcome_proof.block_hash;
+        let confirming_header = chain.get_block_header(&confirming_block_hash).unwrap();
+        let chunk_outcome_root = compute_root_from_path_and_item(
+            &response.outcome_proof.proof,
+            &response.outcome_proof.to_hashes(),
+        );
+        assert!(
+            verify_path(
+                *confirming_header.outcome_root(),
+                &response.outcome_root_proof,
+                &chunk_outcome_root,
+            ),
+            "outcome root proof for {tx_hash} does not reconstruct the outcome root of the \
+             confirming block at height {}",
+            confirming_header.height(),
+        );
+
+        if epoch_manager.get_shard_layout(&execution_epoch_id).unwrap()
+            != epoch_manager.get_shard_layout(confirming_header.epoch_id()).unwrap()
+        {
+            covered_layout_change = true;
+        }
+    }
+    assert!(
+        covered_layout_change,
+        "no outcome was confirmed by a block in a different shard layout, so the test did not \
+         cover the resharding boundary",
+    );
 }
