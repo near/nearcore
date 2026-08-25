@@ -578,7 +578,7 @@ mod tests {
             panic!("read-only open of a v49 database without the column family must fail");
         };
         assert!(
-            err.to_string().contains("ChunkProducers"),
+            err.to_string().contains(<&str>::from(DBCol::ChunkProducers)),
             "expected a missing-column-family error, got: {err}"
         );
 

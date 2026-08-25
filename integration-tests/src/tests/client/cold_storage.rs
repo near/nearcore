@@ -15,6 +15,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::archive::cold_storage::{
@@ -224,8 +225,9 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
-                // Stays empty until EarlyKickout activates.
-                || col == DBCol::ChunkProducers
+                // Empty until EarlyKickout activates.
+                || (col == DBCol::ChunkProducers
+                    && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))
                 || num_checks > 0
         );
     }
@@ -373,8 +375,9 @@ fn test_cold_db_copy_with_height_skips() {
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
-                    // Stays empty until EarlyKickout activates.
-                    || col == DBCol::ChunkProducers
+                    // Empty until EarlyKickout activates.
+                    || (col == DBCol::ChunkProducers
+                        && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))
                     || num_checks > 0
             );
         }
