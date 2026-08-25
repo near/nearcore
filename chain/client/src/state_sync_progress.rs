@@ -1,23 +1,22 @@
 use crate::SyncStatus;
-use near_async::time::{Clock, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_client_primitives::types::StateSyncStatus;
 use near_primitives::types::BlockHeight;
+use std::collections::VecDeque;
 use std::fmt::Write;
 use time::ext::InstantExt as _;
-
-const NEW_SAMPLE_WEIGHT: f64 = 0.3;
 
 /// How often to repeat the warning that state sync will miss its deadline.
 const DEADLINE_WARNING_INTERVAL_SECONDS: f64 = 60.0;
 
-/// Shortest span the network head rate is measured over. The head arrives in
-/// bursts, so a short span reports anything between zero and several blocks a
-/// second.
-const MIN_HEAD_RATE_SPAN_SECONDS: f64 = 60.0;
+/// Shortest span the rates are measured over. Both signals stutter: the network
+/// head arrives in bursts, and downloading pauses while applying catches up.
+const MIN_RATE_SPAN_SECONDS: f64 = 60.0;
 
-fn weighted_average(previous: f64, sample: f64) -> f64 {
-    previous * (1.0 - NEW_SAMPLE_WEIGHT) + sample * NEW_SAMPLE_WEIGHT
-}
+/// Span the rates are averaged over. Long enough that a pause of a minute or
+/// two does not invert the verdict, short enough that a node which has genuinely
+/// stopped is reported within the window rather than hours later.
+const RATE_WINDOW_SECONDS: f64 = 600.0;
 
 #[derive(Clone, Copy)]
 struct SyncSample {
@@ -31,11 +30,10 @@ struct SyncSample {
 /// projected against the deadline at which the node wipes its database.
 #[derive(Default)]
 pub struct StateSyncProgressTracker {
-    /// First sample of the current attempt. Parts arrive steadily and are
-    /// averaged over the last few ticks, but the network head jumps in bursts,
-    /// so its rate is averaged over the whole attempt instead.
-    first_sample: Option<SyncSample>,
-    prev_sample: Option<SyncSample>,
+    /// Samples within `RATE_WINDOW_SECONDS`, oldest first. Rates come from the
+    /// span between the ends rather than from consecutive ticks, so a brief
+    /// pause cannot invert the verdict and a lasting one still surfaces.
+    samples: VecDeque<SyncSample>,
     rates: Option<SyncRates>,
     last_deadline_warning: Option<Instant>,
 }
@@ -47,8 +45,7 @@ impl StateSyncProgressTracker {
     }
 
     fn forget(&mut self) {
-        self.first_sample = None;
-        self.prev_sample = None;
+        self.samples.clear();
         self.rates = None;
         self.last_deadline_warning = None;
     }
@@ -66,7 +63,7 @@ impl StateSyncProgressTracker {
         let heights = status.heights?;
         // A different sync block is a new attempt, so earlier samples say
         // nothing about this one.
-        if self.first_sample.is_some_and(|first| first.sync_block != heights.sync_block) {
+        if self.samples.front().is_some_and(|first| first.sync_block != heights.sync_block) {
             self.forget();
         }
         let now = clock.now();
@@ -77,23 +74,21 @@ impl StateSyncProgressTracker {
             parts_downloaded,
             highest_height: heights.highest,
         };
-        let first = *self.first_sample.get_or_insert(sample);
-        let previous = self.prev_sample.replace(sample);
+        self.samples.push_back(sample);
+        while self.samples.front().is_some_and(|oldest| {
+            oldest.sampled_at < now - Duration::seconds(RATE_WINDOW_SECONDS as i64)
+        }) {
+            self.samples.pop_front();
+        }
 
-        let previous = previous?;
-        let since_previous = now.signed_duration_since(previous.sampled_at).as_seconds_f64();
-        let since_first = now.signed_duration_since(first.sampled_at).as_seconds_f64();
-        if since_previous <= 0.0 || since_first < MIN_HEAD_RATE_SPAN_SECONDS {
+        let oldest = *self.samples.front()?;
+        let span = now.signed_duration_since(oldest.sampled_at).as_seconds_f64();
+        if span < MIN_RATE_SPAN_SECONDS {
             return self.rates;
         }
-        let parts_sample =
-            parts_downloaded.saturating_sub(previous.parts_downloaded) as f64 / since_previous;
         let rates = SyncRates {
-            parts_per_sec: self
-                .rates
-                .map_or(parts_sample, |rates| weighted_average(rates.parts_per_sec, parts_sample)),
-            blocks_per_sec: heights.highest.saturating_sub(first.highest_height) as f64
-                / since_first,
+            parts_per_sec: parts_downloaded.saturating_sub(oldest.parts_downloaded) as f64 / span,
+            blocks_per_sec: heights.highest.saturating_sub(oldest.highest_height) as f64 / span,
         };
         self.rates = Some(rates);
         self.warn_if_deadline_will_be_missed(status, rates, now);
@@ -380,22 +375,79 @@ mod tests {
 
     #[test]
     fn bursty_head_does_not_swing_block_rate() {
-        // The head jumps 120 blocks in one tick and none in the next. Averaging
-        // over the attempt keeps the rate at the true 1 block/s either way.
         let clock = fake_clock();
         let mut tracker = StateSyncProgressTracker::default();
         tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
         clock.advance(Duration::seconds(60));
         let burst = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060)).unwrap();
+        // the head does not advance at all over the next minute
         clock.advance(Duration::seconds(60));
-        let stall = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_120)).unwrap();
+        let quiet = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_060)).unwrap();
         assert_eq!(burst.blocks_per_sec, 1.0);
-        assert_eq!(stall.blocks_per_sec, 1.0);
+        assert_eq!(quiet.blocks_per_sec, 0.5);
+    }
 
-        // A tick where the head does not move at all must not crater the rate.
+    #[test]
+    fn paused_download_does_not_explode_the_eta() {
+        // Downloading stalls for two minutes while applying catches up. A
+        // recency-weighted rate would fall toward zero and invert the verdict.
+        let clock = fake_clock();
+        let mut tracker = StateSyncProgressTracker::default();
+        for minute in 0..8 {
+            tracker.update_rates_and_warn(
+                &clock.clock(),
+                &downloading(minute * 600, 1_000 + minute * 60),
+            );
+            clock.advance(Duration::seconds(60));
+        }
+        let steady = tracker.rates().unwrap();
+        // two minutes with no parts at all
+        clock.advance(Duration::seconds(120));
+        let paused = tracker
+            .update_rates_and_warn(&clock.clock(), &downloading(7 * 600, 1_000 + 7 * 60))
+            .unwrap();
+
+        assert_eq!(steady.parts_per_sec, 10.0);
+        // 4200 parts over the 600s window: the pause costs a third of the rate,
+        // not all of it, so the verdict cannot flip.
+        assert_eq!(paused.parts_per_sec, 7.0);
+    }
+
+    #[test]
+    fn lasting_stall_drives_the_rate_to_zero() {
+        // Nothing arrives for longer than the window: the rate must reach zero
+        // so the deadline race is reported as lost.
+        let clock = fake_clock();
+        let mut tracker = StateSyncProgressTracker::default();
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
         clock.advance(Duration::seconds(60));
-        let quiet = tracker.update_rates_and_warn(&clock.clock(), &downloading(90, 1_120)).unwrap();
-        assert!(quiet.blocks_per_sec > 0.6, "{}", quiet.blocks_per_sec);
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(600, 1_060));
+
+        for _ in 0..12 {
+            clock.advance(Duration::seconds(60));
+            tracker.update_rates_and_warn(&clock.clock(), &downloading(600, 1_060));
+        }
+        assert_eq!(tracker.rates().unwrap().parts_per_sec, 0.0);
+    }
+
+    #[test]
+    fn rates_are_derived_from_two_samples() {
+        let clock = fake_clock();
+        let mut tracker = StateSyncProgressTracker::default();
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
+        clock.advance(Duration::seconds(60));
+        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060)).unwrap();
+        assert_eq!(rates.parts_per_sec, 0.5);
+        assert_eq!(rates.blocks_per_sec, 1.0);
+    }
+
+    #[test]
+    fn rates_need_a_minimum_span() {
+        let clock = fake_clock();
+        let mut tracker = StateSyncProgressTracker::default();
+        tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
+        clock.advance(Duration::seconds(30));
+        assert!(tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_030)).is_none());
     }
 
     #[test]
@@ -418,34 +470,6 @@ mod tests {
         let mut tracker = StateSyncProgressTracker::default();
         assert!(tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000)).is_none());
         assert!(tracker.rates().is_none());
-    }
-
-    #[test]
-    fn rates_are_derived_from_two_samples() {
-        let clock = fake_clock();
-        let mut tracker = StateSyncProgressTracker::default();
-        tracker.update_rates_and_warn(&clock.clock(), &downloading(0, 1_000));
-        clock.advance(Duration::seconds(60));
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_060)).unwrap();
-        assert_eq!(rates.parts_per_sec, 0.5);
-        assert_eq!(rates.blocks_per_sec, 1.0);
-    }
-
-    #[test]
-    fn stalled_sample_does_not_erase_established_rate() {
-        let clock = fake_clock();
-        let mut tracker = tracker_with_established_rates(&clock);
-        clock.advance(Duration::seconds(60));
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(30, 1_120)).unwrap();
-        assert!((rates.parts_per_sec - 0.5 * (1.0 - NEW_SAMPLE_WEIGHT)).abs() < 1e-9);
-    }
-
-    #[test]
-    fn second_sample_at_same_instant_keeps_previous_rates() {
-        let clock = fake_clock();
-        let mut tracker = tracker_with_established_rates(&clock);
-        let rates = tracker.update_rates_and_warn(&clock.clock(), &downloading(60, 1_120)).unwrap();
-        assert_eq!(rates.parts_per_sec, 0.5);
     }
 
     #[test]
