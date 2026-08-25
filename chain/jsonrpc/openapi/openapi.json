@@ -201,6 +201,34 @@
         }
       }
     },
+    "/EXPERIMENTAL_light_client_execution_outcome_proof": {
+      "post": {
+        "description": "Returns a transaction or receipt execution outcome together with its proof against the chunk's certified outcome root, verifiable against a trusted light client head.",
+        "operationId": "EXPERIMENTAL_light_client_execution_outcome_proof",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_light_client_execution_outcome_proof"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionOutcomeProofResponse_and_RpcLightClientProofError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/EXPERIMENTAL_light_client_proof": {
       "post": {
         "description": "Returns the proofs for a transaction execution.",
@@ -222,6 +250,34 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_light_client_state_proof": {
+      "post": {
+        "description": "Returns a value from a shard's state together with its trie proof against the chunk's certified state root, verifiable against a trusted light client head.",
+        "operationId": "EXPERIMENTAL_light_client_state_proof",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_light_client_state_proof"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientStateProofResponse_and_RpcLightClientProofError"
                 }
               }
             }
@@ -9617,6 +9673,33 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_chunk_execution_proof",
         "type": "object"
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_light_client_execution_outcome_proof": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_light_client_execution_outcome_proof"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcLightClientExecutionOutcomeProofRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_execution_outcome_proof",
+        "type": "object"
+      },
       "JsonRpcRequest_for_EXPERIMENTAL_light_client_proof": {
         "properties": {
           "id": {
@@ -9642,6 +9725,33 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_proof",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_light_client_state_proof": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_light_client_state_proof"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcLightClientStateProofRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_light_client_state_proof",
         "type": "object"
       },
       "JsonRpcRequest_for_EXPERIMENTAL_maintenance_windows": {
@@ -11017,6 +11127,46 @@
         "title": "JsonRpcResponse_for_RpcLightClientChunkExecutionProofResponse_and_RpcLightClientProofError",
         "type": "object"
       },
+      "JsonRpcResponse_for_RpcLightClientExecutionOutcomeProofResponse_and_RpcLightClientProofError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientExecutionOutcomeProofResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientProofError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcLightClientExecutionOutcomeProofResponse_and_RpcLightClientProofError",
+        "type": "object"
+      },
       "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError": {
         "oneOf": [
           {
@@ -11095,6 +11245,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcLightClientNextBlockError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcLightClientStateProofResponse_and_RpcLightClientProofError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientStateProofResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientProofError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcLightClientStateProofResponse_and_RpcLightClientProofError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcNetworkInfoError": {
@@ -14434,6 +14624,79 @@
         ],
         "type": "object"
       },
+      "RpcLightClientExecutionOutcomeProofRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "sender_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "transaction_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "type": {
+                "enum": [
+                  "transaction"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "transaction_hash",
+              "sender_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "receipt_id": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "receiver_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "type": {
+                "enum": [
+                  "receipt"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "receipt_id",
+              "receiver_id"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "light_client_head"
+        ],
+        "title": "RpcLightClientExecutionOutcomeProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientExecutionOutcomeProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          },
+          "outcome_proof": {
+            "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof",
+          "outcome_proof"
+        ],
+        "type": "object"
+      },
       "RpcLightClientExecutionProofRequest": {
         "oneOf": [
           {
@@ -14791,6 +15054,92 @@
             "properties": {
               "info": {
                 "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "SHARD_NOT_TRACKED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "account_shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  },
+                  "requested_shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "account_shard_id",
+                  "requested_shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TARGET_SHARD_MISMATCH"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "chunk_id": {
+                    "$ref": "#/components/schemas/SpiceChunkId"
+                  }
+                },
+                "required": [
+                  "chunk_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "STATE_NOT_AVAILABLE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
                   "chunk_id": {
                     "$ref": "#/components/schemas/SpiceChunkId"
                   }
@@ -14878,6 +15227,41 @@
             "type": "object"
           }
         ]
+      },
+      "RpcLightClientStateProofRequest": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "target": {
+            "$ref": "#/components/schemas/StateProofTarget"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "target",
+          "light_client_head"
+        ],
+        "title": "RpcLightClientStateProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientStateProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          },
+          "state_proof": {
+            "$ref": "#/components/schemas/StateProofView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof",
+          "state_proof"
+        ],
+        "type": "object"
       },
       "RpcMaintenanceWindowsError": {
         "oneOf": [
@@ -21309,6 +21693,119 @@
         "required": [
           "key",
           "value"
+        ],
+        "type": "object"
+      },
+      "StateProofTarget": {
+        "description": "Which piece of a shard's state a light-client state proof targets.\n\nAn account that runs a global contract has no local code, so `LocalContractCode` is\nabsent for it. `Account::contract()` says which case applies.",
+        "oneOf": [
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "target_type": {
+                "enum": [
+                  "account"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "target_type": {
+                "enum": [
+                  "local_contract_code"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "key": {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              "target_type": {
+                "enum": [
+                  "contract_data"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id",
+              "key"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "public_key": {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              "target_type": {
+                "enum": [
+                  "access_key"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id",
+              "public_key"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "StateProofView": {
+        "description": "A value read from a shard's state, with the trie nodes that prove it against the\nchunk's `state_root`. An absent `value` is proved the same way.",
+        "properties": {
+          "nodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreValue"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          }
+        },
+        "required": [
+          "nodes"
         ],
         "type": "object"
       },

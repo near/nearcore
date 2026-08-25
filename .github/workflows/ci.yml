@@ -106,12 +106,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
-        with:
-          against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+          version: 1.72.0
+          # The action enables these on pull_request events only. Set them
+          # explicitly so they also run on merge_group.
+          lint: true
+          format: true
+          breaking: true
+          breaking_against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+          pr_comment: false
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"

@@ -40,6 +40,7 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
@@ -2799,6 +2800,60 @@ pub struct ChunkExecutionProofView {
     pub roots_proof: MerklePath,
     pub certifying_block_header_lite: LightClientBlockLiteView,
     pub certifying_block_proof: MerklePath,
+}
+
+/// A value read from a shard's state, with the trie nodes that prove it against the
+/// chunk's `state_root`. An absent `value` is proved the same way.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct StateProofView {
+    pub value: Option<StoreValue>,
+    #[serde_as(as = "Vec<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub nodes: Vec<Arc<[u8]>>,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+///
+/// An account that runs a global contract has no local code, so `LocalContractCode` is
+/// absent for it. `Account::contract()` says which case applies.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    LocalContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            StateProofTarget::Account { account_id }
+            | StateProofTarget::LocalContractCode { account_id }
+            | StateProofTarget::ContractData { account_id, .. }
+            | StateProofTarget::AccessKey { account_id, .. } => account_id,
+        }
+    }
+
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::LocalContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => {
+                TrieKey::access_key(account_id.clone(), public_key.clone())
+            }
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

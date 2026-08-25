@@ -1749,9 +1749,9 @@ dependencies = [
 
 [[package]]
 name = "derive-where"
-version = "1.2.7"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62d671cc41a825ebabc75757b62d3d168c577f9149b2d49ece1dad1f72119d25"
+checksum = "d08b3a0bcc0d079199cd476b2cae8435016ec11d1c0986c6901c5ac223041534"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4145,7 +4145,6 @@ name = "near-cloud-archive-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh",
  "clap",
  "near-chain-configs",
  "near-client",

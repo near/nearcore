@@ -1157,10 +1157,13 @@ impl Chain {
                         // Invalid chunks (SPICE) have no ShardChunk in
                         // DBCol::Chunks because the header commits to
                         // malicious content. The executor uses
-                        // DBCol::InvalidChunks to detect these and skips
+                        // DBCol::SpiceInvalidChunks to detect these and skips
                         // the chunk body read.
                         if !self.chain_store.chunk_exists(chunk_hash)
-                            && self.chain_store.is_invalid_chunk(chunk_hash).is_none()
+                            && self
+                                .chain_store
+                                .is_invalid_chunk(chunk_header.height_created(), chunk_hash)
+                                .is_none()
                         {
                             missing.push(chunk_header.clone());
                         }
@@ -1645,6 +1648,8 @@ impl Chain {
         chain_store_update.save_body_head(&tip)?;
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
+        // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
+        // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`

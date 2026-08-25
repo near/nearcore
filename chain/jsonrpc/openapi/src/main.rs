@@ -24,8 +24,10 @@ use near_jsonrpc_primitives::types::{
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
         RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+        RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
         RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
+        RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
     },
     maintenance::{
         RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
@@ -905,6 +907,26 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_light_client_chunk_execution_proof".to_string(),
         "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientExecutionOutcomeProofRequest,
+        RpcLightClientExecutionOutcomeProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_execution_outcome_proof".to_string(),
+        "Returns a transaction or receipt execution outcome together with its proof against the chunk's certified outcome root, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientStateProofRequest,
+        RpcLightClientStateProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_state_proof".to_string(),
+        "Returns a value from a shard's state together with its trie proof against the chunk's certified state root, verifiable against a trusted light client head.".to_string(),
     );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,
