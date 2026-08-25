@@ -7,7 +7,8 @@ use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::thread_pool::{
-    PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
+    PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+    background_contract_compilation_coordinator_pool,
 };
 use near_async::time::Clock;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -792,7 +793,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
-        contract_compilation_pool().clone(),
+        background_contract_compilation_coordinator_pool().clone(),
         Arc::new(PartialWitnessValidationThreadPool::new()),
         Arc::new(WitnessCreationThreadPool::new()),
     ));
