@@ -43,7 +43,9 @@ use near_chain::{
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
     Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
+use near_chain_configs::{
+    BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
@@ -86,9 +88,6 @@ use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
@@ -408,7 +407,7 @@ impl Client {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             network_adapter.clone().into_async_sender(),
-            config.state_sync_external_timeout,
+            config.block_request_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
             &config.state_sync,
@@ -821,8 +820,7 @@ impl Client {
     pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
         self.last_optimistic_block_produced
             .as_ref()
-            .filter(|ob| ob.inner.block_height == next_height)
-            .is_some()
+            .is_some_and(|ob| ob.inner.block_height == next_height)
     }
 
     pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
@@ -1623,16 +1621,16 @@ impl Client {
             DecodedChunk::Valid(shard_chunk) => Some(shard_chunk),
             DecodedChunk::None => None,
             DecodedChunk::Invalid(encoded_chunk) => {
-                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 let epoch_id = self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
                 let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 if !ProtocolFeature::Spice.enabled(protocol_version) {
-                    // Pre-SPICE, we don't process invalid chunks. This is okay as they cannot be
-                    // included on chain as validators will not endorse invalid chunks.
+                    // Pre-SPICE, we don't process invalid chunks.
                     return Ok(());
                 }
+                // SPICE path: persist the invalid chunk as evidence.
+                self.save_invalid_chunk(encoded_chunk, &chunk_header);
                 // We intentionally do NOT store a ShardChunk in DBCol::Chunks:
                 // the header commits to malicious content, so pairing it with an
                 // empty body would break validate_chunk_proofs for any reader.
@@ -2564,7 +2562,7 @@ impl Client {
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
                             self.network_adapter.clone().into_async_sender(),
-                            self.config.state_sync_external_timeout,
+                            self.config.block_request_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
                             &self.config.state_sync,

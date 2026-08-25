@@ -11,8 +11,10 @@ two stages:
    the test kills the validator node so that no new blocks are generated.
 
    At this stage, the test verifies that Fred can sync correctly and that the
-   boot node serves all partial chunks requests from its in-memory cache (which
-   is determined by looking at Prometheus metrics).
+   boot node serves partial chunk requests from its in-memory cache for chunks
+   within the cache's height horizon (which is determined by looking at
+   Prometheus metrics).  Older chunks, outside the horizon, are served from
+   hot storage.
 
 2. The test then restarts Fred so that its in-memory cache is cleared.  It
    finally starts a new observer (let’s call it Barney) and points it at Fred as
@@ -173,9 +175,13 @@ def run_test(cluster: Cluster) -> None:
     metrics = get_metrics('boot', boot)
     boot.kill()
 
-    # We didn’t generate enough blocks to fill boot’s in-memory cache which
-    # means all Fred’s requests should be served from it.
-    assert_metrics(metrics, ('cache/ok',))
+    # With the default (production) chunks_cache_height_horizon value, boot's
+    # in-memory cache only covers the most recent heights.  Chunks requested by
+    # Fred that are within that horizon are served from the cache, while older
+    # ones are served from hot storage.  So we expect both 'cache/ok' and
+    # 'partial/ok' to be non-zero; nothing should come from cold storage yet
+    # since the chain is still short and nothing has been GC'ed.
+    assert_metrics(metrics, ('cache/ok', 'partial/ok'))
 
     # Restart Fred so that its cache is cleared.  Then start the second
     # observer, Barney, and wait for it to sync up.

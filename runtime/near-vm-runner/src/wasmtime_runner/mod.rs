@@ -483,9 +483,7 @@ impl IntoVMError for wasmtime::Error {
                     }
                 }));
             };
-            return Err(VMRunnerError::WasmUnknownError {
-                debug_message: format!("nondeterministic trap: {}", nondeterministic_message),
-            });
+            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
         let description = if cause.is::<wasmtime::UnknownImportError>() {
             "unknown or invalid import".to_string()
@@ -1252,7 +1250,6 @@ mod tests {
         assert_eq!(concurrency.release_tables(1), 2);
         assert_eq!(concurrency.release_tables(1), 1);
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] = array::from_fn(|_| {
                 scope.spawn(|| concurrency.try_acquire(MAX_TABLES / MAX_CONCURRENCY))
@@ -1283,7 +1280,6 @@ mod tests {
             assert!(acquired);
         });
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] =
                 array::from_fn(|_| scope.spawn(|| concurrency.try_acquire(0)));

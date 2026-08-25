@@ -1,4 +1,6 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::StateResponseInfo;
+use crate::recv_permit::RecvMessagePermit;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -146,24 +148,31 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement);
+#[derive(Debug)]
+pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement, pub RecvMessagePermit);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
+    pub recv_permit: RecvMessagePermit,
+    /// Outgoing-queue reservation for the response message. Acquired in
+    /// the network layer when this request arrived. The client holds it
+    /// through proof derivation and uses it when sending the response.
+    pub response_permit: OutgoingPermit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EpochSyncResponseMessage {
     pub from_peer: PeerId,
     pub proof: CompressedEpochSyncProof,
+    pub recv_permit: RecvMessagePermit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct OptimisticBlockMessage {
     pub optimistic_block: OptimisticBlock,
     pub from_peer: PeerId,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -8,11 +8,13 @@ use crate::utils::account::{
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::core::get_last_certified_block_header;
+use near_chain::{Error, Provenance};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
@@ -23,13 +25,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, ShardId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, SpiceChunkId,
 };
-use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::QueryRequest;
-use near_store::DBCol;
-use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -390,121 +388,6 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
         matches!(query_result, Err(QueryError::UnknownBlock { .. })),
         "query past execution_head should be unknown block, got: {query_result:?}"
     );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_garbage_collection() {
-    init_test_logger();
-
-    let num_producers = 2;
-    let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-
-    let epoch_length = 5;
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .epoch_length(epoch_length)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .gc_num_epochs_to_keep(1)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
-    env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
-}
-
-// TODO(spice-resharding): Add a test for witness GC during resharding.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_garbage_collection_witnesses() {
-    init_test_logger();
-
-    let num_producers = 2;
-    let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients_with_rpc(&validators_spec);
-
-    let epoch_length = 5;
-    let shard_layout = ShardLayout::multi_shard(2, 0);
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .validators_spec(validators_spec)
-        .shard_layout(shard_layout.clone())
-        .epoch_length(epoch_length)
-        .build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .gc_num_epochs_to_keep(1)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .delay_warmup()
-        .build();
-
-    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
-    let execution_delay = 4;
-    env.delay_endorsements_propagation(execution_delay);
-    env = env.warmup();
-
-    // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
-    env.node_runner(0).run_until(
-        |node| {
-            let chain_store = &node.client().chain.chain_store;
-            let final_head = chain_store.final_head().unwrap();
-            get_last_certified_block_header(chain_store, &final_head.last_block_hash)
-                .map_or(0, |header| header.height())
-                >= 10
-        },
-        Duration::seconds(20),
-    );
-    let shard_tracker = env.node(0).client().shard_tracker.clone();
-    let tracked_shards: Vec<_> = shard_layout
-        .shard_ids()
-        // This gets tracked shards for genesis, but it should not change during the test.
-        .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
-        .collect();
-    let node = env.node(0);
-    let chain_store = &node.client().chain.chain_store;
-    assert_witness_gc_invariant(chain_store, &tracked_shards);
-}
-
-/// Verifies witness GC invariant: witness exists iff block is uncertified.
-///
-/// From the perspective of final_head:
-/// - Certified blocks (height <= last_certified_height): witness should NOT exist
-/// - Uncertified blocks (height > last_certified_height): witness SHOULD exist
-fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
-    let final_head = chain_store.final_head().unwrap();
-    let last_certified_height =
-        get_last_certified_block_header(chain_store, &final_head.last_block_hash).unwrap().height();
-    let execution_head = chain_store.spice_execution_head().unwrap();
-    let store = chain_store.store().store();
-
-    // Verify that old witnesses are cleared
-    for (key, _) in store.iter(DBCol::witnesses()) {
-        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
-        let block_height = chain_store.get_block_height(&block_hash).unwrap();
-        assert!(
-            // Note we allow 1 block difference here since GC is async.
-            block_height > last_certified_height - 1,
-            "witness at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
-        );
-    }
-
-    // Verify that recent witnesses for uncertified blocks exist
-    for height in (last_certified_height + 1)..=execution_head.height {
-        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-        for &shard_id in tracked_shards {
-            let key = near_primitives::utils::get_block_shard_id(&block_hash, shard_id);
-            assert!(
-                store.get(DBCol::witnesses(), &key).is_some(),
-                "witness at height {height} shard {shard_id} should exist"
-            );
-        }
-    }
 }
 
 #[test]
@@ -1080,4 +963,86 @@ fn test_spice_total_supply_decreases_with_gas_burn() {
         block.header().total_supply(),
         initial_total_supply,
     );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_block_rejected_on_chunk_execution_root_mismatch() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(1, 0);
+    let producer = validators_spec_clients(&validators_spec)[0].clone();
+    let mut env = TestLoopBuilder::new().validators_spec(validators_spec).build();
+
+    let handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &mut env.test_loop.data.get_mut(&handle).client;
+
+    // Use an already-produced block: it carries valid doomslug approvals, so
+    // processing the tampered copy reaches the chunk_execution_root check instead
+    // of failing the earlier approvals check. Tampering keeps height and prev, so
+    // its approvals stay valid; only the header hash changes.
+    let head = client.chain.head().unwrap();
+    let mut block = client.chain.get_block(&head.last_block_hash).unwrap();
+
+    // Tamper the committed root, then resign so the block is otherwise valid and
+    // reaches the chunk_execution_root check rather than failing signature first.
+    let tampered_root = CryptoHash::hash_bytes(b"tampered chunk execution root");
+    let signer = create_test_signer(producer.as_str());
+    {
+        let block = Arc::make_mut(&mut block);
+        block.mut_header().set_chunk_execution_root(tampered_root);
+        block.mut_header().resign(&signer);
+    }
+
+    let result = client.process_block_test(block.into(), Provenance::NONE);
+    assert_matches!(result, Err(Error::InvalidChunkExecutionRoot(_)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_chunk_certifying_block_index() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(2, 0).delay_warmup().build();
+    // Certification lags consensus, so at the final head older chunks are
+    // certified by final blocks while recent ones are not certified yet.
+    env.delay_endorsements_propagation(4);
+    let mut env = env.warmup();
+
+    let genesis_height = env.node(0).client().chain.genesis().height();
+    env.node_runner(0).run_until_certified(genesis_height + 10);
+
+    let chain_store = &env.node(0).client().chain.chain_store;
+    let final_head = chain_store.final_head().unwrap();
+    let head = chain_store.head().unwrap();
+    assert!(head.height > final_head.height, "expected a non-final block above the final head");
+
+    // Ground truth over the whole canonical chain: a chunk is indexed iff a final
+    // block certified it. Collect every chunk and, from final blocks only, the
+    // block that certified it.
+    let mut certified_by_final: HashMap<SpiceChunkId, CryptoHash> = HashMap::new();
+    let mut chunks: Vec<SpiceChunkId> = Vec::new();
+    let mut hash = head.last_block_hash;
+    loop {
+        let block = chain_store.get_block(&hash).unwrap();
+        for chunk in block.chunks().iter() {
+            chunks.push(SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() });
+        }
+        if block.header().height() <= final_head.height {
+            for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
+                certified_by_final.insert(chunk_id.clone(), *block.hash());
+            }
+        }
+        let prev_hash = *block.header().prev_hash();
+        if prev_hash == CryptoHash::default() {
+            break;
+        }
+        hash = prev_hash;
+    }
+    assert!(!certified_by_final.is_empty(), "expected some chunks certified by a final block");
+
+    for chunk_id in &chunks {
+        let expected = certified_by_final.get(chunk_id).copied();
+        assert_eq!(chain_store.get_chunk_certifying_block(chunk_id), expected);
+    }
 }

@@ -1,4 +1,5 @@
 use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -10,8 +11,9 @@ pub use crate::network_protocol::{
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
+use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice::data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -315,7 +317,7 @@ pub enum NetworkRequests {
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
-    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    SpiceDataRequest { request: SpiceDataRequest, producer: AccountId },
     /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
     SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
     /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
@@ -442,10 +444,19 @@ pub enum NetworkResponses {
     SelectedDestination(PeerId),
 }
 
+/// `NetworkRequests` plus a pre-acquired outgoing-queue permit. Used when the sender has already
+/// reserved bytes in the `OutgoingQueueLimiter`.
+#[derive(Debug)]
+pub struct NetworkRequestWithPermit {
+    pub request: NetworkRequests,
+    pub permit: OutgoingPermit,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub request_with_permit_sender: Sender<NetworkRequestWithPermit>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
@@ -563,13 +574,14 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
     /// Contents of the request
     pub body: Tier3RequestBody,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]

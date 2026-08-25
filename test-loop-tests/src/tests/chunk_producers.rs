@@ -127,10 +127,11 @@ mod tests {
 }
 
 /// `DBCol::ChunkProducers` rows are copied to the cold store by the prefix-scan special
-/// case, for both a mid-epoch anchor (own-epoch layout == child-epoch layout) and a
-/// reshard-boundary anchor (rows keyed by the NEXT epoch's layout). The boundary anchor is
-/// the case the generic own-epoch `combine_keys` copy would miss; the special case handles
-/// both. The mid-epoch anchor guards that non-boundary anchors are copied too.
+/// case: a reshard-boundary anchor (keyed by the anchor's OWN pre-split layout), a mid-epoch
+/// anchor, and an injected legacy row keyed by a shard id outside its block's own layout
+/// (how DBs written before the own-epoch seeder keyed boundary rows). The legacy row is the
+/// case the generic own-epoch `combine_keys` copy would miss, so it guards the special case
+/// against removal.
 #[cfg(feature = "nightly")]
 mod cold_storage_tests {
     use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
@@ -142,12 +143,12 @@ mod cold_storage_tests {
     use near_o11y::testonly::init_test_logger;
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::AccountId;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{AccountId, ShardId};
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
     const EPOCH_LENGTH: u64 = 6;
@@ -212,7 +213,7 @@ mod cold_storage_tests {
         // Capture the anchors + their hot ChunkProducers rows now, before hot GC removes them:
         // the rows are GC'd together with the anchor's block data, so read them before the GC
         // tail reaches the anchor.
-        let (mid_height, expected) = {
+        let mut expected = {
             let node = env.archival_node();
             let client = node.client();
             let chain = &client.chain;
@@ -220,7 +221,7 @@ mod cold_storage_tests {
             let hot_store = node.store();
 
             // Boundary anchor B: last block of the pre-reshard epoch. Its ChunkProducers rows
-            // are keyed by the NEXT (post-reshard) epoch's shard_ids.
+            // are keyed by its OWN (pre-reshard) epoch's shard_ids.
             let mut block_hash = client.chain.head().unwrap().last_block_hash;
             let boundary_block_hash = loop {
                 let header = chain.get_block_header(&block_hash).unwrap();
@@ -251,10 +252,13 @@ mod cold_storage_tests {
                 "mid-epoch anchor should be in the post-reshard layout"
             );
 
-            // Both anchors resolve to rows keyed by the post-reshard layout's shard_ids.
+            // Each anchor's rows are keyed by its OWN epoch's layout: the boundary anchor by
+            // the pre-reshard layout, the mid-epoch anchor by the post-reshard one.
             let mut expected: Vec<(Vec<u8>, ValidatorStake)> = Vec::new();
-            for anchor_hash in [boundary_block_hash, mid_block_hash] {
-                for shard_id in new_shard_layout.shard_ids() {
+            for (anchor_hash, layout) in
+                [(boundary_block_hash, &base_shard_layout), (mid_block_hash, &new_shard_layout)]
+            {
+                for shard_id in layout.shard_ids() {
                     let key = get_block_shard_id(&anchor_hash, shard_id);
                     let hot: Option<ValidatorStake> =
                         hot_store.get_ser(DBCol::ChunkProducers, &key);
@@ -269,22 +273,56 @@ mod cold_storage_tests {
                     expected.push((key, hot));
                 }
             }
-            (mid_height, expected)
+            expected
+        };
+
+        // Legacy-row guard: DBs written before the own-epoch seeder hold reshard-boundary rows
+        // keyed by the NEXT epoch's layout — shard ids the generic layout-derived cold copy
+        // never enumerates. The prefix-scan special case must copy them regardless. Inject such
+        // a row (a retired pre-split shard id, outside its block's own post-split layout) under
+        // a block the cold loop has not reached yet and assert it round-trips to cold.
+        let inject_height = {
+            let cold_head_height = env
+                .archival_node_mut()
+                .view_client_actor()
+                .handle(GetSplitStorageInfo {})
+                .unwrap()
+                .cold_head_height
+                .expect("cold head should be set");
+            let node = env.archival_node();
+            let inject_height = node.head().height;
+            assert!(
+                cold_head_height < inject_height,
+                "cold head ({cold_head_height}) must trail the hot head ({inject_height})"
+            );
+            let inject_hash = node.client().chain.get_block_hash_by_height(inject_height).unwrap();
+            let new_ids: HashSet<ShardId> = new_shard_layout.shard_ids().collect();
+            let legacy_shard_id =
+                base_shard_layout.shard_ids().find(|id| !new_ids.contains(id)).unwrap();
+            let legacy_key = get_block_shard_id(&inject_hash, legacy_shard_id);
+            let legacy_stake = expected[0].1.clone();
+            let mut update = node.store().store_update();
+            update.insert_ser(DBCol::ChunkProducers, &legacy_key, &legacy_stake);
+            update.commit();
+            expected.push((legacy_key, legacy_stake));
+            inject_height
         };
 
         // Advance well past the anchors so the cold copy loop has processed them.
         let target_height = reshard_done_height + EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2);
         env.archival_runner().run_until_head_height(target_height);
 
-        // Cold head must have advanced past the anchors, else the cold check is vacuous.
+        // Cold head must have advanced past the anchors and the injected row's block, else the
+        // cold check is vacuous.
         let cold_head_height = {
             let info =
                 env.archival_node_mut().view_client_actor().handle(GetSplitStorageInfo {}).unwrap();
             info.cold_head_height.expect("cold head should be set")
         };
         assert!(
-            cold_head_height >= mid_height,
-            "cold head ({cold_head_height}) should have passed the anchors (up to height {mid_height})"
+            cold_head_height >= inject_height,
+            "cold head ({cold_head_height}) should have passed the anchors and the injected \
+             row's block (up to height {inject_height})"
         );
 
         // Cold DB handle (same pattern as `resharding_cold_storage.rs`).
@@ -323,7 +361,7 @@ mod hot_gc_tests {
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
     use std::sync::Arc;
 
     const EPOCH_LENGTH: u64 = 5;
@@ -390,10 +428,11 @@ mod hot_gc_tests {
         );
     }
 
-    /// Hot GC deletes a reshard-boundary anchor's rows, which are keyed by the NEXT
-    /// (post-reshard) epoch's shard_ids. This is the case a naive own-epoch-layout delete would
-    /// leak: clear_block_data iterates get_shard_uids_to_gc (this-epoch ∪ next-epoch), so every
-    /// next-layout row for the boundary anchor is dropped once it falls below the GC tail.
+    /// Hot GC deletes a reshard-boundary anchor's rows, keyed by the anchor's OWN
+    /// (pre-reshard) epoch's shard_ids. GC prefix-scans the block hash
+    /// (gc_chunk_producers_for_block), so it is layout-agnostic; the test also injects a
+    /// legacy row keyed by a NEXT-layout shard id (how DBs written before the own-epoch
+    /// seeder keyed boundary rows) and asserts the prefix scan drops it too.
     #[test]
     // TODO(spice-test): assess relevance for spice.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -445,7 +484,7 @@ mod hot_gc_tests {
         let reshard_done_height = env.validator().head().height;
         env.validator_runner().run_until_head_height(reshard_done_height + 4);
 
-        // Capture the boundary anchor + its next-layout row keys BEFORE GC removes the block.
+        // Capture the boundary anchor + its own-layout row keys BEFORE GC removes the block.
         let (boundary_hash, boundary_keys) = {
             let node = env.validator();
             let client = node.client();
@@ -468,17 +507,31 @@ mod hot_gc_tests {
                 "boundary block should be the last block of the pre-reshard epoch"
             );
 
-            // Rows keyed by the NEXT (post-reshard) layout's shard_ids.
+            // Rows keyed by the anchor's OWN (pre-reshard) layout's shard_ids.
             let mut keys = Vec::new();
-            for shard_id in new_shard_layout.shard_ids() {
+            let mut sample_stake = None;
+            for shard_id in base_shard_layout.shard_ids() {
                 let key = get_block_shard_id(&boundary_hash, shard_id);
                 let row: Option<ValidatorStake> = store.get_ser(DBCol::ChunkProducers, &key);
-                assert!(
-                    row.is_some(),
-                    "boundary next-layout row must exist before GC, shard {shard_id}"
-                );
+                let row = row.unwrap_or_else(|| {
+                    panic!("boundary own-layout row must exist before GC, shard {shard_id}")
+                });
+                sample_stake = Some(row);
                 keys.push(key);
             }
+
+            // Legacy row: DBs written before the own-epoch seeder keyed boundary rows by the
+            // NEXT (post-reshard) layout. GC prefix-scans the block hash, so it must drop such
+            // a row even though no layout-derived key set enumerates its shard id.
+            let base_ids: HashSet<ShardId> = base_shard_layout.shard_ids().collect();
+            let legacy_shard_id =
+                new_shard_layout.shard_ids().find(|id| !base_ids.contains(id)).unwrap();
+            let legacy_key = get_block_shard_id(&boundary_hash, legacy_shard_id);
+            let mut update = store.store_update();
+            update.insert_ser(DBCol::ChunkProducers, &legacy_key, &sample_stake.unwrap());
+            update.commit();
+            keys.push(legacy_key);
+
             (boundary_hash, keys)
         };
 
@@ -495,7 +548,7 @@ mod hot_gc_tests {
         );
         for key in &boundary_keys {
             let row: Option<ValidatorStake> = node.store().get_ser(DBCol::ChunkProducers, key);
-            assert!(row.is_none(), "boundary next-layout row must be garbage collected: {key:?}");
+            assert!(row.is_none(), "boundary anchor row must be garbage collected: {key:?}");
         }
     }
 }

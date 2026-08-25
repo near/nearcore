@@ -5,6 +5,7 @@ use super::peer_manager_actor::{
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
+use super::spice_partial_data_faults::SpicePartialDataFaultState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -16,6 +17,7 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
@@ -46,7 +48,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
@@ -65,6 +67,9 @@ pub struct SharedState {
     /// List of drop conditions that apply to all nodes in the network.
     pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
+    /// When set, every node uses a no-op compiled contract cache so validators
+    /// must request contract code instead of reusing a precompiled copy.
+    pub disable_compiled_contract_cache: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
     /// Archive-wide config for cloud archival nodes. Defaults to
@@ -77,6 +82,8 @@ pub struct SharedState {
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// Fault injection for spice data distribution, armed by tests.
+    pub spice_partial_data_faults: SpicePartialDataFaultState,
 }
 
 /// Shared state for the spice endorsement-delay network handler installed by
@@ -115,6 +122,7 @@ pub struct NodeExecutionData {
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
+    pub spice_chunk_validator_sender: TestLoopSender<SpiceChunkValidatorActor>,
     pub spice_core_writer_sender: TestLoopSender<SpiceCoreWriterActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,

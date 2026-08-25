@@ -4,8 +4,20 @@ use crate::validator_signer::ValidatorSigner;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, MerkleHash, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    ProtocolSchema,
+)]
 pub enum SpiceDataIdentifier {
     ReceiptProof { block_hash: CryptoHash, from_shard_id: ShardId, to_shard_id: ShardId },
     Witness { block_hash: CryptoHash, shard_id: ShardId },
@@ -20,24 +32,45 @@ impl SpiceDataIdentifier {
     }
 }
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    ProtocolSchema,
+)]
 pub struct SpiceDataCommitment {
     pub hash: CryptoHash,
     pub root: MerkleHash,
     pub encoded_length: u64,
 }
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 pub struct SpiceDataPart {
     pub part_ord: u64,
     pub part: Box<[u8]>,
     pub merkle_proof: MerklePath,
 }
 
-// TODO(spice): Version this struct since it is sent over the network.
-/// Partial data for spice with unverified signature.
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct SpicePartialData {
+/// Partial data with unverified signature.
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum SpicePartialData {
+    V1(SpicePartialDataV1) = 0,
+}
+
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
+pub struct SpicePartialDataV1 {
     inner: SpicePartialDataInner,
     sender: AccountId,
     signature: Signature,
@@ -52,32 +85,48 @@ impl SpicePartialData {
     ) -> Self {
         let inner = SpicePartialDataInner { id, commitment, parts };
         let signature = signer.sign_bytes(&inner.serialize_for_signing());
-        Self { inner, signature, sender: signer.validator_id().clone() }
+        Self::V1(SpicePartialDataV1 { inner, signature, sender: signer.validator_id().clone() })
     }
 
     pub fn block_hash(&self) -> &CryptoHash {
-        self.inner.id.block_hash()
+        match self {
+            Self::V1(v1) => v1.inner.id.block_hash(),
+        }
     }
 
     pub fn sender(&self) -> &AccountId {
-        &self.sender
+        match self {
+            Self::V1(v1) => &v1.sender,
+        }
+    }
+
+    pub fn id(&self) -> &SpiceDataIdentifier {
+        match self {
+            Self::V1(v1) => &v1.inner.id,
+        }
     }
 
     pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
-        let data = self.inner.serialize_for_signing();
-        if !self.signature.verify(&data, public_key) {
-            return None;
+        match self {
+            Self::V1(v1) => {
+                let data = v1.inner.serialize_for_signing();
+                if !v1.signature.verify(&data, public_key) {
+                    return None;
+                }
+                Some(SpiceVerifiedPartialData {
+                    id: v1.inner.id,
+                    commitment: v1.inner.commitment,
+                    parts: v1.inner.parts,
+                    sender: v1.sender,
+                })
+            }
         }
-        Some(SpiceVerifiedPartialData {
-            id: self.inner.id,
-            commitment: self.inner.commitment,
-            parts: self.inner.parts,
-            sender: self.sender,
-        })
     }
 }
 
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema,
+)]
 struct SpicePartialDataInner {
     // We include id to allow finding recipients and producers when receiving the data.
     id: SpiceDataIdentifier,
@@ -110,5 +159,9 @@ pub fn testonly_create_spice_partial_data(
     signature: Signature,
     sender: AccountId,
 ) -> SpicePartialData {
-    SpicePartialData { inner: SpicePartialDataInner { id, commitment, parts }, signature, sender }
+    SpicePartialData::V1(SpicePartialDataV1 {
+        inner: SpicePartialDataInner { id, commitment, parts },
+        signature,
+        sender,
+    })
 }

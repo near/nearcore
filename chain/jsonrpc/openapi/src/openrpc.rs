@@ -27,8 +27,11 @@ use near_jsonrpc_primitives::types::congestion::{
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceResponse};
 use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
     RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
     RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
+    RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
 };
 use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
@@ -1220,6 +1223,33 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut all_schemas,
         "EXPERIMENTAL_light_client_block_proof",
         "Returns block proof for light clients",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_chunk_execution_proof",
+        "Returns a proof of a chunk's certified execution roots for light clients",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<
+        RpcLightClientExecutionOutcomeProofRequest,
+        RpcLightClientExecutionOutcomeProofResponse,
+    >(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_execution_outcome_proof",
+        "Returns an execution outcome and its proof against the chunk's certified outcome root",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<RpcLightClientStateProofRequest, RpcLightClientStateProofResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_state_proof",
+        "Returns a state value and its trie proof against the chunk's certified state root",
         false,
         &["light_client", "experimental"],
     );

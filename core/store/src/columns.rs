@@ -207,9 +207,10 @@ pub enum DBCol {
     /// - *Rows*: BlockHash
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
     BlockMerkleTree,
-    /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
+    /// Mapping from height to the set of Chunk Hashes created at that height. Note: a chunk may be
+    /// included in a block with `height >= chunk.height_created()`.
     /// - *Rows*: height (u64)
-    /// - *Column type*: Vec<ChunkHash (CryptoHash)>
+    /// - *Column type*: HashSet<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
     /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
@@ -399,6 +400,19 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
+    /// For spice, the block that certified a chunk's execution result. Written
+    /// once, when the certifying block becomes final.
+    /// - *Rows*: SpiceChunkId (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::hash::CryptoHash] (certifying block hash)
+    #[cfg(feature = "protocol_feature_spice")]
+    ChunkCertifyingBlock,
+    /// For spice, chunks that failed to decode or verify. Unlike [`DBCol::InvalidChunks`], the
+    /// height prefix lets garbage collection reach these rows: an invalid chunk gets no
+    /// [`DBCol::Chunks`] row, so [`DBCol::ChunkHashesByHeight`] does not list it.
+    /// - *Rows*: BlockHeight || ChunkHash (height_created, chunk_hash)
+    /// - *Content type*: [near_primitives::sharding::EncodedShardChunk]
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceInvalidChunks,
     /// Pre-computed chunk producer for the chunk anchored at the given block (its
     /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
     /// Populated during header sync and block processing, gated behind `EarlyKickout`
@@ -495,7 +509,9 @@ impl DBCol {
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults
-            | DBCol::SpiceEndorsementStats => true,
+            | DBCol::SpiceEndorsementStats
+            | DBCol::SpiceInvalidChunks
+            | DBCol::ChunkCertifyingBlock => true,
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
             _ => false,
@@ -601,6 +617,10 @@ impl DBCol {
             | DBCol::SpiceEndorsementStats => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ContractAccesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ChunkCertifyingBlock => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceInvalidChunks => true,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -709,12 +729,14 @@ impl DBCol {
             | DBCol::TrieChanges => GcPolicy::Delete,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes
+            | DBCol::ChunkCertifyingBlock
             | DBCol::ContractAccesses
             | DBCol::Endorsements
             | DBCol::ExecutionResults
             | DBCol::ReceiptProofs
             | DBCol::SpiceEndorsementStats
             | DBCol::UncertifiedChunks
+            | DBCol::SpiceInvalidChunks
             | DBCol::UncertifiedExecutionResults
             | DBCol::Witnesses => GcPolicy::Delete,
 
@@ -864,9 +886,20 @@ impl DBCol {
             DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ChunkCertifyingBlock => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceInvalidChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
+    }
+
+    pub fn spice_invalid_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceInvalidChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn witnesses() -> DBCol {
@@ -928,6 +961,13 @@ impl DBCol {
     pub fn contract_accesses() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ContractAccesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn chunk_certifying_block() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ChunkCertifyingBlock;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

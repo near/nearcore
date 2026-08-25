@@ -25,6 +25,7 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+    validate_spice_chunk_endorsements_in_header,
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
@@ -38,7 +39,10 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
+use crate::validate::{
+    validate_chunk_with_chunk_extra, validate_optimistic_block_relevant,
+    validate_spice_chunk_execution_root,
+};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -81,6 +85,8 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+#[cfg(feature = "test_features")]
+use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
@@ -324,6 +330,8 @@ pub struct Chain {
     /// need a node-scoped signal instead of the process-global metric.
     #[cfg(feature = "test_features")]
     pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "test_features")]
+    pub adv_corrupt_state_sync_chunk_extra: bool,
 }
 
 impl Drop for Chain {
@@ -415,6 +423,7 @@ impl Chain {
             chain_genesis,
             state_roots,
         )?;
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         let (sc, rc) = unbounded();
         let resharding_manager = ReshardingManager::new(
             store.clone(),
@@ -444,7 +453,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
@@ -464,6 +473,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            adv_corrupt_state_sync_chunk_extra: false,
         })
     }
 
@@ -612,6 +623,7 @@ impl Chain {
             epoch_manager.clone(),
             chain_genesis.gas_limit,
         );
+        let head_height = chain_store.head().map_or(0, |tip| tip.height);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -630,7 +642,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
+            blocks_delay_tracker: BlocksDelayTracker::new(clock.clone(), head_height),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             apply_chunks_spawner,
@@ -648,6 +660,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            adv_corrupt_state_sync_chunk_extra: false,
         })
     }
 
@@ -911,7 +925,15 @@ impl Chain {
             );
             return Err(Error::InvalidProtocolVersion);
         }
-        if ProtocolFeature::Spice.enabled(epoch_protocol_version) && !header.is_spice() {
+        let spice_epoch = ProtocolFeature::Spice.enabled(epoch_protocol_version);
+        if spice_epoch != header.is_spice() {
+            tracing::warn!(
+                target: "chain",
+                %spice_epoch,
+                header_is_spice = %header.is_spice(),
+                %epoch_protocol_version,
+                "header spice-ness does not match its epoch"
+            );
             return Err(Error::InvalidProtocolVersion);
         }
 
@@ -1017,7 +1039,9 @@ impl Chain {
                 }
             }
 
-            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+            if ProtocolFeature::Spice.enabled(epoch_protocol_version) {
+                validate_spice_chunk_endorsements_in_header(header)?;
+            } else {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
@@ -1133,10 +1157,13 @@ impl Chain {
                         // Invalid chunks (SPICE) have no ShardChunk in
                         // DBCol::Chunks because the header commits to
                         // malicious content. The executor uses
-                        // DBCol::InvalidChunks to detect these and skips
+                        // DBCol::SpiceInvalidChunks to detect these and skips
                         // the chunk body read.
                         if !self.chain_store.chunk_exists(chunk_hash)
-                            && self.chain_store.is_invalid_chunk(chunk_hash).is_none()
+                            && self
+                                .chain_store
+                                .is_invalid_chunk(chunk_header.height_created(), chunk_hash)
+                                .is_none()
                         {
                             missing.push(chunk_header.clone());
                         }
@@ -1621,11 +1648,17 @@ impl Chain {
         chain_store_update.save_body_head(&tip)?;
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
+        // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
+        // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
+
+        // State sync moves the head without processing a block, so the tracker has to be told
+        // separately. Otherwise its window stays where the head was before the sync.
+        self.blocks_delay_tracker.update_head(tip.height);
 
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
@@ -2557,6 +2590,15 @@ impl Chain {
         self.check_if_finalizable(header)?;
 
         if ProtocolFeature::Spice.enabled(protocol_version) {
+            if !block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered non-spice block with spice feature enabled".to_string(),
+                ));
+            }
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
             self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
             self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
@@ -2703,7 +2745,8 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<(), Error> {
         let shard_state_header = self.state_sync_adapter.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
+        let chunk_height_included = shard_state_header.chunk_height_included();
+        let mut height = chunk_height_included;
         let mut chain_update = self.chain_update();
         let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -2722,6 +2765,13 @@ impl Chain {
             }
         }
 
+        self.validate_state_sync_chunk_extra(
+            shard_id,
+            sync_hash,
+            shard_uid,
+            chunk_height_included,
+        )?;
+
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if let Some(flat_storage) = flat_storage_manager.get_flat_storage_for_shard(shard_uid) {
             let header = self.get_block_header(&sync_hash)?;
@@ -2729,6 +2779,93 @@ impl Chain {
         }
 
         Ok(())
+    }
+
+    /// Checks the data reconstructed through finalization against the values committed by the
+    /// sync block's chunk. A missing chunk repeats an older header and therefore does not commit
+    /// the post-state reconstructed at the sync boundary.
+    fn validate_state_sync_chunk_extra(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        shard_uid: ShardUId,
+        chunk_height_included: BlockHeight,
+    ) -> Result<(), Error> {
+        let sync_block = match self.get_block(&sync_hash) {
+            Ok(block) => block,
+            Err(err @ Error::DBNotFoundErr(_)) => {
+                // The sync block is held in the orphan pool until every shard finishes, so it is
+                // not in the store yet when finalization runs.
+                let Some(orphan) = self.orphans.get(&sync_hash) else {
+                    return Err(err);
+                };
+                Arc::clone(orphan.block.get_inner())
+            }
+            Err(err) => return Err(err),
+        };
+        let shard_layout = self.epoch_manager.get_shard_layout(sync_block.header().epoch_id())?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunks = sync_block.chunks();
+        let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
+        if !chunk_header.is_new_chunk(sync_block.header().height()) {
+            return Ok(());
+        }
+
+        let chunk_extra = self.get_chunk_extra(sync_block.header().prev_hash(), &shard_uid)?;
+        #[cfg(feature = "test_features")]
+        let chunk_extra = if self.adv_corrupt_state_sync_chunk_extra {
+            let mut extra = chunk_extra.as_ref().clone();
+            match &mut extra {
+                ChunkExtra::V1(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V2(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V3(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V4(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+                ChunkExtra::V5(extra) => {
+                    extra.gas_used = extra.gas_used.saturating_add(Gas::from_gas(1));
+                }
+            }
+            Arc::new(extra)
+        } else {
+            chunk_extra
+        };
+        let validation_result = validate_chunk_with_chunk_extra(
+            self.chain_store(),
+            self.epoch_manager.as_ref(),
+            sync_block.header().prev_hash(),
+            chunk_extra.as_ref(),
+            chunk_height_included,
+            chunk_header,
+        );
+        match validation_result {
+            Ok(_) => Ok(()),
+            Err(
+                err @ (Error::InvalidStateRoot
+                | Error::InvalidOutcomesProof
+                | Error::InvalidValidatorProposals
+                | Error::InvalidGasLimit
+                | Error::InvalidGasUsed
+                | Error::InvalidBalanceBurnt
+                | Error::InvalidReceiptsProof
+                | Error::InvalidCongestionInfo(_)
+                | Error::InvalidBandwidthRequests(_)
+                | Error::InvalidChunkHeaderShardSplit(_)),
+            ) => panic!(
+                "state sync reconstructed chunk data for shard {shard_id} before block \
+                 {sync_hash} that does not match the chain commitment: {err}. this node executed \
+                 the chunk differently from the network. the data directory is intact; report \
+                 this with the node's config, binary version, and hardware. then restart the node \
+                 with an empty data directory."
+            ),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn clear_downloaded_parts(

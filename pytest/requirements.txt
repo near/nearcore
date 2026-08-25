@@ -1,6 +1,7 @@
 PyGithub
 base58
 cachetools
+cryptography>=48
 cython
 deepdiff
 json-rpc

@@ -178,6 +178,7 @@ mod tests {
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
     use near_primitives::types::{BlockHeight, ShardId};
+    use near_primitives::version::PROTOCOL_VERSION;
 
     /// Make a dummy witness for testing
     fn make_witness(
@@ -185,7 +186,7 @@ mod tests {
         shard_id: ShardId,
         prev_block_hash: CryptoHash,
     ) -> ChunkStateWitness {
-        ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash)
+        ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash, PROTOCOL_VERSION)
     }
 
     /// Generate fake block hash based on height

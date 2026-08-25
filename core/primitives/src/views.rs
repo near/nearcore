@@ -15,7 +15,7 @@ use crate::action::{
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
-use crate::block_header::BlockHeaderInnerLite;
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerLiteV2};
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
@@ -40,12 +40,13 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
+    StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -131,6 +132,9 @@ impl From<Account> for AccountView {
     }
 }
 
+// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized
+// account round-trips back as an initialized one and `view_account` cannot tell
+// the two apart. Universal accounts need that distinction exposed here.
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
         let contract = match &view.global_contract_account_id {
@@ -949,6 +953,8 @@ pub struct BlockHeaderView {
     pub prev_last_certified_block_epoch_id: Option<EpochId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -999,6 +1005,7 @@ impl From<&BlockHeader> for BlockHeaderView {
             spice_chunk_endorsement_stats: header
                 .spice_chunk_endorsement_stats()
                 .map(<[SpiceChunkEndorsementStats]>::to_vec),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1037,6 +1044,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.shard_split,
             view.prev_last_certified_block_epoch_id,
             view.spice_chunk_endorsement_stats,
+            view.chunk_execution_root,
         )
     }
 }
@@ -1070,21 +1078,25 @@ pub struct BlockHeaderInnerLiteView {
     pub next_bp_hash: CryptoHash,
     /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results.
+    /// `None` for pre-spice headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = header.inner_lite();
         BlockHeaderInnerLiteView {
-            height: inner_lite.height,
-            epoch_id: inner_lite.epoch_id.0,
-            next_epoch_id: inner_lite.next_epoch_id.0,
-            prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.prev_outcome_root,
-            timestamp: inner_lite.timestamp,
-            timestamp_nanosec: inner_lite.timestamp,
-            next_bp_hash: inner_lite.next_bp_hash,
-            block_merkle_root: inner_lite.block_merkle_root,
+            height: header.height(),
+            epoch_id: header.epoch_id().0,
+            next_epoch_id: header.next_epoch_id().0,
+            prev_state_root: *header.prev_state_root(),
+            outcome_root: *header.outcome_root(),
+            timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
+            next_bp_hash: *header.next_bp_hash(),
+            block_merkle_root: *header.block_merkle_root(),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1100,6 +1112,22 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
             timestamp: view.timestamp_nanosec,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
+        }
+    }
+}
+
+impl From<&BlockHeaderInnerLiteView> for BlockHeaderInnerLiteV2 {
+    fn from(view: &BlockHeaderInnerLiteView) -> Self {
+        BlockHeaderInnerLiteV2 {
+            height: view.height,
+            epoch_id: EpochId(view.epoch_id),
+            next_epoch_id: EpochId(view.next_epoch_id),
+            prev_state_root: view.prev_state_root,
+            prev_outcome_root: view.outcome_root,
+            timestamp: view.timestamp_nanosec,
+            next_bp_hash: view.next_bp_hash,
+            block_merkle_root: view.block_merkle_root,
+            chunk_execution_root: view.chunk_execution_root.unwrap_or_default(),
         }
     }
 }
@@ -2731,14 +2759,85 @@ impl From<BlockHeader> for LightClientBlockLiteView {
 }
 impl LightClientBlockLiteView {
     pub fn hash(&self) -> CryptoHash {
-        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+        let inner_lite_bytes = if self.inner_lite.chunk_execution_root.is_some() {
+            let inner_lite: BlockHeaderInnerLiteV2 = (&self.inner_lite).into();
+            borsh::to_vec(&inner_lite).unwrap()
+        } else {
+            let inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+            borsh::to_vec(&inner_lite).unwrap()
+        };
         combine_hash(
-            &combine_hash(
-                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
-                &self.inner_rest_hash,
-            ),
+            &combine_hash(&hash(&inner_lite_bytes), &self.inner_rest_hash),
             &self.prev_block_hash,
         )
+    }
+}
+
+/// Proof that a chunk's certified execution roots are committed by a spice block
+/// that a light client can trust via its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;
+/// `certifying_block_proof` places the certifying block into the head's block merkle tree.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionProofView {
+    pub roots: ChunkExecutionRoots,
+    pub roots_proof: MerklePath,
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    pub certifying_block_proof: MerklePath,
+}
+
+/// A value read from a shard's state, with the trie nodes that prove it against the
+/// chunk's `state_root`. An absent `value` is proved the same way.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct StateProofView {
+    pub value: Option<StoreValue>,
+    #[serde_as(as = "Vec<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub nodes: Vec<Arc<[u8]>>,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+///
+/// An account that runs a global contract has no local code, so `LocalContractCode` is
+/// absent for it. `Account::contract()` says which case applies.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    LocalContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            StateProofTarget::Account { account_id }
+            | StateProofTarget::LocalContractCode { account_id }
+            | StateProofTarget::ContractData { account_id, .. }
+            | StateProofTarget::AccessKey { account_id, .. } => account_id,
+        }
+    }
+
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::LocalContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => {
+                TrieKey::access_key(account_id.clone(), public_key.clone())
+            }
+        }
     }
 }
 

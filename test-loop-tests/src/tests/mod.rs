@@ -22,12 +22,20 @@ mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
+mod debug_block_status;
 mod debug_epoch_info;
 mod deploy_compute_cost;
 mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
+#[cfg(feature = "nightly")]
+mod early_kickout_boundary;
+#[cfg(all(feature = "nightly", feature = "test_features"))]
+mod early_kickout_e2e;
+// `nightly` only, not `test_features`: shared with `sync::early_kickout_sync`.
+#[cfg(feature = "nightly")]
+mod early_kickout_probe;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -56,6 +64,7 @@ mod p256_verify;
 mod pending_transaction_queue;
 mod process_blocks;
 mod processed_receipts_gc;
+mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
 mod reject_empty_method_name;
@@ -76,6 +85,7 @@ mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
+mod unknown_prev_chunk_preemption;
 #[cfg(feature = "nightly")]
 mod v2_partial_witness_resolution;
 mod validator_key_check;

@@ -2,6 +2,7 @@ use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+    spice_data_request_dropper, spice_designated_endorsement_dropper,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -42,6 +43,13 @@ pub enum DropCondition {
         shards: HashSet<ShardId>,
         epoch_heights: HashSet<u64>,
     },
+    /// Drops every SPICE chunk endorsement whose sender is designated for the endorsed chunk,
+    /// disabling the designated certification path so chunks can certify only via the all-stake
+    /// fallback.
+    DesignatedSpiceEndorsements,
+    /// Drops every request for spice data, so a node can only get data that was pushed to
+    /// it.
+    SpiceDataRequests,
 }
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
@@ -142,6 +150,12 @@ impl NodeExecutionData {
                     epoch_heights.clone(),
                 );
             }
+            DropCondition::DesignatedSpiceEndorsements => {
+                self.register_drop_designated_spice_endorsements(test_loop_data);
+            }
+            DropCondition::SpiceDataRequests => {
+                self.register_override_handler(test_loop_data, spice_data_request_dropper());
+            }
         }
     }
 
@@ -169,6 +183,15 @@ impl NodeExecutionData {
         self.register_override_handler(
             test_loop_data,
             chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+        );
+    }
+
+    fn register_drop_designated_spice_endorsements(&self, test_loop_data: &mut TestLoopData) {
+        let client_actor = test_loop_data.get(&self.client_sender.actor_handle());
+        let epoch_manager = client_actor.client.chain.epoch_manager.clone();
+        self.register_override_handler(
+            test_loop_data,
+            spice_designated_endorsement_dropper(epoch_manager),
         );
     }
 

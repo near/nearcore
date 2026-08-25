@@ -84,6 +84,34 @@ pub static BLOCK_HEIGHT_SPICE_EXECUTION_HEAD: LazyLock<IntGauge> = LazyLock::new
     )
     .unwrap()
 });
+pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_spice_uncertified_chunks",
+        "Number of chunks awaiting certification",
+    )
+    .unwrap()
+});
+pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_spice_pre_activation_messages_dropped_total",
+        "Number of spice messages dropped because spice is not active for them, either \
+         because the block they reference is not a spice block or because that block \
+         could not be resolved, by message kind",
+        &["kind"],
+    )
+    .unwrap()
+});
+pub static SPICE_PRE_ACTIVATION_REQUEST_ENTRIES_DROPPED: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_spice_pre_activation_request_entries_dropped_total",
+            "Number of entries of batched spice messages dropped because spice is not active \
+             for the block they reference, by message kind. The rest of the message is still \
+             processed, so these are entries rather than messages",
+            &["kind"],
+        )
+        .unwrap()
+    });
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",
@@ -325,6 +353,35 @@ pub(crate) static DYNAMIC_RESHARDING_VALIDATION_FAILURES: LazyLock<IntCounterVec
         .unwrap()
     });
 
+pub(crate) static BLOCKS_DELAY_TRACKER_ENTRIES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_blocks_delay_tracker_entries",
+        "Number of entries the blocks delay tracker holds, by map.",
+        &["map"],
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCKS_DELAY_TRACKER_REFUSED_BLOCKS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_refused_blocks_total",
+            "Number of blocks the delay tracker did not record, by reason.",
+            &["reason"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCKS_DELAY_TRACKER_MISSING_ENTRIES: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_missing_entries_total",
+            "Number of marks for a block the delay tracker does not hold, by mark.",
+            &["mark"],
+        )
+        .unwrap()
+    });
+
 /// Values of the `near_resharding_status` gauge.
 #[derive(Clone, Copy)]
 pub(crate) enum ReshardingStatus {
@@ -480,6 +537,22 @@ pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyL
         "near_chain_validity_period_check_delay",
         "how far back in the past is the validity period we're checking (not 100% precise!)",
         vec![5.0, 10.0, 20.0, 40.0, 60.0, 120.0, 180.0],
+    )
+    .unwrap()
+});
+
+pub static ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_anchored_chunk_producer_lookup_total",
+        "Anchored chunk-producer lookups during V2 validation, for chunk headers, state \
+         witnesses and contract-distribution messages. `message_type` is `chunk`, `witness`, \
+         `contract_accesses`, or `contract_deploys`. `result` is `hit` (producer returned), \
+         `miss_anchor_block` \
+         (grandparent anchor not yet processed, node is two or more blocks behind, message \
+         dropped), `miss_db_entry` (anchor known but DBCol::ChunkProducers entry absent, also \
+         dropped; a persistent non-zero rate signals a writer bug), or `error` (other \
+         EpochError).",
+        &["shard_id", "message_type", "result"],
     )
     .unwrap()
 });

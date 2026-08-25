@@ -1,3 +1,4 @@
+use crate::config_validate::RECOMMENDED_GC_RATE_MULTIPLIER;
 use crate::download_file::{FileDownloadError, run_download_file};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{Context, anyhow, bail};
@@ -12,22 +13,22 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
-    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
+    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
-    default_enable_early_prepare_transactions, default_enable_multiline_logging,
-    default_epoch_sync, default_header_sync_expected_height_per_second,
-    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
-    default_header_sync_stall_ban_timeout, default_log_summary_period,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
-    default_state_request_throttle_period, default_state_requests_per_throttle_period,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_block_request_timeout, default_chunk_validation_threads, default_chunk_wait_mult,
+    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
+    default_enable_multiline_logging, default_epoch_sync,
+    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
+    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_request_server_threads, default_state_request_throttle_period,
+    default_state_requests_per_throttle_period, default_state_sync_p2p_timeout,
     default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
     default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
     default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
@@ -48,7 +49,8 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -155,9 +157,10 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_stall_ban_timeout: Duration,
     /// How much to wait for a state sync response before re-requesting
-    #[serde(default = "default_state_sync_external_timeout")]
+    #[serde(default = "default_block_request_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub state_sync_external_timeout: Duration,
+    #[serde(alias = "state_sync_external_timeout")]
+    pub block_request_timeout: Duration,
     #[serde(default = "default_state_sync_p2p_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_p2p_timeout: Duration,
@@ -204,7 +207,7 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
-            state_sync_external_timeout: default_state_sync_external_timeout(),
+            block_request_timeout: default_block_request_timeout(),
             state_sync_p2p_timeout: default_state_sync_p2p_timeout(),
             state_sync_retry_backoff: default_state_sync_retry_backoff(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
@@ -264,10 +267,6 @@ pub struct Config {
     /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_archival: Option<CloudArchivalConfig>,
-    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
-    /// writes chunk-related data based on the tracked shards.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
 
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
@@ -455,7 +454,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Height horizon for the chunk cache. A chunk is removed from the cache
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
-    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, SPICE nodes track uncertified transactions in a pending
     /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
@@ -494,7 +493,6 @@ impl Default for Config {
             tracked_shard_schedule: None,
             archive: false,
             cloud_archival: None,
-            cloud_archival_writer: None,
             save_trie_changes: None,
             save_state_changes: None,
             save_tx_outcomes: None,
@@ -688,13 +686,11 @@ impl Config {
     /// Returns the state sync configuration, deriving it from cloud archival settings
     /// when archival is enabled, or using the configured/default value otherwise.
     fn state_sync_config(&self) -> StateSyncConfig {
-        if self.cloud_archival_writer.is_some() {
-            let cloud_archival_config = self
-                .cloud_archival
-                .clone()
-                .expect("cloud storage must be configured on cloud archive writer");
+        if let Some(cloud_archival) = &self.cloud_archival
+            && cloud_archival.writer.is_some()
+        {
             let mut config = StateSyncConfig::default();
-            config.dump = Some(cloud_archival_config.into_default_dump_config());
+            config.dump = Some(cloud_archival.clone().into_default_dump_config());
             return config;
         }
         self.state_sync.clone().unwrap_or_default()
@@ -771,7 +767,7 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
-                state_sync_external_timeout: config.consensus.state_sync_external_timeout,
+                block_request_timeout: config.consensus.block_request_timeout,
                 state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
                 state_sync_retry_backoff: config.consensus.state_sync_retry_backoff,
                 min_num_peers: config.consensus.min_num_peers,
@@ -790,7 +786,10 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,
-                cloud_archival_writer: config.cloud_archival_writer,
+                cloud_archival_writer: config
+                    .cloud_archival
+                    .as_ref()
+                    .and_then(|c| c.writer.clone()),
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 save_receipt_to_tx: config
@@ -890,7 +889,8 @@ impl NearConfig {
             return None;
         };
         let cloud_storage_context = CloudStorageContext {
-            cloud_archive: cloud_archive_config.clone(),
+            location: cloud_archive_config.location.clone(),
+            credentials_file: cloud_archive_config.credentials_file.clone(),
             chain_id: self.client_config.chain_id.clone(),
         };
         Some(cloud_storage_context)
@@ -1067,7 +1067,7 @@ fn generate_or_load_keys(
     Ok(())
 }
 
-fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
+pub(crate) fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
     match chain_id {
         near_primitives::chains::MAINNET => {
             config.consensus.min_block_production_delay =
@@ -1087,9 +1087,32 @@ fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
                     Duration::milliseconds(FAST_MIN_BLOCK_PRODUCTION_DELAY);
                 config.consensus.max_block_production_delay =
                     Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+                // Garbage collection has to outpace block production.
+                config.gc.gc_blocks_limit = recommended_gc_blocks_limit_for_block_delay(
+                    config.gc.gc_step_period,
+                    config.consensus.min_block_production_delay,
+                );
             }
         }
     }
+}
+
+/// The `gc_blocks_limit` that keeps garbage collection comfortably ahead of block production,
+/// i.e. reclaiming blocks about twice as fast as they are produced. This is the recommended
+/// value, not the minimum one that passes validation.
+pub(crate) fn recommended_gc_blocks_limit_for_block_delay(
+    gc_step_period: Duration,
+    min_block_production_delay: Duration,
+) -> NumBlocks {
+    let block_delay = min_block_production_delay.whole_nanoseconds();
+    if block_delay <= 0 {
+        return GCConfig::default().gc_blocks_limit;
+    }
+    let chain_time_per_step = gc_step_period.whole_nanoseconds().max(0) as u128;
+    let limit = chain_time_per_step
+        .saturating_mul(RECOMMENDED_GC_RATE_MULTIPLIER)
+        .div_ceil(block_delay as u128);
+    NumBlocks::try_from(limit).unwrap_or(NumBlocks::MAX).max(GCConfig::default().gc_blocks_limit)
 }
 
 /// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.

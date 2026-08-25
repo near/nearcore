@@ -71,11 +71,15 @@ impl UpdatableConfigLoader {
         match updatable_configs {
             Ok(updatable_configs) => {
                 near_o11y::reload_log_config(updatable_configs.log_config.as_ref());
-                self.tx.as_ref().map(|tx| tx.send(Ok(updatable_configs.clone())));
+                if let Some(tx) = self.tx.as_ref() {
+                    let _ = tx.send(Ok(updatable_configs));
+                }
                 Self::update_metrics();
             }
             Err(err) => {
-                self.tx.as_ref().map(|tx| tx.send(Err(Arc::new(err))));
+                if let Some(tx) = self.tx.as_ref() {
+                    let _ = tx.send(Err(Arc::new(err)));
+                }
             }
         }
     }

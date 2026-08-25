@@ -24,9 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (50, include_config!("50.yaml")),
-    // max_gas_burnt increased to 300 TGas
-    (52, include_config!("52.yaml")),
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),

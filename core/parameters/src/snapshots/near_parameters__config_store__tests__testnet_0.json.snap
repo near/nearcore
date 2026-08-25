@@ -228,7 +228,7 @@ snapshot_kind: text
     "implicit_account_creation": true,
     "eth_implicit_accounts": false,
     "limit_config": {
-      "max_gas_burnt": 200000000000000,
+      "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
@@ -251,6 +251,7 @@ snapshot_kind: text
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
+      "max_receipt_total_input_size": 4294967295,
       "max_functions_number_per_contract": 10000,
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,

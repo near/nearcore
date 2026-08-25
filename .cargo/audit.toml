@@ -35,4 +35,25 @@ ignore = [
     # S3/cloud-storage XML responses, not untrusted input. Remove once the upstream S3 crates upgrade.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # RUSTSEC-2026-0222: Wasmtime can only be affected when the embedder mixes
+    # objects from one Engine into a Store belonging to another Engine. Nearcore
+    # never mixes Engine-owned objects.
+    "RUSTSEC-2026-0222",
+
+    # bitmaps is unmaintained (repo archived 2026-05-03), but imbl depends on it
+    # and every version is affected, so there is nothing to upgrade to. imbl is
+    # itself the maintained replacement for im, which nearcore used before.
+    # bitmaps is pinned to 3.1.0 in Cargo.lock: 3.2.0 added the unsound
+    # `Bitmap::try_from(&[u8])` and `AsMut<[u8]>` of RUSTSEC-2025-0167, and imbl
+    # calls neither. Do not bump it without re-checking that advisory.
+    "RUSTSEC-2026-0247",
+
+    # RUSTSEC-2026-0253: lru `pop()` leaves dangling list pointers if the key's
+    # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped. The
+    # copy left is lru 0.7.8 under reed-solomon-erasure, which requires `^0.7.8`
+    # in its latest release, 6.0.0 (2022-09-23). Not triggerable there anyway:
+    # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
+    # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
+    "RUSTSEC-2026-0253",
 ]

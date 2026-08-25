@@ -1,9 +1,10 @@
 use anyhow::Context;
 use near_chain_configs::GenesisValidationMode;
-use near_client::archive::cloud_archival_reader::bootstrap_range;
+use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use std::path::Path;
+use tokio::runtime::Runtime;
 
 #[derive(clap::Parser)]
 pub(crate) struct BootstrapReaderCmd {
@@ -45,6 +46,12 @@ impl BootstrapReaderCmd {
         let cloud_storage_context = near_config
             .cloud_storage_context()
             .context("cloud_archival not configured in config.json")?;
+
+        // Opening cloud storage and every retrieval below run on tokio, and this command
+        // is not async. Multi-threaded on purpose: the retrievals are polled by a foreign
+        // executor, so tokio's driver needs worker threads of its own to make progress.
+        let tokio_runtime = Runtime::new().expect("failed to create the tokio runtime");
+        let _runtime_guard = tokio_runtime.enter();
 
         let storage = NodeStorage::opener(
             home_dir,

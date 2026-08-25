@@ -40,6 +40,8 @@ use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
 pub use shard_assignment::AssignmentStrategy;
 use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "test_features")]
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 pub use validator_selection::proposals_to_epoch_info;
@@ -69,6 +71,164 @@ const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
 /// Grace window at the start of each epoch: no chunk producer is blacklisted until the
 /// anchor is at least this many blocks into the epoch. Absorbs upgrade-restart downtime.
 const EARLY_KICKOUT_EPOCH_GRACE_BLOCKS: u64 = 1000;
+
+/// Miss floor for the blacklist. Always the production constant unless this is a
+/// `test_features` build; see the `early_kickout_test_thresholds` module below.
+#[cfg(not(feature = "test_features"))]
+fn early_kickout_min_misses() -> u64 {
+    EARLY_KICKOUT_MIN_MISSES
+}
+
+/// Start-of-epoch grace. Always the production constant unless this is a `test_features`
+/// build; see the `early_kickout_test_thresholds` module below.
+#[cfg(not(feature = "test_features"))]
+fn early_kickout_epoch_grace_blocks() -> u64 {
+    EARLY_KICKOUT_EPOCH_GRACE_BLOCKS
+}
+
+/// Test-only overrides for the two early-kickout thresholds.
+///
+/// Reaching the production gate (100 misses past a 1000-block grace) takes ~1100 blocks,
+/// which a test-loop chain cannot afford. These knobs let a test shrink both so the gate
+/// trips in tens of blocks. The thread-local defaults are the production constants, so
+/// any build carrying `test_features` (the CI test runs enable it workspace-wide)
+/// behaves identically until a test explicitly installs an override.
+///
+/// Thread-local, not process-global, on purpose: `cargo test` runs test functions on
+/// parallel threads within one process, while a test-loop chain executes entirely on the
+/// thread that drives its event loop. Thread-local state therefore isolates each test
+/// exactly, where a global would leak a lowered grace into every concurrently running
+/// test-loop test and silently start reassigning producers there.
+#[cfg(feature = "test_features")]
+mod early_kickout_test_thresholds {
+    use super::{EARLY_KICKOUT_EPOCH_GRACE_BLOCKS, EARLY_KICKOUT_MIN_MISSES};
+    use std::cell::Cell;
+
+    thread_local! {
+        static MIN_MISSES: Cell<u64> = const { Cell::new(EARLY_KICKOUT_MIN_MISSES) };
+        static EPOCH_GRACE_BLOCKS: Cell<u64> =
+            const { Cell::new(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS) };
+    }
+
+    pub(super) fn min_misses() -> u64 {
+        MIN_MISSES.get()
+    }
+
+    pub(super) fn epoch_grace_blocks() -> u64 {
+        EPOCH_GRACE_BLOCKS.get()
+    }
+
+    pub(super) fn swap(min_misses: u64, epoch_grace_blocks: u64) -> (u64, u64) {
+        (MIN_MISSES.replace(min_misses), EPOCH_GRACE_BLOCKS.replace(epoch_grace_blocks))
+    }
+}
+
+#[cfg(feature = "test_features")]
+fn early_kickout_min_misses() -> u64 {
+    early_kickout_test_thresholds::min_misses()
+}
+
+#[cfg(feature = "test_features")]
+fn early_kickout_epoch_grace_blocks() -> u64 {
+    early_kickout_test_thresholds::epoch_grace_blocks()
+}
+
+/// Restores the early-kickout thresholds this thread had before
+/// [`set_early_kickout_thresholds_for_testing`] was called. Dropping on unwind is what
+/// keeps a panicking test from leaking its lowered thresholds into the next test when
+/// the harness reuses the thread (`--test-threads=1`).
+///
+/// Deliberately `!Send`: the override lives in thread-local state, so a guard dropped on
+/// a different thread would restore THAT thread's thresholds and leave the installing
+/// thread lowered forever — exactly the leak the guard exists to prevent.
+#[cfg(feature = "test_features")]
+#[must_use = "the override only lasts as long as this guard is alive"]
+pub struct EarlyKickoutThresholdGuard {
+    prev_min_misses: u64,
+    prev_epoch_grace_blocks: u64,
+    _not_send: PhantomData<*const ()>,
+}
+
+#[cfg(feature = "test_features")]
+impl Drop for EarlyKickoutThresholdGuard {
+    fn drop(&mut self) {
+        early_kickout_test_thresholds::swap(self.prev_min_misses, self.prev_epoch_grace_blocks);
+    }
+}
+
+/// Overrides the early-kickout thresholds for the CALLING THREAD, which for a test-loop
+/// test is the thread the whole chain runs on. `None` keeps the production constant. Call
+/// before the chain starts producing blocks and hold the returned guard for the whole test.
+///
+/// Never expose this through a runtime control (e.g. an adversarial RPC): overriding on a
+/// live node would give each thread its own consensus math.
+#[cfg(feature = "test_features")]
+pub fn set_early_kickout_thresholds_for_testing(
+    min_misses: Option<u64>,
+    epoch_grace_blocks: Option<u64>,
+) -> EarlyKickoutThresholdGuard {
+    let (prev_min_misses, prev_epoch_grace_blocks) = early_kickout_test_thresholds::swap(
+        min_misses.unwrap_or(EARLY_KICKOUT_MIN_MISSES),
+        epoch_grace_blocks.unwrap_or(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS),
+    );
+    EarlyKickoutThresholdGuard { prev_min_misses, prev_epoch_grace_blocks, _not_send: PhantomData }
+}
+
+/// The guard's restore-on-drop is itself a safety mechanism (it is what keeps a panicking
+/// test from leaking lowered thresholds into the next test on the same thread), so it gets
+/// direct coverage here rather than relying on the e2e tests' happy path.
+#[cfg(all(test, feature = "test_features"))]
+mod early_kickout_threshold_override_tests {
+    use super::{
+        EARLY_KICKOUT_EPOCH_GRACE_BLOCKS, EARLY_KICKOUT_MIN_MISSES,
+        early_kickout_epoch_grace_blocks, early_kickout_min_misses,
+        set_early_kickout_thresholds_for_testing,
+    };
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn test_override_and_restore() {
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+        {
+            let _guard = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+            assert_eq!(early_kickout_min_misses(), 5);
+            assert_eq!(early_kickout_epoch_grace_blocks(), 20);
+        }
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
+
+    #[test]
+    fn test_none_keeps_production_constant() {
+        let _guard = set_early_kickout_thresholds_for_testing(Some(7), None);
+        assert_eq!(early_kickout_min_misses(), 7);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
+
+    #[test]
+    fn test_nested_overrides_restore_lifo() {
+        let _outer = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+        {
+            let _inner = set_early_kickout_thresholds_for_testing(Some(3), Some(10));
+            assert_eq!(early_kickout_min_misses(), 3);
+            assert_eq!(early_kickout_epoch_grace_blocks(), 10);
+        }
+        assert_eq!(early_kickout_min_misses(), 5);
+        assert_eq!(early_kickout_epoch_grace_blocks(), 20);
+    }
+
+    #[test]
+    fn test_panic_unwind_restores_thresholds() {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = set_early_kickout_thresholds_for_testing(Some(5), Some(20));
+            panic!("panic with a live guard");
+        }));
+        assert!(result.is_err());
+        assert_eq!(early_kickout_min_misses(), EARLY_KICKOUT_MIN_MISSES);
+        assert_eq!(early_kickout_epoch_grace_blocks(), EARLY_KICKOUT_EPOCH_GRACE_BLOCKS);
+    }
+}
 
 /// Per-shard observability for the blacklist computation. Emitted once at the
 /// seeder (the production write path); the accessor recomputes on every read and
@@ -104,6 +264,22 @@ impl ChunkProducerBlacklist {
     }
 }
 
+/// The block a set of chunks is anchored at, plus its last-final block. The last-final block
+/// is the kickout blacklist's basis. See [`EpochManager::seed_chunk_producers`].
+struct SeedAnchor {
+    hash: CryptoHash,
+    height: BlockHeight,
+    final_hash: CryptoHash,
+    final_height: BlockHeight,
+}
+
+/// The anchor's own epoch, whose validator set the anchored chunks are sampled from.
+struct SampleEpoch<'a> {
+    epoch_id: &'a EpochId,
+    epoch_info: &'a EpochInfo,
+    shard_layout: &'a ShardLayout,
+}
+
 /// Per-shard chunk-producer blacklist from the aggregator's shard_tracker stats.
 /// A validator is blacklisted on a shard when, within the current epoch:
 ///   - missed   >= EARLY_KICKOUT_MIN_MISSES               (missed = expected - produced)
@@ -134,7 +310,7 @@ pub fn compute_chunk_producer_blacklist(
             let (produced, expected) = (stats.produced(), stats.expected());
             let missed = expected.saturating_sub(produced);
             // u128 keeps the ratio comparison overflow-proof.
-            if missed >= EARLY_KICKOUT_MIN_MISSES
+            if missed >= early_kickout_min_misses()
                 && (produced as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR as u128)
                     < (expected as u128) * (EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR as u128)
             {
@@ -177,12 +353,21 @@ pub fn compute_chunk_producer_blacklist(
     ChunkProducerBlacklist { blacklist, shard_stats }
 }
 
-/// Per-shard blacklist for `target_epoch_id`, or empty when either the aggregator belongs to
-/// a different epoch (a last-of-epoch anchor whose next epoch has no stats yet) or the anchor
-/// is still within the epoch's start-of-epoch grace window (`blocks_into_epoch` = anchor
-/// height − epoch-start height). Shared by the record-block seeder and the
-/// `get_chunk_producer_blacklist` accessor so the reset and grace checks can't drift between
-/// them.
+/// Per-shard blacklist for `target_epoch_id` (the anchor's own epoch), or empty when either:
+///
+/// - The aggregator belongs to a different epoch: the anchor's last-final block is still in
+///   the previous epoch, which holds for the first two anchors of an epoch at steady
+///   finality and longer while finality lags. The two bases legitimately differ — the stats
+///   must be finality-derived so every node seeds byte-identical rows, while the sample
+///   epoch must be the anchor's own epoch because the protocol ties a chunk's producer to
+///   the chunk's epoch. Cross-epoch stats would also be meaningless: `ValidatorId` is an
+///   epoch-local index, so the previous epoch's stats would blacklist whoever happens to
+///   occupy those indices in the target epoch.
+/// - The basis is still within the start-of-epoch grace window (`blocks_into_epoch` =
+///   last-final height − the aggregator's epoch-start height).
+///
+/// Shared by the record-block seeder and the `get_chunk_producer_blacklist` accessor so the
+/// reset and grace checks can't drift between them.
 pub(crate) fn blacklist_for_epoch(
     aggregator: &EpochInfoAggregator,
     target_epoch_id: &EpochId,
@@ -190,10 +375,12 @@ pub(crate) fn blacklist_for_epoch(
     shard_layout: &ShardLayout,
     blocks_into_epoch: BlockHeight,
 ) -> ChunkProducerBlacklist {
+    // Redundant in production: `chunk_producer_blacklist_at_anchor` returns on this same
+    // mismatch before its epoch-start walk. Kept as defense in depth for direct callers.
     if aggregator.epoch_id != *target_epoch_id {
         return ChunkProducerBlacklist::empty();
     }
-    if blocks_into_epoch < EARLY_KICKOUT_EPOCH_GRACE_BLOCKS {
+    if blocks_into_epoch < early_kickout_epoch_grace_blocks() {
         return ChunkProducerBlacklist::empty();
     }
     compute_chunk_producer_blacklist(&aggregator.shard_tracker, epoch_info, shard_layout)
@@ -370,6 +557,7 @@ impl EpochManager {
             epoch_length,
             epoch_config_store,
             genesis_config.protocol_version,
+            genesis_config.shard_layout.clone(),
         );
         Arc::new(
             Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
@@ -1063,9 +1251,20 @@ impl EpochManager {
         block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
-        self.record_block_info_impl(block_info, rng_seed)
+        let current_hash = *block_info.hash();
+        let result = self.record_block_info_impl(block_info, rng_seed);
+        if result.is_err() {
+            // Callers drop the store update on error, so the entries cached alongside it must
+            // go too, or other readers see values that were never written. Popping a key that
+            // does hold a committed value is harmless: both caches are read-through, so the
+            // next read loads it from the store again.
+            self.blocks_info.pop(&current_hash);
+            self.epochs_info.pop(&EpochId(current_hash));
+        }
+        result
     }
 
+    /// Call through `record_block_info`: it undoes the cache writes when this fails.
     fn record_block_info_impl(
         &mut self,
         mut block_info: BlockInfo,
@@ -1094,12 +1293,17 @@ impl EpochManager {
                 let genesis_shard_layout = self.get_shard_layout(&pre_genesis_epoch_id)?;
                 self.seed_chunk_producers(
                     &mut store_update,
-                    &current_hash,
-                    genesis_height,
-                    &genesis_epoch_info,
-                    &pre_genesis_epoch_id,
-                    &genesis_epoch_info,
-                    &genesis_shard_layout,
+                    &SeedAnchor {
+                        hash: current_hash,
+                        height: genesis_height,
+                        final_hash: CryptoHash::default(),
+                        final_height: genesis_height,
+                    },
+                    SampleEpoch {
+                        epoch_id: &pre_genesis_epoch_id,
+                        epoch_info: genesis_epoch_info.as_ref(),
+                        shard_layout: &genesis_shard_layout,
+                    },
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
@@ -1122,14 +1326,6 @@ impl EpochManager {
                     *block_info.epoch_first_block_mut() = *prev_block_info.epoch_first_block();
                 }
 
-                if is_epoch_start {
-                    self.save_epoch_start(
-                        &mut store_update,
-                        block_info.epoch_id(),
-                        block_info.height(),
-                    )?;
-                }
-
                 let block_info = Arc::new(block_info);
                 // Save current block info.
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
@@ -1137,22 +1333,22 @@ impl EpochManager {
                 // so every driver (chain, replay, tests) records them; the aggregator
                 // and the consensus reader read these rows for the block's grandchildren.
                 {
-                    let own_epoch_info = self.get_epoch_info(block_info.epoch_id())?;
-                    let sample_epoch_id = if self.is_next_block_in_next_epoch(&block_info)? {
-                        self.get_next_epoch_id_from_info(&block_info)?
-                    } else {
-                        *block_info.epoch_id()
-                    };
-                    let sample_epoch_info = self.get_epoch_info(&sample_epoch_id)?;
-                    let sample_shard_layout = self.get_shard_layout(&sample_epoch_id)?;
+                    let epoch_id = *block_info.epoch_id();
+                    let epoch_info = self.get_epoch_info(&epoch_id)?;
+                    let shard_layout = self.get_shard_layout(&epoch_id)?;
                     self.seed_chunk_producers(
                         &mut store_update,
-                        block_info.hash(),
-                        block_info.height(),
-                        &own_epoch_info,
-                        &sample_epoch_id,
-                        &sample_epoch_info,
-                        &sample_shard_layout,
+                        &SeedAnchor {
+                            hash: *block_info.hash(),
+                            height: block_info.height(),
+                            final_hash: *block_info.last_final_block_hash(),
+                            final_height: block_info.last_finalized_height(),
+                        },
+                        SampleEpoch {
+                            epoch_id: &epoch_id,
+                            epoch_info: epoch_info.as_ref(),
+                            shard_layout: &shard_layout,
+                        },
                     )?;
                 }
                 if block_info.last_finalized_height() > self.largest_final_height {
@@ -1171,6 +1367,16 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+                }
+
+                // Deliberately after every fallible step, so a failed record leaves no stale
+                // `epoch_id_to_start` entry. Safe here because nothing above reads it back.
+                if is_epoch_start {
+                    self.save_epoch_start(
+                        &mut store_update,
+                        block_info.epoch_id(),
+                        block_info.height(),
+                    )?;
                 }
             }
         }
@@ -1889,8 +2095,14 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Whether the block was already recorded, asked of the store rather than the
+    /// `blocks_info` cache: callers can drop the returned update even after a successful
+    /// record, so a cache hit does not mean the rows were written. Trade-off: a second
+    /// recorder of the same block between a record returning and its caller committing is
+    /// no longer deduplicated. Recording is deterministic and the writes are insert-only,
+    /// so that costs duplicate work, not correctness.
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        match self.get_block_info(hash) {
+        match self.store.get_block_info(hash) {
             Ok(_) => Ok(true),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => Err(err),
@@ -1922,6 +2134,9 @@ impl EpochManager {
         Ok(())
     }
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.epoch_id_to_start
             .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
@@ -2189,67 +2404,96 @@ impl EpochManager {
         }
     }
 
-    /// Seed `DBCol::ChunkProducers` for chunks anchored at `block_hash` (the
-    /// grandparent anchor of chunks at height `block_height +
+    /// The kickout blacklist as of a given last-final basis (`final_hash`,
+    /// `final_height`), for sampling in `epoch` (the anchor's own epoch). Single
+    /// implementation of the basis shared by the seeder and the
+    /// `get_chunk_producer_blacklist` accessor, so the two can't drift and the
+    /// live read always agrees with the stored row. Empty at genesis (no
+    /// last-final block yet).
+    fn chunk_producer_blacklist_at_anchor(
+        &self,
+        final_hash: &CryptoHash,
+        final_height: BlockHeight,
+        epoch: &SampleEpoch<'_>,
+    ) -> Result<ChunkProducerBlacklist, EpochError> {
+        if *final_hash == CryptoHash::default() {
+            return Ok(ChunkProducerBlacklist::empty());
+        }
+        let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
+        if aggregator.epoch_id != *epoch.epoch_id {
+            // Cross-epoch basis: empty either way, but checked before the walk — right
+            // after epoch sync the aggregator block's `BlockInfo` may not exist.
+            return Ok(ChunkProducerBlacklist::empty());
+        }
+        // Epoch start via the `BlockInfo` walk, not `DBCol::EpochStart`: boundary fork
+        // siblings overwrite that shared row, so its value depends on processing order.
+        // A genesis final block resolves through the stored dummy `BlockInfo` (height 0).
+        // A miss here propagates. That is structural corruption everywhere except one
+        // transient state: an equivocated prev-epoch sibling final on the uninstalled
+        // epoch-sync aggregator sync-point — there failing closed beats masking with grace.
+        let epoch_start = self.get_epoch_start_height(final_hash)?;
+        let blocks_into_epoch = final_height.saturating_sub(epoch_start);
+        Ok(blacklist_for_epoch(
+            &aggregator,
+            epoch.epoch_id,
+            epoch.epoch_info,
+            epoch.shard_layout,
+            blocks_into_epoch,
+        ))
+    }
+
+    /// Seed `DBCol::ChunkProducers` for chunks anchored at `anchor.hash` (the
+    /// grandparent anchor of chunks at height `anchor.height +
     /// CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`). No-op unless EarlyKickout is
-    /// enabled for the anchor's own epoch (`own_epoch_info`). Producers are
-    /// sampled from the epoch the anchored chunks belong to (`sample_epoch_info`
-    /// / `sample_shard_layout`, the epoch after the anchor); a chunk in a later
-    /// epoch never reads this row (the reader's cross-epoch arm samples
-    /// canonically).
+    /// enabled for the anchor's own epoch (`epoch`). Producers are always sampled
+    /// from the anchor's own epoch: `get_chunk_producer_info_anchored` consumes
+    /// the row only when the chunk's epoch equals the anchor's epoch, so a
+    /// last-of-epoch anchor's row (its grandchild at `height + 2` falls in the
+    /// next epoch) is not read on any honest path — no cross-epoch prediction
+    /// needed. (The row is not literally dead: the best-effort V2 resolver can
+    /// read it with a sender-claimed epoch on the parent-missing branch. That
+    /// non-consensus path is signature-gated and exists under either seeding
+    /// layout; the layout choice only changes which shard-id keys carry rows.)
     ///
     /// Writes into `store_update` so the rows commit atomically with the block's
     /// `BlockInfo`. Gating on the anchor's *own* epoch (not the epoch after)
     /// avoids seeding dead rows for last-of-epoch anchors across an activation edge.
+    ///
+    /// The blacklist basis is the anchor's last-final block (`anchor.final_hash`), not the
+    /// anchor itself: it is header-derived, so identical across nodes for a canonical anchor.
+    /// That determinism is required because the seeded row is read verbatim by
+    /// `get_chunk_producer_info_anchored`. It also keeps the walk off the growing not-yet-final
+    /// suffix during a finality stall.
     fn seed_chunk_producers(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
-        block_hash: &CryptoHash,
-        block_height: BlockHeight,
-        own_epoch_info: &EpochInfo,
-        sample_epoch_id: &EpochId,
-        sample_epoch_info: &EpochInfo,
-        sample_shard_layout: &ShardLayout,
+        anchor: &SeedAnchor,
+        epoch: SampleEpoch,
     ) -> Result<(), EpochError> {
         #[cfg(feature = "nightly")]
         {
-            if !ProtocolFeature::EarlyKickout.enabled(own_epoch_info.protocol_version()) {
+            if !ProtocolFeature::EarlyKickout.enabled(epoch.epoch_info.protocol_version()) {
                 return Ok(());
             }
-            // `get_epoch_info_aggregator_upto_last` is an `EpochManager` method (`&self`, no
-            // lock); calling the `get_chunk_producer_blacklist` accessor here would re-take
-            // `self.read()` and deadlock, since the seeder already holds the write lock.
-            //
-            // `block_hash` must already be in the block cache / store. the epoch-sync first
-            // block is only in the pending `store_update`, so it uses
-            // `seed_chunk_producers_for_first_block` (empty blacklist, no walk) instead.
-            let aggregator = self.get_epoch_info_aggregator_upto_last(block_hash)?;
-            // Grace window is measured against the aggregator's own epoch. At genesis the
-            // `EpochStart` row for `EpochId::default()` does not exist yet -> treat the missing
-            // start as "just started" (blocks_into_epoch = 0 -> grace, empty). Propagate any
-            // other error rather than masking storage corruption as an empty blacklist.
-            let epoch_start = match self.get_epoch_start_from_epoch_id(&aggregator.epoch_id) {
-                Ok(start) => start,
-                Err(EpochError::EpochOutOfBounds(_)) => block_height,
-                Err(e) => return Err(e),
-            };
-            let blocks_into_epoch = block_height.saturating_sub(epoch_start);
-            let ChunkProducerBlacklist { blacklist, shard_stats } = blacklist_for_epoch(
-                &aggregator,
-                sample_epoch_id,
-                sample_epoch_info,
-                sample_shard_layout,
-                blocks_into_epoch,
-            );
+            // Via the shared helper, not the `get_chunk_producer_blacklist` adapter: the
+            // adapter re-takes `self.read()` and would deadlock under the seeder's write lock.
+            let ChunkProducerBlacklist { blacklist, shard_stats } = self
+                .chunk_producer_blacklist_at_anchor(
+                    &anchor.final_hash,
+                    anchor.final_height,
+                    &epoch,
+                )?;
             // emit only here, never in the accessor: the accessor recomputes on every
             // consensus read and would double-count. `shard_stats` only holds shards with
             // candidates, so drive the gauge over the full shard set. a recovered shard, or an
-            // empty epoch-boundary reset, must fall back to 0 so the gauge never sticks stale.
+            // early-epoch anchor with no candidates yet, must fall back to 0 so the gauge
+            // never sticks stale.
             use crate::metrics::{EARLY_KICKOUT_BLACKLIST_SIZE, EARLY_KICKOUT_SAFETY_VALVE_FIRED};
-            // reset first so a shard retired by resharding drops its series instead of
-            // keeping a stale value forever; the loop below repopulates the current layout.
+            // reset first so a shard retired by resharding drops its series (from the first
+            // post-reshard anchor onward) instead of keeping a stale value forever; the loop
+            // below repopulates the anchor's own-epoch layout.
             EARLY_KICKOUT_BLACKLIST_SIZE.reset();
-            for shard_id in sample_shard_layout.shard_ids() {
+            for shard_id in epoch.shard_layout.shard_ids() {
                 let raw = shard_stats.get(&shard_id).map_or(0, |s| s.raw_candidate_count);
                 EARLY_KICKOUT_BLACKLIST_SIZE
                     .with_label_values(&[&shard_id.to_string()])
@@ -2264,7 +2508,7 @@ impl EpochManager {
                         tracing::warn!(
                             target: "early_kickout",
                             %shard_id,
-                            kept = %sample_epoch_info.validator_account_id(kept),
+                            kept = %epoch.epoch_info.validator_account_id(kept),
                             "safety valve: kept least-bad producer"
                         );
                     }
@@ -2272,22 +2516,23 @@ impl EpochManager {
             }
             self.seed_chunk_producer_rows(
                 store_update,
-                block_hash,
-                block_height,
-                sample_epoch_info,
-                sample_shard_layout,
+                &anchor.hash,
+                anchor.height,
+                epoch.epoch_info,
+                epoch.shard_layout,
                 &blacklist,
             );
         }
         #[cfg(not(feature = "nightly"))]
         let _ = (
             store_update,
-            block_hash,
-            block_height,
-            own_epoch_info,
-            sample_epoch_id,
-            sample_epoch_info,
-            sample_shard_layout,
+            anchor.hash,
+            anchor.height,
+            anchor.final_hash,
+            anchor.final_height,
+            epoch.epoch_id,
+            epoch.epoch_info,
+            epoch.shard_layout,
         );
         Ok(())
     }

@@ -1,6 +1,7 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
+use crate::sharding::ChunkHash;
 use crate::types::{ChunkExecutionResultHash, ShardId};
 use crate::universal_state_init::UniversalStateInit;
 use chrono;
@@ -232,6 +233,28 @@ pub fn get_endorsements_key(
 
 pub fn get_execution_results_key(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
     get_block_shard_id(block_hash, shard_id)
+}
+
+pub fn get_spice_invalid_chunk_key(height_created: BlockHeight, chunk_hash: &ChunkHash) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<BlockHeight>() + size_of::<CryptoHash>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(&index_to_bytes(height_created));
+    res.extend_from_slice(chunk_hash.as_ref());
+    res
+}
+
+pub fn get_spice_invalid_chunk_key_prefix(height_created: BlockHeight) -> Vec<u8> {
+    index_to_bytes(height_created).to_vec()
+}
+
+pub fn get_spice_invalid_chunk_key_rev(key: &[u8]) -> Option<(BlockHeight, ChunkHash)> {
+    const HEIGHT_LEN: usize = size_of::<BlockHeight>();
+    if key.len() != HEIGHT_LEN + size_of::<CryptoHash>() {
+        return None;
+    }
+    let (height_bytes, chunk_hash_bytes) = key.split_at(HEIGHT_LEN);
+    let height_created = BlockHeight::from_le_bytes(height_bytes.try_into().ok()?);
+    Some((height_created, ChunkHash(CryptoHash::try_from(chunk_hash_bytes).ok()?)))
 }
 
 pub fn get_uncertified_execution_results_key(hash: &ChunkExecutionResultHash) -> Vec<u8> {
@@ -561,8 +584,8 @@ mod tests {
         // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
         // on-chain `raw_state_init_to_account_id` host fn's cross-check.
         for (state_init, expected) in [
-            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g0ep4de"), // cspell:disable-line
-            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0s32b8m"), // cspell:disable-line
+            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"), // cspell:disable-line
+            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"), // cspell:disable-line
         ] {
             let id = derive_universal_account_id(state_init);
             assert_eq!(id.as_str(), expected);

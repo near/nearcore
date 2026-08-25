@@ -849,6 +849,17 @@ pub enum ActionErrorKind {
         nonce_index: NonceIndex,
         num_nonces: NonceIndex,
     } = 26,
+    /// The combined size of the resolved promise inputs (the `DataReceipt`s
+    /// referenced by the receipt's `input_data_ids`) exceeded the limit.
+    TotalPromiseInputSizeExceeded {
+        size: u64,
+        limit: u64,
+    } = 27,
+    /// The receipt recorded more storage proof than
+    /// `per_receipt_storage_proof_size_limit` allows.
+    ReceiptStorageProofSizeExceeded {
+        limit: u64,
+    } = 28,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1160,6 +1171,11 @@ impl Display for ActionErrorKind {
                 "DelegateAction nonce index {} must be smaller than the gas key nonce count {}",
                 nonce_index, num_nonces
             ),
+            ActionErrorKind::TotalPromiseInputSizeExceeded { size, limit } => write!(
+                f,
+                "The combined size of the receipt's promise inputs {} exceeded the limit {}",
+                size, limit
+            ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
             }
@@ -1192,6 +1208,9 @@ impl Display for ActionErrorKind {
                         account_id, balance
                     )
                 }
+            }
+            ActionErrorKind::ReceiptStorageProofSizeExceeded { limit } => {
+                write!(f, "Receipt exceeded the storage proof size limit of {} bytes", limit)
             }
         }
     }
@@ -1621,6 +1640,14 @@ pub enum InvalidSpiceCoreStatementsError {
     InvalidCoreStatement { index: usize, reason: &'static str },
     /// Spice core statements skipped over execution result for chunk.
     SkippedExecutionResult { chunk_id: SpiceChunkId },
+    /// Spice core statements reference more distinct chunks than a single block is allowed to.
+    TooManyReferencedChunks { limit: usize },
+    /// A block carries more spice core statements than a single block is allowed to.
+    TooManyCoreStatements { limit: usize },
+    /// Could not resolve the epoch.
+    UnknownEpoch { epoch_id: EpochId },
+    /// Could not resolve the epoch preceding the block's epoch.
+    UnknownPrevEpoch { prev_hash: CryptoHash },
     /// Could not find validator assignment for chunk.
     NoValidatorAssignments {
         shard_id: ShardId,

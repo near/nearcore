@@ -45,7 +45,9 @@ pub(crate) struct PeerHandle {
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actor
-            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
+            .send_async(
+                SendMessage { message: Arc::new(message), reserved_permit: None }.span_wrap(),
+            )
             .await
             .unwrap();
     }
