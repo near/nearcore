@@ -22,6 +22,10 @@ const MAX_CHECKS_PER_STEP: usize = 4;
 struct PeerHeights {
     claim: Option<Arc<BlockHeader>>,
     verified_height: Option<BlockHeight>,
+    /// Set when a check on this peer's claim failed, so its later claims sort below every peer
+    /// that has not failed however high they are. Cleared by a header it holds passing, which is
+    /// why a peer relaying the real tip recovers without needing a check of its own.
+    failed_last_check: bool,
 }
 
 impl PeerHeights {
@@ -76,6 +80,19 @@ impl VerifiedPeerHeights {
         if self.by_peer.len() < MAX_PEER_CLAIMS {
             return true;
         }
+        // An entry kept only to remember a failed check holds no height, so it is the cheapest to
+        // lose. Without this the map fills with them and refuses every new claim.
+        let forgettable = self
+            .by_peer
+            .iter()
+            .filter(|(_, peer)| peer.known_height().is_none())
+            .map(|(peer_id, _)| peer_id)
+            .min()
+            .cloned();
+        if let Some(peer_id) = forgettable {
+            self.by_peer.remove(&peer_id);
+            return true;
+        }
         let lowest = self
             .by_peer
             .iter()
@@ -100,16 +117,23 @@ impl VerifiedPeerHeights {
 
     #[cfg(test)]
     fn has_claim_above(&self, min_height: BlockHeight) -> bool {
-        self.highest_claim_above(min_height).is_some()
+        self.highest_claim_above(min_height, &|_: &PeerId| true).is_some()
     }
 
-    fn highest_claim_above(&self, min_height: BlockHeight) -> Option<Arc<BlockHeader>> {
+    /// Peers that have not failed a check come first, and the highest claim wins among them. A
+    /// peer cannot buy priority by claiming a higher height once it has failed.
+    fn highest_claim_above(
+        &self,
+        min_height: BlockHeight,
+        is_eligible: &impl Fn(&PeerId) -> bool,
+    ) -> Option<Arc<BlockHeader>> {
         self.by_peer
-            .values()
-            .filter_map(|peer| peer.claim.as_ref())
-            .filter(|header| header.height() > min_height)
-            .max_by_key(|header| header.height())
-            .cloned()
+            .iter()
+            .filter(|(peer_id, _)| is_eligible(peer_id))
+            .filter_map(|(_, peer)| Some((peer, peer.claim.as_ref()?)))
+            .filter(|(_, header)| header.height() > min_height)
+            .max_by_key(|(peer, header)| (!peer.failed_last_check, header.height()))
+            .map(|(_, header)| header.clone())
     }
 
     /// Settles every claim on this header: one outcome answers all of them.
@@ -117,11 +141,12 @@ impl VerifiedPeerHeights {
         self.by_peer.retain(|_, peer| {
             if peer.claim.as_ref().is_some_and(|claim| claim.hash() == header_hash) {
                 peer.claim = None;
+                peer.failed_last_check = !passed;
                 if passed {
                     peer.record_verified_height(height);
                 }
             }
-            peer.claim.is_some() || peer.verified_height.is_some()
+            peer.claim.is_some() || peer.verified_height.is_some() || peer.failed_last_check
         });
     }
 
@@ -132,10 +157,11 @@ impl VerifiedPeerHeights {
     pub fn check_claims_until_verified(
         &mut self,
         min_height: BlockHeight,
+        is_eligible: impl Fn(&PeerId) -> bool,
         mut check_approvals: impl FnMut(&BlockHeader) -> bool,
     ) {
         let mut checks = 0;
-        while let Some(header) = self.highest_claim_above(min_height) {
+        while let Some(header) = self.highest_claim_above(min_height, &is_eligible) {
             let mut passed = self.verified_header_hashes.contains(header.hash());
             if !passed {
                 if checks == MAX_CHECKS_PER_STEP {
@@ -187,7 +213,7 @@ mod tests {
     }
 
     fn check_all(heights: &mut VerifiedPeerHeights, passed: bool) {
-        heights.check_claims_until_verified(0, |_| passed);
+        heights.check_claims_until_verified(0, |_| true, |_| passed);
     }
 
     #[test]
@@ -199,7 +225,7 @@ mod tests {
         for _ in 0..MAX_PEER_CLAIMS {
             check_all(&mut heights, false);
         }
-        assert!(heights.by_peer.is_empty());
+        assert!(heights.by_peer.values().all(|peer| peer.claim.is_none()));
         let newcomer = peer("newcomer");
         heights.note_claim(&newcomer, &header(50, 2));
         assert!(heights.by_peer.contains_key(&newcomer));
@@ -248,10 +274,14 @@ mod tests {
         heights.note_claim(&peer("b"), &header(30, 2));
         heights.note_claim(&peer("c"), &header(20, 3));
         let mut checked = Vec::new();
-        heights.check_claims_until_verified(10, |header| {
-            checked.push(header.height());
-            false
-        });
+        heights.check_claims_until_verified(
+            10,
+            |_| true,
+            |header| {
+                checked.push(header.height());
+                false
+            },
+        );
         assert_eq!(checked, vec![30, 20]);
     }
 
@@ -262,10 +292,14 @@ mod tests {
         heights.note_claim(&p1, &header(30, 1));
         heights.note_claim(&p2, &header(20, 2));
         heights.note_claim(&p3, &header(10, 3));
-        heights.check_claims_until_verified(0, |header| match header.height() {
-            20 => true,
-            _ => false,
-        });
+        heights.check_claims_until_verified(
+            0,
+            |_| true,
+            |header| match header.height() {
+                20 => true,
+                _ => false,
+            },
+        );
         assert_eq!(heights.get_above(&p2, 0), Some(20));
         assert_eq!(heights.get_above(&p1, 0), None);
         assert!(heights.has_claim_above(0), "the claim at 10 is still unchecked");
@@ -279,10 +313,14 @@ mod tests {
         heights.note_claim(&p1, &claim);
         heights.note_claim(&p2, &claim);
         let mut checks = 0;
-        heights.check_claims_until_verified(0, |_| {
-            checks += 1;
-            true
-        });
+        heights.check_claims_until_verified(
+            0,
+            |_| true,
+            |_| {
+                checks += 1;
+                true
+            },
+        );
         assert_eq!(checks, 1);
         assert_eq!(heights.get_above(&p1, 0), Some(10));
         assert_eq!(heights.get_above(&p2, 0), Some(10));
@@ -301,14 +339,17 @@ mod tests {
     #[test]
     fn check_claims_until_verified_rechecks_a_header_that_failed() {
         let mut heights = VerifiedPeerHeights::default();
-        let p = peer("a");
         let mut checks = 0;
-        for _ in 0..2 {
-            heights.note_claim(&p, &header(10, 1));
-            heights.check_claims_until_verified(0, |_| {
-                checks += 1;
-                false
-            });
+        for index in 0..2 {
+            heights.note_claim(&peer(&format!("p{index}")), &header(10, 1));
+            heights.check_claims_until_verified(
+                0,
+                |_| true,
+                |_| {
+                    checks += 1;
+                    false
+                },
+            );
         }
         assert_eq!(
             checks, 2,
@@ -317,15 +358,122 @@ mod tests {
     }
 
     #[test]
+    fn check_claims_until_verified_serves_a_peer_whose_claim_is_never_the_highest() {
+        let mut heights = VerifiedPeerHeights::default();
+        let honest = peer("honest");
+        heights.note_claim(&honest, &header(100, 1));
+        for round in 0..40u64 {
+            for index in 0..(4 * MAX_CHECKS_PER_STEP) {
+                let claim = header(1000 + round * 100 + index as u64, 2);
+                heights.note_claim(&peer(&format!("loud{index}")), &claim);
+            }
+            heights.check_claims_until_verified(0, |_| true, |header| header.height() == 100);
+        }
+        assert_eq!(heights.get_above(&honest, 0), Some(100), "honest peer starved by rotation");
+    }
+
+    #[test]
+    fn settle_claims_clears_the_failed_flag_for_every_peer_holding_a_passing_header() {
+        let mut heights = VerifiedPeerHeights::default();
+        let demoted = peer("demoted");
+        heights.note_claim(&demoted, &header(200, 1));
+        check_all(&mut heights, false);
+        assert!(heights.by_peer[&demoted].failed_last_check);
+        let tip = header(300, 2);
+        heights.note_claim(&demoted, &tip);
+        heights.note_claim(&peer("other"), &tip);
+        check_all(&mut heights, true);
+        assert!(!heights.by_peer[&demoted].failed_last_check);
+        assert_eq!(heights.get_above(&demoted, 0), Some(300));
+    }
+
+    #[test]
+    fn check_claims_until_verified_still_reaches_a_demoted_peer_when_nothing_else_passes() {
+        let mut heights = VerifiedPeerHeights::default();
+        let demoted = peer("demoted");
+        heights.note_claim(&demoted, &header(200, 1));
+        check_all(&mut heights, false);
+        heights.note_claim(&demoted, &header(300, 2));
+        heights.note_claim(&peer("fresh"), &header(250, 3));
+        let mut checked = Vec::new();
+        heights.check_claims_until_verified(
+            0,
+            |_| true,
+            |header| {
+                checked.push(header.height());
+                false
+            },
+        );
+        assert_eq!(
+            checked,
+            vec![250, 300],
+            "the fresh peer goes first, the demoted one still runs"
+        );
+    }
+
+    #[test]
+    fn check_claims_until_verified_serves_an_honest_peer_despite_the_amnesty_cycle() {
+        let mut heights = VerifiedPeerHeights::default();
+        let honest = peer("honest");
+        for round in 0..20u64 {
+            heights.note_claim(&honest, &header(100, 1));
+            let tip = header(200 + round, 7);
+            for index in 0..(4 * MAX_CHECKS_PER_STEP) {
+                heights.note_claim(&peer(&format!("loud{index}")), &tip);
+            }
+            heights.check_claims_until_verified(
+                0,
+                |_| true,
+                |header| header.height() == 200 + round,
+            );
+            for index in 0..(4 * MAX_CHECKS_PER_STEP) {
+                let bad = header(9000 + round * 100 + index as u64, 8);
+                heights.note_claim(&peer(&format!("loud{index}")), &bad);
+            }
+            heights.check_claims_until_verified(0, |_| true, |header| header.height() == 100);
+        }
+        assert_eq!(
+            heights.get_above(&honest, 0),
+            Some(100),
+            "amnesty cycle starved the honest peer"
+        );
+    }
+
+    #[test]
+    fn check_claims_until_verified_ignores_claims_from_ineligible_peers() {
+        let mut heights = VerifiedPeerHeights::default();
+        let connected = peer("connected");
+        let gone = peer("gone");
+        heights.note_claim(&gone, &header(900, 1));
+        heights.note_claim(&connected, &header(100, 2));
+        let mut checked = Vec::new();
+        heights.check_claims_until_verified(
+            0,
+            |peer_id| *peer_id == connected,
+            |header| {
+                checked.push(header.height());
+                true
+            },
+        );
+        assert_eq!(checked, vec![100], "a gone peer must not spend the step or end it on a pass");
+        assert_eq!(heights.get_above(&connected, 0), Some(100));
+        assert_eq!(heights.get_above(&gone, 0), None);
+    }
+
+    #[test]
     fn check_claims_until_verified_skips_a_header_that_passed() {
         let mut heights = VerifiedPeerHeights::default();
         let mut checks = 0;
         for seed in 0..2 {
             heights.note_claim(&peer(&format!("p{seed}")), &header(10, 1));
-            heights.check_claims_until_verified(0, |_| {
-                checks += 1;
-                true
-            });
+            heights.check_claims_until_verified(
+                0,
+                |_| true,
+                |_| {
+                    checks += 1;
+                    true
+                },
+            );
         }
         assert_eq!(checks, 1);
     }
@@ -370,10 +518,14 @@ mod tests {
             heights.note_claim(&peer(&index.to_string()), &header(10 + index as u64, index as u64));
         }
         let mut checks = 0;
-        heights.check_claims_until_verified(0, |_| {
-            checks += 1;
-            false
-        });
+        heights.check_claims_until_verified(
+            0,
+            |_| true,
+            |_| {
+                checks += 1;
+                false
+            },
+        );
         assert_eq!(checks, MAX_CHECKS_PER_STEP);
         assert!(heights.has_claim_above(0), "the rest wait for the next step");
     }

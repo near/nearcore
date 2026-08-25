@@ -85,6 +85,7 @@ use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -1746,6 +1747,29 @@ impl ClientActor {
         Ok(now - head_time >= one_epoch)
     }
 
+    /// The stale-head path picks its target from the unverified claimed heights, so proving claims
+    /// there spends signature work the decision cannot use. Claims stay recorded and are proved
+    /// once the head is recent again.
+    fn verify_peer_height_claims_if_the_decision_can_use_them(&mut self) {
+        self.client.prune_peer_height_claims();
+        let Ok(head) = self.client.chain.head() else {
+            return;
+        };
+        if self.adv.disable_header_sync() || self.head_is_stale(&head).unwrap_or(true) {
+            return;
+        }
+        // Only a connected peer can be chosen to sync from, so proving a claim from any other
+        // peer spends a check the decision cannot use, and would end the step on a pass that
+        // decides nothing.
+        let connected: HashSet<PeerId> = self
+            .network_info
+            .connected_peers
+            .iter()
+            .map(|peer| peer.full_peer_info.peer_info.id.clone())
+            .collect();
+        self.client.verify_best_peer_height_claim(|peer_id| connected.contains(peer_id));
+    }
+
     /// Sync decision from the unvalidated `highest_height_peers`. Used only once
     /// our own clock already shows we are behind.
     fn sync_requirement_from_claimed_peers(
@@ -1932,7 +1956,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
         let currently_syncing = self.client.sync_handler.sync_status.is_syncing();
-        self.client.verify_best_peer_height_claim();
+        self.verify_peer_height_claims_if_the_decision_can_use_them();
         let sync = match self.syncing_info() {
             Ok(sync) => sync,
             Err(err) => {

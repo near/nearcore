@@ -37,9 +37,12 @@ claimed.
 Each step checks the claims that could start sync, highest first, and stops at
 the first that passes, since that is the only claim the decision needs. It walks
 past a claim that fails, so a bogus high claim cannot hide an honest lower one,
-and a peer whose claim failed is passed over for a few steps so it cannot take
-every check. Only a few checks run per step, which bounds the signature work by
-time rather than by how many blocks peers send.
+and a peer whose claim failed sorts below every peer that has not failed, however
+high it claims, until one of its headers passes. Without that a few peers claiming
+ever higher heights would take every check. Only a few checks run per step, which
+bounds the signature work by time rather than by how many blocks peers send. Only
+claims from connected peers are checked, since no other peer can be chosen to sync
+from.
 
 A peer with no proved height reads as level with our head: still a candidate to
 download from, never the target. Once the head has not advanced for about one

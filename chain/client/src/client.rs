@@ -1227,14 +1227,20 @@ impl Client {
         self.verified_peer_heights.note_claim(peer_id, block.header());
     }
 
+    pub(crate) fn prune_peer_height_claims(&mut self) {
+        let Ok(head) = self.chain.head() else {
+            return;
+        };
+        self.verified_peer_heights.prune_at_or_below(head.height);
+    }
+
     /// Pays for the approval checks the sync decision needs, and no others.
-    pub(crate) fn verify_best_peer_height_claim(&mut self) {
+    pub(crate) fn verify_best_peer_height_claim(&mut self, is_eligible: impl Fn(&PeerId) -> bool) {
         let Ok(head) = self.chain.head() else {
             return;
         };
         let min_height = self.sync_trigger_height(head.height);
-        self.verified_peer_heights.prune_at_or_below(head.height);
-        self.verified_peer_heights.check_claims_until_verified(min_height, |header| {
+        self.verified_peer_heights.check_claims_until_verified(min_height, is_eligible, |header| {
             self.chain.verify_header_approvals_without_ancestry(header).is_ok()
         });
     }
