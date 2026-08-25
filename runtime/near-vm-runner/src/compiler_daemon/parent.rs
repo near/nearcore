@@ -19,6 +19,8 @@ use crate::logic::errors::{CompilationError, VMRunnerError};
 use near_parameters::vm::LimitConfig;
 use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
+#[cfg(feature = "test_features")]
+use std::cell::Cell;
 use std::io::{Error as IoError, ErrorKind, Read, Write, stderr};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
@@ -29,6 +31,25 @@ use std::time::{Duration, Instant};
 static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
 static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
 static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
+
+#[cfg(feature = "test_features")]
+thread_local! {
+    static NEXT_TEST_FAULT: Cell<Option<super::protocol::TestFaultInjection>> = const { Cell::new(None) };
+}
+
+/// Inject an engine-construction failure into the next compiler request made
+/// by the current thread.
+#[cfg(feature = "test_features")]
+pub fn inject_engine_creation_failure_for_next_request() {
+    NEXT_TEST_FAULT.with(|fault| {
+        assert!(
+            fault
+                .replace(Some(super::protocol::TestFaultInjection::EngineCreationFailure))
+                .is_none(),
+            "a compiler daemon test fault is already pending"
+        );
+    });
+}
 
 /// Set the path to the binary that should be spawned as the compiler daemon.
 ///
@@ -444,6 +465,8 @@ pub fn compile_in_subprocess(
         max_elements_per_contract_table: limit_config
             .max_elements_per_contract_table
             .map(|v| v as u64),
+        #[cfg(feature = "test_features")]
+        test_fault: NEXT_TEST_FAULT.with(Cell::take),
     };
 
     let pool = get_or_init_pool();

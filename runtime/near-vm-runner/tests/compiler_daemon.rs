@@ -12,6 +12,8 @@ use near_vm_runner::logic::errors::CompilationError;
 #[cfg(feature = "test_features")]
 use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
+#[cfg(feature = "test_features")]
+use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract};
 use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(feature = "test_features")]
@@ -35,6 +37,8 @@ fn main() {
     test_worker_timeout_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_worker_crash_is_unknown_compilation_error();
+    #[cfg(feature = "test_features")]
+    test_engine_creation_failure_is_not_cached();
 }
 
 fn test_config() -> near_parameters::vm::Config {
@@ -230,4 +234,22 @@ fn test_worker_crash_is_unknown_compilation_error() {
         CompilePriority::Critical,
     );
     assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+}
+
+/// Engine construction depends on local process resources and configuration.
+/// Its failure must remain an unavailable error and must not be persisted as a
+/// deterministic contract compilation error.
+#[cfg(feature = "test_features")]
+fn test_engine_creation_failure_is_not_cached() {
+    let config = Arc::new(test_config());
+    let code =
+        ContractCode::new(wat::parse_str(r#"(module (func (export "main")))"#).unwrap(), None);
+    let cache = MockContractRuntimeCache::default();
+
+    compiler_daemon::inject_engine_creation_failure_for_next_request();
+    let result = precompile_contract(&code, config, Some(&cache));
+
+    assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    assert_eq!(cache.len(), 0, "daemon-local failure was cached");
+    assert_eq!(cache.put_count(), 0, "daemon-local failure attempted a cache write");
 }

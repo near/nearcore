@@ -15,6 +15,13 @@ pub const TEST_ABORT_REQUEST: &[u8] = b"near-vm-runner compiler daemon test abor
 #[cfg(feature = "test_features")]
 pub const TEST_TIMEOUT_REQUEST: &[u8] = b"near-vm-runner compiler daemon test timeout";
 
+/// Fault injected into a compiler request by tests.
+#[cfg(feature = "test_features")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum TestFaultInjection {
+    EngineCreationFailure,
+}
+
 #[cfg(all(target_os = "linux", feature = "test_features"))]
 pub const TEST_LANDLOCK_PROBE_REQUEST: &[u8] = b"near-vm-runner compiler daemon landlock probe";
 
@@ -34,6 +41,8 @@ pub struct CompileRequest {
     pub max_memory_pages: u32,
     pub max_tables_per_contract: Option<u32>,
     pub max_elements_per_contract_table: Option<u64>,
+    #[cfg(feature = "test_features")]
+    pub test_fault: Option<TestFaultInjection>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]

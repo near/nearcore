@@ -15,11 +15,11 @@ mod sandbox;
 mod watchdog;
 
 pub use child::daemon_main;
-#[cfg(feature = "test_features")]
-pub use parent::spawned_worker_high_water;
 pub use parent::{
     compile_in_subprocess, is_daemon_configured, set_daemon_binary, set_daemon_pool_size,
 };
+#[cfg(feature = "test_features")]
+pub use parent::{inject_engine_creation_failure_for_next_request, spawned_worker_high_water};
 use std::time::Duration;
 
 /// Minimum per-worker virtual memory budget.

@@ -13,6 +13,8 @@ use super::protocol::{CompileRequest, CompileResponse, DaemonStartup, read_frame
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::create_compiler_engine;
 use std::collections::{HashMap, hash_map};
+use std::fmt::Display;
+use std::process::exit;
 #[cfg(feature = "test_features")]
 use std::thread::park;
 
@@ -47,11 +49,7 @@ pub fn daemon_main() -> ! {
         };
         let request: CompileRequest = match borsh::from_slice(&frame) {
             Ok(r) => r,
-            Err(e) => {
-                let resp = CompileResponse::Err(format!("failed to deserialize request: {e}"));
-                let _ = write_frame(&mut writer, &borsh::to_vec(&resp).unwrap());
-                continue;
-            }
+            Err(err) => abort_worker(format!("failed to deserialize request: {err}")),
         };
         let response = handle_request(&mut engines, request, &sandbox_status);
         if write_frame(&mut writer, &borsh::to_vec(&response).unwrap()).is_err() {
@@ -91,17 +89,33 @@ fn handle_compile(
         }
     }
 
+    #[cfg(feature = "test_features")]
+    if request.test_fault == Some(super::protocol::TestFaultInjection::EngineCreationFailure) {
+        abort_worker("failed to create engine: test engine creation failure");
+    }
+
     let engine = match engines.entry(request.max_memory_pages) {
         hash_map::Entry::Occupied(e) => e.into_mut(),
-        hash_map::Entry::Vacant(e) => match create_compiler_engine(request.max_memory_pages) {
-            Ok(engine) => e.insert(engine),
-            Err(e) => return CompileResponse::Err(format!("failed to create engine: {e}")),
-        },
+        hash_map::Entry::Vacant(e) => e.insert(
+            create_compiler_engine(request.max_memory_pages)
+                .unwrap_or_else(|err| abort_worker(format!("failed to create engine: {err}"))),
+        ),
     };
     match engine.precompile_module(&request.prepared_code) {
         Ok(bytes) => CompileResponse::Ok(bytes),
         Err(e) => CompileResponse::Err(e.to_string()),
     }
+}
+
+/// Exit the worker process with a message to its local stderr.
+///
+/// The compilation worker experienced an unrecoverable failure. Exit without
+/// sending a compilation response. The parent treats the closed IPC channel as
+/// unavailable and never mistakes the message for a deterministic contract
+/// compilation error.
+fn abort_worker(err: impl Display) -> ! {
+    eprintln!("{err}");
+    exit(1)
 }
 
 #[cfg(unix)]
