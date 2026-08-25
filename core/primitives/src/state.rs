@@ -39,6 +39,31 @@ impl PartialState {
         let Self::TrieValues(values) = self;
         values.len()
     }
+
+    /// Deserializes a partial state, rejecting an entry count above `max_entries`
+    /// before any entry is read. Borsh allocates one heap block per entry as it
+    /// decodes, so the count has to be checked from the length prefix first.
+    pub fn try_from_slice_with_entry_limit(
+        bytes: &[u8],
+        max_entries: u32,
+    ) -> borsh::io::Result<Self> {
+        let mut header = bytes;
+        let discriminant = u8::deserialize_reader(&mut header)?;
+        if discriminant != 0 {
+            return Err(borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "unknown PartialState variant",
+            ));
+        }
+        let entries = u32::deserialize_reader(&mut header)?;
+        if entries > max_entries {
+            return Err(borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "state part entry limit exceeded",
+            ));
+        }
+        Self::try_from_slice(bytes)
+    }
 }
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
