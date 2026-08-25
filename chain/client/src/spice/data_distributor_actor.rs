@@ -7,7 +7,7 @@ use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
-use crate::spice::data_manager::SpiceData;
+use crate::spice::data_manager::{SpiceData, VerifiedCodedPart};
 use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::MultiSend;
@@ -43,7 +43,6 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
-use near_primitives::merkle::verify_path_with_index;
 use near_primitives::reed_solomon;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::reed_solomon::ReedSolomonPartsTracker;
@@ -752,18 +751,15 @@ impl SpiceDataDistributorActor {
             if decoded {
                 break;
             }
-            if !verify_path_with_index(
-                commitment.root,
-                &merkle_proof,
-                &part,
-                part_ord,
-                total_parts as u64,
-            ) {
-                return Err(Error::InvalidCommitmentRoot);
-            }
+            // TODO(spice-data-distribution): C1a routes ingress through the engine's
+            // insert_part; the unwrap below goes with the old tracker.
+            let verified =
+                VerifiedCodedPart::verify(&commitment, total_parts, part_ord, part, &merkle_proof)
+                    .map_err(|_| Error::InvalidCommitmentRoot)?;
             // TODO(spice): Verify that size of partial data isn't too large.
             let create_decode_span = None;
-            match entry.tracker.insert_part(part_ord as usize, part, create_decode_span) {
+            let ordinal = verified.ordinal();
+            match entry.tracker.insert_part(ordinal, verified.into_part(), create_decode_span) {
                 reed_solomon::InsertPartResult::Accepted => {}
                 reed_solomon::InsertPartResult::PartAlreadyAvailable => {}
                 reed_solomon::InsertPartResult::InvalidPartOrd => {

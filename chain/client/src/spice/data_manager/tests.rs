@@ -1,12 +1,12 @@
 use super::*;
+use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock};
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::merkle::merklize;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, reed_solomon_part_length};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
-use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataIdentifier};
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
-use std::collections::{HashMap, HashSet};
+use near_primitives::spice::partial_data::SpiceDataCommitment;
+use near_primitives::types::{AccountId, ShardId};
 use std::sync::Arc;
 
 /// Data parts of the encoder every test here uses: `max((5 * 0.6) as usize, 1)`.
@@ -15,13 +15,6 @@ const TOTAL_PARTS: usize = 5;
 
 fn account(name: &str) -> AccountId {
     name.parse().unwrap()
-}
-
-fn chunk(height: u64, shard_id: u64) -> SpiceChunkId {
-    SpiceChunkId {
-        block_hash: CryptoHash::hash_bytes(&height.to_le_bytes()),
-        shard_id: ShardId::new(shard_id),
-    }
 }
 
 fn encoder() -> Arc<ReedSolomonEncoder> {
@@ -41,41 +34,65 @@ fn receipt_data(from_shard: u64, to_shard: u64) -> SpiceData {
     ))
 }
 
+/// Merklizes `parts` into a commitment and verifies each part against it.
+fn commit_parts(
+    parts: Vec<Box<[u8]>>,
+    encoded_length: u64,
+    data_hash: CryptoHash,
+) -> (SpiceDataCommitment, Vec<VerifiedCodedPart>) {
+    let total_parts = parts.len();
+    let (root, proofs) = merklize(&parts);
+    let commitment = SpiceDataCommitment { hash: data_hash, root, encoded_length };
+    let verified = parts
+        .into_iter()
+        .zip(&proofs)
+        .enumerate()
+        .map(|(ordinal, (part, proof))| {
+            VerifiedCodedPart::verify(&commitment, total_parts, ordinal as u64, part, proof)
+                .unwrap()
+        })
+        .collect();
+    (commitment, verified)
+}
+
 fn encode(
     encoder: &Arc<ReedSolomonEncoder>,
     data: &SpiceData,
-) -> (SpiceDataCommitment, Vec<Box<[u8]>>) {
+) -> (SpiceDataCommitment, Vec<VerifiedCodedPart>) {
     let (parts, encoded_length) = encoder.encode(data);
-    let commitment = SpiceDataCommitment {
-        hash: hash(&borsh::to_vec(data).unwrap()),
-        root: CryptoHash::default(),
-        encoded_length: encoded_length as u64,
-    };
-    (commitment, parts.into_iter().map(Option::unwrap).collect())
+    let parts: Vec<Box<[u8]>> = parts.into_iter().map(Option::unwrap).collect();
+    commit_parts(parts, encoded_length as u64, hash(&borsh::to_vec(data).unwrap()))
 }
 
-fn coded_fetch_item(encoder: Arc<ReedSolomonEncoder>, height: u64) -> FetchItem {
-    FetchItem::collecting(Assembly::coded(encoder), Lane::Priority, height, None)
+/// Well-formed parts under a commitment whose bytes decode to nothing.
+fn junk_commitment(encoded_length: usize) -> (SpiceDataCommitment, Vec<VerifiedCodedPart>) {
+    let part_length = reed_solomon_part_length(encoded_length, DATA_PARTS);
+    let parts = (0..TOTAL_PARTS).map(|_| vec![0xff; part_length].into_boxed_slice()).collect();
+    commit_parts(parts, encoded_length as u64, CryptoHash::default())
 }
 
-/// Fills an item with `DATA_PARTS` parts of `commitment`, each from its own sender.
+fn coded_fetch_item(encoder: Arc<ReedSolomonEncoder>) -> FetchItem {
+    FetchItem::collecting(encoder)
+}
+
+/// Fills an item with the first `DATA_PARTS` of `parts`, each from its own sender; the
+/// completing part parks the item in `Delivered`.
 fn complete(
     item: &mut FetchItem,
     clock: &Clock,
-    commitment: &SpiceDataCommitment,
-    parts: Vec<Box<[u8]>>,
+    encoder: &Arc<ReedSolomonEncoder>,
+    parts: Vec<VerifiedCodedPart>,
     sender_prefix: &str,
-) -> CompletedCodedData {
+) -> SpiceData {
     let mut completed = None;
     for (ordinal, part) in parts.into_iter().take(DATA_PARTS).enumerate() {
         let sender = account(&format!("{sender_prefix}-{ordinal}.near"));
-        let result =
-            item.insert_verified_coded_part(clock, commitment, &sender, ordinal, part).unwrap();
+        let result = item.insert_part(clock, encoder, &sender, part).unwrap();
         match result {
             PartInsertResult::Accepted => assert!(ordinal + 1 < DATA_PARTS),
-            PartInsertResult::Complete(value) => {
+            PartInsertResult::Complete(data) => {
                 assert_eq!(ordinal + 1, DATA_PARTS);
-                completed = Some(value);
+                completed = Some(data);
             }
             other => panic!("unexpected insert result: {other:?}"),
         }
@@ -83,89 +100,15 @@ fn complete(
     completed.expect("item did not complete")
 }
 
-struct TestKind;
-
-impl DataKind for TestKind {
-    type Error = &'static str;
-
-    fn sources(
-        &self,
-        _id: &DataId,
-        _context: &FetchContext<'_>,
-    ) -> Result<Vec<AccountId>, near_chain::Error> {
-        Ok(vec![account("source.near")])
-    }
-
-    fn recipients(
-        &self,
-        _id: &DataId,
-        _claimed_chunk: Option<&SpiceChunkId>,
-    ) -> Result<Vec<AccountId>, near_chain::Error> {
-        Ok(vec![account("recipient.near")])
-    }
-
-    fn classify_at_seed(
-        &self,
-        _id: &DataId,
-        _context: &FetchContext<'_>,
-    ) -> Result<Interest, near_chain::Error> {
-        Ok(Interest::Fetchable)
-    }
-
-    fn verify_assembled(&self, id: &DataId, data: AssembledData<'_>) -> Result<(), Self::Error> {
-        match (id, data) {
-            (_, AssembledData::Coded { commitment, data })
-                if hash(&borsh::to_vec(data).unwrap()) == commitment.hash =>
-            {
-                Ok(())
-            }
-            (DataId::ContractCode { code_hash }, AssembledData::Blob(bytes))
-                if hash(bytes) == code_hash.0 =>
-            {
-                Ok(())
-            }
-            _ => Err("assembled data does not match its id"),
-        }
-    }
-
-    fn is_done(&self, _id: &DataId) -> Result<bool, near_chain::Error> {
-        Ok(false)
-    }
-}
-
-#[test]
-fn data_id_converts_existing_coded_ids() {
-    let chunk = chunk(1, 2);
-    let wire_id = SpiceDataIdentifier::ReceiptProof {
-        block_hash: chunk.block_hash,
-        from_shard_id: chunk.shard_id,
-        to_shard_id: ShardId::new(3),
-    };
-
-    let id = DataId::from(wire_id.clone());
-
-    assert_eq!(id.block_hash(), Some(&chunk.block_hash));
-    assert_eq!(id.transfer_unit(), TransferUnit::ErasureCoded);
-    assert_eq!(SpiceDataIdentifier::try_from(&id), Ok(wire_id));
-    let code_id = DataId::ContractCode { code_hash: CodeHash(CryptoHash::default()) };
-    assert_eq!(code_id.block_hash(), None);
-    assert_eq!(code_id.transfer_unit(), TransferUnit::Blob);
-    assert_eq!(SpiceDataIdentifier::try_from(&code_id), Err(()));
-}
-
 #[test]
 fn assembly_requests_the_union_of_commitment_gaps() {
     let encoder = encoder();
-    let (first, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (second, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
-    let mut assembly = Assembly::coded(encoder);
+    let (_, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
+    let (_, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
+    let mut assembly = Assembly::new(encoder);
 
-    assembly
-        .insert_verified_coded_part(&first, &account("alice.near"), 0, first_parts.remove(0))
-        .unwrap();
-    assembly
-        .insert_verified_coded_part(&second, &account("bob.near"), 1, second_parts.remove(1))
-        .unwrap();
+    assembly.insert_part(&account("alice.near"), first_parts.remove(0)).unwrap();
+    assembly.insert_part(&account("bob.near"), second_parts.remove(1)).unwrap();
 
     // No ordinal is held under *every* commitment, so all of them are still wanted. The
     // gaps of a single tracker would be a strict subset.
@@ -174,74 +117,107 @@ fn assembly_requests_the_union_of_commitment_gaps() {
 }
 
 #[test]
+fn mismatched_proof_fails_verification() {
+    let encoder = encoder();
+    let (parts, encoded_length) = encoder.encode(&receipt_data(0, 1));
+    let parts: Vec<Box<[u8]>> = parts.into_iter().map(Option::unwrap).collect();
+    let (root, proofs) = merklize(&parts);
+    let commitment = SpiceDataCommitment {
+        hash: CryptoHash::default(),
+        root,
+        encoded_length: encoded_length as u64,
+    };
+
+    VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 0, parts[0].clone(), &proofs[0]).unwrap();
+    // Right proof, wrong ordinal; then right proof, wrong content.
+    let wrong_ordinal =
+        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 1, parts[0].clone(), &proofs[0])
+            .unwrap_err();
+    let wrong_content =
+        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 0, parts[1].clone(), &proofs[0])
+            .unwrap_err();
+
+    assert_matches!(wrong_ordinal, AssemblyError::InvalidMerkleProof);
+    assert_matches!(wrong_content, AssemblyError::InvalidMerkleProof);
+}
+
+#[test]
 fn rejected_part_does_not_create_or_back_a_tracker() {
     let encoder = encoder();
-    let (first, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (second, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
+    // A commitment over more parts than this assembly's encoder: an ordinal past the
+    // encoder's range verifies against its own tree but must still be rejected here.
+    let wide_parts = (0..2 * TOTAL_PARTS).map(|_| vec![0xaa; 8].into_boxed_slice()).collect();
+    let (_, mut wide_verified) = commit_parts(wide_parts, 16, CryptoHash::default());
+    let (_, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
     let sender = account("alice.near");
-    let mut assembly = Assembly::coded(encoder);
+    let mut assembly = Assembly::new(encoder);
 
-    let error = assembly
-        .insert_verified_coded_part(&first, &sender, TOTAL_PARTS, first_parts.remove(0))
-        .unwrap_err();
+    let error = assembly.insert_part(&sender, wide_verified.remove(TOTAL_PARTS)).unwrap_err();
 
-    assert!(matches!(error, AssemblyError::InvalidOrdinal));
+    assert_matches!(error, AssemblyError::InvalidOrdinal);
     // The rejected part backed nothing, so the same sender may back another commitment,
-    // and no tracker for `first` widens the missing set.
-    assembly.insert_verified_coded_part(&second, &sender, 0, second_parts.remove(0)).unwrap();
+    // and no tracker for the wide commitment widens the missing set.
+    assembly.insert_part(&sender, second_parts.remove(0)).unwrap();
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
 }
 
 #[test]
 fn wrong_length_part_does_not_create_or_back_a_tracker() {
     let encoder = encoder();
-    let (first, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (second, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
+    let (raw_parts, encoded_length) = encoder.encode(&receipt_data(0, 1));
+    let raw_parts: Vec<Box<[u8]>> = raw_parts.into_iter().map(Option::unwrap).collect();
+    let (_, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
     let sender = account("alice.near");
-    let mut assembly = Assembly::coded(encoder);
+    let mut assembly = Assembly::new(encoder);
 
-    let mut short = first_parts.remove(0).into_vec();
+    let mut short = raw_parts[0].to_vec();
     short.pop();
-    let mut long = first_parts.remove(0).into_vec();
+    let mut long = raw_parts[0].to_vec();
     long.push(0);
-    for part in [short, long] {
-        let error = assembly
-            .insert_verified_coded_part(&first, &sender, 0, part.into_boxed_slice())
-            .unwrap_err();
-        assert!(matches!(error, AssemblyError::WrongPartLength));
+    for bad in [short, long] {
+        let mut bad_parts = raw_parts.clone();
+        bad_parts[0] = bad.into_boxed_slice();
+        // The parts carry valid proofs; only the length disagrees with encoded_length.
+        let (_, mut bad_verified) =
+            commit_parts(bad_parts, encoded_length as u64, CryptoHash::default());
+        let error = assembly.insert_part(&sender, bad_verified.remove(0)).unwrap_err();
+        assert_matches!(error, AssemblyError::WrongPartLength);
     }
 
     // A hostile encoded_length must reject the part, not overflow computing the length.
-    let huge = SpiceDataCommitment {
-        hash: CryptoHash::default(),
-        root: CryptoHash::default(),
-        encoded_length: u64::MAX,
-    };
-    let error =
-        assembly.insert_verified_coded_part(&huge, &sender, 0, Box::new([0u8; 8])).unwrap_err();
-    assert!(matches!(error, AssemblyError::WrongPartLength));
+    let (_, mut huge_verified) = commit_parts(raw_parts, u64::MAX, CryptoHash::default());
+    let error = assembly.insert_part(&sender, huge_verified.remove(0)).unwrap_err();
+    assert_matches!(error, AssemblyError::WrongPartLength);
 
     // The rejected parts backed nothing, so the same sender may back another commitment,
-    // and no tracker for `first` widens the missing set.
-    assembly.insert_verified_coded_part(&second, &sender, 0, second_parts.remove(0)).unwrap();
+    // and no tracker for them widens the missing set.
+    assembly.insert_part(&sender, second_parts.remove(0)).unwrap();
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
 }
 
 #[test]
 fn sender_cannot_back_competing_commitments() {
     let encoder = encoder();
-    let (first, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (second, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
+    let (_, mut first_parts) = encode(&encoder, &receipt_data(0, 1));
+    let (_, mut second_parts) = encode(&encoder, &receipt_data(0, 2));
     let sender = account("alice.near");
-    let mut assembly = Assembly::coded(encoder);
+    let mut assembly = Assembly::new(encoder);
 
-    assembly.insert_verified_coded_part(&first, &sender, 0, first_parts.remove(0)).unwrap();
-    let error = assembly
-        .insert_verified_coded_part(&second, &sender, 1, second_parts.remove(1))
-        .unwrap_err();
+    assembly.insert_part(&sender, first_parts.remove(0)).unwrap();
+    let error = assembly.insert_part(&sender, second_parts.remove(1)).unwrap_err();
 
-    assert!(matches!(error, AssemblyError::ConflictingCommitment));
+    assert_matches!(error, AssemblyError::ConflictingCommitment);
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn start_pulling_arms_only_from_waiting_for_push() {
+    let encoder = encoder();
+    let mut item = FetchItem::waiting_for_push();
+
+    assert!(item.start_pulling(encoder.clone()));
+    assert!(!item.start_pulling(encoder));
+    assert!(matches!(item.state, FetchState::Collecting(_)));
 }
 
 #[test]
@@ -250,45 +226,34 @@ fn coded_item_moves_through_delivery_and_local_processing() {
     let clock = fake_clock.clock();
     let encoder = encoder();
     let (commitment, parts) = encode(&encoder, &receipt_data(0, 1));
-    let mut item = FetchItem::waiting_for_push(Lane::Priority, 10, None);
-    assert!(item.open(Assembly::coded(encoder)));
-    assert!(!item.open(Assembly::Blob));
+    // The first part opens the waiting item; no explicit transition is needed.
+    let mut item = FetchItem::waiting_for_push();
     let first_part_at = clock.now();
 
-    let mut completed = None;
     for (ordinal, part) in parts.into_iter().take(DATA_PARTS).enumerate() {
         let result = item
-            .insert_verified_coded_part(
-                &clock,
-                &commitment,
-                &account(&format!("validator-{ordinal}.near")),
-                ordinal,
-                part,
-            )
+            .insert_part(&clock, &encoder, &account(&format!("validator-{ordinal}.near")), part)
             .unwrap();
         if ordinal + 1 < DATA_PARTS {
-            assert!(matches!(result, PartInsertResult::Accepted));
+            assert_matches!(result, PartInsertResult::Accepted);
         } else {
-            let PartInsertResult::Complete(value) = result else {
+            // The completing part delivers and parks the item in the same call.
+            let PartInsertResult::Complete(data) = result else {
                 panic!("item did not complete");
             };
-            assert!(matches!(value.data(), SpiceData::ReceiptProof(_)));
-            completed = Some(value);
+            assert_matches!(data, SpiceData::ReceiptProof(_));
         }
         // The timer anchors on the first part, not the latest one.
         fake_clock.advance(Duration::seconds(1));
         assert_eq!(item.first_unit_at, Some(first_part_at));
     }
 
-    let id = DataId::ReceiptProof { source: chunk(10, 0), to_shard: ShardId::new(1) };
-    TestKind.verify_assembled(&id, completed.as_ref().unwrap().assembled()).unwrap();
-    item.mark_delivered(completed.unwrap()).unwrap();
     let FetchState::Delivered { attribution, residual } = &item.state else {
         panic!("item was not delivered");
     };
-    assert_eq!(attribution.winning, commitment);
+    assert_eq!(attribution.decoded, commitment);
     assert_eq!(attribution.contributors().len(), DATA_PARTS);
-    // The winning tracker's parts are gone with delivery; nothing else was tracked.
+    // The decoded tracker's parts are gone with delivery; nothing else was tracked.
     assert!(!residual.has_parts());
     item.mark_verified().unwrap();
     assert!(matches!(item.state, FetchState::ProcessedLocally { .. }));
@@ -299,41 +264,12 @@ fn verdict_on_an_item_that_was_never_delivered_is_rejected() {
     let fake_clock = FakeClock::default();
     let clock = fake_clock.clock();
     let encoder = encoder();
-    let (tracked, mut tracked_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (untracked, untracked_parts) = encode(&encoder, &receipt_data(0, 2));
-    let tracked_completion = complete(
-        &mut coded_fetch_item(encoder.clone(), 10),
-        &clock,
-        &tracked,
-        tracked_parts.clone(),
-        "tracked",
-    );
-    let untracked_completion = complete(
-        &mut coded_fetch_item(encoder.clone(), 10),
-        &clock,
-        &untracked,
-        untracked_parts,
-        "untracked",
-    );
-    let mut item = coded_fetch_item(encoder, 10);
-    item.insert_verified_coded_part(
-        &clock,
-        &tracked,
-        &account("alice.near"),
-        0,
-        tracked_parts.remove(0),
-    )
-    .unwrap();
+    let (_, mut parts) = encode(&encoder, &receipt_data(0, 1));
+    let mut item = coded_fetch_item(encoder.clone());
+    item.insert_part(&clock, &encoder, &account("alice.near"), parts.remove(0)).unwrap();
 
-    assert!(matches!(item.mark_verified().unwrap_err(), AssemblyError::NotDelivered));
-    assert!(matches!(item.mark_failed(&clock).unwrap_err(), AssemblyError::NotDelivered));
-    // Data another item assembled: under a commitment this one never saw, then under one
-    // it holds too few parts of.
-    let unknown = item.mark_delivered(untracked_completion).unwrap_err();
-    let incomplete = item.mark_delivered(tracked_completion).unwrap_err();
-
-    assert!(matches!(unknown, AssemblyError::UnknownCommitment));
-    assert!(matches!(incomplete, AssemblyError::IncompleteCommitment));
+    assert_matches!(item.mark_verified().unwrap_err(), AssemblyError::NotDelivered);
+    assert_matches!(item.mark_failed().unwrap_err(), AssemblyError::NotDelivered);
     // Every rejected verdict left the item collecting, with its part still held.
     let FetchState::Collecting(assembly) = &item.state else {
         panic!("item left collecting");
@@ -342,90 +278,111 @@ fn verdict_on_an_item_that_was_never_delivered_is_rejected() {
 }
 
 #[test]
-fn mark_delivered_outside_collecting_preserves_the_state() {
+fn insert_outside_collecting_is_rejected_and_preserves_the_state() {
     let fake_clock = FakeClock::default();
     let clock = fake_clock.clock();
     let encoder = encoder();
-    let (winner, winner_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (other, other_parts) = encode(&encoder, &receipt_data(0, 2));
-    let mut item = coded_fetch_item(encoder.clone(), 10);
-    let completed = complete(&mut item, &clock, &winner, winner_parts, "winner");
-    item.mark_delivered(completed).unwrap();
+    let (delivered, delivered_parts) = encode(&encoder, &receipt_data(0, 1));
+    let (_, mut other_parts) = encode(&encoder, &receipt_data(0, 2));
+    let mut item = coded_fetch_item(encoder.clone());
+    complete(&mut item, &clock, &encoder, delivered_parts, "delivered");
 
-    let spare = complete(
-        &mut coded_fetch_item(encoder.clone(), 10),
-        &clock,
-        &other,
-        other_parts.clone(),
-        "other",
-    );
-    let error = item.mark_delivered(spare).unwrap_err();
+    let error = item
+        .insert_part(&clock, &encoder, &account("late.near"), other_parts.remove(0))
+        .unwrap_err();
 
-    assert!(matches!(error, AssemblyError::NotCollecting));
+    assert_matches!(error, AssemblyError::NotCollecting);
     let FetchState::Delivered { attribution, .. } = &item.state else {
         panic!("delivered state was not preserved");
     };
-    assert_eq!(attribution.winning, winner);
+    assert_eq!(attribution.decoded, delivered);
 
     item.mark_verified().unwrap();
-    let spare = complete(&mut coded_fetch_item(encoder, 10), &clock, &other, other_parts, "other");
-    let error = item.mark_delivered(spare).unwrap_err();
+    let error = item
+        .insert_part(&clock, &encoder, &account("late.near"), other_parts.remove(0))
+        .unwrap_err();
 
-    assert!(matches!(error, AssemblyError::NotCollecting));
+    assert_matches!(error, AssemblyError::NotCollecting);
     assert!(matches!(item.state, FetchState::ProcessedLocally { .. }));
 }
 
 #[test]
-fn data_kind_seam_verifies_blobs() {
-    let bytes = b"contract code";
-    let id = DataId::ContractCode { code_hash: CodeHash(hash(bytes)) };
-
-    assert_eq!(id.transfer_unit(), TransferUnit::Blob);
-    TestKind.verify_assembled(&id, AssembledData::Blob(bytes)).unwrap();
-    assert!(TestKind.verify_assembled(&id, AssembledData::Blob(b"other code")).is_err());
-    let context = FetchContext { anchor: None };
-    assert_eq!(TestKind.sources(&id, &context).unwrap(), vec![account("source.near")]);
-    assert_eq!(TestKind.recipients(&id, None).unwrap(), vec![account("recipient.near")]);
-    assert_eq!(TestKind.classify_at_seed(&id, &context).unwrap(), Interest::Fetchable);
-    assert!(!TestKind.is_done(&id).unwrap());
-}
-
-#[test]
-fn failed_delivery_bans_the_winner_and_resumes_from_residual() {
+fn failed_delivery_bans_the_decoded_commitment_and_resumes_from_residual() {
     let fake_clock = FakeClock::default();
     let clock = fake_clock.clock();
     let encoder = encoder();
-    let (winner, winner_parts) = encode(&encoder, &receipt_data(0, 1));
-    let (residual, mut residual_parts) = encode(&encoder, &receipt_data(0, 2));
-    let mut item = coded_fetch_item(encoder, 10);
+    let (delivered, mut delivered_parts) = encode(&encoder, &receipt_data(0, 1));
+    let (_, mut residual_parts) = encode(&encoder, &receipt_data(0, 2));
+    let mut item = coded_fetch_item(encoder.clone());
 
-    item.insert_verified_coded_part(
-        &clock,
-        &residual,
-        &account("residual.near"),
-        0,
-        residual_parts.remove(0),
-    )
-    .unwrap();
-    let completed = complete(&mut item, &clock, &winner, winner_parts, "winner");
-    item.mark_delivered(completed).unwrap();
+    item.insert_part(&clock, &encoder, &account("residual.near"), residual_parts.remove(0))
+        .unwrap();
+    let first_part_at = clock.now();
+    let mut late_parts = delivered_parts.split_off(DATA_PARTS);
+    complete(&mut item, &clock, &encoder, delivered_parts, "delivered");
     fake_clock.advance(Duration::seconds(1));
 
-    let contributors = item.mark_failed(&clock).unwrap();
+    let contributors = item.mark_failed().unwrap();
 
     assert_eq!(contributors.len(), DATA_PARTS);
     assert!(!contributors.contains(&account("residual.near")));
-    assert!(item.banned_commitments.contains(&winner));
-    assert_eq!(item.first_unit_at, Some(clock.now()));
+    // The anchor survives the verdict, so the residual's pull is already due.
+    assert_eq!(item.first_unit_at, Some(first_part_at));
+    // A re-sent part under the banned commitment is rejected outright.
     let error = item
-        .insert_verified_coded_part(&clock, &winner, &account("late.near"), 3, Box::new([]))
+        .insert_part(&clock, &encoder, &account("late.near"), late_parts.remove(0))
         .unwrap_err();
-    assert!(matches!(error, AssemblyError::BannedCommitment));
+    assert_matches!(error, AssemblyError::BannedCommitment);
     let FetchState::Collecting(assembly) = &item.state else {
         panic!("item did not resume collection");
     };
+    assert!(assembly.is_banned(&delivered));
     // The residual tracker survived the verdict, so its ordinal is not re-requested.
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn decoded_data_not_matching_the_committed_hash_is_garbage() {
+    let fake_clock = FakeClock::default();
+    let clock = fake_clock.clock();
+    let encoder = encoder();
+    let (raw_parts, encoded_length) = encoder.encode(&receipt_data(0, 1));
+    let raw_parts: Vec<Box<[u8]>> = raw_parts.into_iter().map(Option::unwrap).collect();
+    // Well-formed parts of real data under a commitment claiming a different hash.
+    let (lying, mut parts) = commit_parts(raw_parts, encoded_length as u64, CryptoHash::default());
+    let mut item = coded_fetch_item(encoder.clone());
+
+    let mut results = Vec::new();
+    for (ordinal, part) in parts.drain(..DATA_PARTS).enumerate() {
+        let sender = account(&format!("liar-{ordinal}.near"));
+        results.push(item.insert_part(&clock, &encoder, &sender, part).unwrap());
+    }
+
+    let PartInsertResult::Garbage { contributors } = results.pop().unwrap() else {
+        panic!("lying commitment did not report garbage: {results:?}");
+    };
+    assert_eq!(contributors.len(), DATA_PARTS);
+    let FetchState::Collecting(assembly) = &item.state else {
+        panic!("item left collecting");
+    };
+    assert!(assembly.is_banned(&lying));
+    assert_eq!(item.first_unit_at, None);
+}
+
+#[test]
+fn failed_delivery_with_empty_residual_resets_the_timer() {
+    let fake_clock = FakeClock::default();
+    let clock = fake_clock.clock();
+    let encoder = encoder();
+    let (_, parts) = encode(&encoder, &receipt_data(0, 1));
+    let mut item = coded_fetch_item(encoder.clone());
+    complete(&mut item, &clock, &encoder, parts, "delivered");
+
+    item.mark_failed().unwrap();
+
+    // The only evidence was the banned commitment's own parts.
+    assert_eq!(item.first_unit_at, None);
+    assert!(matches!(&item.state, FetchState::Collecting(assembly) if !assembly.has_parts()));
 }
 
 #[test]
@@ -434,189 +391,81 @@ fn garbage_decode_drops_and_bans_the_commitment() {
     let clock = fake_clock.clock();
     let encoder = encoder();
     let (honest, mut honest_parts) = encode(&encoder, &receipt_data(0, 1));
-    // Well-formed parts under a commitment whose bytes decode to nothing.
-    let encoded_length = 30;
-    let part_length = reed_solomon_part_length(encoded_length, DATA_PARTS);
-    let junk = SpiceDataCommitment {
-        hash: CryptoHash::default(),
-        root: CryptoHash::default(),
-        encoded_length: encoded_length as u64,
-    };
-    let mut item = coded_fetch_item(encoder, 10);
-    item.insert_verified_coded_part(
-        &clock,
-        &honest,
-        &account("honest.near"),
-        0,
-        honest_parts.remove(0),
-    )
-    .unwrap();
+    let (junk, mut junk_parts) = junk_commitment(30);
+    let mut item = coded_fetch_item(encoder.clone());
+    item.insert_part(&clock, &encoder, &account("honest.near"), honest_parts.remove(0)).unwrap();
     let honest_part_at = clock.now();
     fake_clock.advance(Duration::seconds(1));
 
     let mut results = Vec::new();
-    for ordinal in 0..DATA_PARTS {
+    for (ordinal, part) in junk_parts.drain(..DATA_PARTS).enumerate() {
         let sender = account(&format!("liar-{ordinal}.near"));
-        let part = vec![0xff; part_length].into_boxed_slice();
-        results
-            .push(item.insert_verified_coded_part(&clock, &junk, &sender, ordinal, part).unwrap());
+        results.push(item.insert_part(&clock, &encoder, &sender, part).unwrap());
     }
 
     let PartInsertResult::Garbage { contributors } = results.pop().unwrap() else {
         panic!("junk commitment did not report garbage: {results:?}");
     };
     assert_eq!(contributors.len(), DATA_PARTS);
-    assert!(item.banned_commitments.contains(&junk));
+    // A re-sent junk part under the banned commitment is rejected outright.
     let error = item
-        .insert_verified_coded_part(&clock, &junk, &account("liar-0.near"), 3, Box::new([]))
+        .insert_part(&clock, &encoder, &account("liar-0.near"), junk_parts.remove(0))
         .unwrap_err();
-    assert!(matches!(error, AssemblyError::BannedCommitment));
+    assert_matches!(error, AssemblyError::BannedCommitment);
     let FetchState::Collecting(assembly) = &item.state else {
         panic!("item left collecting");
     };
-    let Assembly::Coded { trackers, .. } = assembly else {
-        panic!("assembly is not coded");
-    };
+    assert!(assembly.is_banned(&junk));
     // Only the honest tracker is left holding parts, so the junk ordinals are wanted again.
-    assert_eq!(trackers.keys().collect::<Vec<_>>(), vec![&honest]);
+    assert_eq!(assembly.tracked_commitments(), vec![&honest]);
     assert_eq!(assembly.missing_ordinals(), vec![1, 2, 3, 4]);
     // The garbage drop left parts held, so the timer stays anchored on the honest part.
     assert_eq!(item.first_unit_at, Some(honest_part_at));
 }
 
 #[test]
+fn garbage_backer_stays_bound_to_the_dropped_commitment() {
+    let fake_clock = FakeClock::default();
+    let clock = fake_clock.clock();
+    let encoder = encoder();
+    let (_, mut junk_parts) = junk_commitment(30);
+    let (_, mut second_junk_parts) = junk_commitment(31);
+    let mut item = coded_fetch_item(encoder.clone());
+    for (ordinal, part) in junk_parts.drain(..DATA_PARTS).enumerate() {
+        let sender = account(&format!("liar-{ordinal}.near"));
+        item.insert_part(&clock, &encoder, &sender, part).unwrap();
+    }
+
+    // The garbage drop must not free its providers to open a fresh commitment.
+    let error = item
+        .insert_part(&clock, &encoder, &account("liar-0.near"), second_junk_parts.remove(0))
+        .unwrap_err();
+
+    assert_matches!(error, AssemblyError::ConflictingCommitment);
+    // An uninvolved sender still may.
+    let result = item
+        .insert_part(&clock, &encoder, &account("fresh.near"), second_junk_parts.remove(0))
+        .unwrap();
+    assert_matches!(result, PartInsertResult::Accepted);
+}
+
+#[test]
 fn garbage_decode_of_the_only_tracker_resets_the_timer() {
     let fake_clock = FakeClock::default();
     let clock = fake_clock.clock();
-    let encoded_length = 30;
-    let part_length = reed_solomon_part_length(encoded_length, DATA_PARTS);
-    let junk = SpiceDataCommitment {
-        hash: CryptoHash::default(),
-        root: CryptoHash::default(),
-        encoded_length: encoded_length as u64,
-    };
-    let mut item = coded_fetch_item(encoder(), 10);
+    let (junk, mut junk_parts) = junk_commitment(30);
+    let encoder = encoder();
+    let mut item = coded_fetch_item(encoder.clone());
 
-    for ordinal in 0..DATA_PARTS {
+    for (ordinal, part) in junk_parts.drain(..DATA_PARTS).enumerate() {
         let sender = account(&format!("liar-{ordinal}.near"));
-        let part = vec![0xff; part_length].into_boxed_slice();
-        item.insert_verified_coded_part(&clock, &junk, &sender, ordinal, part).unwrap();
+        item.insert_part(&clock, &encoder, &sender, part).unwrap();
     }
 
-    assert!(item.banned_commitments.contains(&junk));
+    let FetchState::Collecting(assembly) = &item.state else {
+        panic!("item left collecting");
+    };
+    assert!(assembly.is_banned(&junk));
     // No parts are left held, so the timer no longer counts from the junk part.
     assert_eq!(item.first_unit_at, None);
-}
-
-#[test]
-fn tracker_charges_each_sender_for_the_parts_it_sent() {
-    let encoder = encoder();
-    let (commitment, parts) = encode(&encoder, &receipt_data(0, 1));
-    let part_length =
-        reed_solomon_part_length(commitment.encoded_length as usize, encoder.data_parts());
-    let alice = account("alice.near");
-    let mut assembly = Assembly::coded(encoder);
-
-    for (ordinal, part) in parts.into_iter().take(DATA_PARTS - 1).enumerate() {
-        assembly.insert_verified_coded_part(&commitment, &alice, ordinal, part).unwrap();
-    }
-
-    let Assembly::Coded { trackers, .. } = &assembly else {
-        panic!("assembly is not coded");
-    };
-    let tracker = &trackers[&commitment];
-    assert_eq!(tracker.part_count(), DATA_PARTS - 1);
-    assert_eq!(tracker.total_parts_size(), part_length * (DATA_PARTS - 1));
-    assert_eq!(tracker.charges_by_sender(), vec![(alice, part_length * (DATA_PARTS - 1))]);
-}
-
-#[test]
-fn height_index_ignores_stale_anchor_entries() {
-    let mut manager = SpiceDataManager::default();
-    let code_id = DataId::ContractCode { code_hash: CodeHash(CryptoHash::default()) };
-    manager.insert(
-        code_id.clone(),
-        Item::Fetch(FetchItem::waiting_for_push(Lane::Background, 10, Some(chunk(10, 0)))),
-    );
-    // Down to 5 and back to 10: an index entry at 5, and two at 10.
-    assert!(manager.update_anchor(&code_id, chunk(5, 1), 5));
-    assert!(manager.update_anchor(&code_id, chunk(10, 0), 10));
-    assert!(!manager.update_anchor(&DataId::Witness(chunk(5, 1)), chunk(5, 1), 5));
-
-    assert!(manager.items_in_height_range(4, 5).is_empty());
-    assert_eq!(manager.items_in_height_range(9, 10), vec![code_id.clone()]);
-    // The item lives at 10, so the stale entry at 5 must not expire it.
-    assert!(manager.expire_through(5).is_empty());
-    assert!(manager.get(&code_id).is_some());
-    assert_eq!(manager.expire_through(10).len(), 1);
-    assert!(manager.get(&code_id).is_none());
-}
-
-#[test]
-fn expiry_takes_only_heights_at_or_below_the_final_head() {
-    let encoder = encoder();
-    let low = DataId::Witness(chunk(5, 0));
-    let high = DataId::Witness(chunk(10, 0));
-    let mut manager = SpiceDataManager::default();
-    manager.insert(low.clone(), Item::Fetch(coded_fetch_item(encoder.clone(), 5)));
-    manager.insert(high.clone(), Item::Fetch(coded_fetch_item(encoder.clone(), 10)));
-
-    let expired = manager.expire_through(5).into_iter().map(|(id, _)| id).collect::<Vec<_>>();
-
-    assert_eq!(expired, vec![low]);
-    assert_eq!(manager.items_in_height_range(5, 10), vec![high.clone()]);
-    assert!(manager.get(&high).is_some());
-    assert_eq!(manager.expire_through(10).len(), 1);
-
-    // "At or below" holds at the type boundary too.
-    let top = DataId::Witness(chunk(u64::MAX, 0));
-    manager.insert(top.clone(), Item::Fetch(coded_fetch_item(encoder, u64::MAX)));
-    assert_eq!(manager.expire_through(u64::MAX).len(), 1);
-    assert!(manager.get(&top).is_none());
-}
-
-#[test]
-fn produce_role_replaces_fetch_role_for_the_same_id() {
-    let encoder = encoder();
-    let id = DataId::Witness(chunk(1, 0));
-    let mut manager = SpiceDataManager::default();
-    manager.insert(id.clone(), Item::Fetch(coded_fetch_item(encoder.clone(), 1)));
-    manager.insert(
-        id.clone(),
-        Item::Produce(ProduceItem { state: ProduceState::Producing, height: 1 }),
-    );
-    manager.insert(id.clone(), Item::Fetch(coded_fetch_item(encoder, 1)));
-
-    assert!(matches!(manager.get(&id), Some(Item::Produce(_))));
-    assert_eq!(manager.items_in_height_range(0, 1), vec![id]);
-}
-
-#[test]
-fn produced_item_becomes_servable_and_expires() {
-    let code_hash = CodeHash(CryptoHash::default());
-    let requester = account("alice.near");
-    let id = DataId::Witness(chunk(7, 0));
-    let mut manager = SpiceDataManager::default();
-    manager.insert(
-        id.clone(),
-        Item::Produce(ProduceItem { state: ProduceState::Producing, height: 7 }),
-    );
-
-    let Some(Item::Produce(item)) = manager.get_mut(&id) else {
-        panic!("produce item is missing");
-    };
-    item.state = ProduceState::ReadyToServe {
-        codes: HashSet::from([code_hash.clone()]),
-        served: HashMap::from([(requester.clone(), 10)]),
-    };
-
-    let Some(Item::Produce(item)) = manager.get(&id) else {
-        panic!("produce item is missing");
-    };
-    let ProduceState::ReadyToServe { codes, served } = &item.state else {
-        panic!("produce item is not servable");
-    };
-    assert!(codes.contains(&code_hash));
-    assert_eq!(served[&requester], 10);
-    assert_eq!(manager.expire_through(7).len(), 1);
 }
