@@ -21,7 +21,7 @@ use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
 #[cfg(feature = "test_features")]
 use std::cell::Cell;
-use std::io::{Error as IoError, ErrorKind, Read, Write, stderr};
+use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, OnceLock};
@@ -104,9 +104,10 @@ impl DaemonProcess {
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         let child_stderr = child.stderr.take().unwrap();
+        let worker_id = child.id();
         let stderr_thread = match Builder::new()
             .name("compiler-daemon-stderr".to_owned())
-            .spawn(move || relay_stderr(child_stderr))
+            .spawn(move || relay_stderr(child_stderr, worker_id))
         {
             Ok(thread) => Some(thread),
             Err(err) => {
@@ -224,9 +225,9 @@ impl Drop for DaemonProcess {
 
 /// Drain worker stderr so it cannot block on a full pipe.
 ///
-/// Limit the data sent to neard via stderr per time interval, discarding excess
-/// output, to avoid unbounded memory usage on neard.
-fn relay_stderr(mut child_stderr: ChildStderr) {
+/// Limit the data sent to neard's structured logs per time interval, discarding
+/// excess output, to avoid unbounded memory usage on neard.
+fn relay_stderr(mut child_stderr: ChildStderr, worker_id: u32) {
     let stderr_relay_interval = Duration::from_secs(60);
     let stderr_relay_limit_bytes = bytesize::kib(256u64);
 
@@ -236,9 +237,13 @@ fn relay_stderr(mut child_stderr: ChildStderr) {
     let mut rate_limit_reported = false;
 
     loop {
-        let count = match child_stderr.read(&mut buffer) {
-            Ok(0) | Err(_) => return,
+        let count = match read_retrying_on_interrupt(&mut child_stderr, &mut buffer) {
+            Ok(0) => return,
             Ok(count) => count as u64,
+            Err(err) => {
+                tracing::warn!(worker_id, %err, "failed to read compiler daemon stderr");
+                return;
+            }
         };
         if interval_start.elapsed() >= stderr_relay_interval {
             interval_start = Instant::now();
@@ -248,16 +253,22 @@ fn relay_stderr(mut child_stderr: ChildStderr) {
 
         let relay_count = count.min(stderr_relay_limit_bytes.saturating_sub(relayed));
         if relay_count > 0 {
-            let mut parent_stderr = stderr().lock();
-            if parent_stderr.write_all(&buffer[..relay_count as usize]).is_err() {
-                return;
-            }
-            let _ = parent_stderr.flush();
+            let output = String::from_utf8_lossy(&buffer[..relay_count as usize]);
+            tracing::warn!(worker_id, stderr = %output, "compiler daemon stderr");
             relayed += relay_count;
         }
         if relay_count < count && !rate_limit_reported {
-            tracing::warn!("compiler daemon stderr rate limit exceeded");
+            tracing::warn!(worker_id, "compiler daemon stderr rate limit exceeded");
             rate_limit_reported = true;
+        }
+    }
+}
+
+fn read_retrying_on_interrupt(reader: &mut impl Read, buffer: &mut [u8]) -> IoResult<usize> {
+    loop {
+        match reader.read(buffer) {
+            Err(err) if err.kind() == ErrorKind::Interrupted => {}
+            result => return result,
         }
     }
 }
@@ -543,8 +554,35 @@ pub fn worker_pool_state() -> WorkerPoolState {
 
 #[cfg(test)]
 mod tests {
-    use super::{highest_priority_waiter, priority_may_checkout};
+    use super::{highest_priority_waiter, priority_may_checkout, read_retrying_on_interrupt};
     use crate::compile_priority::CompilePriority;
+    use std::io::{Cursor, Error, ErrorKind, Read, Result};
+
+    struct InterruptedOnce {
+        interrupted: bool,
+        input: Cursor<&'static [u8]>,
+    }
+
+    impl Read for InterruptedOnce {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(Error::from(ErrorKind::Interrupted));
+            }
+            self.input.read(buffer)
+        }
+    }
+
+    #[test]
+    fn stderr_read_retries_when_interrupted() {
+        let mut input =
+            InterruptedOnce { interrupted: false, input: Cursor::new(b"daemon output") };
+        let mut buffer = [0; 32];
+
+        let count = read_retrying_on_interrupt(&mut input, &mut buffer).unwrap();
+
+        assert_eq!(&buffer[..count], b"daemon output");
+    }
 
     #[test]
     fn wakes_highest_priority_class_first() {
