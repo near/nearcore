@@ -10,7 +10,7 @@
 
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{
-    CompileRequest, CompileResponse, DaemonStartup, DaemonStatus, read_frame, write_frame,
+    CompileRequest, DaemonStartup, DaemonStatus, read_frame, write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
@@ -60,7 +60,8 @@ pub fn daemon_main() -> ! {
             Err(err) => abort_worker(format!("failed to deserialize request: {err}")),
         };
         let response = handle_request(&mut engines, request, &sandbox_status);
-        if write_frame(&mut writer, &borsh::to_vec(&response).unwrap()).is_err() {
+        let response = response.as_ref().map(Vec::as_slice).map_err(String::as_str);
+        if write_compile_response(&mut writer, response).is_err() {
             std::process::exit(0);
         }
     }
@@ -70,7 +71,7 @@ fn handle_request(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest,
     sandbox_status: &SandboxStatus,
-) -> CompileResponse {
+) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]
     if let Some(action) = request.test_action {
         return match action {
@@ -84,8 +85,8 @@ fn handle_request(
             #[cfg(target_os = "linux")]
             super::protocol::TestAction::LandlockProbe => {
                 match sandbox::run_probe(sandbox_status) {
-                    Ok(()) => CompileResponse::Ok(Vec::new()),
-                    Err(err) => CompileResponse::Err(err),
+                    Ok(()) => Ok(Vec::new()),
+                    Err(err) => Err(err),
                 }
             }
         };
@@ -97,7 +98,7 @@ fn handle_request(
 fn handle_compile(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest,
-) -> CompileResponse {
+) -> Result<Vec<u8>, String> {
     let engine = match engines.entry(request.max_memory_pages) {
         hash_map::Entry::Occupied(e) => e.into_mut(),
         hash_map::Entry::Vacant(e) => e.insert(
@@ -105,10 +106,7 @@ fn handle_compile(
                 .unwrap_or_else(|err| abort_worker(format!("failed to create engine: {err}"))),
         ),
     };
-    match engine.precompile_module(&request.prepared_code) {
-        Ok(bytes) => CompileResponse::Ok(bytes),
-        Err(e) => CompileResponse::Err(e.to_string()),
-    }
+    engine.precompile_module(&request.prepared_code).map_err(|err| err.to_string())
 }
 
 /// Exit the worker process with a message to its local stderr.

@@ -9,8 +9,8 @@
 //! waiting caller is served first (see [`CompilePriority`]).
 
 use super::protocol::{
-    CompileRequest, CompileResponse, DaemonStartup, DaemonStatus, IsolationStatus, read_frame,
-    write_frame,
+    CompileRequest, DaemonStartup, DaemonStatus, IsolationStatus, read_compile_response,
+    read_frame, write_frame,
 };
 use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
@@ -178,16 +178,8 @@ impl DaemonProcess {
         let result = write_frame(&mut self.stdin, &request_bytes)
             .map_err(|e| format!("failed to send to compiler daemon: {e}"))
             .and_then(|()| {
-                read_frame(&mut self.stdout)
+                read_compile_response(&mut self.stdout)
                     .map_err(|e| format!("failed to read from compiler daemon: {e}"))
-            })
-            .and_then(|response_bytes| {
-                let response: CompileResponse = borsh::from_slice(&response_bytes)
-                    .map_err(|e| format!("failed to deserialize response: {e}"))?;
-                match response {
-                    CompileResponse::Ok(bytes) => Ok(Ok(bytes)),
-                    CompileResponse::Err(msg) => Ok(Err(msg)),
-                }
             });
         if let (Some(generation), Some(timeout)) = (generation, timeout) {
             self.watchdog.finish(generation, timeout, "compilation request", result)
@@ -530,10 +522,6 @@ pub fn compile_in_subprocess(
     let request = CompileRequest {
         prepared_code: prepared_code.to_vec(),
         max_memory_pages: limit_config.max_memory_pages,
-        max_tables_per_contract: limit_config.max_tables_per_contract,
-        max_elements_per_contract_table: limit_config
-            .max_elements_per_contract_table
-            .map(|v| v as u64),
         #[cfg(feature = "test_features")]
         test_action: NEXT_TEST_ACTION.with(Cell::take),
     };
