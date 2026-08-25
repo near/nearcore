@@ -5169,6 +5169,7 @@ dependencies = [
  "serde",
  "serde_ignored",
  "serde_json",
+ "strum",
  "tempfile",
  "testlib",
  "thiserror 2.0.18",

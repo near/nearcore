@@ -67,6 +67,7 @@ near-chain-primitives.workspace = true
 
 [dev-dependencies]
 near-time.workspace = true
+strum.workspace = true
 zstd.workspace = true
 bencher.workspace = true
 primitive-types.workspace = true
