@@ -399,7 +399,7 @@ fn test_light_client_execution_outcome_proof_across_resharding() {
 
     let mut env = TestLoopBuilder::new()
         .protocol_version(PROTOCOL_VERSION - 1)
-        .shard_layout(base_shard_layout.clone())
+        .shard_layout(base_shard_layout)
         .epoch_length(epoch_length)
         .add_user_account(&user, Balance::from_near(10))
         .epoch_config_store(epoch_config_store)
