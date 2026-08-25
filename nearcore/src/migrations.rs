@@ -536,7 +536,17 @@ mod tests {
     ///
     /// Hot store only. The cold store follows the same version gate but is not covered
     /// here.
+    ///
+    /// Stable builds only. On nightly, `StoreOpener::ensure_version` overwrites the
+    /// freshly migrated version with the 10000 sentinel, and `open_dbs` then reopens
+    /// expecting `DB_VERSION`, so the migrating open fails. That applies to every
+    /// version bump, not just this one, so there is no nightly upgrade path here to
+    /// assert against.
     #[test]
+    #[cfg_attr(
+        feature = "nightly",
+        ignore = "nightly overwrites the migrated version with the 10000 sentinel, so the migrating open fails"
+    )]
     fn slow_test_migration_49_to_50_creates_chunk_producers_column() {
         // A fresh database is created at DB_VERSION with every column family present,
         // so build the version-49 shape by stamping the old version and then dropping
