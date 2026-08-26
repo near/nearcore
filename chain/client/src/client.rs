@@ -445,6 +445,7 @@ impl Client {
             config.transaction_pool_size_limit,
             multi_spawner.prepare_transactions,
             config.spice_pending_transaction_queue_enabled(),
+            config.spice_pending_transaction_queue_limits(),
         );
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
@@ -664,6 +665,7 @@ impl Client {
                 transactions,
                 &config,
                 gas_price,
+                protocol_version,
             );
         }
         Ok(())
@@ -716,6 +718,7 @@ impl Client {
                     transactions,
                     &config,
                     gas_price,
+                    protocol_version,
                 );
             }
         }

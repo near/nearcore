@@ -7,9 +7,9 @@ use crate::runtime::metrics::{
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    PendingTxUsage, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::{background_runtime_tasks, contract_compilation_pool};
@@ -914,7 +914,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction, PendingTxUsage) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1062,15 +1062,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 };
 
-                // Check pending transaction queue constraints.
-                let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
-                    PendingTxCheckResult::Admit(constraints) => constraints,
-                    PendingTxCheckResult::Skip => {
-                        skipped_transactions.push(validated_tx);
-                        continue;
-                    }
-                };
-
                 let cost = match tx_cost(
                     runtime_config,
                     &validated_tx.to_tx(),
@@ -1084,6 +1075,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 };
 
+                // Check pending transaction queue constraints.
+                let tx_bytes = validated_tx.size_for_limits(protocol_version);
+                let tx_usage = PendingTxUsage { tx_bytes, conversion_gas: cost.gas_burnt };
+                let pending_constraints = match check_pending(validated_tx.to_signed_tx(), tx_usage)
+                {
+                    PendingTxCheckResult::Admit(constraints) => constraints,
+                    PendingTxCheckResult::Skip => {
+                        skipped_transactions.push(validated_tx);
+                        continue;
+                    }
+                };
                 let verdict = match &key_entry.access_key {
                     None => verify_and_charge_bootstrap_tx_ephemeral(
                         runtime_config,
@@ -1131,7 +1133,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
-                        total_size += validated_tx.size_for_limits(protocol_version);
+                        total_size += tx_bytes;
                         prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;

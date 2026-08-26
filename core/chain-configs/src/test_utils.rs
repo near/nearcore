@@ -8,6 +8,12 @@ use crate::{
     default_produce_chunk_add_transactions_time_limit,
     default_transaction_pool_strict_nonce_ttl_blocks, default_view_access_keys_limit,
 };
+#[cfg(feature = "protocol_feature_spice")]
+use crate::{
+    default_spice_pending_transactions_bytes_limit,
+    default_spice_pending_transactions_conversion_gas_limit,
+    default_spice_pending_transactions_count_limit,
+};
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -356,6 +362,15 @@ impl ClientConfig {
             disable_tx_routing: false,
             #[cfg(feature = "protocol_feature_spice")]
             spice_pending_transaction_queue_enabled: false,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_count_limit: default_spice_pending_transactions_count_limit(
+            ),
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_bytes_limit: default_spice_pending_transactions_bytes_limit(
+            ),
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_conversion_gas_limit:
+                default_spice_pending_transactions_conversion_gas_limit(),
         }
     }
 }

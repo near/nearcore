@@ -49,6 +49,12 @@ fn test_config_duration_all_std() {
         transaction_pool_strict_nonce_ttl_blocks: Some(Default::default()),
         state_sync: Some(Default::default()),
         trie_viewer_state_size_limit: Some(Default::default()),
+        #[cfg(feature = "protocol_feature_spice")]
+        spice_pending_transactions_count_limit: Some(Default::default()),
+        #[cfg(feature = "protocol_feature_spice")]
+        spice_pending_transactions_bytes_limit: Some(Default::default()),
+        #[cfg(feature = "protocol_feature_spice")]
+        spice_pending_transactions_conversion_gas_limit: Some(Default::default()),
         network: near_network::config_json::Config {
             experimental: ExperimentalConfig {
                 network_config_overrides: NetworkConfigOverrides {

@@ -448,16 +448,26 @@ pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 pub enum PendingTxCheckResult {
     /// Admitted. Use these constraints for balance/nonce validation.
     Admit(PendingConstraints),
-    /// Violates PTQ constraints (P_MAX).
+    /// Violates per-account pending transaction limits.
     /// Push to skipped_transactions for reintroduction to pool.
     Skip,
 }
 
 impl PendingTxCheckResult {
     /// Returns a closure that always admits with default constraints.
-    pub fn always_admit() -> impl FnMut(&SignedTransaction) -> PendingTxCheckResult {
-        |_| PendingTxCheckResult::Admit(PendingConstraints::default())
+    pub fn always_admit() -> impl FnMut(&SignedTransaction, PendingTxUsage) -> PendingTxCheckResult
+    {
+        |_, _| PendingTxCheckResult::Admit(PendingConstraints::default())
     }
+}
+
+/// What one transaction adds to its account's pending usage, computed by the
+/// caller of the pending check: the size counted against chunk limits and the
+/// gas burnt to convert the transaction to a receipt.
+#[derive(Clone, Copy, Debug)]
+pub struct PendingTxUsage {
+    pub tx_bytes: u64,
+    pub conversion_gas: Gas,
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -602,7 +612,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction, PendingTxUsage) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
