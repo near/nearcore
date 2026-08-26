@@ -146,14 +146,7 @@ pub(super) async fn run_state_sync_for_shard(
     runtime.get_tries().unload_memtrie(&shard_uid);
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    if keep_applied_state_parts(
-        &flat_storage_manager,
-        &store,
-        shard_uid,
-        shard_id,
-        sync_hash,
-        num_parts,
-    ) {
+    if keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, num_parts) {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "resuming an unfinished apply, keeping the state parts already applied");
     } else {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
@@ -264,7 +257,6 @@ fn keep_applied_state_parts(
     flat_storage_manager: &FlatStorageManager,
     store: &Store,
     shard_uid: ShardUId,
-    shard_id: ShardId,
     sync_hash: CryptoHash,
     num_parts: u64,
 ) -> bool {
@@ -273,7 +265,7 @@ fn keep_applied_state_parts(
         FlatStorageStatus::Ready(_)
     );
     let apply_parts_started = any(0..num_parts, |part_idx| {
-        let key = StatePartKey(sync_hash, shard_id, part_idx);
+        let key = StatePartKey(sync_hash, shard_uid.shard_id(), part_idx);
         let key_bytes = borsh::to_vec(&key).unwrap();
         store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
@@ -446,14 +438,7 @@ mod tests {
 
         mark_part_applied(&store, sync_hash, shard_id, 0);
 
-        assert!(keep_applied_state_parts(
-            &flat_storage_manager,
-            &store,
-            shard_uid,
-            shard_id,
-            sync_hash,
-            2
-        ));
+        assert!(keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, 2));
     }
 
     #[test]
@@ -471,14 +456,7 @@ mod tests {
         set_flat_storage_ready(&store, shard_uid);
         assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-        assert!(!keep_applied_state_parts(
-            &flat_storage_manager,
-            &store,
-            shard_uid,
-            shard_id,
-            sync_hash,
-            2
-        ));
+        assert!(!keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, 2));
     }
 
     #[tokio::test]
