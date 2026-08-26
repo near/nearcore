@@ -36,16 +36,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
-/// Returns `false` and logs a skip when `UniversalAccounts` is not enabled by
-/// the running binary's protocol version.
-fn feature_enabled() -> bool {
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return false;
-    }
-    true
-}
-
 struct Env {
     env: TestLoopEnv,
     user_account: AccountId,
@@ -55,7 +45,6 @@ struct Env {
 
 impl Env {
     fn setup() -> Self {
-        init_test_logger();
         let [user_account, global_contract_account] = create_account_ids(["account0", "account"]);
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
@@ -166,7 +155,9 @@ impl Env {
 /// usable full-access key.
 #[test]
 fn test_universal_state_init_key_only() {
-    if !feature_enabled() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
         return;
     }
     let mut env = Env::setup();
@@ -200,7 +191,9 @@ fn test_universal_state_init_key_only() {
 /// is callable.
 #[test]
 fn test_universal_state_init_contract() {
-    if !feature_enabled() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
         return;
     }
     let mut env = Env::setup();
@@ -234,7 +227,9 @@ fn test_universal_state_init_contract() {
 /// fail, so a state init can precede other actions idempotently.
 #[test]
 fn test_universal_state_init_repeated() {
-    if !feature_enabled() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
         return;
     }
     let mut env = Env::setup();
@@ -264,7 +259,9 @@ fn test_universal_state_init_repeated() {
 /// installs the state on top of it without losing the funds.
 #[test]
 fn test_universal_state_init_after_transfer() {
-    if !feature_enabled() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
         return;
     }
     let mut env = Env::setup();
@@ -335,7 +332,9 @@ fn non_canonical_state_init(public_key: &PublicKey) -> RawStateInit {
 /// whose serializer does not sort `BTree*` containers still address its account.
 #[test]
 fn test_universal_state_init_derives_from_supplied_bytes() {
-    if !feature_enabled() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
         return;
     }
     let mut env = Env::setup();
