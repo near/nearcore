@@ -125,9 +125,7 @@ const GLOBAL_CONTRACT_SIZE: usize = 1000;
 /// hashes / identifiers) so both distribution receipts do full work; with a
 /// shared identifier the second deploy would bump the on-chain nonce before
 /// the first distribution receipt is applied, making it stale and short-circuit
-/// to zero compute. We also use two distinct signer accounts because SPICE's
-/// pending-tx queue enforces deploy exclusivity per signer (NEP-611), which
-/// would otherwise serialize the two deploys into separate source chunks.
+/// to zero compute.
 #[test]
 fn test_deploy_global_contract_compute_cost_splits_chunks() {
     init_test_logger();
