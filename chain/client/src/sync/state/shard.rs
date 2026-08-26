@@ -116,19 +116,18 @@ pub(super) async fn run_state_sync_for_shard(
                 );
                 let future =
                     respawn_for_parallelism(&*future_spawner, "state sync download part", future);
-                // Results arrive in completion order, so the part id can't be recovered from the
-                // position in the output and must be carried along.
-                async move { (part_id, future.await) }
+                // Results arrive in completion order, so the part id can't be recovered from
+                // the position in the output. Carry it in the error, the only branch that
+                // needs it, so the stream stays a `TryStream`.
+                async move { future.await.map_err(|err| (part_id, err)) }
             })
             .buffer_unordered(concurrency_limit.into())
-            .inspect(|(_, res)| {
-                if res.is_ok() {
-                    parts_downloaded += 1;
-                    *status.lock() = ShardSyncStatus::StateDownloadParts {
-                        done: parts_downloaded,
-                        total: num_parts,
-                    };
-                }
+            .inspect_ok(|_| {
+                parts_downloaded += 1;
+                *status.lock() = ShardSyncStatus::StateDownloadParts {
+                    done: parts_downloaded,
+                    total: num_parts,
+                };
             })
             .collect::<Vec<_>>()
             .await;
@@ -136,7 +135,7 @@ pub(super) async fn run_state_sync_for_shard(
         // Failed single attempts already wait `retry_backoff` inside the downloader
         // before returning, so the next round is paced without an extra delay here.
         parts_to_download =
-            results.into_iter().filter_map(|(part_id, res)| res.err().map(|_| part_id)).collect();
+            results.into_iter().filter_map(|res| res.err().map(|(part_id, _)| part_id)).collect();
     }
 
     return_if_cancelled!(cancel);
