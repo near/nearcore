@@ -495,6 +495,8 @@ pub enum ActionsValidationError {
         protocol_feature: String,
         version: ProtocolVersion,
     } = 26,
+    /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
+    WithdrawFromGasKeyNotAllowedInDelegate = 27,
 }
 
 /// Describes the error for validating a receipt.
@@ -658,6 +660,9 @@ impl Display for ActionsValidationError {
                     "Transaction requires protocol feature {} which was removed and is not supported at protocol version {}",
                     protocol_feature, version,
                 )
+            }
+            ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate => {
+                write!(f, "A WithdrawFromGasKey action is not allowed inside a delegate action")
             }
             ActionsValidationError::InvalidDeterministicStateInitReceiver {
                 receiver_id,

@@ -456,6 +456,11 @@ pub enum ProtocolFeature {
     /// variant and `VersionedDelegateActionPayload` remain so a later delegate
     /// action version can reuse them.
     RejectDelegateV2,
+    /// Reject a `WithdrawFromGasKey` action nested inside a delegate action.
+    /// The SPICE pending transaction queue scans only the top level actions of
+    /// a transaction for `WithdrawFromGasKey`, so a nested one drains a gas key
+    /// that the queue still counts as funded.
+    RejectWithdrawFromGasKeyInDelegate,
     EnforcePerReceiptStorageProofLimit,
     /// Extend the per-receipt storage proof limit to every action kind. The
     /// `RecordedStorageCounter` only runs inside the VM, so it bounds
@@ -613,6 +618,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingError => 86,
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RejectDelegateV2 => 87,
+            ProtocolFeature::RejectWithdrawFromGasKeyInDelegate => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
