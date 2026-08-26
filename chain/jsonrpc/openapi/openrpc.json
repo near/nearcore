@@ -2277,6 +2277,34 @@
             "const": "MalformedUniversalStateInit",
             "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction includes a feature that was removed at or before the\ncurrent protocol version. The counterpart of\n`UnsupportedProtocolFeature`, which covers features not yet available.",
+            "properties": {
+              "RemovedProtocolFeature": {
+                "properties": {
+                  "protocol_feature": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "protocol_feature",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RemovedProtocolFeature"
+            ],
+            "title": "RemovedProtocolFeature",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"

@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.18"
+    "version": "1.3.19"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3480,6 +3480,33 @@
               "MalformedUniversalStateInit"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction includes a feature that was removed at or before the\ncurrent protocol version. The counterpart of\n`UnsupportedProtocolFeature`, which covers features not yet available.",
+            "properties": {
+              "RemovedProtocolFeature": {
+                "properties": {
+                  "protocol_feature": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "protocol_feature",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RemovedProtocolFeature"
+            ],
+            "type": "object"
           }
         ]
       },
