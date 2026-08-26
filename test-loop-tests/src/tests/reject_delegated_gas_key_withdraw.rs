@@ -13,17 +13,12 @@ use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, ProtocolVersion};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 const WITHDRAW_AMOUNT: Balance = Balance::from_millinear(1);
-
-fn protocol_version_at_head(env: &TestLoopEnv) -> ProtocolVersion {
-    let head = env.rpc_node().head();
-    env.rpc_node().client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
-}
 
 /// Build a meta transaction whose inner action withdraws from the sender's own
 /// gas key. The delegate is signed by the sender's plain access key, since a
@@ -116,7 +111,11 @@ fn test_reject_delegated_gas_key_withdraw_protocol_upgrade() {
 
     // Before the upgrade the nested withdrawal is admitted and moves balance out
     // of the gas key, which is the hole this rule closes.
-    assert_eq!(protocol_version_at_head(&env), old_protocol, "expected to start pre-upgrade");
+    assert_eq!(
+        env.rpc_node().protocol_version_at_head(),
+        old_protocol,
+        "expected to start pre-upgrade"
+    );
     let (_, balance_before) =
         query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key.public_key());
     let tx = delegated_withdraw_tx(&env, &sender, &relayer, &gas_key);
@@ -148,14 +147,15 @@ fn test_reject_delegated_gas_key_withdraw_protocol_upgrade() {
         let tx = delegated_withdraw_tx(&env, &sender, &relayer, &gas_key);
         env.rpc_node().submit_tx(tx);
         env.rpc_runner().run_for_number_of_blocks(1);
-        if protocol_version_at_head(&env) >= new_protocol {
+        if env.rpc_node().protocol_version_at_head() >= new_protocol {
             blocks_after_upgrade += 1;
         }
     }
 
     // After the upgrade the meta transaction is rejected at admission.
     assert!(
-        ProtocolFeature::RejectWithdrawFromGasKeyInDelegate.enabled(protocol_version_at_head(&env))
+        ProtocolFeature::RejectWithdrawFromGasKeyInDelegate
+            .enabled(env.rpc_node().protocol_version_at_head())
     );
     let tx = delegated_withdraw_tx(&env, &sender, &relayer, &gas_key);
     let err = env

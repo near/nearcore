@@ -12,15 +12,10 @@ use near_primitives::errors::{
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, ProtocolVersion};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
-
-fn protocol_version_at_head(env: &TestLoopEnv) -> ProtocolVersion {
-    let head = env.rpc_node().head();
-    env.rpc_node().client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
-}
 
 /// Run a transaction with an empty `method_name`.
 fn empty_method_tx(
@@ -79,7 +74,11 @@ fn test_reject_empty_method_name_protocol_upgrade() {
     // Before the upgrade: the transaction is admitted and fails on-chain in the VM with the old
     // MethodEmptyName error. The upgrade takes ~2 epochs with an immediate voting schedule, so we
     // are comfortably still on the old protocol right after the deploy.
-    assert_eq!(protocol_version_at_head(&env), old_protocol, "expected to start pre-upgrade");
+    assert_eq!(
+        env.rpc_node().protocol_version_at_head(),
+        old_protocol,
+        "expected to start pre-upgrade"
+    );
     let tx = empty_method_tx(&env, &signer, &contract);
     let outcome = env
         .rpc_runner()
@@ -107,13 +106,15 @@ fn test_reject_empty_method_name_protocol_upgrade() {
         let tx = empty_method_tx(&env, &signer, &contract);
         env.rpc_node().submit_tx(tx);
         env.rpc_runner().run_for_number_of_blocks(1);
-        if protocol_version_at_head(&env) >= new_protocol {
+        if env.rpc_node().protocol_version_at_head() >= new_protocol {
             blocks_after_upgrade += 1;
         }
     }
 
     // After the upgrade: the transaction is rejected at admission with the new error.
-    assert!(ProtocolFeature::RejectEmptyMethodName.enabled(protocol_version_at_head(&env)));
+    assert!(
+        ProtocolFeature::RejectEmptyMethodName.enabled(env.rpc_node().protocol_version_at_head())
+    );
     let tx = empty_method_tx(&env, &signer, &contract);
     let err = env
         .rpc_runner()
