@@ -538,9 +538,9 @@ impl ChunkProducer {
                     chain_validate,
                     validate_tx_ttl,
                     std::collections::HashSet::new(),
-                    &mut |tx, has_contract| {
+                    &mut |tx| {
                         if ptq_enabled {
-                            session.check_pending(tx, has_contract)
+                            session.check_pending(tx)
                         } else {
                             PendingTxCheckResult::Admit(PendingConstraints::default())
                         }

@@ -8,9 +8,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::AccessKey;
-use near_primitives::action::{
-    AddKeyAction, DeployContractAction, TransferToGasKeyAction, WithdrawFromGasKeyAction,
-};
+use near_primitives::action::{AddKeyAction, TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
@@ -57,62 +55,12 @@ fn submit_transfers(
         .collect()
 }
 
-/// Deploy a contract on `account` and wait for certification to advance past
-/// the deploy (so deploy exclusivity doesn't block subsequent txs).
-fn deploy_contract_and_certify(env: &mut TestLoopEnv, account: &AccountId) {
-    let deploy_tx = env.validator().tx_deploy_test_contract(account);
-    env.validator_runner().run_tx(deploy_tx, Duration::seconds(20));
-    let height = env.validator().head().height;
-    env.validator_runner().run_until_certified(height);
-}
-
-/// P_MAX enforcement for contract accounts.
-///
-/// Deploy a contract, then submit P_MAX + 2 transactions. The pending
-/// transaction queue should throttle inclusion to at most P_MAX at a time
-/// from a contract account.
+/// Submit P_MAX + 2 transactions. The pending transaction queue should
+/// throttle inclusion to at most P_MAX at a time from one account.
 /// All transactions are eventually included after certification frees slots.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_ptq_p_max_contract_account() {
-    init_test_logger();
-
-    let contract_account = create_account_id("contract_account");
-    let receiver = create_account_id("receiver");
-    let mut env = TestLoopBuilder::new()
-        .validators(1, 1)
-        .add_user_account(&contract_account, Balance::from_near(1_000))
-        .add_user_account(&receiver, Balance::from_near(0))
-        .delay_warmup()
-        .config_modifier(|c, _| {
-            c.set_spice_pending_transaction_queue_enabled(true);
-        })
-        .build();
-    let execution_delay = 4;
-    env.delay_endorsements_propagation(execution_delay);
-    let mut env = env.warmup();
-    deploy_contract_and_certify(&mut env, &contract_account);
-
-    // Submit P_MAX + 2 transfer transactions from the contract account.
-    let num_txs = P_MAX + 2;
-    let tx_hashes = submit_transfers(&env, &contract_account, &receiver, num_txs);
-    // Only P_MAX txs should be included before certification.
-    env.validator_runner().run_until_included(&tx_hashes[..P_MAX]);
-    for tx_hash in &tx_hashes[P_MAX..] {
-        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
-    }
-    // The remaining txs are included after certification advances.
-    let remaining: Vec<_> = tx_hashes[P_MAX..].to_vec();
-    env.validator_runner().run_until_included(&remaining);
-}
-
-/// No P_MAX restriction for non-contract accounts.
-///
-/// Submit more than P_MAX transactions from an account without a contract.
-/// All should be included without restriction.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_ptq_no_p_max_for_non_contract_account() {
+fn test_ptq_p_max() {
     init_test_logger();
 
     let sender = create_account_id("sender");
@@ -130,10 +78,17 @@ fn test_ptq_no_p_max_for_non_contract_account() {
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
+    // Submit P_MAX + 2 transfer transactions from the sender.
     let num_txs = P_MAX + 2;
     let tx_hashes = submit_transfers(&env, &sender, &receiver, num_txs);
-    // All should be included without P_MAX throttling.
-    env.validator_runner().run_until_included(&tx_hashes);
+    // Only P_MAX txs should be included before certification.
+    env.validator_runner().run_until_included(&tx_hashes[..P_MAX]);
+    for tx_hash in &tx_hashes[P_MAX..] {
+        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
+    }
+    // The remaining txs are included after certification advances.
+    let remaining: Vec<_> = tx_hashes[P_MAX..].to_vec();
+    env.validator_runner().run_until_included(&remaining);
 }
 
 /// Nonce constraint from pending transaction queue.
@@ -191,71 +146,6 @@ fn test_ptq_nonce_constraint() {
     assert!(matches!(result, Err(InvalidTxError::InvalidNonce { .. })));
 }
 
-/// Deploy exclusivity.
-///
-/// Submit a DeployContract transaction and a transfer from the same account
-/// simultaneously. The deploy should be included first, and the transfer
-/// should be blocked while the deploy is uncertified. After certification,
-/// the transfer is included.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_ptq_deploy_exclusivity() {
-    init_test_logger();
-
-    let account = create_account_id("deployer");
-    let receiver = create_account_id("receiver");
-    let mut env = TestLoopBuilder::new()
-        .validators(1, 1)
-        .add_user_account(&account, Balance::from_near(1_000))
-        .add_user_account(&receiver, Balance::from_near(0))
-        .delay_warmup()
-        .config_modifier(|c, _| {
-            c.set_spice_pending_transaction_queue_enabled(true);
-        })
-        .build();
-    let execution_delay = 4;
-    env.delay_endorsements_propagation(execution_delay);
-    let mut env = env.warmup();
-
-    // Submit a deploy tx and a transfer tx from the same account.
-    let mut next_nonce: u64 = 1;
-    let block_hash = env.validator().head().last_block_hash;
-    let deploy_tx = SignedTransaction::from_actions(
-        next_nonce,
-        account.clone(),
-        account.clone(),
-        &create_user_test_signer(&account),
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
-        block_hash,
-    );
-    next_nonce += 1;
-    let transfer_tx = SignedTransaction::send_money(
-        next_nonce,
-        account.clone(),
-        receiver,
-        &create_user_test_signer(&account),
-        Balance::from_millinear(1),
-        block_hash,
-    );
-    let deploy_hash = deploy_tx.get_hash();
-    let transfer_hash = transfer_tx.get_hash();
-
-    env.validator().submit_tx(deploy_tx);
-    env.validator().submit_tx(transfer_tx);
-
-    // Deploy should be included first (lower nonce, picked first from pool).
-    env.validator_runner().run_until_included(&[deploy_hash]);
-    // Deploy exclusivity should prevent the transfer from being included
-    // while the deploy is uncertified. Run up to just before certification.
-    env.validator_runner().run_for_number_of_blocks(execution_delay as usize - 1);
-    assert!(!is_included_in_head(&env.validator(), &[transfer_hash]));
-
-    // Transfer should be included after certification advances.
-    env.validator_runner().run_until_included(&[transfer_hash]);
-}
-
 /// Pending transaction queue accumulates across blocks.
 ///
 /// Submit transactions across multiple blocks. Verify that P_MAX counts
@@ -265,11 +155,11 @@ fn test_ptq_deploy_exclusivity() {
 fn test_ptq_accumulates_across_blocks() {
     init_test_logger();
 
-    let contract_account = create_account_id("contract_account");
+    let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
     let mut env = TestLoopBuilder::new()
         .validators(1, 1)
-        .add_user_account(&contract_account, Balance::from_near(1_000))
+        .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
         .config_modifier(|c, _| {
@@ -279,22 +169,21 @@ fn test_ptq_accumulates_across_blocks() {
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
-    deploy_contract_and_certify(&mut env, &contract_account);
 
     // Submit transactions in two batches, let the first batch get included,
     // then submit the rest. Total across uncertified blocks should be P_MAX.
     let first_batch_size = P_MAX / 2;
     let second_batch_size = P_MAX - first_batch_size;
-    let first_batch = submit_transfers(&env, &contract_account, &receiver, first_batch_size);
+    let first_batch = submit_transfers(&env, &sender, &receiver, first_batch_size);
     let first_inclusion_height = env.validator_runner().run_until_included(&first_batch);
 
     // Submit and include the second batch.
-    let second_batch = submit_transfers(&env, &contract_account, &receiver, second_batch_size);
+    let second_batch = submit_transfers(&env, &sender, &receiver, second_batch_size);
     env.validator_runner().run_until_included(&second_batch);
 
     // Submit a (P_MAX+1)th tx. This should be blocked by P_MAX since there
-    // are already P_MAX uncertified txs from this contract account.
-    let extra = submit_transfers(&env, &contract_account, &receiver, 1);
+    // are already P_MAX uncertified txs from this account.
+    let extra = submit_transfers(&env, &sender, &receiver, 1);
     let extra_hash = extra[0];
 
     // Run blocks up to just before the first batch gets certified.
@@ -318,12 +207,12 @@ fn test_ptq_accumulates_across_blocks() {
 fn test_ptq_cleanup_on_certification() {
     init_test_logger();
 
-    let contract_account = create_account_id("contract_account");
+    let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
 
     let mut env = TestLoopBuilder::new()
         .validators(1, 1)
-        .add_user_account(&contract_account, Balance::from_near(1_000))
+        .add_user_account(&sender, Balance::from_near(1_000))
         .add_user_account(&receiver, Balance::from_near(0))
         .delay_warmup()
         .config_modifier(|c, _| {
@@ -333,16 +222,15 @@ fn test_ptq_cleanup_on_certification() {
     let execution_delay = 4;
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
-    deploy_contract_and_certify(&mut env, &contract_account);
 
     // Submit P_MAX transactions and wait for inclusion + certification.
-    let first_batch = submit_transfers(&env, &contract_account, &receiver, P_MAX);
+    let first_batch = submit_transfers(&env, &sender, &receiver, P_MAX);
     env.validator_runner().run_until_included(&first_batch);
     let height = env.validator().head().height;
     env.validator_runner().run_until_certified(height);
 
     // Submit P_MAX more. All should be admitted since the first batch is certified.
-    let second_batch = submit_transfers(&env, &contract_account, &receiver, P_MAX);
+    let second_batch = submit_transfers(&env, &sender, &receiver, P_MAX);
     env.validator_runner().run_until_included(&second_batch);
 }
 

@@ -1,4 +1,4 @@
-use near_chain::types::{HasContract, PendingConstraints, PendingTxCheckResult};
+use near_chain::types::{PendingConstraints, PendingTxCheckResult};
 use near_crypto::PublicKeyHandle;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::Action;
@@ -6,7 +6,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
-use near_primitives::universal_state_init::UniversalStateInit;
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
@@ -28,9 +27,8 @@ macro_rules! checked_sub_or_default {
     };
 }
 
-/// Maximum number of access key transactions allowed for accounts with contracts.
-/// Per NEP-611, accounts with deployed contracts cannot have more than P_MAX
-/// pending access key transactions across all uncertified blocks.
+/// Maximum number of pending access key transactions per account across all
+/// uncertified blocks.
 pub const P_MAX: usize = 4;
 
 /// Maps ShardUId -> per-shard PendingTransactionQueue.
@@ -156,7 +154,6 @@ struct PendingChunkData {
 #[derive(Clone, Default)]
 struct PendingAccount {
     access_key_tx_count: usize,
-    deploy_tx_count: usize,
     /// Access key total_cost + gas key deposit_cost.
     paid_from_balance: Balance,
 }
@@ -164,7 +161,6 @@ struct PendingAccount {
 impl PendingAccount {
     fn add(&mut self, other: &PendingAccount) {
         self.access_key_tx_count += other.access_key_tx_count;
-        self.deploy_tx_count += other.deploy_tx_count;
         self.paid_from_balance = self.paid_from_balance.saturating_add(other.paid_from_balance);
     }
 
@@ -174,11 +170,6 @@ impl PendingAccount {
             other.access_key_tx_count,
             "access_key_tx_count underflow in pending transaction queue subtract"
         );
-        self.deploy_tx_count = checked_sub_or_default!(
-            self.deploy_tx_count,
-            other.deploy_tx_count,
-            "deploy_tx_count underflow in pending transaction queue subtract"
-        );
         self.paid_from_balance = checked_sub_or_default!(
             self.paid_from_balance,
             other.paid_from_balance,
@@ -187,49 +178,8 @@ impl PendingAccount {
     }
 
     fn is_zero(&self) -> bool {
-        self.access_key_tx_count == 0
-            && self.deploy_tx_count == 0
-            && self.paid_from_balance.is_zero()
+        self.access_key_tx_count == 0 && self.paid_from_balance.is_zero()
     }
-}
-
-/// Returns true if the action is a deploy-like action per NEP-611:
-/// DeployContract, UseGlobalContract, DeterministicStateInit, or
-/// Delegate wrapping a deploy-like action.
-///
-/// The criterion is whether the action can set the contract field of an account.
-///
-/// A `UniversalStateInit` without code is not deploy-like, and neither is one
-/// whose bytes do not decode, since it cannot execute at all.
-fn is_deploy_like_action(action: &Action) -> bool {
-    match action {
-        Action::DeployContract(_)
-        | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_)
-        | Action::DeterministicStateInit(_) => true,
-        Action::UniversalStateInit(action) => UniversalStateInit::from_raw(&action.state_init)
-            .is_ok_and(|state_init| state_init.code().is_some()),
-        Action::Delegate(signed_delegate) => {
-            signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
-        }
-        Action::DelegateV2(signed_delegate) => {
-            signed_delegate.delegate_action.get_actions().iter().any(is_deploy_like_action)
-        }
-        Action::CreateAccount(_)
-        | Action::FunctionCall(_)
-        | Action::Transfer(_)
-        | Action::Stake(_)
-        | Action::AddKey(_)
-        | Action::DeleteKey(_)
-        | Action::DeleteAccount(_)
-        | Action::TransferToGasKey(_)
-        | Action::WithdrawFromGasKey(_) => false,
-    }
-}
-
-/// Returns true if any action in the list is deploy-like.
-fn has_deploy_action(actions: &[Action]) -> bool {
-    actions.iter().any(is_deploy_like_action)
 }
 
 impl PendingTransactionQueue {
@@ -294,9 +244,6 @@ impl PendingTransactionQueue {
                 chunk_account.access_key_tx_count += 1;
                 chunk_account.paid_from_balance =
                     chunk_account.paid_from_balance.saturating_add(cost.total_cost);
-            }
-            if has_deploy_action(tx.actions()) {
-                chunk_account.deploy_tx_count += 1;
             }
 
             // Track gas key costs (gas_key_cost for gas key txs).
@@ -431,7 +378,6 @@ impl PendingTransactionQueue {
         let signer_id = tx.signer_id();
         let pending_account = self.pending_accounts.get(signer_id);
         let access_key_tx_count = pending_account.map(|a| a.access_key_tx_count).unwrap_or(0);
-        let deploy_tx_count = pending_account.map(|a| a.deploy_tx_count).unwrap_or(0);
         let paid_from_balance =
             pending_account.map(|a| a.paid_from_balance).unwrap_or(Balance::ZERO);
 
@@ -446,7 +392,6 @@ impl PendingTransactionQueue {
 
         PendingStateSnapshot {
             access_key_tx_count,
-            deploy_tx_count,
             paid_from_balance,
             max_nonce,
             max_bootstrap_nonce,
@@ -460,7 +405,6 @@ impl PendingTransactionQueue {
 #[derive(Default)]
 struct PendingStateSnapshot {
     access_key_tx_count: usize,
-    deploy_tx_count: usize,
     paid_from_balance: Balance,
     max_nonce: Nonce,
     max_bootstrap_nonce: Nonce,
@@ -474,7 +418,7 @@ struct PendingStateSnapshot {
 /// (deducts cost), gas key balance (deducts gas_key_cost), and nonces
 /// (advances after each accepted tx). The session only tracks what the
 /// ephemeral state does NOT cover:
-/// - P_MAX / deploy exclusivity counts (per account)
+/// - P_MAX counts (per account)
 /// - WithdrawFromGasKey amounts (action effects not applied by ephemeral state)
 ///
 /// The session holds an `Arc<Mutex<ShardedPendingTransactionQueue>>` and acquires the lock briefly
@@ -484,7 +428,6 @@ pub struct PendingTxSession {
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     shard_uid: ShardUId,
     session_access_key_tx_counts: HashMap<AccountId, usize>,
-    session_deploy_tx_counts: HashMap<AccountId, usize>,
     session_gas_key_withdrawals: HashMap<GasKey, Balance>,
 }
 
@@ -497,7 +440,6 @@ impl PendingTxSession {
             pending_transaction_queue,
             shard_uid,
             session_access_key_tx_counts: HashMap::new(),
-            session_deploy_tx_counts: HashMap::new(),
             session_gas_key_withdrawals: HashMap::new(),
         }
     }
@@ -507,11 +449,7 @@ impl PendingTxSession {
     /// for the runtime's balance/nonce validation.
     ///
     /// Acquires the pending transaction queue lock briefly to read pending state, then releases it.
-    pub fn check_pending(
-        &mut self,
-        tx: &SignedTransaction,
-        has_contract: HasContract,
-    ) -> PendingTxCheckResult {
+    pub fn check_pending(&mut self, tx: &SignedTransaction) -> PendingTxCheckResult {
         let signer_id = tx.transaction.signer_id();
         let nonce_index = tx.transaction.nonce().nonce_index();
         let is_gas_key_tx = nonce_index.is_some();
@@ -528,25 +466,9 @@ impl PendingTxSession {
 
         let session_access_key_count =
             self.session_access_key_tx_counts.get(signer_id).copied().unwrap_or(0);
-        let session_deploy_count =
-            self.session_deploy_tx_counts.get(signer_id).copied().unwrap_or(0);
         let total_access_key_count = snapshot.access_key_tx_count + session_access_key_count;
-        let total_deploy_count = snapshot.deploy_tx_count + session_deploy_count;
-        let tx_has_deploy = has_deploy_action(tx.transaction.actions());
 
-        // Deploy exclusivity: a deploy cannot coexist with any other access
-        // key tx (including another deploy) in the pending window.
-        if !is_gas_key_tx {
-            if total_deploy_count > 0 {
-                return PendingTxCheckResult::Skip;
-            }
-            if tx_has_deploy && total_access_key_count > 0 {
-                return PendingTxCheckResult::Skip;
-            }
-        }
-
-        // P_MAX for contract accounts.
-        if has_contract == HasContract::Yes && !is_gas_key_tx && total_access_key_count >= P_MAX {
+        if !is_gas_key_tx && total_access_key_count >= P_MAX {
             return PendingTxCheckResult::Skip;
         }
 
@@ -561,7 +483,7 @@ impl PendingTxSession {
         // If the runtime subsequently rejects the tx (e.g. insufficient
         // balance), these counts are not rolled back and the tx is discarded
         // (not reintroduced to the pool). This means a rejected tx may consume
-        // a P_MAX or deploy exclusivity slot for the remainder of this chunk
+        // a P_MAX slot for the remainder of this chunk
         // production session, reducing throughput under high contention. The
         // risk is mitigated by the fact that check_pending is called after
         // signature verification and basic validation, so only transactions
@@ -569,9 +491,6 @@ impl PendingTxSession {
         // cheaply spam rejected txs to exhaust slots.
         if !is_gas_key_tx {
             *self.session_access_key_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
-        }
-        if tx_has_deploy {
-            *self.session_deploy_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
         }
         // Track WithdrawFromGasKey amounts from this tx's actions.
         for action in tx.transaction.actions() {
@@ -597,10 +516,8 @@ impl PendingTxSession {
 mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::action::{
-        DeployContractAction, GlobalContractIdentifier, TransferAction, UniversalStateInitAction,
-    };
-    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
+    use near_primitives::action::UniversalStateInitAction;
+    use near_primitives::transaction::SignedTransaction;
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
     use std::collections::BTreeSet;
@@ -626,57 +543,6 @@ mod tests {
             receiver.parse().unwrap(),
             signer,
             deposit,
-            CryptoHash::default(),
-        )
-    }
-
-    fn make_deploy_tx(signer: &Signer, nonce: Nonce) -> SignedTransaction {
-        SignedTransaction::from_actions(
-            nonce,
-            signer.get_account_id(),
-            signer.get_account_id(),
-            signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 10] })],
-            CryptoHash::default(),
-        )
-    }
-
-    fn make_universal_state_init_tx(
-        signer: &Signer,
-        nonce: Nonce,
-        with_code: bool,
-    ) -> SignedTransaction {
-        let code = with_code
-            .then(|| GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(&[7u8; 4])));
-        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
-            code,
-            data: Default::default(),
-            access_keys: Default::default(),
-        });
-        SignedTransaction::from_actions(
-            nonce,
-            signer.get_account_id(),
-            signer.get_account_id(),
-            signer,
-            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init: state_init.to_raw(),
-                deposit: Balance::ZERO,
-            }))],
-            CryptoHash::default(),
-        )
-    }
-
-    fn make_gas_key_deploy_tx(
-        signer: &Signer,
-        nonce: Nonce,
-        nonce_index: NonceIndex,
-    ) -> SignedTransaction {
-        SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(nonce, nonce_index),
-            signer.get_account_id(),
-            signer.get_account_id(),
-            signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![0u8; 10] })],
             CryptoHash::default(),
         )
     }
@@ -969,16 +835,8 @@ mod tests {
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &txs, &config, TEST_GAS_PRICE);
         let next_tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
 
-        // The next access key tx from a contract account should be skipped.
         let mut session = make_session(&sharded);
-        assert_eq!(session.check_pending(&next_tx, HasContract::Yes), PendingTxCheckResult::Skip);
-
-        // But from a non-contract account it should be admitted.
-        let mut session2 = make_session(&sharded);
-        assert!(matches!(
-            session2.check_pending(&next_tx, HasContract::No),
-            PendingTxCheckResult::Admit(_)
-        ));
+        assert_eq!(session.check_pending(&next_tx), PendingTxCheckResult::Skip);
     }
 
     #[test]
@@ -993,120 +851,24 @@ mod tests {
         with_shard_ptq(&sharded, |ptq| assert!(ptq.is_empty()));
     }
 
-    /// Per NEP-611 a deploy-like action is one that can set the contract field of
-    /// an account, so a key-only `UniversalStateInit` is not deploy-like and must
-    /// not consume the signer's exclusivity slot.
-    #[test]
-    fn test_universal_state_init_is_deploy_like_only_with_code() {
-        let signer = test_signer();
-
-        let with_code = make_universal_state_init_tx(&signer, 1, true);
-        assert!(has_deploy_action(with_code.transaction.actions()));
-
-        let key_only = make_universal_state_init_tx(&signer, 2, false);
-        assert!(!has_deploy_action(key_only.transaction.actions()));
-    }
-
-    #[test]
-    fn test_deploy_exclusivity_pending_deploy_blocks_new_access_key_tx() {
-        let config = RuntimeConfig::test();
-        let sharded = make_sharded_ptq();
-        let signer = test_signer();
-        add_chunk_txs(
-            &sharded,
-            CryptoHash::hash_bytes(&[1]),
-            &[make_deploy_tx(&signer, 1)],
-            &config,
-            TEST_GAS_PRICE,
-        );
-
-        // A non-deploy access key tx should be skipped (deploy is pending).
-        let mut session = make_session(&sharded);
-        let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        assert_eq!(
-            session.check_pending(&transfer_tx, HasContract::No),
-            PendingTxCheckResult::Skip
-        );
-    }
-
-    #[test]
-    fn test_deploy_exclusivity_pending_access_key_tx_blocks_deploy() {
-        let config = RuntimeConfig::test();
-        let sharded = make_sharded_ptq();
-        let signer = test_signer();
-        let transfer_tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        add_chunk_txs(
-            &sharded,
-            CryptoHash::hash_bytes(&[1]),
-            &[transfer_tx],
-            &config,
-            TEST_GAS_PRICE,
-        );
-
-        // A deploy tx should be skipped (non-deploy access key tx is pending).
-        let mut session = make_session(&sharded);
-        let deploy_tx = make_deploy_tx(&signer, 2);
-        assert_eq!(session.check_pending(&deploy_tx, HasContract::No), PendingTxCheckResult::Skip);
-    }
-
-    #[test]
-    fn test_deploy_exclusivity_gas_key_deploy_blocks_access_key_tx() {
-        let config = RuntimeConfig::test();
-        let sharded = make_sharded_ptq();
-        let signer = test_signer();
-        // A gas key tx with a deploy action is pending.
-        add_chunk_txs(
-            &sharded,
-            CryptoHash::hash_bytes(&[1]),
-            &[make_gas_key_deploy_tx(&signer, 1, 0)],
-            &config,
-            TEST_GAS_PRICE,
-        );
-
-        // An access key tx should be skipped (gas key deploy is pending).
-        let mut session = make_session(&sharded);
-        let transfer_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        assert_eq!(
-            session.check_pending(&transfer_tx, HasContract::No),
-            PendingTxCheckResult::Skip
-        );
-
-        // But another gas key tx should still be admitted.
-        let gas_key_transfer = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(3, 0),
-            signer.get_account_id(),
-            "bob.near".parse().unwrap(),
-            &signer,
-            vec![Action::Transfer(TransferAction { deposit: TEST_DEPOSIT })],
-            CryptoHash::default(),
-        );
-        assert!(matches!(
-            session.check_pending(&gas_key_transfer, HasContract::No),
-            PendingTxCheckResult::Admit(_)
-        ));
-    }
-
     #[test]
     fn test_session_accumulates_across_calls() {
         let sharded = make_sharded_ptq();
         let signer = test_signer();
         let mut session = make_session(&sharded);
 
-        // Admit P_MAX access key txs from a contract account within a single session.
+        // Admit P_MAX access key txs within a single session.
         for i in 1..=P_MAX {
             let tx = make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT);
             assert!(
-                matches!(
-                    session.check_pending(&tx, HasContract::Yes),
-                    PendingTxCheckResult::Admit(_)
-                ),
+                matches!(session.check_pending(&tx), PendingTxCheckResult::Admit(_)),
                 "tx {} should be admitted",
                 i
             );
         }
         // The (P_MAX + 1)th should be skipped.
         let tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&tx, HasContract::Yes), PendingTxCheckResult::Skip);
+        assert_eq!(session.check_pending(&tx), PendingTxCheckResult::Skip);
     }
 
     #[test]
@@ -1120,7 +882,7 @@ mod tests {
         let mut session = make_session(&sharded);
         let next_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
         assert_eq!(
-            session.check_pending(&next_tx, HasContract::No),
+            session.check_pending(&next_tx),
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: expected_cost,
                 paid_from_gas_key: Balance::ZERO,
