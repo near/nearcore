@@ -827,8 +827,7 @@ fn writer_kvs(
             }
         }
         // ChunkProducers rows are keyed by block hash across all shards of the
-        // next epoch, so one prefix scan captures every row for this block.
-        #[cfg(feature = "nightly")]
+        // anchor's own epoch, so one prefix scan captures every row for this block.
         for (key, value) in writer.iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()) {
             kvs.get_mut(&DBCol::ChunkProducers).unwrap().insert(key.into_vec(), value.into_vec());
         }

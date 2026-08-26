@@ -1,3 +1,4 @@
+use near_chain::Error;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::archive::cloud_storage::{
@@ -10,14 +11,16 @@ use near_store::{DBCol, Store, StoreUpdate};
 pub enum CloudArchivalReaderError {
     #[error(transparent)]
     Retrieval(#[from] CloudRetrievalError),
+    #[error(transparent)]
+    Chain(#[from] Error),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
 }
 
 /// Writes block-level columns from a cloud `BlockData` into `update`.
 ///
-/// Block, BlockHeader, BlockInfo (content-addressed by hash) and, on nightly,
-/// ChunkProducers all use `insert_ser` (insert-only columns). BlockHeight and
+/// Block, BlockHeader, BlockInfo (content-addressed by hash) and ChunkProducers
+/// all use `insert_ser` (insert-only columns). BlockHeight and
 /// BlockMerkleTree use `set_ser` (regular columns, keyed by height or hash, safe
 /// to overwrite).
 pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
@@ -32,7 +35,6 @@ pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), &block_hash);
     update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_data.block_merkle_tree());
 
-    #[cfg(feature = "nightly")]
     for (shard_id, stake) in block_data.chunk_producers() {
         update.insert_ser(
             DBCol::ChunkProducers,
