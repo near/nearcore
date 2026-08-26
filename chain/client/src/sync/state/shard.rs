@@ -375,6 +375,7 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
+    use near_store::flat::BlockInfo;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -417,7 +418,7 @@ mod tests {
         store_update.set_flat_storage_status(
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: near_store::flat::BlockInfo {
+                flat_head: BlockInfo {
                     hash: CryptoHash::default(),
                     prev_hash: CryptoHash::default(),
                     height: 1,
