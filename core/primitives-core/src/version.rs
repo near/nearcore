@@ -469,6 +469,10 @@ pub enum ProtocolFeature {
     ///   verification, instead of on the signer shard, so it counts against the
     ///   right `compute_limit`.
     FixMlDsaCostCharging,
+    /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
+    /// action, which creates an account whose ID is derived from its canonical state
+    /// init (contract code, storage, and access keys).
+    UniversalAccounts,
 }
 
 impl ProtocolFeature {
@@ -610,6 +614,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::FixMlDsaCostCharging => 153,
+            ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

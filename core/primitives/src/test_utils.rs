@@ -24,6 +24,8 @@ use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, NumBlocks, ShardId,
 };
+use crate::universal_state_init::UniversalStateInit;
+use crate::utils::derive_universal_account_id;
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use itertools::Itertools;
@@ -36,6 +38,22 @@ use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
+
+impl UniversalStateInit {
+    /// The `0u` account ID this state init derives to once serialized with
+    /// [`UniversalStateInit::to_raw`].
+    ///
+    /// Test-only, because it derives from a re-serialization. That is sound only
+    /// when you are the one minting the bytes, as a test is. Production code is
+    /// handed a [`RawStateInit`](crate::universal_state_init::RawStateInit) and
+    /// must derive from those bytes with
+    /// [`derive_universal_account_id`](crate::utils::derive_universal_account_id):
+    /// re-serializing a decoded value yields a different ID whenever the producer
+    /// wrote something other than what `to_raw` would have.
+    pub fn derive_account_id(&self) -> AccountId {
+        derive_universal_account_id(&self.to_raw())
+    }
+}
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(

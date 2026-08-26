@@ -10,8 +10,8 @@ use crate::action::delegate::{
 };
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -48,6 +48,7 @@ use crate::types::{
     StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
+use crate::universal_state_init::RawStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -1555,6 +1556,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    UniversalStateInit {
+        state_init: RawStateInit,
+        deposit: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1624,6 +1629,10 @@ impl From<Action> for ActionView {
             Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
                 public_key: action.public_key,
                 amount: action.amount,
+            },
+            Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
+                state_init: action.state_init,
+                deposit: action.deposit,
             },
         }
     }
@@ -1706,6 +1715,12 @@ impl TryFrom<ActionView> for Action {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
+                }))
+            }
+            ActionView::UniversalStateInit { state_init, deposit } => {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init,
+                    deposit,
                 }))
             }
         })

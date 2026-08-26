@@ -112,9 +112,7 @@ impl UniversalStateInit {
 
     /// Decode `raw` into a typed value. Accepts any well-formed borsh encoding,
     /// rejecting only trailing or malformed bytes; a non-canonical encoding of
-    /// the same logical value is accepted (it hashes to a different id). Callers
-    /// that need a stable id should mint it through the typed `to_raw` / `derive`
-    /// path, which always serializes canonically.
+    /// the same logical value is accepted (it hashes to a different id).
     pub fn from_raw(raw: &RawStateInit) -> Result<Self, io::Error> {
         Self::try_from_slice(&raw.0)
     }
