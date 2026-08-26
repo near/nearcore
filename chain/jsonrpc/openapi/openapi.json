@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.19"
+    "version": "1.3.20"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3507,6 +3507,13 @@
               "RemovedProtocolFeature"
             ],
             "type": "object"
+          },
+          {
+            "description": "A `WithdrawFromGasKey` action must not be nested inside a delegate action.",
+            "enum": [
+              "WithdrawFromGasKeyNotAllowedInDelegate"
+            ],
+            "type": "string"
           }
         ]
       },

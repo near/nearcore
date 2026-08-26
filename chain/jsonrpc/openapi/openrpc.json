@@ -2305,6 +2305,11 @@
             ],
             "title": "RemovedProtocolFeature",
             "type": "object"
+          },
+          {
+            "const": "WithdrawFromGasKeyNotAllowedInDelegate",
+            "description": "A `WithdrawFromGasKey` action must not be nested inside a delegate action.",
+            "type": "string"
           }
         ],
         "title": "ActionsValidationError"
