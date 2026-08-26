@@ -96,7 +96,7 @@ pub(crate) enum Error {
     #[error("decoded witness block hash in invalid")]
     InvalidDecodedWitnessBlockHash,
     #[error("part doesn't match commitment root")]
-    InvalidCommitmentRoot,
+    InvalidCommitment,
     #[error("decoded data doesn't match commitment hash")]
     InvalidCommitmentHash,
     #[error("receipt proof id to_shard_id is invalid")]
@@ -755,7 +755,7 @@ impl SpiceDataDistributorActor {
             // insert_part; the unwrap below goes with the old tracker.
             let verified =
                 VerifiedCodedPart::verify(&commitment, total_parts, part_ord, part, &merkle_proof)
-                    .map_err(|_| Error::InvalidCommitmentRoot)?;
+                    .map_err(|_| Error::InvalidCommitment)?;
             // TODO(spice): Verify that size of partial data isn't too large.
             let create_decode_span = None;
             let ordinal = verified.ordinal();

@@ -996,7 +996,7 @@ test_invalid_incoming_partial_data! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    merkle_path_does_not_match_commitment_root(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, default, {
+    merkle_path_does_not_match_commitment_root(Error::InvalidCommitment, receipt_proof_incoming_data, default, {
         let mut commitment = default.commitment.clone();
         commitment.root = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
@@ -1006,7 +1006,7 @@ test_invalid_incoming_partial_data! {
         commitment.hash = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    invalid_part_ord(Error::InvalidCommitmentRoot, receipt_proof_incoming_data, default, {
+    invalid_part_ord(Error::InvalidCommitment, receipt_proof_incoming_data, default, {
         let mut parts = default.parts.clone();
         parts[0].part_ord = 42;
         SpicePartialDataBuilder::from_verified(default).parts(parts).build()

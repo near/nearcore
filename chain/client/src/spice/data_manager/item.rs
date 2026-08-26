@@ -26,27 +26,28 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 
 /// The fetch lifecycle. No terminal "have" state: the store is the source of truth for
 /// done-ness — the consumer persists the verified data (e.g. a receipt proof in the
-/// chain store) and the engine consults that. `ProcessedLocally` keeps only the
-/// attribution; items are removed by expiry.
+/// chain store) and the engine consults that.
 pub(crate) enum FetchState {
-    /// Wanted, but no unit has arrived and pulling is not armed; waiting for the push.
+    /// Wanted, but no unit has arrived and pulling has not started; waiting for the push.
     WaitingForPush,
-    /// At least one unit arrived, or pulling was armed speculatively.
+    /// At least one unit arrived, or speculative pulling started.
     Collecting(Assembly),
     /// Assembled data handed to the consumer; parked until its verdict, so a re-pushed
     /// part cannot deliver twice. `residual` keeps the incomplete trackers.
     Delivered { attribution: DataAttribution, residual: Assembly },
     /// Consumer verified and persisted the artifact; terminal until expiry. The
-    /// attribution stays because a fault can surface after local verification — the
-    /// certified result for the same chunk contradicting what the locally verified
-    /// witness produced — and must still map back to the senders.
+    /// attribution stays because a fault can be discovered after local verification (for example the
+    /// certified result for the chunk differs from locally verified witness) and must still map back to the senders.
     ProcessedLocally { attribution: DataAttribution },
 }
 
-/// Runs a state transition that needs ownership of the current state; the state `f`
-/// returns is written back before this returns.
+/// Runs a state transition that takes ownership of the (parts of) current state.
+///
+/// # Arguments
+/// - `f` consumes the current state and returns `(next_state, result)`; to reject the transition, return the received state unchanged.
 fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchState, T)) -> T {
-    // The transient `WaitingForPush` is never observable.
+    // Borrow checker needs a placeholder for state (because it is `&mut` and we like to move out parts of it).
+    // `WaitingForPush` is used as one. It is never observed and is overwritten next line.
     let (next, result) = f(replace(state, FetchState::WaitingForPush));
     *state = next;
     result
@@ -54,8 +55,7 @@ fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchSta
 
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
-    /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace
-    /// clock.
+    /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace clock.
     pub(crate) first_unit_at: Option<Instant>,
 }
 
@@ -68,7 +68,7 @@ impl FetchItem {
         Self { state: FetchState::Collecting(Assembly::new(encoder)), first_unit_at: None }
     }
 
-    /// Arms a speculative pull: a waiting item starts collecting before any part
+    /// Starts a speculative pull: a waiting item begins collecting before any part
     /// arrived. Does nothing unless the item is waiting for the push.
     pub(crate) fn start_pulling(&mut self, encoder: Arc<ReedSolomonEncoder>) -> bool {
         if !matches!(self.state, FetchState::WaitingForPush) {
@@ -91,14 +91,22 @@ impl FetchItem {
         sender: &AccountId,
         verified: VerifiedCodedPart,
     ) -> Result<PartInsertResult, AssemblyError> {
-        if matches!(self.state, FetchState::WaitingForPush) {
-            self.state = FetchState::Collecting(Assembly::new(encoder.clone()));
-        }
-        let FetchState::Collecting(assembly) = &mut self.state else {
-            return Err(AssemblyError::NotCollecting);
-        };
         let commitment = verified.commitment.clone();
-        let result = assembly.insert_part(sender, verified)?;
+        let result = match &mut self.state {
+            FetchState::WaitingForPush => {
+                // a rejected part must leave a waiting item waiting, so promote
+                // only after the insert succeeds
+                let mut assembly = Assembly::new(encoder.clone());
+                let result = assembly.insert_part(sender, verified)?;
+                self.state = FetchState::Collecting(assembly);
+                result
+            }
+            FetchState::Collecting(assembly) => assembly.insert_part(sender, verified)?,
+            _ => return Err(AssemblyError::NotCollecting),
+        };
+        let FetchState::Collecting(assembly) = &self.state else {
+            unreachable!("an accepted insert leaves the item collecting");
+        };
         match &result {
             PartInsertResult::Garbage { .. } => {
                 if !assembly.has_parts() {
@@ -155,6 +163,8 @@ impl FetchItem {
 #[derive(Debug)]
 pub(crate) struct VerifiedCodedPart {
     commitment: SpiceDataCommitment,
+    /// Leaf count of the tree the proof was verified against.
+    total_parts: usize,
     ordinal: usize,
     part: Box<[u8]>,
 }
@@ -177,7 +187,7 @@ impl VerifiedCodedPart {
             return Err(AssemblyError::InvalidMerkleProof);
         }
         let ordinal = usize::try_from(ordinal).map_err(|_| AssemblyError::InvalidOrdinal)?;
-        Ok(Self { commitment: commitment.clone(), ordinal, part })
+        Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
     // TODO(spice-data-distribution): these accessors only feed the old ingress path;
@@ -201,7 +211,7 @@ pub(crate) struct Assembly {
     /// The one commitment each sender provided parts for. Outlives the trackers, so a
     /// sender whose commitment was dropped as garbage cannot loop through fresh
     /// commitments.
-    commitment_providers: HashMap<AccountId, SpiceDataCommitment>,
+    commitment_by_sender: HashMap<AccountId, SpiceDataCommitment>,
 }
 
 impl Assembly {
@@ -210,7 +220,7 @@ impl Assembly {
             encoder,
             trackers: HashMap::new(),
             banned: HashSet::new(),
-            commitment_providers: HashMap::new(),
+            commitment_by_sender: HashMap::new(),
         }
     }
 
@@ -230,7 +240,7 @@ impl Assembly {
         sender: &AccountId,
         verified: VerifiedCodedPart,
     ) -> Result<PartInsertResult, AssemblyError> {
-        let VerifiedCodedPart { commitment, ordinal, part } = verified;
+        let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
         if self.banned.contains(&commitment) {
             return Err(AssemblyError::BannedCommitment);
         }
@@ -238,26 +248,26 @@ impl Assembly {
             !self.trackers.values().any(CodedTracker::is_complete),
             "a completion was left unresolved"
         );
-        if ordinal >= self.encoder.total_parts() {
-            return Err(AssemblyError::InvalidOrdinal);
+        // equal widths plus a verified proof imply the ordinal is in range
+        if total_parts != self.encoder.total_parts() {
+            return Err(AssemblyError::WrongTotalParts);
         }
-        if self.commitment_providers.get(sender).is_some_and(|provided| provided != &commitment) {
+        if self.commitment_by_sender.get(sender).is_some_and(|provided| provided != &commitment) {
             return Err(AssemblyError::ConflictingCommitment);
         }
         // TODO(spice-data-distribution): cap encoded_length against the max payload size;
         // the only cap today is MAX_ENCODED_LENGTH inside the decode.
-        let encoded_length = usize::try_from(commitment.encoded_length)
-            .map_err(|_| AssemblyError::EncodedLengthTooLarge)?;
+        let encoded_length =
+            usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
         if part.len() != reed_solomon_part_length(encoded_length, self.encoder.data_parts()) {
             return Err(AssemblyError::WrongPartLength);
         }
-        let tracker = self.trackers.entry(commitment.clone()).or_insert_with(|| {
-            CodedTracker::new(self.encoder.clone(), encoded_length, commitment.clone())
-        });
+        let tracker = self
+            .trackers
+            .entry(commitment.clone())
+            .or_insert_with(|| CodedTracker::new(self.encoder.clone(), commitment.clone()));
         let result = tracker.insert_part(ordinal, part, sender)?;
-        if !matches!(result, PartInsertResult::Duplicate) {
-            self.commitment_providers.insert(sender.clone(), commitment.clone());
-        }
+        self.commitment_by_sender.insert(sender.clone(), commitment.clone());
         if matches!(result, PartInsertResult::Garbage { .. }) {
             self.trackers.remove(&commitment);
             self.banned.insert(commitment);
@@ -292,7 +302,7 @@ impl Assembly {
     }
 
     #[cfg(test)]
-    pub(crate) fn tracked_commitments(&self) -> Vec<&SpiceDataCommitment> {
+    pub(crate) fn tracked_commitments(&self) -> HashSet<&SpiceDataCommitment> {
         self.trackers.keys().collect()
     }
 }
@@ -303,16 +313,14 @@ pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
     /// Per-ordinal sender of the parts we hold.
     senders: Vec<Option<AccountId>>,
-    /// The commitment the parts are tracked under; equals this tracker's map key.
+    /// The commitment the parts are tracked under
     commitment: SpiceDataCommitment,
 }
 
 impl CodedTracker {
-    fn new(
-        encoder: Arc<ReedSolomonEncoder>,
-        encoded_length: usize,
-        commitment: SpiceDataCommitment,
-    ) -> Self {
+    fn new(encoder: Arc<ReedSolomonEncoder>, commitment: SpiceDataCommitment) -> Self {
+        let encoded_length =
+            usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
         let total_parts = encoder.total_parts();
         Self {
             parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
@@ -370,6 +378,7 @@ impl CodedTracker {
     }
 }
 
+#[must_use = "a Complete carries the delivered data"]
 #[derive(Debug)]
 pub(crate) enum PartInsertResult {
     Accepted,
@@ -377,9 +386,7 @@ pub(crate) enum PartInsertResult {
     /// The commitment decoded to this data and it matches the committed hash.
     Complete(SpiceData),
     /// The commitment reached K parts but yielded no data matching its hash — a failed
-    /// decode or a hash mismatch. Its tracker is gone and it is banned; the accounts
-    /// listed backed it and stay bound to it, so they cannot open another commitment
-    /// for this item. Reporting them onward is the caller's.
+    /// decode or a hash mismatch. Carries the list of accounts provided parts for it.
     Garbage {
         contributors: HashSet<AccountId>,
     },
@@ -395,8 +402,8 @@ pub(crate) enum AssemblyError {
     InvalidMerkleProof,
     #[error("part ordinal is out of range")]
     InvalidOrdinal,
-    #[error("encoded length is too large")]
-    EncodedLengthTooLarge,
+    #[error("part was verified against a different total parts count")]
+    WrongTotalParts,
     #[error("part length does not match the commitment's encoded length")]
     WrongPartLength,
     #[error("sender already backed another commitment")]
@@ -405,16 +412,16 @@ pub(crate) enum AssemblyError {
     BannedCommitment,
 }
 
-/// Who to blame for a fault on the delivered data: the decoded commitment's senders only.
+/// Decoded commitment bundled with accounts which provided its parts.
 #[derive(Debug)]
 pub(crate) struct DataAttribution {
     pub(super) decoded: SpiceDataCommitment,
+    /// Per-ordinal sender of the parts we hold.
     senders: Vec<Option<AccountId>>,
 }
 
 impl DataAttribution {
-    /// The distinct accounts that sent the delivered parts. A fault on the delivered
-    /// data is attributed to these senders and no others.
+    /// Accounts that provided parts for the decoded commitment.
     pub(crate) fn contributors(&self) -> HashSet<AccountId> {
         self.senders.iter().flatten().cloned().collect()
     }
