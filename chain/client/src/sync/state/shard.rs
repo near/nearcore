@@ -405,14 +405,17 @@ mod tests {
         (runtime, store, tmp_dir)
     }
 
-    fn mark_part_applied(store: &Store, sync_hash: CryptoHash, shard_id: ShardId, part_id: u64) {
-        let key_bytes = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+    #[test]
+    fn applied_parts_kept_only_while_apply_is_unfinished() {
+        let store = create_test_store();
+        let shard_uid = ShardUId::single_shard();
+        let sync_hash = CryptoHash::default();
+        let key_bytes = borsh::to_vec(&StatePartKey(sync_hash, shard_uid.shard_id(), 0)).unwrap();
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
         store_update.commit();
-    }
+        assert!(keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
 
-    fn set_flat_storage_ready(store: &Store, shard_uid: ShardUId) {
         let mut store_update = store.flat_store().store_update();
         store_update.set_flat_storage_status(
             shard_uid,
@@ -425,36 +428,6 @@ mod tests {
             }),
         );
         store_update.commit();
-    }
-
-    #[test]
-    fn applied_parts_kept_while_apply_is_unfinished() {
-        let (_runtime, store, _tmp_dir) = create_test_runtime_and_store();
-        let shard_layout = ShardLayout::single_shard();
-        let shard_id = shard_layout.get_shard_id(0).unwrap();
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let sync_hash = CryptoHash::default();
-
-        mark_part_applied(&store, sync_hash, shard_id, 0);
-
-        assert!(keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
-    }
-
-    #[test]
-    fn applied_parts_discarded_after_a_finished_sync() {
-        let (runtime, store, _tmp_dir) = create_test_runtime_and_store();
-        let shard_layout = ShardLayout::single_shard();
-        let shard_id = shard_layout.get_shard_id(0).unwrap();
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let sync_hash = CryptoHash::default();
-        let flat_storage_manager = runtime.get_flat_storage_manager();
-
-        mark_part_applied(&store, sync_hash, shard_id, 0);
-        // A finished sync leaves `Ready` on disk while the registry stays empty across a
-        // restart, which is what a bootstrapping node looks like when it resumes.
-        set_flat_storage_ready(&store, shard_uid);
-        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
         assert!(!keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
     }
 
