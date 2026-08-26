@@ -18,7 +18,7 @@ use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::flat::{FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
 use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
@@ -146,7 +146,7 @@ pub(super) async fn run_state_sync_for_shard(
     runtime.get_tries().unload_memtrie(&shard_uid);
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    if keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, num_parts) {
+    if keep_applied_state_parts(&store, shard_uid, sync_hash, num_parts) {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "resuming an unfinished apply, keeping the state parts already applied");
     } else {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
@@ -254,14 +254,13 @@ pub(super) async fn run_state_sync_for_shard(
 /// empty after a restart, and `init_flat_storage` only fills it for the head epoch's layout,
 /// which excludes a shard being state synced while the head is still at genesis.
 fn keep_applied_state_parts(
-    flat_storage_manager: &FlatStorageManager,
     store: &Store,
     shard_uid: ShardUId,
     sync_hash: CryptoHash,
     num_parts: u64,
 ) -> bool {
     let previous_apply_completed = matches!(
-        flat_storage_manager.get_flat_storage_status(shard_uid),
+        store.flat_store().get_flat_storage_status(shard_uid),
         FlatStorageStatus::Ready(_)
     );
     let apply_parts_started = any(0..num_parts, |part_idx| {
@@ -430,16 +429,15 @@ mod tests {
 
     #[test]
     fn applied_parts_kept_while_apply_is_unfinished() {
-        let (runtime, store, _tmp_dir) = create_test_runtime_and_store();
+        let (_runtime, store, _tmp_dir) = create_test_runtime_and_store();
         let shard_layout = ShardLayout::single_shard();
         let shard_id = shard_layout.get_shard_id(0).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let sync_hash = CryptoHash::default();
-        let flat_storage_manager = runtime.get_flat_storage_manager();
 
         mark_part_applied(&store, sync_hash, shard_id, 0);
 
-        assert!(keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, 2));
+        assert!(keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
     }
 
     #[test]
@@ -457,7 +455,7 @@ mod tests {
         set_flat_storage_ready(&store, shard_uid);
         assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-        assert!(!keep_applied_state_parts(&flat_storage_manager, &store, shard_uid, sync_hash, 2));
+        assert!(!keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
     }
 
     #[tokio::test]
