@@ -159,8 +159,6 @@ impl ExtCostsConfig {
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
             // SHA3-256 shares the keccak-f permutation, so it gets the same costs.
-            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2870000000,
-            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::sha3_256_base => SAFETY_MULTIPLIER * 1959830425,
             ExtCosts::sha3_256_byte => SAFETY_MULTIPLIER * 7157035,
             // SHA3-384/512 share the keccak-f permutation; sha3_512 matches keccak512's rate
@@ -180,6 +178,11 @@ impl ExtCostsConfig {
             // based on relative measurements compared to ed25519
             ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
+            // Same hash as sha3_256 over the same bytes, so the per-byte cost is
+            // sha3_256's; the base is scaled up for the base32 encoding. See the
+            // calibration note in `parameters.yaml`.
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2870000000,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
