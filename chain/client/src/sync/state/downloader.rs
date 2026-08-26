@@ -1,7 +1,7 @@
 use super::StateSyncDownloadSource;
 use super::chain_requests::StateHeaderValidationRequest;
 use super::task_tracker::TaskTracker;
-use super::util::get_state_header_if_exists_in_storage;
+use super::util::{get_state_header_if_exists_in_storage, increment_download_count};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
@@ -186,6 +186,7 @@ impl StateSyncDownloader {
                     store_update.set(DBCol::StateParts, &key, &bytes);
                     store_update.commit();
                 } else {
+                    increment_download_count(shard_id, "part", "network", "validation_failed");
                     return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
                 }
                 Ok(())

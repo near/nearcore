@@ -129,6 +129,9 @@ pub(super) async fn run_state_sync_for_shard(
                     total: num_parts,
                 };
             })
+            .inspect_err(|(part_id, err)| {
+                tracing::debug!(target: "sync", ?shard_id, part_id, ?err, "state part download failed");
+            })
             .collect::<Vec<_>>()
             .await;
         // Update the list of parts_to_download retaining only the ones that failed.
