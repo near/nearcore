@@ -145,13 +145,6 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
-    // `StatePartsApplied` markers only describe what is on disk while an apply is still
-    // unfinished. Once an earlier sync for this shard reached `Ready`, finalize advanced the
-    // state past those parts and deleted the nodes they wrote, so every part must be applied
-    // again. Read the status from the database, not from the flat storage registry: the
-    // registry is empty after a restart, and `init_flat_storage` only fills it for shards of
-    // the head epoch's layout, which excludes a shard being state synced while the head is
-    // still at genesis.
     let flat_storage_manager = runtime.get_flat_storage_manager();
     if keep_applied_state_parts(
         &flat_storage_manager,
@@ -165,12 +158,11 @@ pub(super) async fn run_state_sync_for_shard(
     } else {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
         let mut store_update = store.store_update();
-        // The registry-scoped call clears the on-disk state only for a shard registered in
-        // this process. A shard being state synced is not registered after a restart, so fall
-        // back to removing values, deltas and status directly.
-        let removed = flat_storage_manager
+        // A shard being state synced is usually absent from the registry, and then this
+        // clears nothing.
+        let cleared_via_registry = flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        if !removed {
+        if !cleared_via_registry {
             store_update.flat_store_update().remove_flat_storage(shard_uid);
         }
         for part_idx in 0..num_parts {
@@ -261,12 +253,13 @@ pub(super) async fn run_state_sync_for_shard(
 
 /// Whether the parts recorded in `StatePartsApplied` still describe the state on disk.
 ///
-/// They do only while an apply is unfinished. Once an earlier sync for this shard reached
-/// `Ready`, finalize advanced the state past those parts and deleted the nodes they wrote, so
-/// they must all be applied again. The status comes from the database rather than the flat
-/// storage registry: the registry is empty after a restart, and `init_flat_storage` only fills
-/// it for shards of the head epoch's layout, which excludes a shard being state synced while
-/// the head is still at genesis.
+/// They do only while an apply is unfinished. `Ready` means an earlier sync already applied
+/// every part, after which finalize applies a chunk on top and refcount-deletes the base nodes
+/// the new root does not share, so the parts must be applied again.
+///
+/// The status comes from the database rather than the flat storage registry: the registry is
+/// empty after a restart, and `init_flat_storage` only fills it for the head epoch's layout,
+/// which excludes a shard being state synced while the head is still at genesis.
 fn keep_applied_state_parts(
     flat_storage_manager: &FlatStorageManager,
     store: &Store,
@@ -275,7 +268,7 @@ fn keep_applied_state_parts(
     sync_hash: CryptoHash,
     num_parts: u64,
 ) -> bool {
-    let previous_sync_finished = matches!(
+    let previous_apply_completed = matches!(
         flat_storage_manager.get_flat_storage_status(shard_uid),
         FlatStorageStatus::Ready(_)
     );
@@ -284,7 +277,7 @@ fn keep_applied_state_parts(
         let key_bytes = borsh::to_vec(&key).unwrap();
         store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
-    apply_parts_started && !previous_sync_finished
+    apply_parts_started && !previous_apply_completed
 }
 
 fn create_flat_storage_for_shard(
