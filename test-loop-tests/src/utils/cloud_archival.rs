@@ -240,7 +240,7 @@ pub(crate) fn get_state_header_for_epoch(
 
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.cloud_archival_store().min_head().expect("CLOUD_MIN_HEAD should exist")
+    hot_store.cloud_archival_store().writer_min_head().expect("CLOUD_MIN_HEAD should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -403,7 +403,8 @@ pub fn snapshots_sanity_check(
 
     // Every epoch through the last one the writer finished archiving. A batch that
     // ended exactly at an epoch's last block published the next epoch's data too.
-    let last_archived_epoch_last_block = store.cloud_archival_store().prev_epoch_end().unwrap();
+    let last_archived_epoch_last_block =
+        store.cloud_archival_store().writer_prev_epoch_end().unwrap();
     let last_archived_epoch_id =
         client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
     let last_archived_epoch_info = EpochInfo::try_from_slice(

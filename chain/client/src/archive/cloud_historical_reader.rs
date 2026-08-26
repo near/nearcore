@@ -27,6 +27,7 @@ pub fn bootstrap_range(
         let batch = cloud_storage.get_block_batch_for_height(height)?;
         let last_in_batch = std::cmp::min(batch.end_height(), end_height);
         let mut update = store.store_update();
+        let mut last_header = None;
         for h in height..=last_in_batch {
             let Some(block_data) = batch.get_block_at_height(h) else {
                 continue;
@@ -37,14 +38,16 @@ pub fn bootstrap_range(
                 first_epoch_data.get_or_insert(epoch_data);
             }
             save_block_data(&mut update, block_data);
+            last_header = Some(block_data.block().header());
             if (h - start_height).is_multiple_of(log_interval) || h == end_height {
                 let percent_done = (h - start_height + 1) * 100 / range_length;
                 tracing::info!(height = h, end_height, percent_done, "bootstrap progress");
             }
         }
-        // A presence marker, so far: nothing reads the height it names.
+        // The reader head is a presence marker, so far: nothing reads the height it
+        // names.
         // TODO(cloud_archival): resume from it, counting the shard rows too.
-        update.cloud_archival_store_update().set_reader_head(last_in_batch);
+        update.cloud_archival_store_update().set_reader_position(last_in_batch, last_header);
         update.commit();
         height = last_in_batch + 1;
     }

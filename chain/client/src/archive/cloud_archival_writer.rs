@@ -333,7 +333,7 @@ impl CloudArchivalWriter {
         let min_head = self
             .hot_store
             .cloud_archival_store()
-            .min_head()
+            .writer_min_head()
             .expect("CLOUD_MIN_HEAD should exist in hot store after initialize");
         let batch_range = self.next_batch_after(min_head);
         let hot_final_height = self.get_hot_final_head_height()?;
@@ -543,7 +543,7 @@ impl CloudArchivalWriter {
         &self,
         batch_range: &BatchRange,
     ) -> Result<Option<BlockHeadUpdate>, CloudArchivingError> {
-        if let Some(head) = self.hot_store.cloud_archival_store().block_head() {
+        if let Some(head) = self.hot_store.cloud_archival_store().writer_block_head() {
             if head >= batch_range.end() {
                 return Ok(None);
             }
@@ -573,7 +573,7 @@ impl CloudArchivalWriter {
         for shard_batch in shard_batches {
             let shard_id = shard_batch.shard_uid.shard_id();
             let batch_end = shard_batch.range.end();
-            let lagging = match self.hot_store.cloud_archival_store().shard_head(shard_id) {
+            let lagging = match self.hot_store.cloud_archival_store().writer_shard_head(shard_id) {
                 Some(head) => head < batch_end,
                 None => true,
             };
@@ -617,7 +617,7 @@ impl CloudArchivalWriter {
         let prev_epoch_end = self
             .hot_store
             .cloud_archival_store()
-            .prev_epoch_end()
+            .writer_prev_epoch_end()
             .expect("CLOUD_PREV_EPOCH_END should exist after initialize");
         let batch_start_epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
         let resharding =
@@ -957,13 +957,13 @@ impl CloudArchivalWriter {
         let mut store_update = self.hot_store.cloud_archival_store().store_update();
 
         if let Some(block_head) = block_head {
-            store_update.set_block_head(block_head);
+            store_update.set_writer_block_head(block_head);
         }
         for &(shard_id, height) in shard_heads {
-            store_update.set_shard_head(shard_id, height);
+            store_update.set_writer_shard_head(shard_id, height);
         }
-        store_update.set_min_head(min_height);
-        store_update.set_prev_epoch_end(self.compute_initial_prev_epoch_end(min_height)?);
+        store_update.set_writer_min_head(min_height);
+        store_update.set_writer_prev_epoch_end(self.compute_initial_prev_epoch_end(min_height)?);
         store_update.commit();
         // No shard retires during initialization.
         let head_updates: Vec<ShardHeadUpdate> = shard_heads
@@ -1046,14 +1046,14 @@ impl CloudArchivalWriter {
     ) -> Result<(), near_chain_primitives::Error> {
         let mut store_update = self.hot_store.cloud_archival_store().store_update();
         if let Some(block_update) = block_update {
-            store_update.set_block_head(block_update.head);
+            store_update.set_writer_block_head(block_update.head);
         }
         for advanced in shards_update {
-            store_update.set_shard_head(advanced.shard_id, advanced.head);
+            store_update.set_writer_shard_head(advanced.shard_id, advanced.head);
         }
-        store_update.set_min_head(height);
+        store_update.set_writer_min_head(height);
         if let Some(new_prev_epoch_end) = new_prev_epoch_end {
-            store_update.set_prev_epoch_end(new_prev_epoch_end);
+            store_update.set_writer_prev_epoch_end(new_prev_epoch_end);
         }
         store_update.commit();
         Self::report_head_heights(block_update.map(|u| u.head), shards_update, height);

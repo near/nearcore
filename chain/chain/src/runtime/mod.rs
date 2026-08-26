@@ -662,7 +662,7 @@ fn get_epoch_start_height_from_cloud_head_prev_epoch(
     store: &Store,
     epoch_manager: &EpochManager,
 ) -> Result<Option<BlockHeight>, Error> {
-    let Some(prev_epoch_end) = store.cloud_archival_store().prev_epoch_end() else {
+    let Some(prev_epoch_end) = store.cloud_archival_store().writer_prev_epoch_end() else {
         return Ok(None);
     };
     let epoch_start_height = epoch_manager.get_epoch_start_height(&prev_epoch_end)?;

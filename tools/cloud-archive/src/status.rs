@@ -61,9 +61,9 @@ fn collect_external(cloud_storage: &Arc<CloudStorage>) -> anyhow::Result<Externa
 }
 
 fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
-    let last_archived_epoch_last_block = store.cloud_archival_store().prev_epoch_end();
-    let cloud_block_head = store.cloud_archival_store().block_head();
-    let cloud_shard_heads = store.cloud_archival_store().all_shard_heads();
+    let last_archived_epoch_last_block = store.cloud_archival_store().writer_prev_epoch_end();
+    let cloud_block_head = store.cloud_archival_store().writer_block_head();
+    let cloud_shard_heads = store.cloud_archival_store().all_writer_shard_heads();
     let chain_head =
         store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).context("HEAD not found in DB")?.height;
     let chain_final_head = store
