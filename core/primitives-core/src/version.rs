@@ -343,6 +343,7 @@ pub enum ProtocolFeature {
     DynamicResharding,
     GasKeys,
     /// Meta transactions with gas key support via `Action::DelegateV2`.
+    /// Note: Later disabled by `RejectDelegateV2`.
     DelegateV2,
     #[deprecated]
     _DeprecatedFixAccessKeyAllowanceCharging,
@@ -447,11 +448,13 @@ pub enum ProtocolFeature {
     ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
-    /// Reject `Action::DelegateV2`. Its inner nonce advances a gas key of the
-    /// delegate sender, which the SPICE pending transaction queue does not
-    /// track: the queue reads only the outer transaction's signer, public key
-    /// and nonce index. The action and payload types stay in the codebase to
-    /// hold a place for a future delegate action version.
+    /// Reject `Action::DelegateV2`. This disables meta transactions from gas
+    /// keys, because the inner nonce advances a gas key of the delegate sender
+    /// and `PendingTransactionQueue` does not see it: the queue reads only the
+    /// outer transaction's signer, public key and nonce index, so its nonce and
+    /// gas key balance commitments would miss that key. The `DelegateV2`
+    /// variant and `VersionedDelegateActionPayload` remain so a later delegate
+    /// action version can reuse them.
     RejectDelegateV2,
     EnforcePerReceiptStorageProofLimit,
     /// Extend the per-receipt storage proof limit to every action kind. The

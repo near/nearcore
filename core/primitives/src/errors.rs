@@ -356,9 +356,9 @@ pub enum InvalidAccessKeyError {
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
-    /// Gas keys track nonces per index in dedicated storage, which a plain
-    /// access key nonce does not select, so a gas key must sign a `DelegateV2`
-    /// with a gas key nonce instead.
+    /// A plain access key nonce does not select one of the gas key's nonces.
+    /// `DelegateV2` was intended to carry a gas key nonce, however gas key
+    /// meta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.
     DelegateActionRequiresNonGasKey = 6,
     /// A delegate action with a gas key nonce must be signed by a gas key.
     DelegateActionRequiresGasKey = 7,
