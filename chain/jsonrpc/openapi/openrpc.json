@@ -2277,6 +2277,34 @@
             "const": "MalformedUniversalStateInit",
             "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction includes a feature that was removed at or before the\ncurrent protocol version. The counterpart of\n`UnsupportedProtocolFeature`, which covers features not yet available.",
+            "properties": {
+              "RemovedProtocolFeature": {
+                "properties": {
+                  "protocol_feature": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "protocol_feature",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RemovedProtocolFeature"
+            ],
+            "title": "RemovedProtocolFeature",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -6415,7 +6443,7 @@
           },
           {
             "const": "DelegateActionRequiresNonGasKey",
-            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
+            "description": "A plain access key nonce does not select one of the gas key's nonces.\n`DelegateV2` was intended to carry a gas key nonce, however gas key\nmeta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.",
             "type": "string"
           },
           {

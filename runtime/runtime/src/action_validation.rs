@@ -160,6 +160,15 @@ fn validate_action_with_mode(
                 "DelegateV2",
                 current_protocol_version,
             )?;
+            // Receipts created before the removal are still in flight and must
+            // keep executing, so only new transactions and receipts are refused.
+            if mode == ValidateReceiptMode::NewReceipt {
+                reject_removed_protocol_feature(
+                    ProtocolFeature::RejectDelegateV2,
+                    "DelegateV2",
+                    current_protocol_version,
+                )?;
+            }
             validate_delegate_action(
                 limit_config,
                 (&a.delegate_action).into(),
@@ -429,6 +438,20 @@ fn require_protocol_feature(
 ) -> Result<(), ActionsValidationError> {
     if !feature.enabled(current_protocol_version) {
         return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: feature_name.to_owned(),
+            version: current_protocol_version,
+        });
+    }
+    Ok(())
+}
+
+fn reject_removed_protocol_feature(
+    removed_by: ProtocolFeature,
+    feature_name: &str,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    if removed_by.enabled(current_protocol_version) {
+        return Err(ActionsValidationError::RemovedProtocolFeature {
             protocol_feature: feature_name.to_owned(),
             version: current_protocol_version,
         });
@@ -1063,8 +1086,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
+    fn delegate_v2_action() -> Action {
         let delegate_action = DelegateActionV2 {
             sender_id: alice_account(),
             receiver_id: "bob.near".parse().unwrap(),
@@ -1073,18 +1095,67 @@ mod tests {
             max_block_height: 1000,
             public_key: PublicKey::empty(KeyType::ED25519),
         };
-        let action = Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+        Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
             delegate_action: delegate_action.into(),
             signature: Signature::empty(KeyType::ED25519),
-        }));
+        }))
+    }
+
+    #[test]
+    fn test_validate_action_invalid_delegate_v2_before_protocol_feature() {
         let protocol_version = ProtocolFeature::DelegateV2.protocol_version() - 1;
         assert_eq!(
-            validate_action(&test_limit_config(), &action, &alice_account(), protocol_version),
+            validate_action(
+                &test_limit_config(),
+                &delegate_v2_action(),
+                &alice_account(),
+                protocol_version
+            ),
             Err(ActionsValidationError::UnsupportedProtocolFeature {
                 protocol_feature: "DelegateV2".to_owned(),
                 version: protocol_version,
             })
         );
+    }
+
+    #[test]
+    fn test_validate_action_delegate_v2_rejected_in_new_receipt_after_removal() {
+        let protocol_version = ProtocolFeature::RejectDelegateV2.protocol_version();
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &delegate_v2_action(),
+                &alice_account(),
+                protocol_version
+            ),
+            Err(ActionsValidationError::RemovedProtocolFeature {
+                protocol_feature: "DelegateV2".to_owned(),
+                version: protocol_version,
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_action_delegate_v2_allowed_in_existing_receipt_after_removal() {
+        validate_action_with_mode(
+            &test_limit_config(),
+            &delegate_v2_action(),
+            &alice_account(),
+            ProtocolFeature::RejectDelegateV2.protocol_version(),
+            ValidateReceiptMode::ExistingReceipt,
+        )
+        .expect("in-flight receipts must keep executing across the removal");
+    }
+
+    #[test]
+    fn test_validate_action_delegate_v2_allowed_before_removal() {
+        validate_action(
+            &test_limit_config(),
+            &delegate_v2_action(),
+            &alice_account(),
+            ProtocolFeature::RejectDelegateV2.protocol_version() - 1,
+        )
+        .expect("valid action");
     }
 
     #[test]
