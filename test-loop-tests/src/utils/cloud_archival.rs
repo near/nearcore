@@ -15,7 +15,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -653,7 +653,7 @@ async fn download_and_apply_state_snapshot(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
     for part_index in 0..num_parts {
-        let part_id = PartId::new(part_index, num_parts);
+        let part_id = StatePartId::new(part_index, num_parts);
         let state_part = cloud_storage
             .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
             .await

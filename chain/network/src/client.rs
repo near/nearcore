@@ -12,7 +12,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId};
@@ -65,7 +66,7 @@ pub struct StateRequestHeader {
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_idx: StatePartIndex,
 }
 
 /// Outgoing response to received state request.
@@ -94,12 +95,12 @@ impl StateResponse {
         }
     }
 
-    pub fn part_id_or_header(&self) -> PartIdOrHeader {
+    pub fn part_or_header(&self) -> PartOrHeader {
         match self {
-            Self::Ack(ack) => ack.part_id_or_header,
-            Self::State(state) => match state.part_id() {
-                Some(part_id) => PartIdOrHeader::Part { part_id },
-                None => PartIdOrHeader::Header,
+            Self::Ack(ack) => ack.part_or_header,
+            Self::State(state) => match state.part_idx() {
+                Some(part_idx) => PartOrHeader::Part { part_idx },
+                None => PartOrHeader::Header,
             },
         }
     }

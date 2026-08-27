@@ -33,6 +33,7 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
+use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -688,12 +689,12 @@ impl From<&Tip> for BlockStatusView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PartElapsedTimeView {
-    pub part_id: u64,
+    pub part_id: StatePartIndex,
     pub elapsed_ms: u128,
 }
 
 impl PartElapsedTimeView {
-    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+    pub fn new(part_id: &StatePartIndex, elapsed_ms: u128) -> PartElapsedTimeView {
         Self { part_id: *part_id, elapsed_ms }
     }
 }
