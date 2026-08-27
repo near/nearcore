@@ -4151,6 +4151,7 @@ dependencies = [
  "clap",
  "near-chain-configs",
  "near-client",
+ "near-epoch-manager",
  "near-primitives",
  "near-store",
  "nearcore",

@@ -1994,7 +1994,7 @@ impl EpochManager {
     }
 
     /// Returns true if the next block after `block_info` will be in the next epoch.
-    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+    pub fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         if block_info.is_genesis() {
             return Ok(true);
         }

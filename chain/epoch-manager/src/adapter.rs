@@ -110,7 +110,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Returns true, if the block the `BlockInfo` describes is the last block in its
+    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo`, nothing else.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError>;
 
     /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
     /// It is `Some` only for the first block of an epoch. Used by the block producer,
@@ -993,9 +1000,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_shard_layout(epoch_id)
     }
 
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(block_hash)
+        epoch_manager.is_next_block_in_next_epoch(block_info)
     }
 
     fn is_produced_block_last_in_epoch(

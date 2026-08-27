@@ -994,12 +994,35 @@ fn test_cloud_archival_fully_skipped_batch() {
         );
     }
     assert!(h.local_min_head() > 15, "archivization must advance past the gap");
+    // The gap starts where an epoch does, so the block below it ends the previous epoch
+    // and the epoch above it has no block until the gap is over.
+    let epoch_below = epoch_id_at(&cloud_storage, dropped_heights[0] - 1);
+    let last_dropped = *dropped_heights.last().unwrap();
+    let first_above_gap = (last_dropped + 1..=last_dropped + h.epoch_length)
+        .find(|&height| cloud_storage.get_block_data(height).unwrap().is_some())
+        .expect("a present block above the gap");
+    let epoch_above = epoch_id_at(&cloud_storage, first_above_gap);
+    assert_ne!(epoch_below, epoch_above, "the gap must straddle an epoch boundary");
+    assert_eq!(
+        cloud_storage.get_epoch_data(epoch_above).unwrap().epoch_start_height(),
+        first_above_gap,
+        "the epoch above the gap must start at its first present block"
+    );
     h.assert_heads_ok_before_gc();
 
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
+    // A range spanning the skipped batch: the reader writes nothing for those heights and
+    // must still match the writer everywhere else.
     h.bootstrap_historical_reader(start, target);
     h.assert_reader_writer_parity(start, target);
+    h.kill_historical_reader();
+
+    let gap_target = first_above_gap + h.epoch_length / 2;
+    // The corner case the skipped batch creates, covered here: a start height with no
+    // block of its own, above the last block of one epoch and below the first of the next.
+    h.bootstrap_historical_reader(dropped_heights[0], gap_target);
+    h.assert_reader_writer_parity(dropped_heights[0], gap_target);
     h.kill_historical_reader();
 
     h.shutdown();
