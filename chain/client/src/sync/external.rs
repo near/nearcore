@@ -332,7 +332,7 @@ mod test {
     use near_chain_configs::ExternalStorageLocation;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::state_part::PartId;
+    use near_primitives::state_part::StatePartId;
     use near_primitives::types::{EpochId, ShardId};
     use near_store::archive::cloud_storage::{BucketConfig, CloudStorage, CloudStorageFileID};
     use rand::distributions::{Alphanumeric, DistString};
@@ -349,7 +349,7 @@ mod test {
         let epoch_id = EpochId(CryptoHash::hash_bytes(b"epoch"));
         let epoch_height = 7;
         let shard_id = ShardId::new(3);
-        let part_id = PartId::new(5, 15);
+        let part_id = StatePartId::new(5, 15);
         let cloud_storage = CloudStorage::new(
             ExternalConnection::Filesystem { root_dir: PathBuf::new() },
             chain_id.to_string(),
@@ -358,7 +358,7 @@ mod test {
 
         let kinds = [
             (
-                StateFileType::StatePart { part_id: part_id.idx, num_parts: part_id.total },
+                StateFileType::StatePart { part_idx: part_id.index, num_parts: part_id.total },
                 CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id),
             ),
             (

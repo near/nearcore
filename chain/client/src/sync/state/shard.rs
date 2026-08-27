@@ -119,7 +119,7 @@ pub(super) async fn run_state_sync_for_shard(
                 // Results arrive in completion order, so the part id can't be recovered from
                 // the position in the output. Carry it in the error, the only branch that
                 // needs it, so the stream stays a `TryStream`.
-                async move { future.await.map_err(|err| (part_id, err)) }
+                async move { future.await.map_err(|err| (part_idx, err)) }
             })
             .buffer_unordered(concurrency_limit.into())
             .inspect_ok(|_| {
