@@ -1206,7 +1206,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "EXPERIMENTAL_tx_status",
-        "Queries status of a transaction by hash including receipts",
+        "Queries status of a transaction by hash including receipts (alias for tx_status)",
         false,
         &["transaction", "experimental"],
     );
@@ -1351,7 +1351,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "tx_status",
-        "Queries status of a transaction by hash including receipts (alias for EXPERIMENTAL_tx_status)",
+        "Queries status of a transaction by hash including receipts",
         false,
         &["transaction"],
     );

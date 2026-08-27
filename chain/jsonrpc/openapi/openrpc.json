@@ -14398,7 +14398,7 @@
           "$ref": "#/components/schemas/RpcTransactionResponse"
         }
       },
-      "summary": "Queries status of a transaction by hash including receipts",
+      "summary": "Queries status of a transaction by hash including receipts (alias for tx_status)",
       "tags": [
         {
           "name": "transaction"
@@ -15249,7 +15249,7 @@
           "$ref": "#/components/schemas/RpcTransactionResponse"
         }
       },
-      "summary": "Queries status of a transaction by hash including receipts (alias for EXPERIMENTAL_tx_status)",
+      "summary": "Queries status of a transaction by hash including receipts",
       "tags": [
         {
           "name": "transaction"
