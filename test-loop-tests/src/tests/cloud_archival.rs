@@ -20,7 +20,7 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_utils::save_block_data;
-use near_client::archive::cloud_recent_reader::{CloudArchivalRecentReader, take_over_store};
+use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -346,11 +346,9 @@ impl CloudArchiveHarness {
     /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        let store = self.recent_reader_store();
-        take_over_store(&store).expect("taking the store over");
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
-            store,
+            self.recent_reader_store(),
             Self::RECENT_READER_POLLING_INTERVAL,
         );
         let handle = reader.clone();
@@ -651,10 +649,11 @@ fn test_cloud_archival_batching_blob_per_batch() {
 /// Verifies that a reader node can bootstrap from cloud storage using a
 /// state snapshot and per-block state deltas.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs ChunkExtra.
-// The balance query resolves against the chain head, which now names a
-// bootstrapped block rather than genesis.
-#[ignore]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader reconstructs ChunkExtra. The query resolves against the chain head, which
+// is genesis here, so the balance comes out of genesis state.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
     // Reader still uses cloud: it's a fresh node with no local data.
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
@@ -1011,10 +1010,10 @@ fn test_cloud_archival_fully_skipped_batch() {
 /// the missing-block handling in `bootstrap_range` and the carried-over-chunk
 /// path during state apply.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs ChunkExtra.
-// The balance query resolves against the chain head, which now names a
-// bootstrapped block rather than genesis.
-#[ignore]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader reconstructs ChunkExtra. The query resolves against the chain head, which
+// is genesis here, so the balance comes out of genesis state.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
     // Drop blocks at the bootstrap range's start and end heights. The end

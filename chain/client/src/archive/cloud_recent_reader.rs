@@ -3,7 +3,7 @@ use near_async::time::{Clock, Duration};
 use near_chain_configs::InterruptHandle;
 use near_primitives::types::BlockHeight;
 use near_store::Store;
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
 /// Result of one recent-reader iteration.
 #[derive(Debug)]
@@ -14,22 +14,6 @@ enum PullOutcome {
     Pulled { batch_end: BlockHeight },
     /// The bucket holds nothing past the reader's head.
     WaitingForBucket,
-}
-
-/// Takes the store a stopped node handed over, before the reader's loop starts.
-///
-/// Every head goes onto that node's final head, since the node's own head can sit on a
-/// block that later reorged.
-pub fn take_over_store(store: &Store) -> Result<(), CloudArchivalReaderError> {
-    if store.cloud_archival_store().reader_head().is_some() {
-        return Ok(());
-    }
-    let final_head = store.chain_store().final_head()?;
-    let final_header = store.chain_store().get_block_header(&final_head.last_block_hash)?;
-    let mut update = store.cloud_archival_store().store_update();
-    update.set_reader_position(final_head.height, Some(final_header.as_ref()));
-    update.commit();
-    Ok(())
 }
 
 /// Reads recent chain data out of cloud storage into a local store.
@@ -46,12 +30,19 @@ impl CloudArchivalRecentReader {
         Self { clock, store, polling_interval, interrupt: InterruptHandle::new() }
     }
 
-    /// The height every component is written through.
-    fn reader_head(&self) -> Result<BlockHeight, CloudArchivalReaderError> {
-        self.store
-            .cloud_archival_store()
-            .reader_head()
-            .ok_or(CloudArchivalReaderError::NoReaderHead)
+    /// The height the reader resumes at, taking the store over on the first run.
+    ///
+    /// A store a stopped node handed over carries no reader head yet and takes that
+    /// node's final head, since its own head can sit on a block that later reorged.
+    fn ensure_reader_head(&self) -> Result<BlockHeight, CloudArchivalReaderError> {
+        if let Some(reader_head) = self.store.cloud_archival_store().reader_head() {
+            return Ok(reader_head);
+        }
+        let final_head = self.store.chain_store().final_head()?;
+        let mut update = self.store.store_update();
+        update.cloud_archival_store_update().set_reader_head(final_head.height);
+        update.commit();
+        Ok(final_head.height)
     }
 
     /// Stops the loop after the iteration in flight.
@@ -61,7 +52,7 @@ impl CloudArchivalRecentReader {
 
     /// Follows the bucket, copying what it holds into the local store, until interrupted.
     pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
-        let reader_head = self.reader_head()?;
+        let reader_head = self.ensure_reader_head()?;
         tracing::info!(target: "cloud_archival", reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {

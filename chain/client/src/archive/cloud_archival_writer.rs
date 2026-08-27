@@ -334,7 +334,7 @@ impl CloudArchivalWriter {
             .hot_store
             .cloud_archival_store()
             .writer_min_head()
-            .expect("CLOUD_MIN_HEAD should exist in hot store after initialize");
+            .expect("the writer min head should exist in the hot store after initialize");
         let batch_range = self.next_batch_after(min_head);
         let hot_final_height = self.get_hot_final_head_height()?;
         tracing::trace!(target: "cloud_archival", ?batch_range, hot_final_height, "try_archive");
@@ -618,7 +618,7 @@ impl CloudArchivalWriter {
             .hot_store
             .cloud_archival_store()
             .writer_prev_epoch_end()
-            .expect("CLOUD_PREV_EPOCH_END should exist after initialize");
+            .expect("the writer prev epoch end should exist after initialize");
         let batch_start_epoch_id = self.epoch_manager.get_next_epoch_id(&prev_epoch_end)?;
         let resharding =
             self.resharding_info(batch_range, &prev_epoch_end, epoch_ending_block_hash)?;
@@ -948,7 +948,7 @@ impl CloudArchivalWriter {
     /// Sets local heads during initialization, each to its own resolved height.
     /// Block and shard heads are stored as `BlockHeight` (always <=
     /// `hot_final_height - 1`, clamped during `resolve_init_state`).
-    /// `CLOUD_PREV_EPOCH_END` is derived from `min_height`.
+    /// The prev epoch end is derived from `min_height`.
     fn set_local_heads(
         &self,
         init_state: &ResolvedInitState,
@@ -1033,10 +1033,10 @@ impl CloudArchivalWriter {
     }
 
     /// Advances local heads after archiving at `height`. Only updates heads for
-    /// components that were actually behind. Always advances CLOUD_MIN_HEAD. An
+    /// components that were actually behind. Always advances the min head. An
     /// individual shard head may end below `height` when it is a parent shard
     /// ending at the resharding boundary.
-    /// Atomically advances `CLOUD_PREV_EPOCH_END` when an epoch ended in the batch.
+    /// Atomically advances the prev epoch end when an epoch ended in the batch.
     fn advance_local_heads(
         &self,
         height: BlockHeight,

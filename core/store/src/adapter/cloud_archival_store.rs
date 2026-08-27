@@ -1,12 +1,11 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{
     CLOUD_READER_HEAD_KEY, CLOUD_WRITER_BLOCK_HEAD_KEY, CLOUD_WRITER_MIN_HEAD_KEY,
-    CLOUD_WRITER_PREV_EPOCH_END_KEY, CLOUD_WRITER_SHARD_HEAD_PREFIX, FINAL_HEAD_KEY, HEAD_KEY,
-    cloud_writer_shard_head_key, cloud_writer_shard_head_key_shard_id,
+    CLOUD_WRITER_PREV_EPOCH_END_KEY, CLOUD_WRITER_SHARD_HEAD_PREFIX, cloud_writer_shard_head_key,
+    cloud_writer_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::BorshDeserialize;
-use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 
@@ -125,16 +124,7 @@ impl<'a> CloudArchivalStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::BlockMisc, CLOUD_WRITER_PREV_EPOCH_END_KEY, &block_hash);
     }
 
-    /// Moves every head that says how far the reader has got. `reader_head` can name
-    /// a height carrying no block; the chain heads take `header` and hold still
-    /// without one. Everything archived is final, so both name the same block.
-    pub fn set_reader_position(&mut self, reader_head: BlockHeight, header: Option<&BlockHeader>) {
-        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, &reader_head);
-        let Some(header) = header else {
-            return;
-        };
-        let tip = Tip::from_header(header);
-        self.store_update.set_ser(DBCol::BlockMisc, HEAD_KEY, &tip);
-        self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, &tip);
+    pub fn set_reader_head(&mut self, height: BlockHeight) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, &height);
     }
 }

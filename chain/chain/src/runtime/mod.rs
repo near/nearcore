@@ -480,7 +480,7 @@ impl NightshadeRuntime {
                 get_epoch_start_height_from_cloud_head_prev_epoch(&self.store, &epoch_manager)?
             else {
                 return Err(Error::DBNotFoundErr(
-                    "Cloud archival writer is configured, but CLOUD_PREV_EPOCH_END is missing"
+                    "Cloud archival writer is configured, but CLOUD_WRITER_PREV_EPOCH_END is missing"
                         .into(),
                 ));
             };

@@ -15,8 +15,6 @@ pub enum CloudArchivalReaderError {
     Chain(#[from] Error),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
-    #[error("the store carries no reader head")]
-    NoReaderHead,
 }
 
 /// Writes block-level columns from a cloud `BlockData` into `update`.
