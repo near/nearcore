@@ -218,12 +218,18 @@
                         row.append($('<td>'));
                         continue;
                     }
-                    let cell = $('<td>').append(humanFileSize(element.shard_size));
+                    let sizeText = element.shard_size == null
+                        ? 'unknown'
+                        : humanFileSize(element.shard_size);
+                    let cell = $('<td>').append(sizeText);
                     if (element.state_header_exists == true) {
                         cell.css('background-color', 'orange');
                     }
                     row.append(cell);
-                    row.append($('<td>').append(element.state_parts_count));
+                    let partsText = element.state_parts_count == null
+                        ? 'unknown'
+                        : element.state_parts_count;
+                    row.append($('<td>').append(partsText));
                 }
                 $('.js-tbody-shard-sizes').append(row);
             });

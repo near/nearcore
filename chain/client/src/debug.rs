@@ -369,33 +369,30 @@ impl ClientActor {
                     self.client.chain.chain_store().store().get(DBCol::StateHeaders, &key).is_some()
                 });
 
-                let shard_size = block
-                    .as_ref()
-                    .and_then(|block| {
-                        let prev_state_root = block
-                            .chunks()
-                            .get(shard_info.shard_index())
-                            // TODO(spice): chunks in spice no longer contain prev state root.
-                            .filter(|chunk| !chunk.is_spice_chunk())
-                            .map(|chunk| chunk.prev_state_root())?;
+                let shard_size = block.as_ref().and_then(|block| {
+                    let prev_state_root = block
+                        .chunks()
+                        .get(shard_info.shard_index())
+                        // TODO(spice): chunks in spice no longer contain prev state root.
+                        .filter(|chunk| !chunk.is_spice_chunk())
+                        .map(|chunk| chunk.prev_state_root())?;
 
-                        self.client
-                            .runtime_adapter
-                            .get_state_root_node(
-                                shard_info.shard_id(),
-                                epoch_start_block_header.hash(),
-                                &prev_state_root,
-                            )
-                            .ok()
-                            .map(|state_root_node| state_root_node.memory_usage)
-                    })
-                    .unwrap_or_default();
+                    self.client
+                        .runtime_adapter
+                        .get_state_root_node(
+                            shard_info.shard_id(),
+                            epoch_start_block_header.hash(),
+                            &prev_state_root,
+                        )
+                        .ok()
+                        .map(|state_root_node| state_root_node.memory_usage)
+                });
 
                 ShardSizeAndParts {
                     shard_id: shard_info.shard_id(),
                     shard_index: shard_info.shard_index(),
                     shard_size,
-                    state_parts_count: get_num_state_parts(shard_size),
+                    state_parts_count: shard_size.map(get_num_state_parts),
                     state_header_exists,
                 }
             })

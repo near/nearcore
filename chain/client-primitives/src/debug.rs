@@ -28,8 +28,8 @@ pub struct TrackedShardsView {
 pub struct ShardSizeAndParts {
     pub shard_id: ShardId,
     pub shard_index: ShardIndex,
-    pub shard_size: u64,
-    pub state_parts_count: u64,
+    pub shard_size: Option<u64>,
+    pub state_parts_count: Option<u64>,
     pub state_header_exists: bool,
 }
 
