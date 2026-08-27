@@ -19,18 +19,18 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    // `start_height` may carry no block, so the walk starts at the nearest present block
-    // below it and pulls that block's epoch.
-    let (start_height, block) = find_present_block_at_or_below(cloud_storage, start_height)?;
+    // `start_height` may carry no block, so the block walk starts at the nearest present
+    // block below it and pulls that block's epoch.
+    let (block_start_height, block) = find_present_block_at_or_below(cloud_storage, start_height)?;
     let epoch_id = *block.block().header().epoch_id();
     let epoch_data = pull_epoch_data(store, cloud_storage, &epoch_id)?;
 
-    let range_length = end_height - start_height + 1;
+    let range_length = end_height - block_start_height + 1;
     let log_interval = std::cmp::max(cloud_storage.batch_size() as u64, range_length / 100);
 
     // Fetch one batch per iteration and consume all its heights, so each
     // batch blob is downloaded and decompressed once rather than per height.
-    let mut height = start_height;
+    let mut height = block_start_height;
     while height <= end_height {
         let batch_end = pull_block_batch(store, cloud_storage, epoch_manager, height)?;
         // A presence marker, so far: nothing reads the height it names.
@@ -40,7 +40,7 @@ pub fn bootstrap_range(
         update.commit();
         height = batch_end + 1;
         // Capped: a batch runs to its own end, which can be past `end_height`.
-        let done = std::cmp::min(height - start_height, range_length);
+        let done = std::cmp::min(height - block_start_height, range_length);
         if done.is_multiple_of(log_interval) || height > end_height {
             let percent_done = done * 100 / range_length;
             tracing::info!(height, end_height, percent_done, "bootstrap progress");
