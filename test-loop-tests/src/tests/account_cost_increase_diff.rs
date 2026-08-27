@@ -251,9 +251,7 @@ fn provision_env(env: &mut TestLoopEnv) {
 
 /// Assert that the chain is currently running with the expected `AccountCostIncrease` state.
 fn assert_feature_state(env: &TestLoopEnv, expected_enabled: bool) {
-    let head = env.rpc_node().head();
-    let protocol_version =
-        env.rpc_node().client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap();
+    let protocol_version = env.rpc_node().protocol_version_at_head();
     assert_eq!(
         ProtocolFeature::AccountCostIncrease.enabled(protocol_version),
         expected_enabled,

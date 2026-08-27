@@ -67,6 +67,8 @@ mod processed_receipts_gc;
 mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
+mod reject_delegate_v2;
+mod reject_delegated_gas_key_withdraw;
 mod reject_empty_method_name;
 mod reject_outdated_blocks;
 mod replay_chunks;

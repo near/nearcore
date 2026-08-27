@@ -356,9 +356,9 @@ pub enum InvalidAccessKeyError {
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
-    /// Gas keys track nonces per index in dedicated storage, which a plain
-    /// access key nonce does not select, so a gas key must sign a `DelegateV2`
-    /// with a gas key nonce instead.
+    /// A plain access key nonce does not select one of the gas key's nonces.
+    /// `DelegateV2` was intended to carry a gas key nonce, however gas key
+    /// meta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.
     DelegateActionRequiresNonGasKey = 6,
     /// A delegate action with a gas key nonce must be signed by a gas key.
     DelegateActionRequiresGasKey = 7,
@@ -488,6 +488,15 @@ pub enum ActionsValidationError {
     } = 24,
     /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
     MalformedUniversalStateInit = 25,
+    /// The transaction includes a feature that was removed at or before the
+    /// current protocol version. The counterpart of
+    /// `UnsupportedProtocolFeature`, which covers features not yet available.
+    RemovedProtocolFeature {
+        protocol_feature: String,
+        version: ProtocolVersion,
+    } = 26,
+    /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
+    WithdrawFromGasKeyNotAllowedInDelegate = 27,
 }
 
 /// Describes the error for validating a receipt.
@@ -644,6 +653,16 @@ impl Display for ActionsValidationError {
                     "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
                     protocol_feature, version,
                 )
+            }
+            ActionsValidationError::RemovedProtocolFeature { protocol_feature, version } => {
+                write!(
+                    f,
+                    "Transaction requires protocol feature {} which was removed and is not supported at protocol version {}",
+                    protocol_feature, version,
+                )
+            }
+            ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate => {
+                write!(f, "A WithdrawFromGasKey action is not allowed inside a delegate action")
             }
             ActionsValidationError::InvalidDeterministicStateInitReceiver {
                 receiver_id,
