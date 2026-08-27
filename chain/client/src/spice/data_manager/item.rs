@@ -1,3 +1,4 @@
+use super::scheduler::{Backoff, TimingConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Clock, Instant};
 use near_primitives::hash::hash;
@@ -10,9 +11,11 @@ use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::types::AccountId;
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
-use std::mem::replace;
+use std::mem::{replace, take};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) enum SpiceData {
@@ -55,17 +58,18 @@ fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchSta
 
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
-    /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace clock.
+    /// When the first unit arrived; `None` until then.
     pub(crate) first_unit_at: Option<Instant>,
+    pub(crate) pull: PullTiming,
 }
 
 impl FetchItem {
     pub(crate) fn waiting_for_push() -> Self {
-        Self { state: FetchState::WaitingForPush, first_unit_at: None }
+        Self { state: FetchState::WaitingForPush, first_unit_at: None, pull: PullTiming::default() }
     }
 
     pub(crate) fn collecting(encoder: Arc<ReedSolomonEncoder>) -> Self {
-        Self { state: FetchState::Collecting(Assembly::new(encoder)), first_unit_at: None }
+        Self { state: FetchState::Collecting(Assembly::new(encoder)), ..Self::waiting_for_push() }
     }
 
     /// Starts a speculative pull: a waiting item begins collecting before any part
@@ -156,6 +160,69 @@ impl FetchItem {
             state => (state, Err(AssemblyError::NotDelivered)),
         })
     }
+}
+
+/// Timing state for one item's pulls.
+#[derive(Debug, Default)]
+pub(crate) struct PullTiming {
+    /// Outstanding pull requests
+    pub(crate) in_flight: Vec<InFlightRequest>,
+    /// Retry ladder position for this item's pulls.
+    pub(crate) backoff: Backoff,
+    /// The currently scheduled wake-up; a popped scheduler entry with any other instant is stale.
+    pub(crate) next_deadline: Option<Instant>,
+}
+
+impl PullTiming {
+    /// True if an outstanding request already asks for `ordinal`.
+    pub(crate) fn has_in_flight_request_for(&self, ordinal: u64) -> bool {
+        self.in_flight.iter().any(|request| request.ordinals.contains(&ordinal))
+    }
+
+    /// Removes and returns the requests unanswered for at least `request_timeout`;
+    /// their ordinals may be requested again.
+    /// Leaves `backoff` untouched: timing out is not a retry decision.
+    pub(crate) fn take_timed_out_requests(
+        &mut self,
+        config: &TimingConfig,
+        now: Instant,
+    ) -> Vec<InFlightRequest> {
+        let (timed_out, live): (Vec<_>, Vec<_>) =
+            take(&mut self.in_flight).into_iter().partition(|request| {
+                now.signed_duration_since(request.sent_at) >= config.request_timeout
+            });
+        self.in_flight = live;
+        timed_out
+    }
+
+    /// Recomputes the next deadline: the sooner of the next backoff interval and the
+    /// oldest outstanding request's timeout. Sets and returns `next_deadline`.
+    #[must_use = "the returned deadline must be scheduled, or the item is never woken"]
+    pub(crate) fn reschedule(
+        &mut self,
+        config: &TimingConfig,
+        now: Instant,
+        rng: &mut impl Rng,
+    ) -> Instant {
+        let backoff_deadline = now.add_signed(self.backoff.next_interval(config, rng));
+        let timeout_deadline = self
+            .in_flight
+            .iter()
+            .map(|request| request.sent_at.add_signed(config.request_timeout))
+            .min();
+        let deadline = timeout_deadline.map_or(backoff_deadline, |at| at.min(backoff_deadline));
+        self.next_deadline = Some(deadline);
+        deadline
+    }
+}
+
+/// One outstanding pull request to one peer.
+#[derive(Debug)]
+pub(crate) struct InFlightRequest {
+    pub(crate) source: AccountId,
+    pub(crate) sent_at: Instant,
+    /// Requested part ordinals.
+    pub(crate) ordinals: Vec<u64>,
 }
 
 /// A coded part whose merkle proof was verified against its commitment's root;
