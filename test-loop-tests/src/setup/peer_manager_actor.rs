@@ -300,6 +300,10 @@ struct TestLoopNetworkSharedStateInner {
     disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
     suppressed_block_recipients: BTreeMap<AccountId, SuppressedBlockDelivery>,
     archival_peer_ids: BTreeSet<PeerId>,
+    /// Peers that accept every message and never answer, the way a peer
+    /// advertising a false height does. No node stands behind them, so any peer
+    /// id outside this set that reaches `senders_for_peer` is a test bug.
+    unresponsive_peer_ids: BTreeSet<PeerId>,
     /// Per-account tracked-shards config, populated when a client is added.
     tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
     /// Per-shard set of accounts advertising a state snapshot; ordered for
@@ -365,6 +369,7 @@ impl TestLoopNetworkSharedState {
             disallowed_peer_links: BTreeMap::new(),
             suppressed_block_recipients: BTreeMap::new(),
             archival_peer_ids: BTreeSet::new(),
+            unresponsive_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
             snapshot_hosts: BTreeMap::new(),
             snapshot_host_selection_counter: 0,
@@ -540,6 +545,9 @@ impl TestLoopNetworkSharedState {
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();
         }
+        if guard.unresponsive_peer_ids.contains(peer_id) {
+            return guard.drop_events_senders.clone();
+        }
         guard.senders.get(peer_id).unwrap().clone()
     }
 
@@ -548,6 +556,9 @@ impl TestLoopNetworkSharedState {
     /// traverse multiple hops and bypass direct connectivity restrictions.
     fn senders_for_peer_direct(&self, peer_id: &PeerId) -> Arc<OneClientSenders> {
         let guard = self.0.lock();
+        if guard.unresponsive_peer_ids.contains(peer_id) {
+            return guard.drop_events_senders.clone();
+        }
         guard.senders.get(peer_id).unwrap().clone()
     }
 
@@ -570,6 +581,10 @@ impl TestLoopNetworkSharedState {
             return guard.drop_events_senders.clone();
         }
         guard.senders.get(peer_id).unwrap().clone()
+    }
+
+    pub fn mark_unresponsive(&self, peer_id: &PeerId) {
+        self.0.lock().unresponsive_peer_ids.insert(peer_id.clone());
     }
 
     pub fn mark_archival(&self, peer_id: &PeerId) {
