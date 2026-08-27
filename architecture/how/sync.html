@@ -284,6 +284,11 @@ header head is within the epoch sync horizon: if so, it re-enters at header
 sync (headers are already downloaded); if not, it redoes epoch sync with a
 fresh proof. Previously downloaded state parts are preserved in the DB, so
 the node does not re-download parts that were already saved before the crash.</p>
+<p>Applied state parts are tracked in <code>DBCol::StatePartsApplied</code>. On restart,
+state sync keeps them only while the flat storage status for the shard is not
+yet <code>Ready</code>. A <code>Ready</code> status means an earlier sync applied every part and
+finalized the shard, which modifies the trie on top of the parts, so the node
+clears flat storage and applies every part again.</p>
 <h2 id="side-topic-how-blocks-are-added-to-the-chain"><a class="header" href="#side-topic-how-blocks-are-added-to-the-chain">Side topic: how blocks are added to the chain?</a></h2>
 <p>A node can receive a Block in two ways:</p>
 <ul>
