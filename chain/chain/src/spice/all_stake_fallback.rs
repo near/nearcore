@@ -77,7 +77,7 @@ pub(super) fn fallback_only_shard_index(
     if blocks_between == 0 {
         return None;
     }
-    if height % blocks_between != 0 {
+    if !height.is_multiple_of(blocks_between) {
         return None;
     }
     let slot = height / blocks_between;
