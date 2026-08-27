@@ -174,10 +174,7 @@ impl SpiceCoreWriterActor {
     ) -> Result<bool, Error> {
         let chunk_block = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block.epoch_id();
-        // A property of the chunk's own block, not of the chain the carrying block sits on.
-        let is_fallback_only =
-            is_fallback_only_chunk(self.epoch_manager.as_ref(), &chunk_block, chunk_id.shard_id)?;
-        if !is_fallback_only {
+        if !is_fallback_only_chunk(self.epoch_manager.as_ref(), &chunk_block, chunk_id.shard_id)? {
             let designated = self.epoch_manager.get_chunk_validator_assignments(
                 epoch_id,
                 chunk_id.shard_id,

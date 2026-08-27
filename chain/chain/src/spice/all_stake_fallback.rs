@@ -21,16 +21,18 @@ pub const SPICE_FALLBACK_CERTIFICATION_DELAY: BlockHeight = 20;
 /// fallback-only chunk is eligible from the start: it has no delay to wait out, and
 /// `certifiable_since_height` is only set in a later block than the chunk's own.
 pub fn fallback_eligible(
-    carrying_height: BlockHeight,
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_block_header: &BlockHeader,
     chunk_info: &SpiceUncertifiedChunkInfo,
-) -> bool {
-    if chunk_info.is_fallback_only {
-        return true;
+    carrying_height: BlockHeight,
+) -> Result<bool, Error> {
+    if is_fallback_only_chunk(epoch_manager, chunk_block_header, chunk_info.chunk_id.shard_id)? {
+        return Ok(true);
     }
     let Some(certifiable_since) = chunk_info.certifiable_since_height else {
-        return false;
+        return Ok(false);
     };
-    carrying_height.saturating_sub(certifiable_since) >= SPICE_FALLBACK_CERTIFICATION_DELAY
+    Ok(carrying_height.saturating_sub(certifiable_since) >= SPICE_FALLBACK_CERTIFICATION_DELAY)
 }
 
 /// Whether `endorsers`, all attesting one execution result, certify the chunk in a block at
@@ -46,17 +48,19 @@ pub fn endorsers_certify_chunk(
     endorsers: &HashSet<AccountId>,
 ) -> Result<bool, Error> {
     let epoch_id = chunk_block_header.epoch_id();
-    if !chunk_info.is_fallback_only {
-        let designated = epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_info.chunk_id.shard_id,
-            chunk_block_header.height(),
-        )?;
-        if designated.is_endorsed(endorsers) {
-            return Ok(true);
-        }
+    let shard_id = chunk_info.chunk_id.shard_id;
+    if is_fallback_only_chunk(epoch_manager, chunk_block_header, shard_id)? {
+        return Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?.is_endorsed(endorsers));
     }
-    if !fallback_eligible(carrying_height, chunk_info) {
+    let designated = epoch_manager.get_chunk_validator_assignments(
+        epoch_id,
+        shard_id,
+        chunk_block_header.height(),
+    )?;
+    if designated.is_endorsed(endorsers) {
+        return Ok(true);
+    }
+    if !fallback_eligible(epoch_manager, chunk_block_header, chunk_info, carrying_height)? {
         return Ok(false);
     }
     Ok(all_stake_fallback_assignment(epoch_manager, epoch_id)?.is_endorsed(endorsers))

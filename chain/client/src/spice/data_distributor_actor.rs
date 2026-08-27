@@ -23,7 +23,9 @@ use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
-use near_chain::spice::all_stake_fallback::{fallback_eligible, fallback_endorsers};
+use near_chain::spice::all_stake_fallback::{
+    fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
+};
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -1012,10 +1014,15 @@ impl SpiceDataDistributorActor {
 
         for chunk_info in self.core_reader.get_uncertified_chunks(block_hash)? {
             let chunk_id = &chunk_info.chunk_id;
-            if !fallback_eligible(carrying_height, &chunk_info) {
+            let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            if !fallback_eligible(
+                self.epoch_manager.as_ref(),
+                chunk_block.header(),
+                &chunk_info,
+                carrying_height,
+            )? {
                 continue;
             }
-            let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
             let epoch_id = chunk_block.header().epoch_id();
             if self.epoch_manager.get_validator_by_account_id(epoch_id, me).is_err() {
                 continue;
@@ -1078,17 +1085,22 @@ impl SpiceDataDistributorActor {
 
         for chunk_info in &uncertified_chunks {
             let chunk_id = &chunk_info.chunk_id;
-            if !fallback_eligible(carrying_height, chunk_info) {
+            if self.pushed_fallback_witnesses.contains(chunk_id) {
                 continue;
             }
-            if self.pushed_fallback_witnesses.contains(chunk_id) {
+            let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            if !fallback_eligible(
+                self.epoch_manager.as_ref(),
+                chunk_block.header(),
+                chunk_info,
+                carrying_height,
+            )? {
                 continue;
             }
             let data_id = SpiceDataIdentifier::Witness {
                 block_hash: chunk_id.block_hash,
                 shard_id: chunk_id.shard_id,
             };
-            let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
             // The designated recipients of the initial distribution are not needed here:
             // fallback_endorsers already excludes every designated validator.
             let (_, producers) = self.recipients_and_producers(&data_id, &chunk_block)?;
@@ -1111,7 +1123,11 @@ impl SpiceDataDistributorActor {
             }
             let Some(mut distribution_data) = self.get_distribution_data(&data_id, producers.len())
             else {
-                if chunk_info.is_fallback_only {
+                if is_fallback_only_chunk(
+                    self.epoch_manager.as_ref(),
+                    chunk_block.header(),
+                    chunk_id.shard_id,
+                )? {
                     // Eligible from its own block, before we applied the chunk that produces the
                     // witness. Later blocks retry.
                     tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not yet produced - chunk not applied");
