@@ -15,16 +15,20 @@ use near_schema_checker_lib::ProtocolSchema;
 // TODO(#14340): Try to lower the upper bound, e.g. determine the maximum trie node size.
 const PART_SIZE_LIMIT: u64 = 512 * MIB;
 
-// to specify a part we always specify both part_id and num_parts together
+/// Index of a state part, in the range `0..num_parts`.
+pub type StatePartIndex = u64;
+
+/// Identifies a state part.
 #[derive(Copy, Clone, Debug)]
-pub struct PartId {
-    pub idx: u64,
+pub struct StatePartId {
+    pub index: StatePartIndex,
     pub total: u64,
 }
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
+
+impl StatePartId {
+    pub fn new(part_idx: StatePartIndex, num_parts: u64) -> StatePartId {
+        assert!(part_idx < num_parts);
+        StatePartId { index: part_idx, total: num_parts }
     }
 }
 

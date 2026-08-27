@@ -121,6 +121,7 @@ pub mod state_viewer;
 #[cfg(test)]
 mod tests;
 mod types;
+mod universal_account_id;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -537,7 +538,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -623,6 +624,18 @@ impl Runtime {
                     account_id,
                     receipt,
                     deterministic_state_init_action,
+                    &mut result,
+                )?;
+            }
+            Action::UniversalStateInit(universal_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.universal_state_init.inc();
+                universal_account_id::action_universal_state_init(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    receipt,
+                    universal_state_init_action,
                     &mut result,
                 )?;
             }
@@ -1669,9 +1682,10 @@ impl Runtime {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
-                    account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
+                    let locked = account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
-                    })?);
+                    })?;
+                    account.set_locked(locked).or_inconsistent_state(account_id)?;
                 }
 
                 tracing::debug!(target: "runtime",
@@ -1698,13 +1712,12 @@ impl Runtime {
                         )
                     })?;
                 tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
-                account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - set_locked".into(),
-                        )
-                    },
-                )?);
+                let locked = account.locked().checked_sub(return_stake).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow(
+                        "update_validator_accounts - set_locked".into(),
+                    )
+                })?;
+                account.set_locked(locked).or_inconsistent_state(account_id)?;
                 account.set_amount(account.amount().checked_add(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(

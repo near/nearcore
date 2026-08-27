@@ -2,7 +2,7 @@ use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::{PublicKey, PublicKeyHandle, SecretKey};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::types::query::{
@@ -18,7 +18,8 @@ use std::path::Path;
 pub(crate) const ACCESS_KEY_PAGE_SIZE: Option<NonZeroU32> = NonZeroU32::new(1000);
 
 pub(crate) struct SecretAccessKey {
-    pub(crate) original_key: Option<PublicKey>,
+    /// The source chain key this was mapped from, as it appears in the trie.
+    pub(crate) original_handle: Option<PublicKeyHandle>,
     pub(crate) mapped_key: SecretKey,
     pub(crate) permission: Option<AccessKeyPermissionView>,
 }
@@ -27,7 +28,7 @@ pub(crate) fn default_extra_key(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> SecretAccessKey {
     SecretAccessKey {
-        original_key: None,
+        original_handle: None,
         mapped_key: crate::key_mapping::default_extra_key(secret),
         permission: None,
     }
@@ -38,9 +39,9 @@ pub(crate) fn map_pub_key(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> anyhow::Result<SecretAccessKey> {
     let public_key: PublicKey = public_key.parse().context("Could not parse public key")?;
-    // we say original_key is None here because the user provided it on the command line in this case, so no need to print it again.
+    // we say original_handle is None here because the user provided it on the command line in this case, so no need to print it again.
     Ok(SecretAccessKey {
-        original_key: None,
+        original_handle: None,
         mapped_key: crate::key_mapping::map_key(&public_key, secret),
         permission: None,
     })
@@ -108,16 +109,10 @@ pub(crate) fn keys_from_source_db(
         let QueryResponseKind::AccessKeyList(l) = response.kind else {
             unreachable!();
         };
-        keys.extend(l.keys.into_iter().filter_map(|k| {
-            // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
-            // hash-form entries can't be mapped because the full pubkey is not
-            // recoverable. See key_mapping.rs for the matching panic.
-            let full_pk = k.public_key.full_pubkey()?;
-            Some(SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&full_pk, secret),
-                original_key: Some(full_pk),
-                permission: Some(k.access_key.permission),
-            })
+        keys.extend(l.keys.into_iter().map(|k| SecretAccessKey {
+            mapped_key: crate::key_mapping::map_key_handle(&k.public_key, secret),
+            original_handle: Some(k.public_key),
+            permission: Some(k.access_key.permission),
         }));
         match l.last_key {
             Some(cursor) => after_key = Some(cursor),
@@ -163,16 +158,10 @@ pub(crate) async fn keys_from_rpc(
                 response.kind
             );
         };
-        keys.extend(l.keys.into_iter().filter_map(|k| {
-            // TODO(post-quantum): Mirror does not support ML-DSA-65 today;
-            // hash-form entries can't be mapped because the full pubkey is not
-            // recoverable. See key_mapping.rs for the matching panic.
-            let full_pk = k.public_key.full_pubkey()?;
-            Some(SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&full_pk, secret),
-                original_key: Some(full_pk),
-                permission: Some(k.access_key.permission),
-            })
+        keys.extend(l.keys.into_iter().map(|k| SecretAccessKey {
+            mapped_key: crate::key_mapping::map_key_handle(&k.public_key, secret),
+            original_handle: Some(k.public_key),
+            permission: Some(k.access_key.permission),
         }));
         match l.last_key {
             Some(cursor) => after_key = Some(cursor),

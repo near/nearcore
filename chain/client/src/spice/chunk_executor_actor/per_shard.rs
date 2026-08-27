@@ -597,7 +597,10 @@ impl PerShardChunkExecutor {
                         // Chunk is new but invalid (malicious producer): include proof.
                         self.chain_store
                             .chunk_store()
-                            .is_invalid_chunk(chunk_header.chunk_hash())
+                            .is_invalid_chunk(
+                                chunk_header.height_created(),
+                                chunk_header.chunk_hash(),
+                            )
                             .map(|enc| Box::new(enc.content().clone()))
                     } else {
                         None
@@ -656,7 +659,9 @@ impl PerShardChunkExecutor {
         match get_chunk_clone_from_header(&chunk_store, chunk_header) {
             Ok(chunk) => Ok(Some(chunk)),
             Err(Error::ChunkMissing(_))
-                if chunk_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+                if chunk_store
+                    .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
+                    .is_some() =>
             {
                 Ok(None)
             }

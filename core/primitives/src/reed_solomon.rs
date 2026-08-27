@@ -74,7 +74,7 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
-    (encoded_length + data_parts - 1) / data_parts
+    encoded_length.div_ceil(data_parts)
 }
 
 pub fn reed_solomon_num_data_parts(total_parts: usize, ratio_data_parts: f64) -> usize {

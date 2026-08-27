@@ -142,7 +142,7 @@ fn setup_runtime_for_shard(
             let mut initial_account = account_new(initial_balance, CryptoHash::default());
 
             initial_account.set_storage_usage(182);
-            initial_account.set_locked(initial_locked);
+            initial_account.set_locked(initial_locked).unwrap();
 
             set_account(&mut initial_state, account_id.clone(), &initial_account);
 

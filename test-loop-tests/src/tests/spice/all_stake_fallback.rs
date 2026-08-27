@@ -176,7 +176,7 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
         .clients(accounts)
         .build()
         .drop(DropCondition::DesignatedSpiceEndorsements)
-        .drop(DropCondition::SpicePartialDataRequests);
+        .drop(DropCondition::SpiceDataRequests);
     assert_fallback_has_enough_stake(&env.node(0));
 
     let target = env.node(0).last_certified_block_header().height() + 4;

@@ -5,6 +5,7 @@ use super::peer_manager_actor::{
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
+use super::spice_partial_data_faults::SpicePartialDataFaultState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -47,7 +48,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
@@ -81,6 +82,8 @@ pub struct SharedState {
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// Fault injection for spice data distribution, armed by tests.
+    pub spice_partial_data_faults: SpicePartialDataFaultState,
 }
 
 /// Shared state for the spice endorsement-delay network handler installed by

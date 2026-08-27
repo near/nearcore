@@ -250,22 +250,22 @@ where
 }
 
 /// Zero-balance account (NEP-448)
-fn is_zero_balance_account(account: &near_primitives::account::Account) -> bool {
-    account.storage_usage() <= node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
+fn is_zero_balance_account(account: &near_primitives::views::AccountView) -> bool {
+    account.storage_usage <= node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
 
 /// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
-    account: &near_primitives::account::Account,
+    account: &near_primitives::views::AccountView,
     storage_amount_per_byte: Balance,
 ) -> Balance {
     let staked_for_storage = if is_zero_balance_account(account) {
         Balance::ZERO
     } else {
-        storage_amount_per_byte.checked_mul(u128::from(account.storage_usage())).unwrap()
+        storage_amount_per_byte.checked_mul(u128::from(account.storage_usage)).unwrap()
     };
 
-    staked_for_storage.saturating_sub(account.locked())
+    staked_for_storage.saturating_sub(account.locked)
 }
 
 pub(crate) struct RosettaAccountBalances {
@@ -279,17 +279,18 @@ impl RosettaAccountBalances {
         Self { liquid: Balance::ZERO, liquid_for_storage: Balance::ZERO, locked: Balance::ZERO }
     }
 
-    pub fn from_account<T: Into<near_primitives::account::Account>>(
-        account: T,
+    pub fn from_account(
+        account: &near_primitives::views::AccountView,
         runtime_config: &near_parameters::RuntimeConfigView,
     ) -> Self {
-        let account = account.into();
-        let amount = account.amount();
-        let locked = account.locked();
         let liquid_for_storage =
-            get_liquid_balance_for_storage(&account, runtime_config.storage_amount_per_byte);
+            get_liquid_balance_for_storage(account, runtime_config.storage_amount_per_byte);
 
-        Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
+        Self {
+            liquid_for_storage,
+            liquid: account.amount.saturating_sub(liquid_for_storage),
+            locked: account.locked,
+        }
     }
 }
 
