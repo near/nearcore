@@ -10,8 +10,8 @@ use crate::action::delegate::{
 };
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -48,6 +48,7 @@ use crate::types::{
     StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
+use crate::universal_state_init::RawStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -106,6 +107,10 @@ pub struct ContractCodeView {
     pub hash: CryptoHash,
 }
 
+// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized account
+// is reported as an ordinary one. That hits `view_account` and, via
+// `StateChangeValueView::AccountUpdate`, everything downstream of state
+// changes. Needs fixing before universal accounts stabilize.
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         let (global_contract_hash, global_contract_account_id) =
@@ -129,28 +134,6 @@ impl From<&Account> for AccountView {
 impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         (&account).into()
-    }
-}
-
-// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized
-// account round-trips back as an initialized one and `view_account` cannot tell
-// the two apart. Universal accounts need that distinction exposed here.
-impl From<&AccountView> for Account {
-    fn from(view: &AccountView) -> Self {
-        let contract = match &view.global_contract_account_id {
-            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
-            None => match view.global_contract_hash {
-                Some(hash) => AccountContract::Global(hash),
-                None => AccountContract::from_local_code_hash(view.code_hash),
-            },
-        };
-        Account::new(view.amount, view.locked, contract, view.storage_usage)
-    }
-}
-
-impl From<AccountView> for Account {
-    fn from(view: AccountView) -> Self {
-        (&view).into()
     }
 }
 
@@ -1573,6 +1556,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    UniversalStateInit {
+        state_init: RawStateInit,
+        deposit: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1642,6 +1629,10 @@ impl From<Action> for ActionView {
             Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
                 public_key: action.public_key,
                 amount: action.amount,
+            },
+            Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
+                state_init: action.state_init,
+                deposit: action.deposit,
             },
         }
     }
@@ -1724,6 +1715,12 @@ impl TryFrom<ActionView> for Action {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
+                }))
+            }
+            ActionView::UniversalStateInit { state_init, deposit } => {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init,
+                    deposit,
                 }))
             }
         })

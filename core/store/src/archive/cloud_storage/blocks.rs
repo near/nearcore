@@ -32,7 +32,7 @@ pub struct BlockDataV1 {
     /// Read from `DBCol::BlockMerkleTree`.
     block_merkle_tree: PartialMerkleTree,
     /// Rows of `DBCol::ChunkProducers` for this block, keyed by shard_id; empty
-    /// when EarlyKickout/nightly is off.
+    /// until EarlyKickout activates.
     chunk_producers: Vec<(ShardId, ValidatorStake)>,
 }
 
@@ -64,7 +64,6 @@ pub fn build_block_data(
     Ok(Some(BlockData::V1(block_data)))
 }
 
-#[cfg(feature = "nightly")]
 fn read_chunk_producers(
     store: &Store,
     block_hash: &CryptoHash,
@@ -82,14 +81,6 @@ fn read_chunk_producers(
             Ok((shard_id, stake))
         })
         .collect()
-}
-
-#[cfg(not(feature = "nightly"))]
-fn read_chunk_producers(
-    _store: &Store,
-    _block_hash: &CryptoHash,
-) -> Result<Vec<(ShardId, ValidatorStake)>, Error> {
-    Ok(Vec::new())
 }
 
 impl BlockData {

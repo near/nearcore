@@ -83,6 +83,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerEntry,
+    ActionUniversalStateInitPerByte,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -245,6 +248,7 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     EthImplicitAccounts,
+    UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
     ReftypesBulkMemory,
@@ -363,6 +367,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerByte,
+    ActionUniversalStateInitPerEntry,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -449,6 +456,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::universal_state_init_base => Self::ActionUniversalStateInit,
+            ActionCosts::universal_state_init_byte => Self::ActionUniversalStateInitPerByte,
+            ActionCosts::universal_state_init_entry => Self::ActionUniversalStateInitPerEntry,
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,

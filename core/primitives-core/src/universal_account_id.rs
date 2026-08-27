@@ -86,6 +86,11 @@ pub fn decode_universal_account_id(id: &str) -> Result<[u8; 32], ParseUaidError>
 
 /// Whether `id` is structurally a UAID. No allocation.
 /// Used later by account-type classification.
+///
+/// TODO(universal-accounts): `AccountType` has no variant for `0u` ids, so they
+/// classify as `NamedAccount` and every caller has to test the prefix by hand.
+/// Once `near-account-id` gains an `AccountType::Universal`, drop this and let
+/// the callers match on the account type like the other implicit kinds do.
 pub fn is_universal_account_id(id: &str) -> bool {
     decode_universal_account_id(id).is_ok()
 }
