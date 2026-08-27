@@ -427,9 +427,8 @@ class BaseNode(object):
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         resp = self.get_access_key_list(acc, finality)
-        if 'error' in resp:
-            assert resp['error'].get('cause',
-                                     {}).get('name') == 'UNKNOWN_ACCOUNT', resp
+        if resp.get('error', {}).get('cause',
+                                     {}).get('name') == 'UNKNOWN_ACCOUNT':
             return None
         for access_key in resp['result']['keys']:
             if access_key['public_key'] == pk:

@@ -780,7 +780,7 @@ fn test_view_access_key_missing_key_on_existing_account() {
 #[test]
 fn test_view_access_key_missing_account() {
     let (viewer, state_update) = get_test_trie_viewer();
-    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+    let missing_account: AccountId = "missing.near".parse().unwrap();
     let missing_key = PublicKey::empty(KeyType::ED25519);
 
     let result = viewer.view_access_key(&state_update, &missing_account, &missing_key);
@@ -798,7 +798,7 @@ fn test_view_access_keys_missing_account() {
     let (_, tries, root) = get_runtime_and_trie();
     let trie = tries.get_view_trie_for_shard(TEST_SHARD_UID, root);
     let viewer = TrieViewer::default();
-    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+    let missing_account: AccountId = "missing.near".parse().unwrap();
 
     let result = viewer.view_access_keys(&trie, &missing_account, None, None);
 
@@ -835,7 +835,7 @@ fn test_view_access_keys_empty_for_existing_account() {
 #[test]
 fn test_view_gas_key_nonces_missing_account() {
     let (viewer, state_update) = get_test_trie_viewer();
-    let missing_account: AccountId = "doesnotexist.near".parse().unwrap();
+    let missing_account: AccountId = "missing.near".parse().unwrap();
     let missing_key = PublicKey::empty(KeyType::ED25519);
 
     let result = viewer.view_gas_key_nonces(&state_update, &missing_account, &missing_key);

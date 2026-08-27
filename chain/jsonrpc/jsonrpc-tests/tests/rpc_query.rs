@@ -1277,7 +1277,7 @@ async fn test_query_gas_key_nonces_missing_account() {
     assert_missing_account_error(result, &missing_account, "query view_gas_key_nonces");
 }
 
-/// An empty list means "no keys"; a missing account reports the account. See nearcore#16185.
+/// A missing account must report the account, not an empty key list. See nearcore#16185.
 #[tokio::test]
 async fn test_query_access_key_list_missing_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
