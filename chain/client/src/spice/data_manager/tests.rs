@@ -1,15 +1,19 @@
-use super::item::{Assembly, FetchItem, FetchState, PartInsertResult};
+use super::item::{Assembly, FetchItem, FetchState, InFlightRequest, PartInsertResult, PullTiming};
+use super::scheduler::{Backoff, DeadlineScheduler, TimingConfig};
 use super::*;
 use assert_matches::assert_matches;
-use near_async::time::{Clock, Duration, FakeClock};
+use near_async::time::{Clock, Duration, FakeClock, Instant};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, reed_solomon_part_length};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::{AccountId, ShardId};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::HashSet;
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 
 /// Data parts of the encoder every test here uses: `max((5 * 0.6) as usize, 1)`.
 const DATA_PARTS: usize = 3;
@@ -900,4 +904,199 @@ mod manager {
         );
         assert_matches!(result, Err(DataManagerError::BannedCommitment));
     }
+}
+
+fn assert_duration_eq(actual: Duration, expected: Duration) {
+    let difference = (actual - expected).abs();
+    assert!(difference <= Duration::nanoseconds(1), "{actual} != {expected}");
+}
+
+fn in_flight_request(source: &str, sent_at: Instant, ordinals: &[u64]) -> InFlightRequest {
+    InFlightRequest { source: account(source), sent_at, ordinals: ordinals.to_vec() }
+}
+
+fn no_jitter_config() -> TimingConfig {
+    TimingConfig { jitter_frac: 0.0, ..TimingConfig::default() }
+}
+
+#[test]
+fn pop_due_yields_entries_earliest_first_and_leaves_future_ones() {
+    let now = FakeClock::default().now();
+    let mut scheduler = DeadlineScheduler::default();
+    scheduler.schedule("c", now.add_signed(Duration::seconds(3)), Lane::Background);
+    scheduler.schedule("a", now.add_signed(Duration::seconds(1)), Lane::Background);
+    scheduler.schedule("b", now.add_signed(Duration::seconds(2)), Lane::Background);
+    scheduler.schedule("d", now.add_signed(Duration::seconds(10)), Lane::Priority);
+
+    assert_eq!(
+        scheduler.pop_due(now.add_signed(Duration::seconds(3))),
+        vec![
+            ("a", now.add_signed(Duration::seconds(1))),
+            ("b", now.add_signed(Duration::seconds(2))),
+            ("c", now.add_signed(Duration::seconds(3))),
+        ]
+    );
+    assert_eq!(scheduler.pop_due(now.add_signed(Duration::seconds(3))), vec![]);
+    assert_eq!(
+        scheduler.pop_due(now.add_signed(Duration::seconds(10))),
+        vec![("d", now.add_signed(Duration::seconds(10)))]
+    );
+}
+
+#[test]
+fn priority_pops_before_background_within_one_instant() {
+    let now = FakeClock::default().now();
+    let mut scheduler = DeadlineScheduler::default();
+    let at = now.add_signed(Duration::seconds(1));
+    scheduler.schedule("background", at, Lane::Background);
+    scheduler.schedule("priority", at, Lane::Priority);
+
+    assert_eq!(scheduler.pop_due(at), vec![("priority", at), ("background", at)]);
+}
+
+#[test]
+fn lane_max_escalates_to_priority() {
+    assert_eq!(Lane::Priority.max(Lane::Background), Lane::Priority);
+    assert!(Lane::Priority > Lane::Background);
+}
+
+#[test]
+fn backoff_interval_grows_geometrically_then_pins_at_the_cap() {
+    let config = no_jitter_config();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut backoff = Backoff::default();
+    for expected_ms in [200, 400, 800, 1600, 2000, 2000] {
+        assert_duration_eq(
+            backoff.next_interval(&config, &mut rng),
+            Duration::milliseconds(expected_ms),
+        );
+        backoff.note_retry();
+    }
+}
+
+#[test]
+fn backoff_jitter_stays_within_its_fraction_and_the_interval_stays_positive() {
+    let config = TimingConfig::default();
+    let mut rng = StdRng::seed_from_u64(42);
+    let mut backoff = Backoff::default();
+    for retries in 0..6 {
+        let unjittered = (config.backoff_base.as_seconds_f64() * f64::from(2u32.pow(retries)))
+            .min(config.backoff_cap.as_seconds_f64());
+        let samples: Vec<f64> =
+            (0..200).map(|_| backoff.next_interval(&config, &mut rng).as_seconds_f64()).collect();
+        for sample in &samples {
+            assert!(*sample > 0.0);
+            assert!(*sample >= unjittered * (1.0 - config.jitter_frac) - 1e-9);
+            assert!(*sample <= unjittered * (1.0 + config.jitter_frac) + 1e-9);
+        }
+        // The jitter must actually spread samples to both sides.
+        assert!(samples.iter().any(|sample| *sample > unjittered));
+        assert!(samples.iter().any(|sample| *sample < unjittered));
+        backoff.note_retry();
+    }
+}
+
+#[test]
+fn take_timed_out_requests_returns_elapsed_entries_and_keeps_live_ones() {
+    let config = TimingConfig::default();
+    let clock = FakeClock::default();
+    let sent_first = clock.now();
+    let mut pull = PullTiming::default();
+    pull.in_flight.push(in_flight_request("alice.near", sent_first, &[0, 1]));
+    clock.advance(Duration::milliseconds(500));
+    pull.in_flight.push(in_flight_request("bob.near", clock.now(), &[2]));
+    clock.advance(Duration::milliseconds(500));
+
+    let timed_out = pull.take_timed_out_requests(&config, clock.now());
+
+    assert_eq!(timed_out.len(), 1);
+    assert_eq!(timed_out[0].source, account("alice.near"));
+    assert_eq!(timed_out[0].ordinals, vec![0, 1]);
+    assert_eq!(pull.in_flight.len(), 1);
+    assert_eq!(pull.in_flight[0].source, account("bob.near"));
+}
+
+#[test]
+fn a_timeout_wake_leaves_backoff_retries_unchanged() {
+    let config = no_jitter_config();
+    let clock = FakeClock::default();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut pull = PullTiming::default();
+    pull.in_flight.push(in_flight_request("alice.near", clock.now(), &[0]));
+    pull.backoff.note_retry();
+    pull.backoff.note_retry();
+    clock.advance(Duration::seconds(2));
+
+    pull.take_timed_out_requests(&config, clock.now());
+    let _ = pull.reschedule(&config, clock.now(), &mut rng);
+
+    assert_eq!(pull.backoff.retries(), 2);
+}
+
+#[test]
+fn has_in_flight_request_for_matches_only_requested_ordinals() {
+    let clock = FakeClock::default();
+    let mut pull = PullTiming::default();
+    pull.in_flight.push(in_flight_request("alice.near", clock.now(), &[1, 3]));
+
+    assert!(pull.has_in_flight_request_for(1));
+    assert!(pull.has_in_flight_request_for(3));
+    assert!(!pull.has_in_flight_request_for(2));
+}
+
+#[test]
+fn reschedule_picks_the_oldest_request_timeout_when_it_precedes_the_backoff() {
+    let config = no_jitter_config();
+    let clock = FakeClock::default();
+    let mut rng = StdRng::seed_from_u64(0);
+    let sent_first = clock.now();
+    let mut pull = PullTiming::default();
+    pull.in_flight.push(in_flight_request("alice.near", sent_first, &[0]));
+    clock.advance(Duration::milliseconds(300));
+    pull.in_flight.push(in_flight_request("bob.near", clock.now(), &[1]));
+    clock.advance(Duration::milliseconds(600));
+
+    // The backoff would fire at +1100ms; alice's request times out at +1000ms.
+    let deadline = pull.reschedule(&config, clock.now(), &mut rng);
+
+    assert_eq!(deadline, sent_first.add_signed(config.request_timeout));
+    assert_eq!(pull.next_deadline, Some(deadline));
+}
+
+#[test]
+fn reschedule_uses_the_backoff_interval_when_no_request_times_out_sooner() {
+    let config = no_jitter_config();
+    let clock = FakeClock::default();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut pull = PullTiming::default();
+
+    let deadline = pull.reschedule(&config, clock.now(), &mut rng);
+    assert_eq!(deadline, clock.now().add_signed(config.backoff_base));
+
+    // A fresh request's timeout is further away than the backoff, so it does not win.
+    pull.in_flight.push(in_flight_request("alice.near", clock.now(), &[0]));
+    let deadline = pull.reschedule(&config, clock.now(), &mut rng);
+    assert_eq!(deadline, clock.now().add_signed(config.backoff_base));
+    assert_eq!(pull.next_deadline, Some(deadline));
+}
+
+#[test]
+fn reschedule_supersedes_the_previous_deadline_so_a_stale_pop_mismatches() {
+    let config = no_jitter_config();
+    let clock = FakeClock::default();
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut pull = PullTiming::default();
+    let mut scheduler = DeadlineScheduler::default();
+
+    let stale = pull.reschedule(&config, clock.now(), &mut rng);
+    scheduler.schedule("item", stale, Lane::Priority);
+    clock.advance(Duration::milliseconds(50));
+    let current = pull.reschedule(&config, clock.now(), &mut rng);
+    scheduler.schedule("item", current, Lane::Priority);
+
+    clock.advance(Duration::seconds(10));
+    let popped = scheduler.pop_due(clock.now());
+    assert_eq!(popped, vec![("item", stale), ("item", current)]);
+    assert_ne!(pull.next_deadline, Some(stale));
+    assert_eq!(pull.next_deadline, Some(current));
 }
