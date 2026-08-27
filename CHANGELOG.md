@@ -20,6 +20,7 @@
 * Added three Prometheus metrics for the blocks delay tracker: `near_blocks_delay_tracker_entries` (gauge, labelled by map), `near_blocks_delay_tracker_refused_blocks_total` (labelled by reason), and `near_blocks_delay_tracker_missing_entries_total` (labelled by mark). The tracker now records a block only while its height is within `[head - 50, head + 500)` and only up to 8 blocks per height, so `/debug/api/chain_processing_status` no longer lists blocks far from the head. Its `blocks_delay_tracker` error logs about a block that "was not marked received" are now a counter and a debug log, since a missing entry is expected once tracking is bounded.
 * Raised the minimum supported Rust version to 1.95.0. Building `nearcore` from source now requires a Rust 1.95.0 toolchain.
 * `tools/debug-ui` now builds with Vite instead of the unmaintained Create React App (`react-scripts`). Build output layout and the port 3000 dev server are unchanged, so deployment needs no change. Building now requires Node `^20.19.0 || >=22.12.0`. ([#16175](https://github.com/near/nearcore/pull/16175))
+* Stabilized `EXPERIMENTAL_tx_status` and renamed it to `tx_status`. `EXPERIMENTAL_tx_status` keeps working as a deprecated alias, with the same request and response types. **Metrics change:** the `near_rpc_wait_until_count` metric now labels `tx`, `tx_status` and `EXPERIMENTAL_tx_status` separately; previously both `tx` and `EXPERIMENTAL_tx_status` were counted under the `tx_status` label. ([#16270](https://github.com/near/nearcore/pull/16270))
 
 ## [2.13.0]
 

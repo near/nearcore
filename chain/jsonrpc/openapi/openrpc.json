@@ -14548,6 +14548,7 @@
       ]
     },
     {
+      "deprecated": true,
       "name": "EXPERIMENTAL_tx_status",
       "paramStructure": "by-name",
       "params": [
@@ -14591,7 +14592,7 @@
           "$ref": "#/components/schemas/RpcTransactionResponse"
         }
       },
-      "summary": "Queries status of a transaction by hash (alias for tx)",
+      "summary": "Queries status of a transaction by hash including receipts (alias for tx_status)",
       "tags": [
         {
           "name": "transaction"
@@ -15395,6 +15396,57 @@
       "tags": [
         {
           "name": "validator"
+        }
+      ]
+    },
+    {
+      "name": "tx_status",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "sender_account_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "tx_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcTransactionResponse"
+        }
+      },
+      "summary": "Queries status of a transaction by hash including receipts",
+      "tags": [
+        {
+          "name": "transaction"
         }
       ]
     },

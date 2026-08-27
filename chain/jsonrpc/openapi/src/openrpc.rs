@@ -1206,8 +1206,8 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "EXPERIMENTAL_tx_status",
-        "Queries status of a transaction by hash (alias for tx)",
-        false,
+        "Queries status of a transaction by hash including receipts (alias for tx_status)",
+        true,
         &["transaction", "experimental"],
     );
     add_method::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
@@ -1346,6 +1346,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         "Returns maintenance windows (alias for EXPERIMENTAL_maintenance_windows)",
         false,
         &["validator"],
+    );
+    add_method::<RpcTransactionStatusRequest, RpcTransactionResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "tx_status",
+        "Queries status of a transaction by hash including receipts",
+        false,
+        &["transaction"],
     );
 
     // ==================== Deprecated Methods ====================
