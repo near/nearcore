@@ -61,15 +61,15 @@ pub fn fallback_endorsers(
 }
 
 /// A slot opens every `epoch_length / num_shards` heights and picks one shard, so the witness
-/// traffic does not land on every shard at once. The first block past a slot takes it, so skipped
-/// heights delay a slot rather than dropping it, until a gap runs past the next one. `epoch_height`
-/// offsets which shard a slot picks, so slots do not line up with epoch boundaries.
+/// traffic does not land on every shard at once. Only the block at the slot height takes it. An
+/// honest producer makes one block per height, so two forks cannot both take the same slot. If the
+/// slot height is skipped, the shard waits for its next slot. `epoch_height` offsets which shard a
+/// slot picks, so slots do not line up with epoch boundaries.
 pub(super) fn fallback_only_shard_index(
     epoch_length: BlockHeightDelta,
     epoch_height: EpochHeight,
     num_shards: usize,
     height: BlockHeight,
-    prev_height: BlockHeight,
 ) -> Option<ShardIndex> {
     // Zero when epoch_length < num_shards, which leaves the epoch with no slots at all. Only
     // tests reach that: production epoch lengths far exceed shard counts.
@@ -77,10 +77,10 @@ pub(super) fn fallback_only_shard_index(
     if blocks_between == 0 {
         return None;
     }
-    let slot = height / blocks_between;
-    if slot == prev_height / blocks_between {
+    if height % blocks_between != 0 {
         return None;
     }
+    let slot = height / blocks_between;
     let num_shards = num_shards as u64;
     let shard_for_slot = slot % num_shards;
     let epoch_offset = epoch_height % num_shards;
@@ -93,10 +93,6 @@ pub fn fallback_only_shard(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_block_header: &BlockHeader,
 ) -> Result<Option<ShardId>, Error> {
-    // Absent only on header versions that predate spice, which never carry a slot.
-    let Some(prev_height) = chunk_block_header.prev_height() else {
-        return Ok(None);
-    };
     let epoch_id = chunk_block_header.epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
     let Some(shard_index) = fallback_only_shard_index(
@@ -104,7 +100,6 @@ pub fn fallback_only_shard(
         epoch_manager.get_epoch_info(epoch_id)?.epoch_height(),
         shard_layout.num_shards() as usize,
         chunk_block_header.height(),
-        prev_height,
     ) else {
         return Ok(None);
     };

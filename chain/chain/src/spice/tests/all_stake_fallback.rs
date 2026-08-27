@@ -429,30 +429,23 @@ fn test_fallback_eligible_when_one_block_certifies_several_blocks() {
 const FALLBACK_ONLY_SCHEDULE_EPOCH_LENGTH: BlockHeightDelta = 400;
 const FALLBACK_ONLY_SCHEDULE_NUM_SHARDS: usize = 4;
 
-/// The heights at which `shard_index` takes a slot, walking `heights` as a chain: each block's
-/// parent is the entry before it.
+/// The heights in `heights` at which `shard_index` takes a slot.
 fn fallback_only_heights(
     epoch_height: EpochHeight,
     shard_index: usize,
     heights: impl IntoIterator<Item = BlockHeight>,
 ) -> Vec<BlockHeight> {
-    let mut slots = Vec::new();
-    let mut parent = None;
-    for height in heights {
-        let prev_height = parent.unwrap_or_else(|| height.saturating_sub(1));
-        if fallback_only_shard_index(
-            FALLBACK_ONLY_SCHEDULE_EPOCH_LENGTH,
-            epoch_height,
-            FALLBACK_ONLY_SCHEDULE_NUM_SHARDS,
-            height,
-            prev_height,
-        ) == Some(shard_index)
-        {
-            slots.push(height);
-        }
-        parent = Some(height);
-    }
-    slots
+    heights
+        .into_iter()
+        .filter(|height| {
+            fallback_only_shard_index(
+                FALLBACK_ONLY_SCHEDULE_EPOCH_LENGTH,
+                epoch_height,
+                FALLBACK_ONLY_SCHEDULE_NUM_SHARDS,
+                *height,
+            ) == Some(shard_index)
+        })
+        .collect()
 }
 
 #[test]
@@ -480,29 +473,19 @@ fn test_schedule_picks_one_shard_at_the_maximum_height() {
         EpochHeight::MAX,
         num_shards,
         BlockHeight::MAX,
-        BlockHeight::MAX - 1,
     );
     assert!(scheduled.is_some_and(|shard_index| shard_index < num_shards));
 }
 
 #[test]
 fn test_no_fallback_only_chunk_when_epoch_shorter_than_shard_count() {
-    assert!(
-        (1000..1010).all(|height| fallback_only_shard_index(5, 0, 6, height, height - 1).is_none())
-    );
+    assert!((1000..1010).all(|height| fallback_only_shard_index(5, 0, 6, height).is_none()));
 }
 
 #[test]
-fn test_a_skipped_height_delays_a_slot_instead_of_dropping_it() {
+fn test_a_skipped_slot_height_drops_the_slot() {
     let without_the_slot_height = (1000..1400).filter(|height| *height != 1200);
-    assert_eq!(fallback_only_heights(0, 0, without_the_slot_height), vec![1201]);
-}
-
-#[test]
-fn test_a_gap_past_the_next_slot_drops_the_slots_inside_it() {
-    let long_gap = (1000..1400).filter(|height| !(1150..1350).contains(height));
-    assert_eq!(fallback_only_heights(0, 0, long_gap.clone()), Vec::<BlockHeight>::new());
-    assert_eq!(fallback_only_heights(0, 1, long_gap), vec![1350]);
+    assert_eq!(fallback_only_heights(0, 0, without_the_slot_height), Vec::<BlockHeight>::new());
 }
 
 // Walks the chain until a block carries a fallback-only chunk. Each step certifies the block two
