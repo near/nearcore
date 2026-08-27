@@ -1,6 +1,5 @@
-use crate::spice::all_stake_fallback::fallback_eligible;
 use near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
-use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{AccountId, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use std::collections::{HashMap, HashSet};
 
 /// Endorsement state derived from the uncertified chunks as of the previous block: the context
@@ -43,18 +42,6 @@ impl<'a> AncestryEndorsements<'a> {
         self.pending_designated.contains(&(chunk_id, account_id))
     }
 
-    /// Whether `chunk_id` is still uncertified and may now certify via the all-stake fallback in a
-    /// block at `carrying_height`.
-    pub(crate) fn is_fallback_eligible(
-        &self,
-        chunk_id: &SpiceChunkId,
-        carrying_height: BlockHeight,
-    ) -> bool {
-        self.uncertified_chunks
-            .get(chunk_id)
-            .is_some_and(|info| fallback_eligible(carrying_height, info))
-    }
-
     /// `chunk_id`'s record, absent once the chunk is certified in the ancestry.
     pub(crate) fn uncertified_chunk_info(
         &self,
@@ -68,9 +55,9 @@ impl<'a> AncestryEndorsements<'a> {
         self.on_chain.get(chunk_id).is_some_and(|endorsers| endorsers.contains_key(account_id))
     }
 
-    /// Chunks awaiting a designated endorsement on chain (with repeats per missing validator).
-    pub(crate) fn pending_designated_chunks(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
-        self.pending_designated.iter().map(|(chunk_id, _)| *chunk_id)
+    /// Every chunk still uncertified in the ancestry.
+    pub(crate) fn uncertified_chunk_ids(&self) -> impl Iterator<Item = &'a SpiceChunkId> + '_ {
+        self.uncertified_chunks.keys().copied()
     }
 
     /// Endorsements (designated and non-designated) already on chain for `chunk_id`.

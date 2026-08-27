@@ -2,6 +2,10 @@ use crate::spice::core::SpiceCoreReader;
 use crate::spice::core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
 };
+use crate::spice::tests::all_stake_fallback::{
+    grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
+};
+use crate::spice::tests::core::endorse_chunk;
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -841,4 +845,59 @@ fn find_irrelevant_validator(
         })
         .unwrap();
     irrelevant_validator.clone()
+}
+
+// Checks the writer reads the fallback-only flag from the chunk's own block instead of from the
+// head's uncertified chunks, which never list a chunk whose block is off the head's chain.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_head_chain() {
+    // Enough validators that a chunk's designated assignment stays under 2/3 of total stake,
+    // asserted below.
+    let validators = validators_with_minority_designated_stake();
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&validators.iter().map(|v| v.as_str()).collect_vec(), &[]);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(ShardLayout::multi_shard(3, 0))
+        .validators_spec(validators_spec)
+        .build();
+    let (mut chain, mut core_writer_actor) = setup_with_genesis(genesis);
+
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+
+    // A longer branch off the same parent takes the head.
+    let fork_block = build_block(&mut chain, &parent, vec![]);
+    process_block(&mut chain, fork_block.clone());
+    let fork_tip = build_block(&mut chain, &fork_block, vec![]);
+    process_block(&mut chain, fork_tip.clone());
+    let head = chain.chain_store().head().unwrap();
+    assert_eq!(head.last_block_hash, *fork_tip.hash());
+    let chunk_id = SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id };
+    assert!(
+        core_writer_actor
+            .core_reader
+            .uncertified_chunk_info(&head.last_block_hash, &chunk_id)
+            .unwrap()
+            .is_none(),
+        "the chunk should be absent from the head's uncertified set",
+    );
+
+    // Every designated validator endorses. Only 2/3 of total stake may certify a fallback-only
+    // chunk, and the designated set alone is below that, so nothing should be stored.
+    let chunks = fallback_only_block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone();
+    drop(chunks);
+    let (designated, _) =
+        split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
+    let designated: Vec<String> = designated.iter().map(|account| account.to_string()).collect();
+    endorse_chunk(&chain, &mut core_writer_actor, &chunk_id, &designated);
+
+    let execution_results = core_writer_actor
+        .core_reader
+        .get_execution_results_by_shard_id(fallback_only_block.header())
+        .unwrap();
+    assert_eq!(execution_results.get(&shard_id), None);
 }
