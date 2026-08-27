@@ -34,10 +34,7 @@ use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 use near_primitives::{
-    hash::CryptoHash,
-    state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
-    types::EpochId,
-    views::ValidatorInfo,
+    hash::CryptoHash, state_sync::StateHeaderKey, types::EpochId, views::ValidatorInfo,
 };
 use near_store::DBCol;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -369,12 +366,7 @@ impl ClientActor {
                     *epoch_start_block_header.hash(),
                 ))
                 .is_ok_and(|key| {
-                    self.client
-                        .chain
-                        .chain_store()
-                        .store()
-                        .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
-                        .is_some()
+                    self.client.chain.chain_store().store().get(DBCol::StateHeaders, &key).is_some()
                 });
 
                 let shard_size = block
