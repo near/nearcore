@@ -1,9 +1,9 @@
 use crate::archive::cloud_archival_utils::CloudArchivalReaderError;
 use near_async::time::{Clock, Duration};
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::InterruptHandle;
 use near_primitives::types::BlockHeight;
-use near_store::adapter::StoreAdapter;
+use near_store::Store;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
 /// Result of one recent-reader iteration.
 #[derive(Debug)]
@@ -20,26 +20,27 @@ enum PullOutcome {
 #[derive(Clone)]
 pub struct CloudArchivalRecentReader {
     clock: Clock,
-    chain_store: ChainStore,
+    store: Store,
     polling_interval: Duration,
     interrupt: InterruptHandle,
 }
 
 impl CloudArchivalRecentReader {
-    pub fn new(clock: Clock, chain_store: ChainStore, polling_interval: Duration) -> Self {
-        Self { clock, chain_store, polling_interval, interrupt: InterruptHandle::new() }
+    pub fn new(clock: Clock, store: Store, polling_interval: Duration) -> Self {
+        Self { clock, store, polling_interval, interrupt: InterruptHandle::new() }
     }
 
-    /// The height the reader resumes at. A store handed over by a stopped node carries
-    /// none yet and takes its final head, since that node's head can still reorg.
+    /// The height the reader resumes at, taking the store over on the first run.
+    ///
+    /// A store a stopped node handed over carries no reader head yet and takes that
+    /// node's final head, since its own head can sit on a block that later reorged.
     fn ensure_reader_head(&self) -> Result<BlockHeight, CloudArchivalReaderError> {
-        let store = self.chain_store.store();
-        if let Some(reader_head) = store.cloud_archival_store().reader_head() {
+        if let Some(reader_head) = self.store.cloud_archival_store().reader_head() {
             return Ok(reader_head);
         }
-        let final_head = self.chain_store.final_head()?;
-        let mut update = store.cloud_archival_store().store_update();
-        update.set_reader_head(final_head.height);
+        let final_head = self.store.chain_store().final_head()?;
+        let mut update = self.store.store_update();
+        update.cloud_archival_store_update().set_reader_head(final_head.height);
         update.commit();
         Ok(final_head.height)
     }

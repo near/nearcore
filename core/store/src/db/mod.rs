@@ -43,14 +43,14 @@ pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
 pub const STATE_SYNC_DUMP_KEY: &[u8; 15] = b"STATE_SYNC_DUMP";
 pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 pub const GC_STOP_HEIGHT_KEY: &[u8; 14] = b"GC_STOP_HEIGHT";
-pub const CLOUD_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_BLOCK_HEAD";
-pub const CLOUD_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_SHARD_HEAD:";
+pub const CLOUD_WRITER_BLOCK_HEAD_KEY: &[u8] = b"CLOUD_WRITER_BLOCK_HEAD";
+pub const CLOUD_WRITER_SHARD_HEAD_PREFIX: &[u8] = b"CLOUD_WRITER_SHARD_HEAD:";
 /// Highest height every component this writer archives has reached in the
 /// bucket, whoever put it there. Drives the next batch range to upload.
-pub const CLOUD_MIN_HEAD_KEY: &[u8] = b"CLOUD_MIN_HEAD";
+pub const CLOUD_WRITER_MIN_HEAD_KEY: &[u8] = b"CLOUD_WRITER_MIN_HEAD";
 /// Hash of the last block of the latest epoch this writer archived its assigned
 /// components for. GC stops at the start of that epoch.
-pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
+pub const CLOUD_WRITER_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_WRITER_PREV_EPOCH_END";
 /// Highest height a cloud-archive reader has written every component through. Present
 /// only in a reader's store, which a running node refuses; only the cloud-archive
 /// tool may use one.
@@ -59,15 +59,15 @@ pub const CLOUD_PREV_EPOCH_END_KEY: &[u8] = b"CLOUD_PREV_EPOCH_END";
 // it needs is unknown.
 pub const CLOUD_READER_HEAD_KEY: &[u8] = b"CLOUD_READER_HEAD";
 
-pub fn cloud_shard_head_key(shard_id: ShardId) -> Vec<u8> {
-    let mut key = CLOUD_SHARD_HEAD_PREFIX.to_vec();
+pub fn cloud_writer_shard_head_key(shard_id: ShardId) -> Vec<u8> {
+    let mut key = CLOUD_WRITER_SHARD_HEAD_PREFIX.to_vec();
     key.extend(shard_id.to_le_bytes());
     key
 }
 
-/// The shard a `cloud_shard_head_key` names, or `None` when the key is not one.
-pub fn cloud_shard_head_key_shard_id(key: &[u8]) -> Option<ShardId> {
-    let suffix: [u8; 8] = key.strip_prefix(CLOUD_SHARD_HEAD_PREFIX)?.try_into().ok()?;
+/// The shard a `cloud_writer_shard_head_key` names, or `None` when the key is not one.
+pub fn cloud_writer_shard_head_key_shard_id(key: &[u8]) -> Option<ShardId> {
+    let suffix: [u8; 8] = key.strip_prefix(CLOUD_WRITER_SHARD_HEAD_PREFIX)?.try_into().ok()?;
     Some(ShardId::from_le_bytes(suffix))
 }
 
