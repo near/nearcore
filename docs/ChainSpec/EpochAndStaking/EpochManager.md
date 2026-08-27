@@ -11,7 +11,7 @@ is defined by `EpochInfo` for `T+1` and the information aggregated from blocks o
 - `validators`: the list of validators selected for epoch `T+2`
 - `validator_to_index`: Mapping from account id to index in `validators`
 - `block_producers_settlement`: defines the mapping from height to block producer
-- `chunk_producers_settlement`: defines the mapping from height and shard id to chunk producer
+- `chunk_producers_settlement`: defines the base mapping from height and shard id to chunk producer. From protocol version 87 on, this mapping can be overridden within the epoch, see [Early chunk producer reassignment](#early-chunk-producer-reassignment)
 - `hidden_validators_settlement`: TODO
 - `fishermen`, `fishermen_to_index`: TODO. disabled on mainnet through a large `fishermen_threshold` in config
 - `stake_change`: TODO
@@ -87,3 +87,32 @@ The adjusted set of proposals is used to compute the seat price, and determine `
 ### Validator reward
 
 Rewards calculation is described in the [Economics](../../Economics/Economics.md#validator-rewards-calculation) section.
+
+## Early chunk producer reassignment
+
+The [kickout set](#kickout-set) only takes effect at an epoch boundary, so a chunk producer that
+stops producing keeps its slots for the rest of the epoch. From protocol version 87 on, the
+protocol also reassigns chunk producer slots *within* an epoch.
+
+A chunk producer is excluded on a shard when both hold for its stats in the current epoch:
+
+- it missed at least 100 chunks on that shard, and
+- its produced-to-expected ratio on that shard is below 80%.
+
+Exclusion is per shard, and stats never cross an epoch boundary. A 1000-block grace window
+at the start of each epoch delays the first possible exclusion, so a producer cannot be
+excluded before roughly block 1100 of an epoch. A safety valve keeps the least-bad producer
+eligible when the rule would exclude every distinct producer on a shard, so a shard can never
+run out of chunk producers.
+
+The chunk producer for the chunks anchored at a block is sampled with the excluded producers
+removed, and the result is persisted in `DBCol::ChunkProducers` keyed by
+`(anchor_block_hash, shard_id)`. The anchor is the chunk's grandparent block, so a chunk at
+height `h` reads the row written for the block at height `h - 2`. Chunk validation reads that
+row verbatim rather than re-sampling, which is what makes the assignment identical on every
+node: the exclusion set is derived from the anchor's last-final block, which is
+header-derived and therefore the same everywhere for a canonical anchor.
+
+Within the first two blocks of an epoch the anchor belongs to the previous epoch. The
+exclusion set is provably empty there, because stats do not cross the boundary, so those
+chunks fall back to the plain settlement sampler.

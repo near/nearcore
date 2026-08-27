@@ -1,6 +1,5 @@
 mod adversarial_height;
 mod continuous_epoch_sync;
-#[cfg(feature = "nightly")]
 mod early_kickout_sync;
 mod epoch_sync;
 mod far_horizon;

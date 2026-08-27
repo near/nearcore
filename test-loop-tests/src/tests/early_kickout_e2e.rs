@@ -1,6 +1,6 @@
 //! End-to-end tests for early (mid-epoch) chunk producer kickout.
 //!
-//! `ProtocolFeature::EarlyKickout` (nightly) tracks each chunk producer's
+//! `ProtocolFeature::EarlyKickout` tracks each chunk producer's
 //! production stats within an epoch and, once a producer crosses the
 //! mid-epoch thresholds, excludes it from the `DBCol::ChunkProducers`
 //! assignment for the chunks anchored at later blocks. The excluded slot is
@@ -23,8 +23,10 @@
 //!   base layout, fires again on the child shard the producer lands on, and the
 //!   persisted rows across the split resolve with no `ChunkProducerNotInDB`.
 //!
-//! All of these require `nightly` (feature gate) and `test_features` (adversarial
-//! messages, plus the threshold override below).
+//! All of these require `test_features` (adversarial messages, plus the threshold override
+//! below). `slow_test_early_kickout_across_resharding` additionally requires `nightly`,
+//! because its genesis epoch runs one protocol version back and EarlyKickout has to be
+//! active there.
 //!
 //! Production trips the blacklist at 100 misses accumulated past a 1000-block
 //! start-of-epoch grace, which is ~1100 blocks — far more than a test-loop chain
@@ -37,8 +39,10 @@
 //! the thresholds do not affect.
 
 use crate::setup::builder::TestLoopBuilder;
+#[cfg(feature = "nightly")]
+use crate::tests::early_kickout_probe::walk_anchor_rows;
 use crate::tests::early_kickout_probe::{
-    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region, walk_anchor_rows,
+    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region,
 };
 use crate::tests::sync::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -49,6 +53,7 @@ use crate::utils::account::{
     create_account_id, create_validator_id, create_validators_spec, validators_spec_clients,
 };
 use crate::utils::node::{NodeRunner, TestLoopNode};
+#[cfg(feature = "nightly")]
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use borsh::BorshDeserialize;
@@ -62,6 +67,7 @@ use near_epoch_manager::{
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_info::EpochInfo;
+#[cfg(feature = "nightly")]
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -74,7 +80,9 @@ use near_primitives::types::{
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
-use std::collections::{BTreeMap, HashSet};
+#[cfg(feature = "nightly")]
+use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Grace window used by the reassignment and epoch-sync bootstrap tests, in blocks into
@@ -243,6 +251,7 @@ fn scan_reassigned_target_slots(
 /// `block_hash`, from the aggregator-backed validator info. Returns (0, 0) when the shard
 /// carries no expected slots for the validator yet — `shards_produced` only lists shards
 /// with `expected > 0`, so absence is a valid early-epoch state, not an error.
+#[cfg(feature = "nightly")]
 fn chunk_stats_for_shard(
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
     block_hash: CryptoHash,
@@ -268,6 +277,7 @@ fn chunk_stats_for_shard(
 /// Shard-layout identity per block over a walked header range, for asserting a window
 /// spans exactly one resharding. Deliberately layout-only: row verification lives in
 /// [`walk_anchor_rows`], and duplicating it here would let the two drift apart.
+#[cfg(feature = "nightly")]
 #[derive(Debug)]
 struct LayoutHistory {
     /// Adjacent block pairs whose epochs disagree on the layout.
@@ -278,6 +288,7 @@ struct LayoutHistory {
 
 /// Walks headers from `top_hash` down to height `low`, classifying each block's epoch
 /// layout as `base_layout` or `new_layout` (any other layout is a fixture bug).
+#[cfg(feature = "nightly")]
 fn scan_layout_history(
     node: &TestLoopNode,
     top_hash: CryptoHash,
@@ -1030,6 +1041,10 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
 /// producer) to the mechanism under test — same reasoning as
 /// `resharding_missing_chunks.rs`. A dynamic-path variant needs a healthy split shard
 /// and is a separate test.
+// Still `nightly`-only: genesis runs at `PROTOCOL_VERSION - 1`, and EarlyKickout has to be
+// active there. On a stable build that is the version right below activation, so the
+// pre-split kickout the scenario needs cannot happen.
+#[cfg(feature = "nightly")]
 #[test]
 // Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
 // that this scenario doesn't cover; resharding under spice is not supported yet.

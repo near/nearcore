@@ -1,6 +1,5 @@
 /// ChunkProducers resolution works across a resharding boundary: every shard in the new
 /// epoch's layout resolves correctly when looked up via the old epoch's last block.
-#[cfg(feature = "nightly")]
 mod tests {
     use crate::setup::builder::TestLoopBuilder;
     use crate::utils::account::{create_validators_spec, validators_spec_clients};
@@ -132,6 +131,9 @@ mod tests {
 /// (how DBs written before the own-epoch seeder keyed boundary rows). The legacy row is the
 /// case the generic own-epoch `combine_keys` copy would miss, so it guards the special case
 /// against removal.
+///
+/// Still `nightly`-only: the boundary anchor lives in the `PROTOCOL_VERSION - 1` epoch, which
+/// on a stable build is the version right below EarlyKickout activation.
 #[cfg(feature = "nightly")]
 mod cold_storage_tests {
     use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
@@ -347,21 +349,30 @@ mod cold_storage_tests {
 /// below-tail anchor's rows disappear while an in-window anchor's rows survive and still
 /// resolve. A wrongly-evicted in-window row would surface as `ChunkProducerNotInDB` and stall
 /// the chain, so reaching the target height at all is the liveness check.
-#[cfg(feature = "nightly")]
 mod hot_gc_tests {
     use crate::setup::builder::TestLoopBuilder;
-    use crate::utils::setups::derive_new_epoch_config_from_boundary;
-    use near_async::time::Duration;
-    use near_chain_configs::test_genesis::TestEpochConfigBuilder;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, ShardId};
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;
+
+    // Only the reshard-boundary test below reshards, and it is nightly-only.
+    #[cfg(feature = "nightly")]
+    use crate::utils::setups::derive_new_epoch_config_from_boundary;
+    #[cfg(feature = "nightly")]
+    use near_async::time::Duration;
+    #[cfg(feature = "nightly")]
+    use near_chain_configs::test_genesis::TestEpochConfigBuilder;
+    #[cfg(feature = "nightly")]
+    use near_primitives::epoch_manager::EpochConfigStore;
+    #[cfg(feature = "nightly")]
+    use near_primitives::types::AccountId;
+    #[cfg(feature = "nightly")]
     use std::collections::{BTreeMap, HashSet};
+    #[cfg(feature = "nightly")]
     use std::sync::Arc;
 
     const EPOCH_LENGTH: u64 = 5;
@@ -433,6 +444,11 @@ mod hot_gc_tests {
     /// (gc_chunk_producers_for_block), so it is layout-agnostic; the test also injects a
     /// legacy row keyed by a NEXT-layout shard id (how DBs written before the own-epoch
     /// seeder keyed boundary rows) and asserts the prefix scan drops it too.
+    ///
+    /// Still `nightly`-only: the boundary anchor sits in the `PROTOCOL_VERSION - 1` epoch,
+    /// which on a stable build is the version right below EarlyKickout, so no rows are
+    /// written there for GC to delete.
+    #[cfg(feature = "nightly")]
     #[test]
     // TODO(spice-test): assess relevance for spice.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
