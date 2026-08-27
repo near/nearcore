@@ -50,7 +50,7 @@ use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
-use near_store::{NodeStorage, Store, StoreOpenerError, is_cloud_reader_store};
+use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
@@ -395,7 +395,7 @@ pub async fn start_with_config_and_synchronization_impl(
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
     // Before any actor is spawned, so the GC actor never starts on this store.
-    if is_cloud_reader_store(&storage.get_hot_store()) {
+    if storage.get_hot_store().cloud_archival_store().reader_head().is_some() {
         anyhow::bail!(
             "this store was written by a cloud-archive reader and cannot be used by a running \
              node; point the cloud-archive tool at it instead"
@@ -413,14 +413,17 @@ pub async fn start_with_config_and_synchronization_impl(
     );
 
     let epoch_id = EpochId::default();
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
+    // Take the layout from the genesis EpochInfo the EpochManager just wrote rather than
+    // re-deriving it, so genesis state can never be built under a different layout than the
+    // one the epoch manager recorded.
+    let genesis_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_sharded_genesis_state(
         storage.get_hot_store(),
         &config.genesis,
-        &genesis_epoch_config,
+        &genesis_shard_layout,
         Some(home_dir),
     );
 

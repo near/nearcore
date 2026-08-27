@@ -43,7 +43,7 @@ mod _proto {
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::spice::data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
 use near_crypto::PublicKey;
@@ -539,7 +539,7 @@ impl PeerMessage {
                     PartialEncodedChunkForward(_)
                     | ChunkContractAccesses(_)
                     | ContractCodeRequest(_)
-                    | SpicePartialDataRequest(_)
+                    | SpiceDataRequest(_)
                     | SpiceChunkContractAccesses(_)
                     | SpiceContractCodeRequest(_)
                     | VersionedPartialEncodedChunk(_) => MAX_MEDIUM_MESSAGE_SIZE,
@@ -693,8 +693,8 @@ impl TieredMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement).into()
             }
-            RoutedMessageBody::SpicePartialDataRequest(request) => {
-                T1MessageBody::SpicePartialDataRequest(request).into()
+            RoutedMessageBody::SpiceDataRequest(request) => {
+                T1MessageBody::SpiceDataRequest(request).into()
             }
             RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
                 T1MessageBody::SpiceChunkContractAccesses(accesses).into()
@@ -752,7 +752,7 @@ pub enum T1MessageBody {
     ContractCodeResponse(ContractCodeResponse) = 8,
     SpicePartialData(SpicePartialData) = 9,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
-    SpicePartialDataRequest(SpicePartialDataRequest) = 11,
+    SpiceDataRequest(SpiceDataRequest) = 11,
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 12,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 13,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 14,
@@ -861,7 +861,7 @@ pub enum RoutedMessageBody {
     SpicePartialData(SpicePartialData) = 33,
     StateRequestAck(StateRequestAck) = 34,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
-    SpicePartialDataRequest(SpicePartialDataRequest) = 36,
+    SpiceDataRequest(SpiceDataRequest) = 36,
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
@@ -980,8 +980,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(_) => {
                 write!(f, "SpiceChunkEndorsement")
             }
-            RoutedMessageBody::SpicePartialDataRequest(request) => {
-                write!(f, "SpicePartialDataRequest({:?})", request)
+            RoutedMessageBody::SpiceDataRequest(request) => {
+                write!(f, "SpiceDataRequest({:?})", request)
             }
             RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
                 write!(f, "SpiceChunkContractAccesses(code_hashes={:?})", accesses.contracts())
@@ -1041,8 +1041,8 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                     RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement)
                 }
-                T1MessageBody::SpicePartialDataRequest(request) => {
-                    RoutedMessageBody::SpicePartialDataRequest(request)
+                T1MessageBody::SpiceDataRequest(request) => {
+                    RoutedMessageBody::SpiceDataRequest(request)
                 }
                 T1MessageBody::SpiceChunkContractAccesses(accesses) => {
                     RoutedMessageBody::SpiceChunkContractAccesses(accesses)

@@ -820,8 +820,7 @@ impl Client {
     pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
         self.last_optimistic_block_produced
             .as_ref()
-            .filter(|ob| ob.inner.block_height == next_height)
-            .is_some()
+            .is_some_and(|ob| ob.inner.block_height == next_height)
     }
 
     pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {

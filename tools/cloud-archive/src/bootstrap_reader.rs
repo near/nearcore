@@ -1,6 +1,6 @@
 use anyhow::Context;
 use near_chain_configs::GenesisValidationMode;
-use near_client::archive::cloud_archival_reader::bootstrap_range;
+use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use std::path::Path;

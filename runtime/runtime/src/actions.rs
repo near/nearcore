@@ -12,7 +12,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
 use near_primitives::action::delegate::{
     VersionedDelegateActionRef, VersionedSignedDelegateActionRef,
@@ -32,6 +32,7 @@ use near_primitives::types::{
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
+use near_primitives_core::universal_account_id::is_universal_account_id;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
@@ -40,6 +41,21 @@ use near_store::{
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
+
+/// Reports a rejected account-state change as a storage inconsistency.
+///
+/// An uninitialized account has no access keys, so no receipt can name one as its
+/// actor. Reaching any of these call sites means the state is corrupt, not that a
+/// user did something wrong.
+pub(crate) trait OrInconsistentState {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError>;
+}
+
+impl OrInconsistentState for Result<(), InvalidAccountState> {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError> {
+        self.map_err(|err| StorageError::StorageInconsistentState(format!("{account_id}: {err}")))
+    }
+}
 
 pub(crate) fn action_stake(
     account: &mut Account,
@@ -80,7 +96,7 @@ pub(crate) fn action_stake(
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
             account.set_amount(new_balance);
-            account.set_locked(stake.stake);
+            account.set_locked(stake.stake).or_inconsistent_state(account_id)?;
         }
     } else {
         result.result = Err(ActionErrorKind::TriesToStake {
@@ -207,6 +223,18 @@ pub(crate) fn action_implicit_account_creation_transfer(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
+    // TODO(universal-accounts): replace with an `AccountType::Universal` variant in the match
+    // below once `near-account-id` supports 0u accounts. For now this needs to be checked before
+    // the match, because 0u account is parsed as `AccountType::NamedAccount` and would panic.
+    if apply_state.config.wasm_config.universal_accounts
+        && is_universal_account_id(account_id.as_str())
+    {
+        *account = Some(Account::new_uninitialized(
+            deposit,
+            fee_config.storage_usage_config.num_bytes_account,
+        ));
+        return;
+    }
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
@@ -277,7 +305,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
+    account.set_contract(AccountContract::Local(*code.hash())).or_inconsistent_state(account_id)?;
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -764,7 +792,7 @@ pub(crate) fn check_actor_permissions(
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
         Action::Delegate(_) | Action::DelegateV2(_) => (),
-        Action::DeterministicStateInit(_) => (),
+        Action::DeterministicStateInit(_) | Action::UniversalStateInit(_) => (),
     };
     Ok(())
 }
@@ -784,7 +812,11 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts) {
+                if account_is_implicit(
+                    account_id,
+                    config.wasm_config.eth_implicit_accounts,
+                    config.wasm_config.universal_accounts,
+                ) {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -816,6 +848,11 @@ pub(crate) fn check_account_existence(
             // Does exist => Nothing happens but the receipt is not aborted to
             // allow optional init before other actions.
         }
+        Action::UniversalStateInit(_) => {
+            // A missing account is created by the action, an uninitialized one
+            // (funded by an earlier transfer) gets its state installed, and an
+            // initialized one is left untouched.
+        }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
         | Action::Stake(_)
@@ -845,7 +882,11 @@ fn check_transfer_to_nonexisting_account(
     implicit_account_creation_eligible: bool,
 ) -> Result<(), ActionError> {
     if implicit_account_creation_eligible
-        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
+        && account_is_implicit(
+            account_id,
+            config.wasm_config.eth_implicit_accounts,
+            config.wasm_config.universal_accounts,
+        )
     {
         // OK. It's implicit account creation.
         // Notes:

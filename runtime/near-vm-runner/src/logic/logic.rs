@@ -27,6 +27,7 @@ use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
+use near_primitives_core::universal_account_id::is_universal_account_id;
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -3154,15 +3155,21 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
+        // TODO(universal-accounts): replace with an `AccountType::Universal` check
+        // once `near-account-id` supports 0u accounts.
+        let receiver_is_universal =
+            self.config.universal_accounts && is_universal_account_id(receiver_id.as_str());
         let send_fee = transfer_send_fee(
             &self.fees_config,
             sir,
             self.config.eth_implicit_accounts,
+            receiver_is_universal,
             receiver_id.get_account_type(),
         );
         let exec_fee = transfer_exec_fee(
             &self.fees_config,
             self.config.eth_implicit_accounts,
+            receiver_is_universal,
             receiver_id.get_account_type(),
         );
         let burn_gas = send_fee.gas;

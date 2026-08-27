@@ -31,7 +31,7 @@ use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
-    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
+    SpiceDataRequestMessage, SpiceIncomingPartialData,
 };
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -978,9 +978,9 @@ impl NetworkState {
                         .send(SpiceChunkEndorsementMessage(endorsement, recv_permit));
                     None
                 }
-                T1MessageBody::SpicePartialDataRequest(request) => {
+                T1MessageBody::SpiceDataRequest(request) => {
                     self.spice_data_distributor_adapter
-                        .send(SpicePartialDataRequestMessage { request, recv_permit });
+                        .send(SpiceDataRequestMessage { request, recv_permit });
                     None
                 }
                 T1MessageBody::SpiceChunkContractAccesses(accesses) => {

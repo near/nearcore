@@ -101,6 +101,9 @@ pub(super) async fn run_state_sync_for_shard(
     }
     while !parts_to_download.is_empty() {
         return_if_cancelled!(cancel);
+        // `buffer_unordered`, not `buffered`: the latter holds completed futures in their slots
+        // until all earlier ones yield, so one part stuck until the p2p timeout would block new
+        // requests and drop this shard's parallelism to one. Download order carries no meaning.
         let results = tokio_stream::iter(parts_to_download.clone())
             .map(|part_idx| {
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
@@ -111,9 +114,14 @@ pub(super) async fn run_state_sync_for_shard(
                     part_idx,
                     cancel.clone(),
                 );
-                respawn_for_parallelism(&*future_spawner, "state sync download part", future)
+                let future =
+                    respawn_for_parallelism(&*future_spawner, "state sync download part", future);
+                // Results arrive in completion order, so the part id can't be recovered from
+                // the position in the output. Carry it in the error, the only branch that
+                // needs it, so the stream stays a `TryStream`.
+                async move { future.await.map_err(|err| (part_id, err)) }
             })
-            .buffered(concurrency_limit.into())
+            .buffer_unordered(concurrency_limit.into())
             .inspect_ok(|_| {
                 parts_downloaded += 1;
                 *status.lock() = ShardSyncStatus::StateDownloadParts {
@@ -121,18 +129,16 @@ pub(super) async fn run_state_sync_for_shard(
                     total: num_parts,
                 };
             })
+            .inspect_err(|(part_id, err)| {
+                tracing::debug!(target: "sync", ?shard_id, part_id, ?err, "state part download failed");
+            })
             .collect::<Vec<_>>()
             .await;
         // Update the list of parts_to_download retaining only the ones that failed.
         // Failed single attempts already wait `retry_backoff` inside the downloader
         // before returning, so the next round is paced without an extra delay here.
-        parts_to_download = results
-            .iter()
-            .enumerate()
-            .filter_map(|(task_index, res)| {
-                res.as_ref().err().map(|_| parts_to_download[task_index])
-            })
-            .collect();
+        parts_to_download =
+            results.into_iter().filter_map(|res| res.err().map(|(part_id, _)| part_id)).collect();
     }
 
     return_if_cancelled!(cancel);

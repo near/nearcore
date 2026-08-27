@@ -13,7 +13,7 @@ pub use crate::network_protocol::{
 };
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice::data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -318,7 +318,7 @@ pub enum NetworkRequests {
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
-    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    SpiceDataRequest { request: SpiceDataRequest, producer: AccountId },
     /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
     SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
     /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.

@@ -2,6 +2,7 @@ mod all_stake_fallback;
 mod basic;
 mod congestion;
 mod core_statement_limit;
+mod data_faults;
 mod garbage_collection;
 mod light_client;
 mod malicious_chunk_producer;

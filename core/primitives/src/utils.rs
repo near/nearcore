@@ -1,15 +1,18 @@
 #[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
+use crate::sharding::ChunkHash;
 use crate::types::{ChunkExecutionResultHash, ShardId};
-use crate::universal_state_init::UniversalStateInit;
+use crate::universal_state_init::RawStateInit;
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::universal_account_id::encode_universal_account_id;
+use near_primitives_core::universal_account_id::{
+    encode_universal_account_id, is_universal_account_id,
+};
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -234,6 +237,28 @@ pub fn get_execution_results_key(block_hash: &CryptoHash, shard_id: ShardId) -> 
     get_block_shard_id(block_hash, shard_id)
 }
 
+pub fn get_spice_invalid_chunk_key(height_created: BlockHeight, chunk_hash: &ChunkHash) -> Vec<u8> {
+    const BYTES_LEN: usize = size_of::<BlockHeight>() + size_of::<CryptoHash>();
+    let mut res = Vec::with_capacity(BYTES_LEN);
+    res.extend_from_slice(&index_to_bytes(height_created));
+    res.extend_from_slice(chunk_hash.as_ref());
+    res
+}
+
+pub fn get_spice_invalid_chunk_key_prefix(height_created: BlockHeight) -> Vec<u8> {
+    index_to_bytes(height_created).to_vec()
+}
+
+pub fn get_spice_invalid_chunk_key_rev(key: &[u8]) -> Option<(BlockHeight, ChunkHash)> {
+    const HEIGHT_LEN: usize = size_of::<BlockHeight>();
+    if key.len() != HEIGHT_LEN + size_of::<CryptoHash>() {
+        return None;
+    }
+    let (height_bytes, chunk_hash_bytes) = key.split_at(HEIGHT_LEN);
+    let height_created = BlockHeight::from_le_bytes(height_bytes.try_into().ok()?);
+    Some((height_created, ChunkHash(CryptoHash::try_from(chunk_hash_bytes).ok()?)))
+}
+
 pub fn get_uncertified_execution_results_key(hash: &ChunkExecutionResultHash) -> Vec<u8> {
     hash.0.as_ref().to_vec()
 }
@@ -445,7 +470,19 @@ where
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
 /// based on whether ETH-implicit accounts are enabled.
-pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
+///
+/// `0u` universal ids are handled separately: `AccountType` has no variant for
+/// them, so they parse as `NamedAccount` and are recognized by their prefix.
+pub fn account_is_implicit(
+    account_id: &AccountId,
+    eth_implicit_accounts_enabled: bool,
+    universal_accounts_enabled: bool,
+) -> bool {
+    // TODO(universal-accounts): replace with an `AccountType::Universal` check
+    // once `near-account-id` supports 0u accounts.
+    if universal_accounts_enabled && is_universal_account_id(account_id.as_str()) {
+        return true;
+    }
     if eth_implicit_accounts_enabled {
         account_id.get_account_type().is_implicit()
     } else {
@@ -480,13 +517,16 @@ pub fn derive_near_deterministic_account_id(
 }
 
 // cspell:words UAID
-/// Returns the `0u` universal account id fully defined by `state_init`: SHA3-256
-/// (FIPS-202) over its canonical borsh, encoded with the UAID address codec.
-pub fn derive_universal_account_id(state_init: &UniversalStateInit) -> AccountId {
+/// Returns the `0u` universal account ID defined by `state_init`: SHA3-256
+/// (FIPS-202) over exactly those bytes, encoded with the UAID address codec.
+///
+/// **Note:** This function deliberately does not take `UniversalStateInit`, but
+/// `RawStateInit`, because account ID is committed to the exact user-supplied bytes.
+/// Re-serializing could yield a different ID, if `state_init` contained non-canonical
+/// borsh representation.
+pub fn derive_universal_account_id(state_init: &RawStateInit) -> AccountId {
     use sha3::Digest;
-    let mut hasher = sha3::Sha3_256::new();
-    borsh::to_writer(&mut hasher, &state_init).expect("borsh must not fail");
-    let hash = hasher.finalize().into();
+    let hash = sha3::Sha3_256::digest(&state_init.0).into();
     encode_universal_account_id(&hash)
 }
 
@@ -538,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_derive_universal_account_id() {
-        use crate::universal_state_init::UniversalStateInitV1;
+        use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
         use near_crypto::{MlDsa65PublicKeyHandle, PublicKeyHandle};
         use near_primitives_core::global_contract::GlobalContractIdentifier;
         use near_primitives_core::universal_account_id::decode_universal_account_id;
@@ -561,16 +601,47 @@ mod tests {
         // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
         // on-chain `raw_state_init_to_account_id` host fn's cross-check.
         for (state_init, expected) in [
-            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g0ep4de"), // cspell:disable-line
-            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0s32b8m"), // cspell:disable-line
+            (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"), // cspell:disable-line
+            (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"), // cspell:disable-line
         ] {
-            let id = derive_universal_account_id(state_init);
+            let raw = state_init.to_raw();
+            let id = derive_universal_account_id(&raw);
             assert_eq!(id.as_str(), expected);
-            // The id decodes back to SHA3-256 of the canonical borsh.
-            let bytes = borsh::to_vec(state_init).unwrap();
-            let hash: [u8; 32] = Sha3_256::digest(&bytes).into();
+            // The producer-side shorthand agrees with hashing the bytes it wrote.
+            assert_eq!(state_init.derive_account_id(), id);
+            // The id decodes back to SHA3-256 of those bytes.
+            let hash: [u8; 32] = Sha3_256::digest(&raw.0).into();
             assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
         }
+    }
+
+    /// Two encodings of the same logical state init are two different accounts:
+    /// the id commits to the bytes, and nothing re-serializes a decoded value to
+    /// derive one.
+    #[test]
+    fn test_derive_universal_account_id_is_over_raw_bytes() {
+        use crate::universal_state_init::{RawStateInit, UniversalStateInit};
+
+        // V1, code: None, data {"b": "", "a": ""} written out of order, no keys.
+        // Borsh accepts it and re-sorts on decode, so the typed form's own encoding
+        // differs from this one.
+        let mut bytes = vec![0u8, 0u8];
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        for key in [b'b', b'a'] {
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.push(key);
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        let raw = RawStateInit(bytes);
+
+        let decoded = UniversalStateInit::from_raw(&raw).unwrap();
+        assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
+        assert_ne!(
+            derive_universal_account_id(&raw),
+            decoded.derive_account_id(),
+            "the id must follow the bytes supplied, not their re-encoding"
+        );
     }
 
     #[test]

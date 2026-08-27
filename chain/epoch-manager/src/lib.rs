@@ -557,6 +557,7 @@ impl EpochManager {
             epoch_length,
             epoch_config_store,
             genesis_config.protocol_version,
+            genesis_config.shard_layout.clone(),
         );
         Arc::new(
             Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
@@ -2319,8 +2320,8 @@ impl EpochManager {
         shard_layout: &ShardLayout,
         prev_hash: &CryptoHash,
     ) -> Option<HashMap<ShardId, ValidatorId>> {
-        // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
-        // EarlyKickout); stable always uses the legacy sampler.
+        // The aggregator's access to `DBCol::ChunkProducers` stays nightly-gated (an
+        // enabled EarlyKickout is nightly-only); stable always uses the legacy sampler.
         #[cfg(feature = "nightly")]
         {
             use near_primitives::utils::get_block_shard_id;

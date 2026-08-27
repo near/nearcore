@@ -406,16 +406,20 @@ pub enum DBCol {
     /// - *Content type*: [near_primitives::hash::CryptoHash] (certifying block hash)
     #[cfg(feature = "protocol_feature_spice")]
     ChunkCertifyingBlock,
+    /// For spice, chunks that failed to decode or verify. Unlike [`DBCol::InvalidChunks`], the
+    /// height prefix lets garbage collection reach these rows: an invalid chunk gets no
+    /// [`DBCol::Chunks`] row, so [`DBCol::ChunkHashesByHeight`] does not list it.
+    /// - *Rows*: BlockHeight || ChunkHash (height_created, chunk_hash)
+    /// - *Content type*: [near_primitives::sharding::EncodedShardChunk]
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceInvalidChunks,
     /// Pre-computed chunk producer for the chunk anchored at the given block (its
-    /// grandparent), sampled at height `anchor.height+2` in the epoch after the anchor.
-    /// Populated during header sync and block processing, gated behind `EarlyKickout`
-    /// protocol feature. Authoritative source for historical chunk producer lookups.
+    /// grandparent), sampled at height `anchor.height+2` in the anchor's own epoch.
+    /// The column family exists on every build, but rows are only populated (during
+    /// header sync and block processing) once the `EarlyKickout` protocol feature is
+    /// active. Authoritative source for historical chunk producer lookups.
     /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
-    // TODO(early-kickout): bump DB_VERSION before moving to stable so that
-    // older databases get a proper migration and read-only opens don't fail on the
-    // missing column family.
-    #[cfg(feature = "nightly")]
     ChunkProducers,
 }
 
@@ -503,8 +507,8 @@ impl DBCol {
             | DBCol::ExecutionResults
             | DBCol::UncertifiedExecutionResults
             | DBCol::SpiceEndorsementStats
+            | DBCol::SpiceInvalidChunks
             | DBCol::ChunkCertifyingBlock => true,
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
             _ => false,
         }
@@ -611,6 +615,8 @@ impl DBCol {
             | DBCol::ContractAccesses => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ChunkCertifyingBlock => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceInvalidChunks => true,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -677,7 +683,6 @@ impl DBCol {
             | DBCol::StateSyncHashes
             | DBCol::StateSyncNewChunks
             => false,
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => true,
         }
     }
@@ -726,6 +731,7 @@ impl DBCol {
             | DBCol::ReceiptProofs
             | DBCol::SpiceEndorsementStats
             | DBCol::UncertifiedChunks
+            | DBCol::SpiceInvalidChunks
             | DBCol::UncertifiedExecutionResults
             | DBCol::Witnesses => GcPolicy::Delete,
 
@@ -773,7 +779,6 @@ impl DBCol {
             // GC'd with the anchor block/header it belongs to: a row for anchor A is dropped
             // once A falls below the GC boundary, far below the near-head consensus read
             // horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
-            #[cfg(feature = "nightly")]
             DBCol::ChunkProducers => GcPolicy::Delete,
         }
     }
@@ -877,9 +882,17 @@ impl DBCol {
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ChunkCertifyingBlock => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            #[cfg(feature = "nightly")]
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceInvalidChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
             DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
+    }
+
+    pub fn spice_invalid_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceInvalidChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn witnesses() -> DBCol {

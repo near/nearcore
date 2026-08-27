@@ -51,3 +51,7 @@ about security, then we pass a `--secret-key-file` argument to the
 that makes things a little bit more delicate, since if the generated
 secret is ever lost, then it will no longer be possible to mirror any
 traffic to the target chain.
+
+ML-DSA-65 keys work the same way, except that the derivation input is
+the on-trie key handle - the SHA3-256 digest of the pubkey - rather than
+the pubkey itself, since the full pubkey is never stored in state.

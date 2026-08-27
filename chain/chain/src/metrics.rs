@@ -101,6 +101,17 @@ pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = Lazy
     )
     .unwrap()
 });
+pub static SPICE_PRE_ACTIVATION_REQUEST_ENTRIES_DROPPED: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_spice_pre_activation_request_entries_dropped_total",
+            "Number of entries of batched spice messages dropped because spice is not active \
+             for the block they reference, by message kind. The rest of the message is still \
+             processed, so these are entries rather than messages",
+            &["kind"],
+        )
+        .unwrap()
+    });
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",

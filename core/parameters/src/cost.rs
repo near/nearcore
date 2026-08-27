@@ -109,6 +109,10 @@ impl ParameterCost {
         let compute = self.compute.checked_mul(rhs)?;
         Some(Self { gas, compute })
     }
+
+    pub fn checked_mul_result(self, rhs: u64) -> Result<Self, IntegerOverflowError> {
+        self.checked_mul(rhs).ok_or(IntegerOverflowError)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -409,6 +413,9 @@ pub enum ActionCosts {
     gas_key_transfer_base = 23,
     gas_key_byte = 24,
     gas_key_nonce_write_base = 25,
+    universal_state_init_base = 26,
+    universal_state_init_byte = 27,
+    universal_state_init_entry = 28,
 }
 
 impl ExtCosts {
@@ -666,6 +673,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_transfer_base => Fee::new(115_123_062_500, 115_123_062_500, 235_676_644_250),
                 ActionCosts::gas_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
+                ActionCosts::universal_state_init_base => Fee::new(500_000_000_000, 500_000_000_000, 7_430_000_000_000),
+                ActionCosts::universal_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
+                ActionCosts::universal_state_init_entry => Fee::new(0, 0, 200_000_000_000),
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
@@ -751,9 +761,16 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     eth_implicit_accounts_enabled: bool,
+    receiver_is_universal: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
+    // A `0u` receiver has no `AccountType` variant and reads as `NamedAccount`,
+    // so it is handled before the match. Like a deterministic account, the
+    // transfer creates it; its keys arrive later with the state init.
+    if receiver_is_universal {
+        return transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap();
+    }
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,
@@ -780,9 +797,16 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     eth_implicit_accounts_enabled: bool,
+    receiver_is_universal: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    // See `transfer_exec_fee`: `0u` receivers are not an `AccountType`.
+    if receiver_is_universal {
+        return transfer_fee
+            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+            .unwrap();
+    }
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,

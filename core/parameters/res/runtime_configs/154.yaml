@@ -1,0 +1,3 @@
+# Make `0u` universal account ids implicit, so a transfer can create the account
+# before its state init is applied.
+universal_accounts: { old: false, new: true }

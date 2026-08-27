@@ -70,6 +70,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 self.config.config.cold_store.as_ref(),
                 is_snapshot,
             ),
+            49 => Ok(()), // DBCol::ChunkProducers column added, no need to perform a migration
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -489,4 +490,119 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Migrator;
+    use crate::config::load_test_config;
+    use near_chain_configs::Genesis;
+    use near_network::tcp;
+    use near_store::db::ColdDB;
+    use near_store::db::metadata::{DB_VERSION, DbVersion};
+    use near_store::{DBCol, Mode, NodeStorage, Store, StoreConfig, StoreMigrator};
+    use std::cell::RefCell;
+    use strum::IntoEnumIterator;
+
+    /// Delegates to the real [`Migrator`] and records which versions it was asked to
+    /// migrate, so a test can assert the migration actually ran rather than that the
+    /// database happened to already be current.
+    struct RecordingMigrator<'a> {
+        inner: Migrator<'a>,
+        migrated: RefCell<Vec<DbVersion>>,
+    }
+
+    impl<'a> StoreMigrator for RecordingMigrator<'a> {
+        fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
+            self.inner.check_support(version)
+        }
+
+        fn migrate(
+            &self,
+            hot_store: &Store,
+            cold_db: Option<&ColdDB>,
+            version: DbVersion,
+            is_snapshot: bool,
+        ) -> anyhow::Result<()> {
+            self.migrated.borrow_mut().push(version);
+            self.inner.migrate(hot_store, cold_db, version, is_snapshot)
+        }
+    }
+
+    /// A version-49 database has no `DBCol::ChunkProducers` column family. Assert the
+    /// full upgrade path for such a database: a read-only open fails on the missing
+    /// column family, a read-write open migrates it to 50 and materializes the column,
+    /// and a read-only open then succeeds.
+    ///
+    /// Hot store only. The cold store follows the same version gate but is not covered
+    /// here.
+    ///
+    /// Stable builds only. On nightly, `StoreOpener::ensure_version` overwrites the
+    /// freshly migrated version with the 10000 sentinel, and `open_dbs` then reopens
+    /// expecting `DB_VERSION`, so the migrating open fails. That applies to every
+    /// version bump, not just this one, so there is no nightly upgrade path here to
+    /// assert against.
+    #[test]
+    #[cfg_attr(
+        feature = "nightly",
+        ignore = "nightly overwrites the migrated version with the 10000 sentinel, so the migrating open fails"
+    )]
+    fn slow_test_migration_49_to_50_creates_chunk_producers_column() {
+        // A fresh database is created at DB_VERSION with every column family present,
+        // so build the version-49 shape by stamping the old version and then dropping
+        // the column family via a filtered checkpoint.
+        let (_hot_dir, hot_opener) = NodeStorage::test_opener();
+        let hot_storage = hot_opener.open().unwrap();
+        let hot_store = hot_storage.get_hot_store();
+        hot_store.set_db_version(49);
+
+        // Build the opener first: its resolved path is where the checkpoint has to land.
+        // `DBCol::DbVersion` stays in the keep-list so the checkpoint carries version 49
+        // forward.
+        let checkpoint_dir = tempfile::tempdir().unwrap();
+        let store_config = StoreConfig::test_config();
+        let checkpoint_opener =
+            NodeStorage::opener(checkpoint_dir.path(), &store_config, None, None);
+        let columns_to_keep: Vec<DBCol> =
+            DBCol::iter().filter(|&col| col != DBCol::ChunkProducers).collect();
+        hot_store
+            .database()
+            .create_checkpoint(checkpoint_opener.path(), Some(&columns_to_keep))
+            .unwrap();
+        drop(hot_storage);
+
+        // Read-only cannot create the missing column family. Assert on the message, not
+        // just on `is_err`: a wrong checkpoint path would fail with `DbDoesNotExist` and
+        // make the rest of this test vacuous.
+        let Err(err) = checkpoint_opener.open_in_mode(Mode::ReadOnly) else {
+            panic!("read-only open of a v49 database without the column family must fail");
+        };
+        assert!(
+            err.to_string().contains(<&str>::from(DBCol::ChunkProducers)),
+            "expected a missing-column-family error, got: {err}"
+        );
+
+        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        let near_config = load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis);
+        let migrator = RecordingMigrator {
+            inner: Migrator::new(&near_config, checkpoint_dir.path()),
+            migrated: RefCell::new(Vec::new()),
+        };
+        // `Mode::ReadWriteExisting`, not `Mode::ReadWrite`: the latter can create, so a
+        // wrong path would silently open a fresh DB already at DB_VERSION and every
+        // assertion below would pass without a migration having run.
+        let migrated_opener = NodeStorage::opener(checkpoint_dir.path(), &store_config, None, None)
+            .with_migrator(&migrator);
+        let migrated_storage = migrated_opener.open_in_mode(Mode::ReadWriteExisting).unwrap();
+        let migrated_store = migrated_storage.get_hot_store();
+        assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
+        // The checkpoint really was at 49 and the `49 => Ok(())` arm really ran.
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49]);
+        // The column family now exists and is readable. It is empty until EarlyKickout
+        // activates.
+        assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);
+        drop(migrated_storage);
+
+        checkpoint_opener.open_in_mode(Mode::ReadOnly).unwrap();
+    }
 }

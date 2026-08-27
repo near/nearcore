@@ -96,6 +96,18 @@ action_deterministic_state_init_per_byte
 - send_sir:               72_000_000
 - send_not_sir:           72_000_000
 - execution:              70_000_000
+action_universal_state_init             
+- send_sir:          500_000_000_000
+- send_not_sir:      500_000_000_000
+- execution:       7_430_000_000_000
+action_universal_state_init_per_entry   
+- send_sir:                        0
+- send_not_sir:                    0
+- execution:         200_000_000_000
+action_universal_state_init_per_byte    
+- send_sir:               72_000_000
+- send_not_sir:           72_000_000
+- execution:              70_000_000
 action_gas_key_transfer                 
 - send_sir:          115_123_062_500
 - send_not_sir:      115_123_062_500
@@ -253,6 +265,7 @@ fix_contract_loading_cost               false
 fix_contract_loading_error              true
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
+universal_accounts                      false
 fix_ml_dsa_cost_charging                false
 discard_custom_sections                 true
 reftypes_bulk_memory                    true

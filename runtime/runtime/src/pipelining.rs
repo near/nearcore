@@ -176,6 +176,7 @@ impl ReceiptPreparationPipeline {
                 Action::DeployContract(_)
                 | Action::UseGlobalContract(_)
                 | Action::DeterministicStateInit(_)
+                | Action::UniversalStateInit(_)
                 | Action::CreateAccount(_)
                 | Action::DeleteAccount(_) => {
                     // Any action that can change the account's executable-code identity within

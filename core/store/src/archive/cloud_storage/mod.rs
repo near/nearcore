@@ -24,7 +24,7 @@ pub(super) mod epoch_data;
 pub(super) mod file_id;
 pub(super) mod shards;
 
-pub use file_id::ListableCloudDir;
+pub use file_id::{CloudStorageFileID, ListableCloudDir};
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
@@ -41,14 +41,6 @@ impl CloudStorage {
         bucket_config: BucketConfig,
     ) -> Self {
         Self { external, chain_id, bucket_config }
-    }
-
-    pub fn connection(&self) -> &ExternalConnection {
-        &self.external
-    }
-
-    pub fn chain_id(&self) -> &str {
-        &self.chain_id
     }
 
     pub fn batch_size(&self) -> u32 {
@@ -77,6 +69,13 @@ impl CloudStorage {
 
     pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData, CloudRetrievalError> {
         block_on_future(self.retrieve_epoch_data(epoch_id))
+    }
+
+    /// Highest height whose block data is in the bucket, if the writer has
+    /// published a block head at all.
+    #[cfg(feature = "test_features")]
+    pub fn get_cloud_block_head(&self) -> Result<Option<BlockHeight>, CloudRetrievalError> {
+        block_on_future(self.retrieve_cloud_block_head_if_exists())
     }
 
     /// Fetches the full block batch containing `block_height`. There is no
@@ -145,17 +144,14 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 
 /// Columns the cloud-archive reader reproduces from cloud data.
 pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
-    // From BlockData.
-    #[cfg(feature = "nightly")]
-    if col == DBCol::ChunkProducers {
-        return true;
-    }
     matches!(
         col,
         // From BlockData.
         DBCol::Block
             | DBCol::BlockInfo
             | DBCol::NextBlockHashes
+            | DBCol::BlockMerkleTree
+            | DBCol::ChunkProducers
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight
@@ -181,7 +177,6 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // From EpochData.
             | DBCol::EpochInfo
             | DBCol::EpochStart
-            | DBCol::BlockMerkleTree
 
             // From a state snapshot.
             | DBCol::State
@@ -193,7 +188,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     // TODO(spice): decide how the reader handles spice columns.
     #[cfg(feature = "protocol_feature_spice")]
-    if col == DBCol::ReceiptProofs {
+    if col == DBCol::ReceiptProofs || col == DBCol::SpiceInvalidChunks {
         return true;
     }
     matches!(
