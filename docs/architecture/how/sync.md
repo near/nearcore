@@ -180,6 +180,12 @@ sync (headers are already downloaded); if not, it redoes epoch sync with a
 fresh proof. Previously downloaded state parts are preserved in the DB, so
 the node does not re-download parts that were already saved before the crash.
 
+Applied state parts are tracked in `DBCol::StatePartsApplied`. On restart,
+state sync keeps them only while the flat storage status for the shard is not
+yet `Ready`. A `Ready` status means an earlier sync applied every part and
+finalized the shard, which modifies the trie on top of the parts, so the node
+clears flat storage and applies every part again.
+
 ## Side topic: how blocks are added to the chain?
 
 A node can receive a Block in two ways:
