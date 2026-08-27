@@ -1207,7 +1207,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut all_schemas,
         "EXPERIMENTAL_tx_status",
         "Queries status of a transaction by hash including receipts (alias for tx_status)",
-        false,
+        true,
         &["transaction", "experimental"],
     );
     add_method::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(

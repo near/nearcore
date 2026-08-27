@@ -14355,6 +14355,7 @@
       ]
     },
     {
+      "deprecated": true,
       "name": "EXPERIMENTAL_tx_status",
       "paramStructure": "by-name",
       "params": [
