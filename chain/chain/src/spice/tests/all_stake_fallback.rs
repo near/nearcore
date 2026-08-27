@@ -1,6 +1,5 @@
 use crate::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, is_fallback_only_chunk,
-    is_fallback_only_height_for_shard_index,
+    SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_only_shard_index, is_fallback_only_chunk,
 };
 use crate::spice::tests::core::{
     block_certification_core_statements, build_block, endorsement_into_core_statement,
@@ -441,14 +440,14 @@ fn fallback_only_heights(
     let mut parent = None;
     for height in heights {
         let prev_height = parent.unwrap_or_else(|| height.saturating_sub(1));
-        if is_fallback_only_height_for_shard_index(
+        if fallback_only_shard_index(
             FALLBACK_ONLY_SCHEDULE_EPOCH_LENGTH,
             epoch_height,
             FALLBACK_ONLY_SCHEDULE_NUM_SHARDS,
-            shard_index,
             height,
             prev_height,
-        ) {
+        ) == Some(shard_index)
+        {
             slots.push(height);
         }
         parent = Some(height);
@@ -476,31 +475,21 @@ fn test_slots_rotate_across_epochs() {
 fn test_schedule_picks_one_shard_at_the_maximum_height() {
     // blocks_between is 1 here, so the largest height qualifies and the shard arithmetic runs on it.
     let num_shards = FALLBACK_ONLY_SCHEDULE_NUM_SHARDS;
-    let scheduled = (0..num_shards)
-        .filter(|shard_index| {
-            is_fallback_only_height_for_shard_index(
-                num_shards as BlockHeightDelta,
-                EpochHeight::MAX,
-                num_shards,
-                *shard_index,
-                BlockHeight::MAX,
-                BlockHeight::MAX - 1,
-            )
-        })
-        .count();
-    assert_eq!(scheduled, 1);
+    let scheduled = fallback_only_shard_index(
+        num_shards as BlockHeightDelta,
+        EpochHeight::MAX,
+        num_shards,
+        BlockHeight::MAX,
+        BlockHeight::MAX - 1,
+    );
+    assert!(scheduled.is_some_and(|shard_index| shard_index < num_shards));
 }
 
 #[test]
 fn test_no_fallback_only_chunk_when_epoch_shorter_than_shard_count() {
-    assert!((1000..1010).all(|height| !is_fallback_only_height_for_shard_index(
-        5,
-        0,
-        6,
-        0,
-        height,
-        height - 1
-    )));
+    assert!(
+        (1000..1010).all(|height| fallback_only_shard_index(5, 0, 6, height, height - 1).is_none())
+    );
 }
 
 #[test]
@@ -543,45 +532,13 @@ fn grow_chain_to_fallback_only_block(chain: &mut Chain, bound: usize) -> (Arc<Bl
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_recorded_chunk_info_marks_the_scheduled_shard_fallback_only() {
-    let (mut chain, core_reader) = setup();
-    let (fallback_only_block, fallback_only_shard) =
-        grow_chain_to_fallback_only_block(&mut chain, 40);
-    let fallback_only_chunks: Vec<_> = core_reader
-        .get_uncertified_chunks(fallback_only_block.hash())
-        .unwrap()
-        .into_iter()
-        .filter(|chunk_info| chunk_info.is_fallback_only)
-        .map(|chunk_info| chunk_info.chunk_id)
-        .collect();
-    assert_eq!(
-        fallback_only_chunks,
-        vec![SpiceChunkId {
-            block_hash: *fallback_only_block.hash(),
-            shard_id: fallback_only_shard
-        }]
-    );
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_fallback_only_mark_survives_in_later_blocks() {
-    let (mut chain, core_reader) = setup();
-    let (fallback_only_block, fallback_only_shard) =
-        grow_chain_to_fallback_only_block(&mut chain, 40);
-    let scheduled =
-        SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id: fallback_only_shard };
-
-    let later = advance_to_height(
-        &mut chain,
-        &fallback_only_block,
-        fallback_only_block.header().height() + 3,
-    );
-
-    let still_marked = core_reader
-        .get_uncertified_chunks(later.hash())
-        .unwrap()
-        .into_iter()
-        .any(|chunk_info| chunk_info.chunk_id == scheduled && chunk_info.is_fallback_only);
-    assert!(still_marked, "the mark was lost when the chunk was carried forward");
+fn test_schedule_fires_at_a_slot_boundary_on_a_real_chain() {
+    let (mut chain, _core_reader) = setup();
+    let epoch_id = chain.epoch_manager.get_epoch_id(chain.genesis_block().hash()).unwrap();
+    let epoch_length = chain.epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
+    let num_shards = chain.epoch_manager.get_shard_layout(&epoch_id).unwrap().num_shards();
+    let blocks_between = epoch_length / num_shards;
+    let (fallback_only_block, _) =
+        grow_chain_to_fallback_only_block(&mut chain, epoch_length as usize);
+    assert_eq!(fallback_only_block.header().height() % blocks_between, 0);
 }

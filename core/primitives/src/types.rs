@@ -1481,9 +1481,6 @@ pub struct SpiceUncertifiedChunkInfo {
     /// designated validators could act. Set once, then carried forward. The all-stake fallback
     /// opens `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks later.
     pub certifiable_since_height: Option<BlockHeight>,
-    /// Whether the epoch's schedule picked this chunk to certify only via the all-stake fallback,
-    /// never via its designated assignment. Resolved once when the chunk is first recorded.
-    pub is_fallback_only: bool,
 }
 
 impl SpiceUncertifiedChunkInfo {

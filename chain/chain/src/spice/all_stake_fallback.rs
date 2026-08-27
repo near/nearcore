@@ -64,50 +64,57 @@ pub fn fallback_endorsers(
 /// traffic does not land on every shard at once. The first block past a slot takes it, so skipped
 /// heights delay a slot rather than dropping it, until a gap runs past the next one. `epoch_height`
 /// offsets which shard a slot picks, so slots do not line up with epoch boundaries.
-pub(super) fn is_fallback_only_height_for_shard_index(
+pub(super) fn fallback_only_shard_index(
     epoch_length: BlockHeightDelta,
     epoch_height: EpochHeight,
     num_shards: usize,
-    shard_index: ShardIndex,
     height: BlockHeight,
     prev_height: BlockHeight,
-) -> bool {
+) -> Option<ShardIndex> {
     // Zero when epoch_length < num_shards, which leaves the epoch with no slots at all. Only
     // tests reach that: production epoch lengths far exceed shard counts.
     let blocks_between = epoch_length / num_shards as u64;
     if blocks_between == 0 {
-        return false;
+        return None;
     }
     let slot = height / blocks_between;
     if slot == prev_height / blocks_between {
-        return false;
+        return None;
     }
     let num_shards = num_shards as u64;
     let shard_for_slot = slot % num_shards;
     let epoch_offset = epoch_height % num_shards;
-    shard_index as u64 == (shard_for_slot + epoch_offset) % num_shards
+    Some(((shard_for_slot + epoch_offset) % num_shards) as ShardIndex)
 }
 
-/// The fallback-only schedule, resolved from the previous block: the epoch manager does not know a
-/// block while that block's chunks are recorded.
+/// The shard whose chunk in `chunk_block_header`'s block certifies only via the all-stake
+/// fallback, if the block takes a slot.
+pub fn fallback_only_shard(
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_block_header: &BlockHeader,
+) -> Result<Option<ShardId>, Error> {
+    // Absent only on header versions that predate spice, which never carry a slot.
+    let Some(prev_height) = chunk_block_header.prev_height() else {
+        return Ok(None);
+    };
+    let epoch_id = chunk_block_header.epoch_id();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+    let Some(shard_index) = fallback_only_shard_index(
+        epoch_manager.get_epoch_config(epoch_id)?.epoch_length,
+        epoch_manager.get_epoch_info(epoch_id)?.epoch_height(),
+        shard_layout.num_shards() as usize,
+        chunk_block_header.height(),
+        prev_height,
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(shard_layout.get_shard_id(shard_index)?))
+}
+
 pub fn is_fallback_only_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_block_header: &BlockHeader,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let prev_hash = chunk_block_header.prev_hash();
-    // Absent only on header versions that predate spice, which never carry a slot.
-    let Some(prev_height) = chunk_block_header.prev_height() else {
-        return Ok(false);
-    };
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    Ok(is_fallback_only_height_for_shard_index(
-        epoch_manager.get_epoch_config(&epoch_id)?.epoch_length,
-        epoch_manager.get_epoch_height_from_prev_block(prev_hash)?,
-        shard_layout.num_shards() as usize,
-        shard_layout.get_shard_index(shard_id)?,
-        chunk_block_header.height(),
-        prev_height,
-    ))
+    Ok(fallback_only_shard(epoch_manager, chunk_block_header)? == Some(shard_id))
 }
