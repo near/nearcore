@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::spice::all_stake_fallback::{
-    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers,
+    endorsers_certify_chunk, fallback_eligible, fallback_endorsers,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
@@ -156,6 +156,18 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
+    /// `chunk_id`'s record as of `carrying_prev_hash`, absent once the chunk is certified there.
+    pub fn uncertified_chunk_info(
+        &self,
+        carrying_prev_hash: &CryptoHash,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<Option<SpiceUncertifiedChunkInfo>, Error> {
+        Ok(self
+            .get_uncertified_chunks(carrying_prev_hash)?
+            .into_iter()
+            .find(|chunk_info| &chunk_info.chunk_id == chunk_id))
+    }
+
     /// Whether `chunk_id` may certify via the all-stake fallback in a block at `carrying_height`
     /// built on `carrying_prev_hash`. False once the chunk is certified there.
     pub fn fallback_eligible_in_carrying_block(
@@ -164,11 +176,9 @@ impl SpiceCoreReader {
         carrying_prev_hash: &CryptoHash,
         chunk_id: &SpiceChunkId,
     ) -> Result<bool, Error> {
-        let uncertified_chunks = self.get_uncertified_chunks(carrying_prev_hash)?;
-        Ok(uncertified_chunks
-            .iter()
-            .find(|chunk_info| &chunk_info.chunk_id == chunk_id)
-            .is_some_and(|chunk_info| fallback_eligible(carrying_height, chunk_info)))
+        Ok(self
+            .uncertified_chunk_info(carrying_prev_hash, chunk_id)?
+            .is_some_and(|chunk_info| fallback_eligible(carrying_height, &chunk_info)))
     }
 
     /// Returns ChunkExtra for a given chunk, trying the ChunkExtra column first
@@ -746,42 +756,29 @@ impl SpiceCoreReader {
 
         for (chunk_id, mut on_chain_endorsements) in in_block_endorsements {
             let chunk_block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
-            let chunk_validator_assignments = self
-                .epoch_manager
-                .get_chunk_validator_assignments(
-                    &chunk_block.header().epoch_id(),
-                    chunk_id.shard_id,
-                    chunk_block.header().height(),
-                )
-                .expect(
-                    "since we are waiting for endorsement we should know it's validator assignments",
-                );
             // Add the on-chain ancestry endorsements (designated and non-designated) to the in-block
-            // ones, grouped by attested result; the designated tally ignores non-designated accounts.
+            // ones, grouped by attested result.
             for (account_id, endorsement) in ancestry_endorsements.on_chain_for(chunk_id) {
                 on_chain_endorsements
                     .entry(endorsement.execution_result_hash.clone())
                     .or_default()
                     .insert(account_id, endorsement.signature.clone());
             }
-            // Once fallback-eligible, the chunk may also certify via 2/3 of total epoch stake.
-            let fallback_assignment = ancestry_endorsements
-                .is_fallback_eligible(chunk_id, block.header().height())
-                .then(|| {
-                    all_stake_fallback_assignment(
-                        self.epoch_manager.as_ref(),
-                        chunk_block.header().epoch_id(),
-                    )
-                    .expect("epoch of an uncertified chunk's block is known")
-                });
+            let Some(chunk_info) = ancestry_endorsements.uncertified_chunk_info(chunk_id) else {
+                continue;
+            };
             for (execution_result_hash, validator_signatures) in on_chain_endorsements {
-                let endorsed = chunk_validator_assignments
-                    .compute_endorsement_state(validator_signatures.clone())
-                    .is_endorsed
-                    || fallback_assignment.as_ref().is_some_and(|all| {
-                        all.compute_endorsement_state(validator_signatures).is_endorsed
-                    });
-                if !endorsed {
+                let endorsers =
+                    validator_signatures.keys().map(|account_id| (*account_id).clone()).collect();
+                if !endorsers_certify_chunk(
+                    self.epoch_manager.as_ref(),
+                    chunk_block.header(),
+                    chunk_info,
+                    block.header().height(),
+                    &endorsers,
+                )
+                .expect("epoch of an uncertified chunk's block is known")
+                {
                     continue;
                 }
 
