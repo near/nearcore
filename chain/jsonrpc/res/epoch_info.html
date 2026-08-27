@@ -118,7 +118,10 @@
 
         function process_responses(data, epoch_data) {
             let validatorMap = new Map();
-            let maxShards = 0;
+            // The shard sizes table is keyed by shard id, not by position in the response,
+            // because a resharding changes which shard a given index refers to.
+            let shardSizeRows = [];
+            let allShardIds = new Set();
             epoch_data.status_response.EpochInfo.forEach((epoch, index) => {
                 {
                     let row = $('<tr>');
@@ -172,20 +175,13 @@
                 });
 
                 {
-                    let row = $('<tr>');
-                    row.append($('<td>').append(epoch.epoch_id));
-
+                    let shardsById = new Map();
                     epoch.shards_size_and_parts.forEach(element => {
-                        let cell = $('<td>').append(humanFileSize(element[0]));
-                        if (element[2] == true) {
-                            cell.css('background-color', 'orange');
-                        }
-                        row.append(cell);
-                        row.append($('<td>').append(element[1]));
+                        shardsById.set(element.shard_id, element);
+                        allShardIds.add(element.shard_id);
                     });
-                    $('.js-tbody-shard-sizes').append(row);
+                    shardSizeRows.push({ epoch_id: epoch.epoch_id, shardsById: shardsById });
                 }
-                maxShards = Math.max(epoch.shards_size_and_parts.length, maxShards);
             });
 
 
@@ -204,12 +200,33 @@
                 }
                 $('.js-tbody-validators').append(row);
             });
-            for (const x of Array(maxShards).keys()) {
-                $('.js-head-shard-sizes').append($('<th colspan="2">').append("Shard " + x));
+            let sortedShardIds = Array.from(allShardIds).sort((a, b) => a - b);
+            for (const shard_id of sortedShardIds) {
+                $('.js-head-shard-sizes').append($('<th colspan="2">').append("Shard id " + shard_id));
                 $('.js-head-shard-sizes-line2').append($('<th>').append("Size"));
                 $('.js-head-shard-sizes-line2').append($('<th>').append("Parts"));
-
             }
+            shardSizeRows.forEach(shardSizeRow => {
+                let row = $('<tr>');
+                row.append($('<td>').append(shardSizeRow.epoch_id));
+                for (const shard_id of sortedShardIds) {
+                    // An epoch does not necessarily contain every shard id seen in the
+                    // response - leave its columns blank rather than shifting the row.
+                    let element = shardSizeRow.shardsById.get(shard_id);
+                    if (element === undefined) {
+                        row.append($('<td>'));
+                        row.append($('<td>'));
+                        continue;
+                    }
+                    let cell = $('<td>').append(humanFileSize(element.shard_size));
+                    if (element.state_header_exists == true) {
+                        cell.css('background-color', 'orange');
+                    }
+                    row.append(cell);
+                    row.append($('<td>').append(element.state_parts_count));
+                }
+                $('.js-tbody-shard-sizes').append(row);
+            });
         }
 
 
