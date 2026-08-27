@@ -4,13 +4,15 @@ use super::AdmitError;
 use super::Lane;
 use super::scheduler::Backoff;
 use crate::spice::data_distributor_actor::SpiceData;
-use near_async::time::Instant;
+use near_async::time::{Clock, Instant};
 use near_primitives::hash::CryptoHash;
-use near_primitives::reed_solomon::ReedSolomonPartsTracker;
+use near_primitives::merkle::MerklePath;
+use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonPartsTracker};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Unified content id across all fetchable data types. Goes on the wire inside the
 /// versioned `SpiceDataRequest`.
@@ -53,7 +55,8 @@ impl DataId {
 /// source selection and scoring don't care about this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TransferUnit {
-    /// Reassemble from K of N Reed–Solomon parts, then hash-check + decode.
+    /// Reassemble from K of N Reed–Solomon parts; decode + hash check run inside the
+    /// tracker.
     ErasureCoded,
     /// A single blob whose hash *is* the id — verified on arrival, no decode. (K=1.)
     Blob,
@@ -85,27 +88,28 @@ pub(crate) enum ProduceState {
     ReadyToServe { codes: HashSet<CodeHash>, served: HashMap<AccountId, u64> },
 }
 
-/// The consume-side lifecycle. `Have` is absent by construction: the terminal signal is a
-/// durable artifact (see `DataKind::is_done`) — our endorsement, a persisted receipt
-/// proof, or produced data — not the raw data. A `Verified` verdict shrinks the item to
-/// its `DataAttribution` (`ProcessedLocally`); removal happens only via head-driven
-/// expiry.
+/// The consume-side lifecycle. `Have` is absent by construction: the store is the source
+/// of truth for done-ness — the consumer persists the verified data (endorsement,
+/// receipt proof, produced artifact; see `DataKind::is_done`) and the engine consults
+/// that. A `Verified` verdict shrinks the item to its `DataAttribution`
+/// (`ProcessedLocally`); removal happens only via head-driven expiry.
 pub(crate) enum FetchState {
     /// Wanted (seeded from chain) but the existence gate is closed and no unit has
     /// arrived. On a recent block we just wait for the push here.
-    Need,
+    WaitingForPush,
     /// At least one unit obtained (⇒ it exists), or the gate opened and we're
-    /// speculatively pulling. On completion, coded kinds move to `Delivered`; a blob is
-    /// verified on arrival and terminal (delivered to the validator actor, item removed).
+    /// speculatively pulling. A completing coded insert parks the item in `Delivered` in
+    /// the same call; a blob is verified on arrival and terminal (delivered to the
+    /// validator actor, item removed).
     Collecting(Assembly),
     /// Assembled bytes handed to the consumer; parked until it reports `Verified`/
-    /// `Failed`. Coded kinds only. The winning tracker's part bytes are dropped (and their
+    /// `Failed`. Coded kinds only. The decoded tracker's part bytes are dropped (and their
     /// budget released) here, leaving a small [`DataAttribution`]; without this state a
     /// re-pushed part would re-deliver.
-    /// Non-winning trackers are kept as `residual` until the verdict (empty without
-    /// equivocation). A semantic `Failed` blames the winning senders only, bans `winning`,
-    /// and resumes `Collecting` from `residual` (deliver at once if a tracker already
-    /// holds ≥K, else re-arm the pull). `Verified` drops `residual`.
+    /// The incomplete trackers are kept as `residual` until the verdict (empty without
+    /// equivocation). A semantic `Failed` blames the decoded commitment's senders only,
+    /// bans it, and resumes `Collecting` from `residual` — incomplete by construction, so
+    /// the pull re-schedules immediately. `Verified` drops `residual`.
     Delivered { attribution: DataAttribution, residual: Assembly },
     /// Consumer finished local processing and persisted the durable artifact. Only the
     /// [`DataAttribution`] remains, kept until expiry: a witness built on rotten-but-
@@ -140,11 +144,6 @@ pub(crate) struct FetchItem {
     /// item early; re-seeding covers it. `height` re-syncs on change and may decrease
     /// (stale `items_by_height` entries handled by the lazy drain).
     pub(crate) anchor: Option<SpiceChunkId>,
-    /// Commitments that were delivered and then failed the consumer's check. Units for
-    /// them are rejected on arrival, so we never re-deliver the same bad data. Not counted
-    /// toward any limit (counting it would let bad entries crowd out the honest
-    /// commitment). Usually empty.
-    pub(crate) banned_commitments: HashSet<SpiceDataCommitment>,
     /// Outstanding pull requests — a snapshot of what's on the wire now, not history
     /// (failure memory is global, in [`super::Reputation`]). An entry is removed on
     /// response/NAK, or, once older than `request_timeout`, converted into
@@ -153,12 +152,47 @@ pub(crate) struct FetchItem {
     pub(crate) in_flight: Vec<InFlightRequest>,
     /// Retry/backoff bookkeeping — the single copy (the scheduler owns only deadlines).
     pub(crate) backoff: Backoff,
-    /// When the first unit arrived — starts the `first_unit_pull_delay` clock.
+    /// When the first unit arrived — starts the `pull_delay_after_first_unit` clock.
+    /// Survives a failed verdict (the resumed pull is already due); cleared only when a
+    /// ban leaves no parts held, since the only evidence was the banned commitment's own.
     pub(crate) first_unit_at: Option<Instant>,
-    /// The currently armed deadline. [`super::SpiceDataManager::due_items`] validates
+    /// The currently scheduled deadline. [`super::SpiceDataManager::due_items`] validates
     /// popped heap entries against this and discards stale ones (heap entries can't be
     /// removed).
     pub(crate) next_deadline: Option<Instant>,
+}
+
+// Illustrative surface — bodies omitted in the sketch.
+impl FetchItem {
+    /// Starts a speculative pull: a waiting item begins collecting before any part
+    /// arrived. Does nothing unless the item is waiting for the push.
+    pub(crate) fn start_pulling(&mut self, _encoder: Arc<ReedSolomonEncoder>) -> bool {
+        false // sketch
+    }
+
+    /// Opens a waiting item on its first part; a completing part parks the item in
+    /// `Delivered` in the same call (decode + hash check run inside the tracker).
+    /// `NotCollecting` means the item is parked awaiting a verdict or already processed.
+    pub(crate) fn insert_part(
+        &mut self,
+        _clock: &Clock,
+        _encoder: &Arc<ReedSolomonEncoder>,
+        _sender: &AccountId,
+        _verified: VerifiedCodedPart,
+    ) -> Result<PartInsertResult, AdmitError> {
+        Err(AdmitError::Irrelevant) // sketch
+    }
+
+    /// Consumer verified and persisted the artifact; shrinks the item to its attribution.
+    pub(crate) fn mark_verified(&mut self) -> Result<(), AdmitError> {
+        Ok(()) // sketch
+    }
+
+    /// Consumer rejected the delivered data: bans the decoded commitment on the residual,
+    /// resumes `Collecting` from it, and returns the senders to blame.
+    pub(crate) fn mark_failed(&mut self) -> Result<HashSet<AccountId>, AdmitError> {
+        Ok(HashSet::new()) // sketch
+    }
 }
 
 /// One outstanding pull request to one peer.
@@ -169,8 +203,32 @@ pub(crate) struct InFlightRequest {
     pub(crate) ordinals: Vec<u32>,
 }
 
-/// The accumulation buffer, held from first unit to delivery. Delivery drops the winning
-/// tracker's part bytes and carries the non-winning trackers as `Delivered::residual`
+/// A coded part whose merkle proof was verified against its commitment's root;
+/// [`Self::verify`] is the only way to construct one, so a mismatched
+/// (commitment, part) insert is unrepresentable.
+pub(crate) struct VerifiedCodedPart {
+    commitment: SpiceDataCommitment,
+    /// Leaf count of the tree the proof was verified against; the assembly accepts a
+    /// part only if this equals its encoder's width.
+    total_parts: usize,
+    ordinal: usize,
+    part: Box<[u8]>,
+}
+
+impl VerifiedCodedPart {
+    pub(crate) fn verify(
+        _commitment: &SpiceDataCommitment,
+        _total_parts: usize,
+        _ordinal: u64,
+        _part: Box<[u8]>,
+        _merkle_proof: &MerklePath,
+    ) -> Result<Self, AdmitError> {
+        Err(AdmitError::InvalidMerkleProof) // sketch
+    }
+}
+
+/// The accumulation buffer, held from first unit to delivery. Delivery drops the decoded
+/// tracker's part bytes and carries the incomplete trackers as `Delivered::residual`
 /// until the verdict (usually empty); only the small [`DataAttribution`] lingers past it.
 ///
 /// Coded vs blob is an *addressing-model* difference, not a parts-count one (K=N vs K=1),
@@ -180,21 +238,81 @@ pub(crate) struct InFlightRequest {
 /// - Blob: the id is the hash, so there's one known commitment; non-matching bytes are
 ///   rejected on arrival and none of that machinery applies.
 pub(crate) enum Assembly {
-    /// One tracker per commitment, so a fake commitment can't block the honest one; first
-    /// to K wins, and a bad decode blames only that commitment's senders. Unsolicited
-    /// units are admitted only for the sender's own ordinal, so completing a tracker
-    /// unsolicited takes ≥K distinct backers. Each producer may back only one commitment,
-    /// so trackers ≤ producer count — no separate limit; memory is bounded by the
-    /// admission byte budgets.
-    Coded { trackers: HashMap<SpiceDataCommitment, CodedTracker> },
+    Coded {
+        encoder: Arc<ReedSolomonEncoder>,
+        /// One tracker per commitment, so a fake commitment can't block the honest one;
+        /// first to K wins, and a bad decode blames only that commitment's senders.
+        /// Unsolicited units are admitted only for the sender's own ordinal, so completing
+        /// a tracker unsolicited takes ≥K distinct providers. Each sender may provide only
+        /// one commitment, so trackers ≤ sender count — no separate limit; memory is
+        /// bounded by the admission byte budgets.
+        trackers: HashMap<SpiceDataCommitment, CodedTracker>,
+        /// Commitments rejected for this item — a failed consumer verdict or a garbage
+        /// decode. Units for them are rejected on arrival, so the same bad data is never
+        /// re-delivered. Not counted toward any limit (counting it would let bad entries
+        /// crowd out the honest commitment). Usually empty.
+        banned: HashSet<SpiceDataCommitment>,
+        /// The one commitment each sender provided parts for. Outlives the trackers, so a
+        /// sender whose commitment was dropped as garbage cannot loop through fresh
+        /// commitments; the conflict check runs against this map.
+        commitment_by_sender: HashMap<AccountId, SpiceDataCommitment>,
+    },
     /// K=1: nothing accumulates — the first response whose `hash(bytes) == code_hash`
     /// completes and delivers in the same call, so the assembly never holds bytes. A
     /// marker, so `Collecting` has a uniform shape; the expected hash is the `DataId`.
     Blob,
 }
 
+impl Assembly {
+    /// Where a received part enters the assembly. Rejected (the manager then reports the
+    /// sender): a banned commitment, or one that differs from the commitment this sender
+    /// already provided (`commitment_by_sender`). A completing insert returns the decoded
+    /// data (hash-checked inside the tracker); K parts that yield no data matching the
+    /// committed hash come back as `Garbage` — the tracker is dropped and the commitment
+    /// banned in the same call. Coded only.
+    pub(crate) fn insert_part(
+        &mut self,
+        _sender: &AccountId,
+        _verified: VerifiedCodedPart,
+    ) -> Result<PartInsertResult, AdmitError> {
+        Err(AdmitError::ConflictingCommitment) // sketch
+    }
+
+    /// Whether some tracker holds K parts. Never observed true outside the completing
+    /// insert (which parks the item); blob completion is synchronous on arrival.
+    pub(crate) fn is_complete(&self) -> bool {
+        false // sketch
+    }
+
+    /// Ordinals still needed — the explicit request set for the next pull. The union of
+    /// gaps across trackers (skip an ordinal only if held under every commitment):
+    /// requests are commitment-agnostic, so computing against the part-majority commitment
+    /// would let a fake majority starve the honest tracker. Empty for blob.
+    pub(crate) fn missing_ordinals(&self) -> Vec<u32> {
+        Vec::new() // sketch
+    }
+}
+
+/// One insert's outcome, surfaced to the manager for budgeting, timing, and reporting.
+pub(crate) enum PartInsertResult {
+    Accepted,
+    Duplicate,
+    /// The commitment decoded to this data and it matches the committed hash; the item
+    /// parked itself in `Delivered`.
+    Complete(SpiceData),
+    /// The commitment reached K parts but yielded no data matching its hash — a failed
+    /// decode or a hash mismatch. Its tracker is gone and it is banned; the accounts
+    /// listed provided it and stay bound to it, so they cannot open another commitment
+    /// for this item. Reporting them onward is the manager's.
+    Garbage {
+        contributors: HashSet<AccountId>,
+    },
+}
+
 /// Accumulates parts toward decoding under one claimed commitment, and — the same struct,
-/// folded in — records who sent each ordinal.
+/// folded in — records who sent each ordinal. On reaching K it decodes and checks the
+/// result's hash against `commitment` (which it holds, equal to its map key), so a
+/// completion is always deliverable.
 ///
 /// Byte accounting for [`super::AdmissionControl::release`] needs no extra field: parts are
 /// fixed-length (`reed_solomon_part_length` = `ceil(encoded_length / K)`), so a sender's
@@ -210,60 +328,32 @@ pub(crate) struct CodedTracker {
     /// Per-ordinal sender: `Some` ⇒ we hold that ordinal (so `missing_ordinals` reads it
     /// without touching part buffers) and records the sender for attribution. This is the
     /// transport sender — used directly for Merkle faults and collectively (all `Some`)
-    /// for a garbage decode. At delivery the winning tracker's `senders` moves into the
+    /// for a garbage decode. At delivery the decoded tracker's `senders` moves into the
     /// state's [`DataAttribution`]; the part bytes are dropped.
     pub(crate) senders: Vec<Option<AccountId>>,
-}
-
-impl Assembly {
-    /// Where a received part's commitment enters the assembly. Rejected (the manager then
-    /// reports the sender): a banned commitment, or one that differs from a commitment
-    /// this sender already backed. Otherwise returns the tracker, creating it on first
-    /// sight. No count limit — one commitment per sender already bounds the trackers.
-    /// Coded only.
-    pub(crate) fn tracker_for(
-        &mut self,
-        _commitment: &SpiceDataCommitment,
-        _sender: &AccountId,
-        _banned: &HashSet<SpiceDataCommitment>,
-    ) -> Result<&mut CodedTracker, AdmitError> {
-        Err(AdmitError::ConflictingCommitment) // sketch
-    }
-
-    /// Whether some tracker holds K parts. Blob completion is synchronous on arrival, so a
-    /// `Blob` assembly is never observed complete here.
-    pub(crate) fn is_complete(&self) -> bool {
-        false // sketch
-    }
-
-    /// Ordinals still needed — the explicit request set for the next pull. The union of
-    /// gaps across trackers (skip an ordinal only if held under every commitment):
-    /// requests are commitment-agnostic, so computing against the part-majority commitment
-    /// would let a fake majority starve the honest tracker. Empty for blob.
-    pub(crate) fn missing_ordinals(&self) -> Vec<u32> {
-        Vec::new() // sketch
-    }
+    /// The commitment the parts are tracked under; equals this tracker's map key.
+    pub(crate) commitment: SpiceDataCommitment,
 }
 
 /// Who to blame for a late fault on the delivered data. Materializes at delivery from the
-/// winning tracker (before that, per-ordinal senders live in the trackers). Coded kinds
+/// decoded tracker (before that, per-ordinal senders live in the trackers). Coded kinds
 /// only — a blob is verified on arrival and never reaches `Delivered`/`ProcessedLocally`,
-/// so `winning` is a plain commitment, not an `Option`. Kept until expiry; blames the
-/// winning commitment's senders only, never those under losing commitments (who may be
+/// so `decoded` is a plain commitment, not an `Option`. Kept until expiry; blames the
+/// decoded commitment's senders only, never those under other commitments (who may be
 /// the honest side of an equivocation race).
 #[derive(Debug)]
 pub(crate) struct DataAttribution {
     /// The commitment whose tracker reached K and was delivered.
-    pub(crate) winning: SpiceDataCommitment,
-    /// The winning tracker's per-ordinal sender vector, moved out at delivery.
+    pub(crate) decoded: SpiceDataCommitment,
+    /// The decoded tracker's per-ordinal sender vector, moved out at delivery.
     pub(crate) senders: Vec<Option<AccountId>>,
 }
 
 impl DataAttribution {
     /// The distinct accounts that contributed the delivered data — the set to hold
-    /// accountable for a fault on it (fed to `reputation.report`). The only accessor by
-    /// design, so no "everyone who ever sent a part" set can form.
-    pub(crate) fn contributors(&self) -> Vec<AccountId> {
-        Vec::new() // sketch
+    /// accountable for a fault on it (fed to `reputation.report`); no "everyone who ever
+    /// sent a part" set can form.
+    pub(crate) fn contributors(&self) -> HashSet<AccountId> {
+        HashSet::new() // sketch
     }
 }

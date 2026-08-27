@@ -36,8 +36,8 @@ pub(crate) use fetchable::{
     ContractCodeKind, DataKind, FetchContext, Interest, ReceiptProofKind, WitnessKind,
 };
 pub(crate) use item::{
-    Assembly, DataAttribution, DataId, FetchItem, FetchState, InFlightRequest, Item, ProduceState,
-    TransferUnit,
+    Assembly, DataAttribution, DataId, FetchItem, FetchState, InFlightRequest, Item,
+    PartInsertResult, ProduceState, TransferUnit, VerifiedCodedPart,
 };
 pub(crate) use messages::{
     DataMessage, DataPayload, FailedEvent, Requester, SpiceDataRequest, VerifiedEvent, WantUnits,
@@ -117,9 +117,9 @@ pub(crate) struct SpiceDataManager {
     /// Height index, serving both of `on_heads_advanced`'s passes so neither scans every
     /// item. Heights are captured at seed time (`FetchItem::height`).
     /// - expiry drains and removes at/below the final execution head.
-    /// - the witness arm gate range-*scans* the band a shard's certified frontier just
-    ///   opened, `(old + margin, new + margin]`, flipping that shard's `Need` items to
-    ///   `Collecting`. Read-only, since the entries are still expiry's. The shard comes from
+    /// - the witness pull gate range-*scans* the band a shard's certified frontier just
+    ///   opened, `(old + margin, new + margin]`, flipping that shard's `WaitingForPush`
+    ///   items to `Collecting`. Read-only, since the entries are still expiry's. The shard comes from
     ///   the `DataId`, so it needs no key of its own; other shards' entries in the band are
     ///   skipped and scanned again when their own frontier moves. Receipt proofs are not
     ///   gated — the executor's apply attempt triggers their pull.
@@ -171,15 +171,16 @@ impl SpiceDataManager {
     pub(crate) fn on_produced(&mut self, _id: &DataId) {}
 
     /// A unit arrived (push or pull response). Runs admission (unknown block ⇒ orphan pool;
-    /// unsolicited coded units: own ordinal only), adds the part via
-    /// [`Assembly::tracker_for`] (banned/conflicting commitments are rejected and the
+    /// unsolicited coded units: own ordinal only), verifies the merkle proof
+    /// ([`VerifiedCodedPart::verify`] — the only way to mint an insertable part), adds it
+    /// via [`FetchItem::insert_part`] (banned/conflicting commitments are rejected and the
     /// sender reported), and clears the matching `in_flight` entry. A `NotAvailable` NAK
     /// only clears the entry and lets the item ride its backoff — unless the sender earlier
-    /// pushed a part of this item, which reports `DeniedHeldData`. On completion,
-    /// distribution-level verify runs, then completion forks by kind:
-    /// - coded ⇒ move to `Delivered` (winning bytes dropped, non-winning trackers kept as
-    ///   `residual`, `DataAttribution` kept); for a witness, seed/re-aim still-missing code
-    ///   items from its embedded accesses list; the consumer validates, persists the
+    /// pushed a part of this item, which reports `DeniedHeldData`. Completion forks by kind:
+    /// - coded ⇒ the completing insert decodes, hash-checks, and parks the item in
+    ///   `Delivered` in the same call (decoded bytes handed off, incomplete trackers kept
+    ///   as `residual`, `DataAttribution` kept); for a witness, seed/re-aim still-missing
+    ///   code items from its embedded accesses list; the consumer validates, persists the
     ///   artifact, and reports back `Verified`/`Failed`.
     /// - blob ⇒ verified on arrival, so terminal: hand `(code_hash, bytes)` to the
     ///   validator actor and remove the item. No `Delivered`, no verdict.
@@ -192,7 +193,7 @@ impl SpiceDataManager {
     /// converts `in_flight` entries older than `request_timeout` into `note_timeout(source)`;
     /// then (re)issues the pull: the missing ordinals are split disjointly between
     /// `pull_fanout` producers from `select_sources`, so each ordinal goes to one peer.
-    /// Then re-arms at `min(backoff next interval,
+    /// Then re-schedules at `min(backoff next interval,
     /// oldest in_flight + request_timeout)`, so a peer timeout is detected when it elapses,
     /// not when a later backoff deadline fires. A timeout-triggered wake re-requests
     /// without advancing the backoff ladder.
@@ -200,7 +201,7 @@ impl SpiceDataManager {
 
     /// Pops the scheduler's due entries and keeps the ones that are still real wake-ups:
     /// the item exists, is still `Collecting`, and the popped instant is its
-    /// `next_deadline`. Without the last check every completion or re-arm would fire a
+    /// `next_deadline`. Without the last check every completion or re-schedule would fire a
     /// spurious pull off the entry it left in the heap.
     pub(crate) fn due_items(&mut self, _now: Instant) -> Vec<DataId> {
         Vec::new() // sketch
@@ -220,8 +221,9 @@ impl SpiceDataManager {
     /// `items_by_height`, never a full scan or per-item chain query:
     /// - expiry: drain at/below the final execution head;
     /// - witness gate: for each moved shard, scan the newly opened band up to
-    ///   `new_frontier + witness_pull_margin` — each still-`Need` item of that shard flips
-    ///   to `Collecting` and arms its speculative pull after `push_grace`.
+    ///   `new_frontier + witness_pull_margin` — each still-`WaitingForPush` item of that
+    ///   shard flips to `Collecting` and starts its speculative pull after
+    ///   `pull_delay_after_gate`.
     /// Runs after `on_certified` by causality (the final head only advances because
     /// certified results were processed).
     pub(crate) fn on_heads_advanced(&mut self) {}
@@ -229,18 +231,19 @@ impl SpiceDataManager {
     /// The executor tried to apply a shard's next block and found receipt proofs
     /// missing. This is the pull trigger for `ReceiptProof` items (they seed at
     /// `seed_block` but don't gate on the certified frontier): the reported items flip
-    /// `Need` → `Collecting` and arm. Reaching the apply attempt already implies the
+    /// `WaitingForPush` → `Collecting` and start pulling. Reaching the apply attempt already implies the
     /// source chunk executed, so any residual not-yet-produced skew is covered by backoff.
     pub(crate) fn on_receipt_apply_attempt(&mut self, _missing: &[DataId]) {}
 
     /// Consumer reported the outcome of *semantic* validation. `Verified` releases
-    /// `residual`'s budget (the winning tracker's went at delivery) and shrinks the item to
+    /// `residual`'s budget (the decoded tracker's went at delivery) and shrinks the item to
     /// its `DataAttribution` (`FetchState::ProcessedLocally`), kept
     /// until expiry (a later `CertifiedResultMismatch` must still attribute). `Failed`
-    /// funnels into reputation via the retained attribution — the winning commitment's
+    /// funnels into reputation via the retained attribution — the decoded commitment's
     /// senders only (after expiry: a no-op) — then splits by state:
-    /// - from `Delivered` (locally detected): ban the winning commitment and resume
-    ///   `Collecting` from `residual` (deliver at once if a tracker holds ≥K, else re-arm).
+    /// - from `Delivered` (locally detected): ban the decoded commitment and resume
+    ///   `Collecting` from `residual` — incomplete by construction, so the pull re-schedules
+    ///   immediately (the first-unit anchor survives the verdict).
     /// - from `ProcessedLocally` (`CertifiedResultMismatch`): reputation + telemetry only,
     ///   no refetch — a second endorsement would look like equivocation.
     pub(crate) fn on_verified(&mut self, _ev: VerifiedEvent) {}

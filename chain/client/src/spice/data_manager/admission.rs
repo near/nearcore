@@ -25,9 +25,11 @@ pub(crate) enum AdmitError {
     OrphanBudgetExhausted,
     #[error("we neither need nor produce this item")]
     Irrelevant,
-    #[error("unit claims a commitment banned on this item after a semantic failure")]
+    #[error("part merkle proof does not verify against the commitment root")]
+    InvalidMerkleProof,
+    #[error("unit claims a commitment banned on this item (failed verdict or garbage decode)")]
     BannedCommitment,
-    #[error("sender already backed a different commitment for this item")]
+    #[error("sender already provided a different commitment for this item")]
     ConflictingCommitment,
     #[error("unsolicited part for an ordinal that is not the sender's own")]
     ForeignOrdinal,
@@ -140,7 +142,7 @@ impl AdmissionControl {
     /// Give back what a charge took. Per-sender, because `used_per_block_sender` is keyed
     /// that way and a single total can't decrement it; the lane refund is the sum. The
     /// caller derives `charges` from the tracker (fixed part length × each sender's count).
-    /// Called at delivery for the winning tracker, at the verdict for `residual`, on
+    /// Called at delivery for the decoded tracker, at the verdict for `residual`, on
     /// rejected trackers, and at expiry for whatever is left. Drops the block's
     /// `used_per_block_sender` entries once nothing is buffered for it.
     pub(crate) fn release(&mut self, _id: &DataId, _lane: Lane, _charges: &[(AccountId, u64)]) {}

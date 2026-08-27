@@ -1,6 +1,6 @@
 //! SKETCH. Per-item deadline scheduler + recovery timing — not a single global ticker.
-//! Most "timing" is event-gated: arming is a condition (the existence gate), expiry is
-//! head-driven. Fetch-side only — produce items are reactive and never arm deadlines.
+//! Most "timing" is event-gated: the pull gate is a condition (the existence gate), expiry is
+//! head-driven. Fetch-side only — produce items are reactive and never schedule deadlines.
 
 use super::Lane;
 use super::item::DataId;
@@ -13,16 +13,16 @@ use std::collections::BinaryHeap;
 /// [`super::reputation::ReputationConfig`].
 #[derive(Debug, Clone)]
 pub(crate) struct TimingConfig {
-    /// After a unit should exist, wait this long for straggler pushes before pulling
-    /// (~1–2·T_rtt). Premature pulls during execution lag time out against innocent
-    /// producers and pollute the liveness channel.
-    pub(crate) push_grace: Duration,
+    /// After the pull gate opens (the unit should exist), wait this long for straggler
+    /// pushes before the first pull (~1–2·T_rtt). Premature pulls during execution lag
+    /// time out against innocent producers and pollute the liveness channel.
+    pub(crate) pull_delay_after_gate: Duration,
     /// After the first unit arrives, wait this long for the rest before pulling missing
     /// ordinals (~1–2·T_rtt).
-    pub(crate) first_unit_pull_delay: Duration,
+    pub(crate) pull_delay_after_first_unit: Duration,
     /// How long an in_flight request may go unanswered before it converts into
     /// `note_timeout(source)` + removal. Distinct from backoff (when to retry the *item*):
-    /// enforced via the arming rule (see `on_deadline`), so detection never waits out a
+    /// enforced via the scheduling rule (see `on_deadline`), so detection never waits out a
     /// longer backoff interval. Default ~1·T_b.
     pub(crate) request_timeout: Duration,
     /// Retry backoff: `base`, geometric `multiplier`, `cap`, and ± jitter fraction.
@@ -46,8 +46,8 @@ pub(crate) struct TimingConfig {
 impl Default for TimingConfig {
     fn default() -> Self {
         Self {
-            push_grace: Duration::milliseconds(200),
-            first_unit_pull_delay: Duration::milliseconds(200),
+            pull_delay_after_gate: Duration::milliseconds(200),
+            pull_delay_after_first_unit: Duration::milliseconds(200),
             request_timeout: Duration::seconds(1),
             backoff_base: Duration::milliseconds(200),
             backoff_multiplier: 2,
@@ -104,12 +104,12 @@ pub(crate) struct DeadlineScheduler {
 }
 
 impl DeadlineScheduler {
-    pub(crate) fn arm(&mut self, _id: DataId, _at: Instant, _lane: Lane) {}
+    pub(crate) fn schedule(&mut self, _id: DataId, _at: Instant, _lane: Lane) {}
 
-    /// Pops everything due at/before `now`, paired with the instant it was armed for.
+    /// Pops everything due at/before `now`, paired with the instant it was scheduled for.
     /// Entries are not validated here — heap entries can't be removed, so completed,
-    /// expired and re-armed items leave stale ones behind, and only the item map can tell
-    /// them apart. [`super::SpiceDataManager::due_items`] applies that rule; the armed
+    /// expired and re-scheduled items leave stale ones behind, and only the item map can tell
+    /// them apart. [`super::SpiceDataManager::due_items`] applies that rule; the scheduled
     /// instant is returned so it can compare against `next_deadline`.
     pub(crate) fn pop_due(&mut self, _now: Instant) -> Vec<(DataId, Instant)> {
         Vec::new() // sketch

@@ -10,19 +10,19 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, SpiceChunkId};
 
 /// Seed-time classification of a would-be item, consulted once by `seed_block`.
-/// Afterwards the gate is the `FetchState` position (`Need` vs `Collecting`), advanced
-/// by events. Tri-state: the two "don't fetch yet" answers differ.
+/// Afterwards the gate is the `FetchState` position (`WaitingForPush` vs `Collecting`),
+/// advanced by events. Tri-state: the two "don't fetch yet" answers differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Interest {
     /// Neither needed nor produced here — no item is created.
     NotNeeded,
     /// Needed, but the existence gate is closed: the shard's certified frontier hasn't
     /// reached `height - witness_pull_margin` yet, so the chunk is likely not executed.
-    /// Seed as `Need` and wait for the push rather than pulling; the frontier pass over
+    /// Seed as `WaitingForPush` rather than pulling; the frontier pass over
     /// `items_by_height` opens it.
     WaitForPush,
     /// Needed and plausibly produced (catch-up, or contract code). Seed straight into
-    /// `Collecting` and arm the speculative pull.
+    /// `Collecting` and start the speculative pull.
     Fetchable,
 }
 
@@ -60,11 +60,11 @@ pub(crate) trait DataKind {
         ctx: &FetchContext,
     ) -> Result<Interest, near_chain::Error>;
 
-    /// Distribution-level verification on completion: coded ⇒ decode + `hash ==
-    /// commitment`; blob ⇒ `hash(bytes) == code_hash`. `Err` names the culprit
-    /// misbehavior (attributed to the failing commitment's senders). Semantic
-    /// validation is not here — it is consumer-side (`FailedEvent`). The real impl
-    /// returns the typed decoded value so the consumer never re-deserializes.
+    /// Distribution-level verification on arrival, blob only: `hash(bytes) ==
+    /// code_hash`. Coded kinds verify inside the engine — the merkle proof at ingress
+    /// (`VerifiedCodedPart::verify`) and the decode + committed-hash check in the
+    /// tracker — so they never reach this. `Err` names the culprit misbehavior.
+    /// Semantic validation is not here — it is consumer-side (`FailedEvent`).
     fn verify_assembled(&self, id: &DataId, bytes: &[u8]) -> Result<(), Misbehavior>;
 
     /// Is the durable artifact that means "done with this item" present? The real

@@ -99,7 +99,7 @@ pub(crate) struct VerifiedEvent {
 /// accesses: consistency with the witness's embedded list. Coded kinds only — a blob has no
 /// deferred verdict (verified on arrival, item removed), so a bad one is reported
 /// synchronously as `BadCodeBytes`, never through here. The manager attributes via the
-/// retained `DataAttribution` (the winning commitment's senders) and funnels `kind` into
+/// retained `DataAttribution` (the decoded commitment's senders) and funnels `kind` into
 /// reputation — this is why decode is not terminal. Also carries the retroactive
 /// `Failed(CertifiedResultMismatch)` from the comparator. Arriving after the item expired is
 /// a tolerated no-op.
