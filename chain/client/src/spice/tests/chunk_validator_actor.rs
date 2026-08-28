@@ -643,6 +643,10 @@ fn drain_contract_requests(
     requests
 }
 
+fn assert_no_contract_requests(network_rc: &mut UnboundedReceiver<PeerManagerMessageRequest>) {
+    assert_matches!(drain_contract_requests(network_rc).as_slice(), []);
+}
+
 fn invalid_witness_message(
     actor: &TestActor,
     block: &Block,
@@ -683,7 +687,6 @@ fn test_empty_contract_accesses_finalizes_witness() {
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
-/// Witness arrives before accesses with no contracts — still finalizes.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_witness_before_empty_accesses() {
@@ -696,15 +699,51 @@ fn test_witness_before_empty_accesses() {
     record_execution_results(&actor, &prev_block, starting_state_root);
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
-
-    // Witness first, then empty accesses.
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+    assert_no_contract_requests(&mut actor.network_rc);
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 
     let accesses = make_contract_accesses(&block, HashSet::new());
     actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
+}
 
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_without_accesses_message_requests_its_missing_contracts() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let hash_a: CodeHash = hash(b"contract_a").into();
+    let hash_b: CodeHash = hash(b"contract_b").into();
+    let contracts = HashSet::from([hash_a, hash_b]);
+    let witness_message = valid_witness_message_with_accesses(
+        &actor,
+        &block,
+        &prev_block,
+        &starting_state_root,
+        &contracts,
+    );
+    actor.handle(witness_message.span_wrap());
+
+    let requests = drain_contract_requests(&mut actor.network_rc);
+    assert_eq!(requests, vec![contracts.clone()]);
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+
+    let accesses = make_contract_accesses(&block, contracts);
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
+
+    // A message that disagrees with the witness does not displace the witness's own accesses.
+    let hash_c: CodeHash = hash(b"contract_c").into();
+    let disagreeing = make_contract_accesses(&block, HashSet::from([hash_c]));
+    actor.handle(SpiceChunkContractAccessesMessage(disagreeing, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
 }
 
 /// Contract accesses with missing contracts sends a request.
@@ -725,8 +764,6 @@ fn test_contract_accesses_sends_request_for_missing() {
     assert_eq!(requests[0], HashSet::from([hash_a, hash_b]));
 }
 
-/// Contract accesses signed by a non-chunk-producer are rejected — no requests are sent,
-/// and the chunk does not finalize.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_contract_accesses_invalid_signature_rejected() {
@@ -741,14 +778,14 @@ fn test_contract_accesses_invalid_signature_rejected() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     // Sign accesses with a key that does not belong to the chunk producer.
+    let hash_a: CodeHash = hash(b"contract_a").into();
     let accesses =
-        make_contract_accesses_with_signer(&block, HashSet::new(), "not-a-chunk-producer");
+        make_contract_accesses_with_signer(&block, HashSet::from([hash_a]), "not-a-chunk-producer");
     actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
     actor.handle(witness_message.span_wrap());
 
-    // No contract requests should be sent, and no endorsement should be recorded.
     assert!(drain_contract_requests(&mut actor.network_rc).is_empty());
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 fn setup_two_validators() -> TestActor {
@@ -811,9 +848,8 @@ fn test_correct_accesses_first_then_malicious() {
     assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
 }
 
-/// When malicious contract accesses arrive first and the correct one arrives second,
-/// the validator detects the mismatch, falls back to the correct accesses, and
-/// validation succeeds.
+/// When malicious contract accesses arrive first, the validator detects the mismatch against the
+/// witness and validates from the witness's own accesses; a correct message later adds nothing.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_malicious_accesses_first_then_correct() {
@@ -835,18 +871,15 @@ fn test_malicious_accesses_first_then_correct() {
     actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses, RecvMessagePermit::none()));
     drain_contract_requests(&mut actor.network_rc);
 
-    // Send witness — can't finalize yet because the trusted accesses are wrong
-    // and no correct alternative is available yet.
     actor.handle(witness_message.span_wrap());
-    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
 
     // Correct accesses (empty set) from validator-1 arrive.
     let correct_accesses =
         make_contract_accesses_with_signer(&block, HashSet::new(), "test-validator-1");
     actor.handle(SpiceChunkContractAccessesMessage(correct_accesses, RecvMessagePermit::none()));
-
-    // Now validation should succeed after falling back to the correct accesses.
-    assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
+    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    assert_no_contract_requests(&mut actor.network_rc);
 }
 
 /// Validates that MAX_CONTRACTS_PER_REQUEST is large enough to cover the maximum
