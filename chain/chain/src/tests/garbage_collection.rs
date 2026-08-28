@@ -882,3 +882,52 @@ fn test_fork_chunk_tail_updates() {
         assert_eq!(store_update.chunk_tail(), 0);
     }
 }
+
+#[test]
+fn test_state_sync_tail_update_clears_skipped_heights() {
+    let mut chain = get_chain(Clock::real());
+    let epoch_manager = chain.epoch_manager.clone();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = chain.get_block_by_height(0).unwrap();
+    let mut blocks = vec![prev_block.clone()];
+    for height in 1..=6 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            height,
+        );
+    }
+
+    let new_tail = 5;
+    let new_chunk_tail = 5;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update
+        .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), new_tail, new_chunk_tail)
+        .unwrap();
+    store_update.update_tail(new_tail);
+    store_update.update_chunk_tail(new_chunk_tail);
+    store_update.commit().unwrap();
+
+    assert!(chain.get_block(blocks[0].hash()).is_ok());
+    for block in &blocks[1..new_tail as usize] {
+        assert!(chain.get_block(block.hash()).is_err());
+        assert!(
+            chain
+                .mut_chain_store()
+                .get_all_block_hashes_by_height(block.header().height())
+                .is_empty()
+        );
+    }
+    assert!(chain.get_block(blocks[new_tail as usize].hash()).is_ok());
+    assert!(chain.get_block(blocks[6].hash()).is_ok());
+
+    for height in 0..new_chunk_tail {
+        assert!(chain.mut_chain_store().get_all_header_hashes_by_height(height).is_empty());
+    }
+    assert!(!chain.mut_chain_store().get_all_header_hashes_by_height(new_chunk_tail).is_empty());
+    assert_eq!(chain.tail(), new_tail);
+    assert_eq!(chain.chain_store().chunk_tail(), new_chunk_tail);
+}
