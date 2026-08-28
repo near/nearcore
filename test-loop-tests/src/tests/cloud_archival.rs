@@ -14,7 +14,7 @@ use crate::utils::cloud_archival::{
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -346,16 +346,9 @@ impl CloudArchiveHarness {
     /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        // TODO(cloud_archival): consider splitting the chain store, we do not need
-        // transaction_validity_period in our use case.
-        let chain_store = ChainStore::new(
-            self.recent_reader_store(),
-            true,
-            self.env.shared_state.genesis.config.transaction_validity_period,
-        );
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
-            chain_store,
+            self.recent_reader_store(),
             Self::RECENT_READER_POLLING_INTERVAL,
         );
         let handle = reader.clone();
@@ -656,6 +649,9 @@ fn test_cloud_archival_batching_blob_per_batch() {
 /// Verifies that a reader node can bootstrap from cloud storage using a
 /// state snapshot and per-block state deltas.
 #[test]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader reconstructs ChunkExtra. The query resolves against the chain head, which
+// is genesis here, so the balance comes out of genesis state.
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
@@ -1014,6 +1010,9 @@ fn test_cloud_archival_fully_skipped_batch() {
 /// the missing-block handling in `bootstrap_range` and the carried-over-chunk
 /// path during state apply.
 #[test]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader reconstructs ChunkExtra. The query resolves against the chain head, which
+// is genesis here, so the balance comes out of genesis state.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
@@ -1652,7 +1651,7 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
     let parent_local_head = h
         .writer_store()
         .cloud_archival_store()
-        .shard_head(r.parent_shard)
+        .writer_shard_head(r.parent_shard)
         .expect("removed parent shard head recorded");
     assert_eq!(
         parent_local_head, r.resharding_block_height,

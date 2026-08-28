@@ -443,7 +443,7 @@ async fn slow_test_check_unknown_tx_must_return_error() {
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
-                            .EXPERIMENTAL_tx_status(RpcTransactionStatusRequest {
+                            .tx_status(RpcTransactionStatusRequest {
                                 transaction_info: TransactionInfo::TransactionId {
                                     tx_hash,
                                     sender_account_id: transaction.transaction.signer_id().clone(),

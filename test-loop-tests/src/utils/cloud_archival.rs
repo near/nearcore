@@ -15,7 +15,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -240,7 +240,7 @@ pub(crate) fn get_state_header_for_epoch(
 
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.cloud_archival_store().min_head().expect("CLOUD_MIN_HEAD should exist")
+    hot_store.cloud_archival_store().writer_min_head().expect("the writer min head should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -403,7 +403,8 @@ pub fn snapshots_sanity_check(
 
     // Every epoch through the last one the writer finished archiving. A batch that
     // ended exactly at an epoch's last block published the next epoch's data too.
-    let last_archived_epoch_last_block = store.cloud_archival_store().prev_epoch_end().unwrap();
+    let last_archived_epoch_last_block =
+        store.cloud_archival_store().writer_prev_epoch_end().unwrap();
     let last_archived_epoch_id =
         client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
     let last_archived_epoch_info = EpochInfo::try_from_slice(
@@ -653,7 +654,7 @@ async fn download_and_apply_state_snapshot(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
     for part_index in 0..num_parts {
-        let part_id = PartId::new(part_index, num_parts);
+        let part_id = StatePartId::new(part_index, num_parts);
         let state_part = cloud_storage
             .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
             .await

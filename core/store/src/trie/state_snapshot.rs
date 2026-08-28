@@ -13,7 +13,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::types::ShardIndex;
 use near_primitives::types::StateRoot;
 use std::error::Error;
@@ -201,7 +201,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         block_hash: &CryptoHash,
-        part_id: PartId,
+        part_id: StatePartId,
         state_trie: Trie,
     ) -> Result<PartialState, SnapshotError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;

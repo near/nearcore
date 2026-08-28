@@ -32,7 +32,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -480,7 +480,7 @@ impl NightshadeRuntime {
                 get_epoch_start_height_from_cloud_head_prev_epoch(&self.store, &epoch_manager)?
             else {
                 return Err(Error::DBNotFoundErr(
-                    "Cloud archival writer is configured, but CLOUD_PREV_EPOCH_END is missing"
+                    "Cloud archival writer is configured, but CLOUD_WRITER_PREV_EPOCH_END is missing"
                         .into(),
                 ));
             };
@@ -495,12 +495,12 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_id.idx,
+            part_idx = part_id.index,
             %shard_id,
             %prev_hash,
             num_parts = part_id.total)
@@ -524,11 +524,11 @@ impl NightshadeRuntime {
             Ok(partial_state) => partial_state,
             // Expected while a snapshot is being created; the caller retries.
             Err(err @ SnapshotError::LockWouldBlock) => {
-                tracing::debug!(target: "runtime", %shard_id, part_id.idx, part_id.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
+                tracing::debug!(target: "runtime", %shard_id, part_id.index, part_id.total, %prev_hash, %state_root, "state snapshot is locked, will retry");
                 return Err(StorageError::from(err).into());
             }
             Err(err) => {
-                tracing::error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
+                tracing::error!(target: "runtime", ?err, part_id.index, part_id.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
                 return Err(StorageError::from(err).into());
             }
         };
@@ -540,7 +540,7 @@ impl NightshadeRuntime {
     fn validate_state_part_impl(
         &self,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> StatePartValidationResult {
         let partial_state = part.to_partial_state();
@@ -662,7 +662,7 @@ fn get_epoch_start_height_from_cloud_head_prev_epoch(
     store: &Store,
     epoch_manager: &EpochManager,
 ) -> Result<Option<BlockHeight>, Error> {
-    let Some(prev_epoch_end) = store.cloud_archival_store().prev_epoch_end() else {
+    let Some(prev_epoch_end) = store.cloud_archival_store().writer_prev_epoch_end() else {
         return Ok(None);
     };
     let epoch_start_height = epoch_manager.get_epoch_start_height(&prev_epoch_end)?;
@@ -1478,12 +1478,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
-            part_id = part_id.idx,
+            part_idx = part_id.index,
             %shard_id,
             %prev_hash,
             ?state_root,
@@ -1503,7 +1503,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> StatePartValidationResult {
         let instant = Instant::now();
@@ -1523,7 +1523,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {

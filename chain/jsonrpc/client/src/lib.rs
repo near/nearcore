@@ -290,6 +290,14 @@ impl JsonRpcClient {
         call_method(&self.transport, "tx", request)
     }
 
+    pub fn tx_status(
+        &self,
+        request: RpcTransactionStatusRequest,
+    ) -> RpcRequest<RpcTransactionResponse> {
+        call_method(&self.transport, "tx_status", request)
+    }
+
+    #[deprecated(since = "2.14.0", note = "Use `tx_status` method instead")]
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_status(
         &self,

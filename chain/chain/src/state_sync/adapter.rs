@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -277,14 +277,14 @@ impl ChainStateSyncAdapter {
     pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
-        part_id: u64,
+        part_idx: StatePartIndex,
         sync_hash: CryptoHash,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
             target: "sync",
             "get_state_response_part",
             %shard_id,
-            part_id,
+            part_idx,
             ?sync_hash)
         .entered();
         let block = self
@@ -294,7 +294,7 @@ impl ChainStateSyncAdapter {
         let header = block.header();
         let epoch_id = block.header().epoch_id();
         // Check cache
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap();
         if let Some(bytes) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
             let state_part = StatePart::from_bytes(bytes.to_vec())?;
@@ -321,7 +321,7 @@ impl ChainStateSyncAdapter {
             .get_state_root_node(shard_id, &prev_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        if part_id >= num_parts {
+        if part_idx >= num_parts {
             return Err(shard_id_out_of_bounds(shard_id));
         }
         let current_time = Instant::now();
@@ -331,7 +331,7 @@ impl ChainStateSyncAdapter {
                 shard_id,
                 &prev_prev_hash,
                 &state_root,
-                PartId::new(part_id, num_parts),
+                StatePartId::new(part_idx, num_parts),
             )
             .log_storage_error("obtain_state_part fail")?;
 
@@ -339,7 +339,7 @@ impl ChainStateSyncAdapter {
             .whole_milliseconds()
             .max(0) as u128;
         self.requested_state_parts
-            .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
+            .save_state_part_elapsed(&sync_hash, &shard_id, &part_idx, elapsed_ms);
 
         // Cache the part data, but only if the corresponding header is also cached.
         // At epoch boundaries, clear_all_downloaded_parts() deletes all cached headers
@@ -535,7 +535,7 @@ impl ChainStateSyncAdapter {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
@@ -553,7 +553,7 @@ impl ChainStateSyncAdapter {
         }
         // Saving the part data.
         let mut store_update = self.chain_store.store().store_update();
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx)).unwrap();
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.index)).unwrap();
         let bytes = part.to_bytes();
         store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit();

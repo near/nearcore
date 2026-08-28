@@ -26,6 +26,27 @@ periodically in the client actor — if the node is behind by more than
 The sync handler classifies the node into one of two categories based on how
 far behind it is, and routes it through the appropriate path.
 
+### Picking the target height
+
+The height to sync to comes from a peer, and a peer's claim is acted on only
+once its approvals verify against a known epoch's validators (>2/3 stake).
+That check is a pass over about 100 signatures, so the node pays for it only
+when the claim could change the decision:
+
+- A claim at or below `head + sync_height_threshold` is ignored: it cannot
+  start sync. While already syncing the bar is the head itself.
+- A block the node requested proves nothing new. It was requested to reach a
+  height already proved, and block processing checks its approvals anyway.
+- Each distinct header is checked once, whether it passes or fails, however
+  many peers relay it.
+
+A peer with no proved height reads as level with our head, so it stays a
+candidate to download from but never sets the target. Once the head has not
+advanced for about one epoch, the node falls back to the unvalidated claimed
+heights, because the validator sets it knows no longer cover the tip. During
+block sync the node's own header head can also set the target, since header
+sync has already validated it.
+
 ### The two horizons
 
 ```
@@ -179,6 +200,12 @@ header head is within the epoch sync horizon: if so, it re-enters at header
 sync (headers are already downloaded); if not, it redoes epoch sync with a
 fresh proof. Previously downloaded state parts are preserved in the DB, so
 the node does not re-download parts that were already saved before the crash.
+
+Applied state parts are tracked in `DBCol::StatePartsApplied`. On restart,
+state sync keeps them only while the flat storage status for the shard is not
+yet `Ready`. A `Ready` status means an earlier sync applied every part and
+finalized the shard, which modifies the trie on top of the parts, so the node
+clears flat storage and applies every part again.
 
 ## Side topic: how blocks are added to the chain?
 
