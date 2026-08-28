@@ -113,6 +113,14 @@ fn produce_block(chain: &mut Chain, prev_block: &Block) -> Arc<Block> {
     block
 }
 
+fn produce_blocks_until_final(chain: &mut Chain, block: &Block) -> Arc<Block> {
+    let mut head = produce_block(chain, block);
+    while chain.chain_store.final_head().unwrap().height < block.header().height() {
+        head = produce_block(chain, &head);
+    }
+    head
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 enum OutgoingMessage {
@@ -1083,12 +1091,16 @@ fn test_incoming_partial_data_for_already_known_receipts() {
     );
 }
 
-fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &AccountId) {
-    let signer = create_test_signer(validator.as_str());
-    let execution_result = ChunkExecutionResult {
+fn test_execution_result() -> ChunkExecutionResult {
+    ChunkExecutionResult {
         chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
         outgoing_receipts_root: CryptoHash::default(),
-    };
+    }
+}
+
+fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &AccountId) {
+    let signer = create_test_signer(validator.as_str());
+    let execution_result = test_execution_result();
     let mut core_writer_actor = SpiceCoreWriterActor::new(
         chain.runtime_adapter.store().chain_store(),
         chain.epoch_manager.clone(),
@@ -3116,6 +3128,166 @@ fn produce_block_carrying_endorsement(
     )
     .unwrap();
     block
+}
+
+fn endorsement_core_statement(chunk_id: &SpiceChunkId, endorser: AccountId) -> SpiceCoreStatement {
+    let signer = create_test_signer(endorser.as_str());
+    SpiceChunkEndorsement::new(chunk_id.clone(), test_execution_result(), &signer)
+        .into_verified(&signer.public_key())
+        .unwrap()
+        .to_stored()
+        .into_core_statement(chunk_id.clone(), endorser)
+}
+
+/// Endorsements of `chunk_id` by every validator that may endorse it on chain: the designated
+/// set, or all of the epoch's validators for a fallback-only chunk.
+fn certifying_endorsements(chain: &Chain, chunk_id: &SpiceChunkId) -> Vec<SpiceCoreStatement> {
+    let epoch_manager = chain.epoch_manager.as_ref();
+    let chunk_block_header = chain.chain_store.get_block_header(&chunk_id.block_hash).unwrap();
+    let epoch_id = chunk_block_header.epoch_id();
+    if is_fallback_only_chunk(epoch_manager, &chunk_block_header, chunk_id.shard_id).unwrap() {
+        epoch_manager
+            .get_epoch_info(epoch_id)
+            .unwrap()
+            .validators_iter()
+            .map(|validator| endorsement_core_statement(chunk_id, validator.take_account_id()))
+            .collect()
+    } else {
+        epoch_manager
+            .get_chunk_validator_assignments(
+                epoch_id,
+                chunk_id.shard_id,
+                chunk_block_header.height(),
+            )
+            .unwrap()
+            .ordered_chunk_validators()
+            .into_iter()
+            .map(|endorser| endorsement_core_statement(chunk_id, endorser))
+            .collect()
+    }
+}
+
+/// Produces a block whose core statements certify every chunk still uncertified as of
+/// `prev_block`: enough endorsements and the execution result for each of them.
+fn produce_block_certifying_uncertified_chunks(
+    chain: &mut Chain,
+    prev_block: &Block,
+) -> Arc<Block> {
+    let mut core_statements = Vec::new();
+    for chunk_info in chain.spice_core_reader.get_uncertified_chunks(prev_block.hash()).unwrap() {
+        let chunk_id = chunk_info.chunk_id;
+        core_statements.extend(certifying_endorsements(chain, &chunk_id));
+        core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id,
+            execution_result: test_execution_result(),
+        });
+    }
+    let block =
+        build_block_with_core_statements(chain.epoch_manager.as_ref(), prev_block, core_statements);
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    block
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_stops_waiting_on_witness_once_its_block_is_final_certified() {
+    let (_genesis, mut chain) = setup_with_shard_layout(1, 1, ShardLayout::single_shard());
+    let block = latest_block(&chain);
+    let validator = non_producer_witness_validator_account(&chain);
+    let next_block = produce_block(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    assert!(
+        !drain_outgoing_witness_request_producers(&mut outgoing_rc, next_block.hash()).is_empty()
+    );
+
+    let shard_id = witness_shard_id(&next_block);
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &next_block);
+    let head = produce_blocks_until_final(&mut chain, &certifying_block);
+
+    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    fake_runner.run_queued_actions(&mut actor);
+    assert!(
+        !actor
+            .waiting_on_data_ids()
+            .contains(&SpiceDataIdentifier::Witness { block_hash: *next_block.hash(), shard_id })
+    );
+    assert!(
+        drain_outgoing_witness_request_producers(&mut outgoing_rc, next_block.hash()).is_empty()
+    );
+}
+
+/// Entries the actor holds for one block, counted by data kind.
+#[derive(Debug, PartialEq)]
+struct WaitingCounts {
+    witnesses: usize,
+    receipt_proofs: usize,
+}
+
+fn waiting_counts_of(actor: &SpiceDataDistributorActor, block_hash: &CryptoHash) -> WaitingCounts {
+    let mut counts = WaitingCounts { witnesses: 0, receipt_proofs: 0 };
+    for id in actor.waiting_on_data_ids() {
+        if id.block_hash() != block_hash {
+            continue;
+        }
+        match id {
+            SpiceDataIdentifier::Witness { .. } => counts.witnesses += 1,
+            SpiceDataIdentifier::ReceiptProof { .. } => counts.receipt_proofs += 1,
+        }
+    }
+    counts
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
+    let (genesis, mut chain) = setup(2, 0);
+    let (_from_shard_id, to_shard_id) =
+        genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
+    // Tracks only its shard, so it waits on the other shard's witness and receipt proofs.
+    let recipient = chunk_producer_for_shard(&chain, to_shard_id);
+    let block = latest_block(&chain);
+    let next_block = produce_block(&mut chain, &block);
+    let fork_block = produce_block(&mut chain, &block);
+    save_final_execution_head(&chain, &block);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    let fork_counts = waiting_counts_of(&actor, fork_block.hash());
+    assert!(fork_counts.witnesses > 0);
+    assert!(fork_counts.receipt_proofs > 0);
+    let next_counts = waiting_counts_of(&actor, next_block.hash());
+    drain_outgoing_data_requests(&mut outgoing_rc);
+
+    let head = produce_blocks_until_final(&mut chain, &next_block);
+
+    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    fake_runner.run_queued_actions(&mut actor);
+    assert_eq!(
+        waiting_counts_of(&actor, fork_block.hash()),
+        WaitingCounts { witnesses: 0, receipt_proofs: 0 }
+    );
+    assert_eq!(waiting_counts_of(&actor, next_block.hash()), next_counts);
+    let requested_blocks: HashSet<_> = drain_outgoing_data_requests(&mut outgoing_rc)
+        .into_iter()
+        .map(|(data_id, _requester)| *data_id.block_hash())
+        .collect();
+    assert!(!requested_blocks.contains(fork_block.hash()));
+    assert!(requested_blocks.contains(next_block.hash()));
 }
 
 #[test]
