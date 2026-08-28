@@ -437,6 +437,7 @@ impl SpiceChunkValidatorActor {
             self.partial_chunk_data
                 .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                 .witness = Some(witness);
+            self.trust_witness_accesses_and_request_missing_code(&chunk_id, &signer)?;
             self.validate_trusted_accesses(&chunk_id, signer.clone())?;
             if let Err(err) = self.try_assemble_and_validate_chunk(&chunk_id, signer.clone()) {
                 self.requeue_waiting_witnesses(&block_hash, unready_witnesses);

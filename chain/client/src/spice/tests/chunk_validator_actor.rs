@@ -230,6 +230,33 @@ fn test_witness_arriving_before_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_arriving_before_block_without_accesses_message() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let prev_block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let block = build_block(&actor.chain, &prev_block);
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+    actor.handle(witness_message.span_wrap());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+
+    process_block_sync(
+        &mut actor.chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_no_contract_requests(&mut actor.network_rc);
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_witness_arriving_before_execution_results_for_parent() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();

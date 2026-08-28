@@ -38,8 +38,8 @@ pub struct SpicePartialDataFaultState {
 /// takes effect on the next message.
 ///
 /// Keying by sender covers every way partial data leaves a node: the push, the all-stake fallback
-/// push, and the response to a data request. Contract accesses and contract code travel as their
-/// own messages and are never faulted.
+/// push, and the response to a data request. Contract accesses travel as their own message and
+/// are dropped separately by `drop_contract_accesses_from`; contract code is never faulted.
 // TODO(spice-data-distribution): fault contract code responses too, so a test can drop them or
 // answer with bytes that do not hash to the requested code.
 #[derive(Default)]
