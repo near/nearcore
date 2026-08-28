@@ -828,6 +828,9 @@ mod pre_activation_tests {
     const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
         ProtocolFeature::EarlyKickout.protocol_version() - 1;
 
+    // A spice build has no protocol version that is both >= Spice and < EarlyKickout,
+    // so the feature-off path cannot be exercised there.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     #[test]
     fn test_resolution_matches_legacy_computation_when_feature_off() {
         init_test_logger();

@@ -358,7 +358,6 @@ mod hot_gc_tests {
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;
-
     // Only the reshard-boundary test below reshards, and it is nightly-only.
     #[cfg(feature = "nightly")]
     use crate::utils::setups::derive_new_epoch_config_from_boundary;
