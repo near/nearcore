@@ -31,7 +31,7 @@ use near_primitives::universal_state_init::{
 };
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{AccessKeyPermissionView, AccountView};
+use near_primitives::views::{AccessKeyPermissionView, AccountView, FinalExecutionStatus};
 use std::collections::{BTreeMap, BTreeSet};
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
@@ -135,6 +135,29 @@ impl Env {
             self.block_hash(),
         );
         self.run_tx(tx);
+    }
+
+    /// Deploy `wasm` to the global-contract account and call its `main`, returning
+    /// whatever it passes to `value_return`.
+    fn deploy_and_call(&mut self, wasm: Vec<u8>) -> Vec<u8> {
+        let account = self.global_contract_account.clone();
+        let deploy = self.env.rpc_node().tx_deploy_contract(&account, wasm);
+        self.env.rpc_runner().run_tx(deploy, Duration::seconds(5));
+
+        let call = self.env.rpc_node().tx_call(
+            &account,
+            &account,
+            "main",
+            vec![],
+            Balance::ZERO,
+            Gas::from_teragas(300),
+        );
+        let outcome =
+            self.env.rpc_runner().execute_tx(call, Duration::seconds(5)).expect("valid tx");
+        match outcome.status {
+            FinalExecutionStatus::SuccessValue(bytes) => bytes,
+            other => panic!("contract call failed: {other:?}"),
+        }
     }
 
     fn transfer(&mut self, receiver: &AccountId, amount: Balance) {
@@ -368,4 +391,65 @@ fn test_universal_state_init_derives_from_supplied_bytes() {
         env.try_view_account(&from_re_encoding).is_err(),
         "re-encoding the decoded state init must not be what the id follows"
     );
+}
+
+/// Build a contract that derives an account ID from `state_init` through the host
+/// function and returns it, so the derivation is exercised across the real import
+/// table rather than by calling `VMLogic` directly.
+fn derive_wasm(state_init: &[u8]) -> Vec<u8> {
+    let mut data = String::new();
+    for byte in state_init {
+        data.push_str(&format!("\\{:02x}", byte));
+    }
+    let len = state_init.len();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "universal_state_init_to_account_id" (func $derive (param i64 i64 i64)))
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+
+  (data (i32.const 0) "{data}")
+
+  (func (export "main")
+    ;; derive the id of [0, len) into register 0
+    (call $derive (i64.const {len}) (i64.const 0) (i64.const 0))
+    ;; return register 0 (value_len == u64::MAX selects register mode)
+    (call $value_return (i64.const -1) (i64.const 0))
+  )
+)"#,
+    ))
+}
+
+/// The ID a contract gets from the host function is the one the protocol derives,
+/// and the chain accepts it as the receiver of a real state init. Pins the host
+/// function against `derive_universal_account_id`, which is what action validation
+/// uses, rather than against the primitives the host function itself is built from.
+#[test]
+fn test_universal_state_init_to_account_id_matches_receiver_check() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-host-fn").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
+    });
+    let raw = state_init.to_raw();
+
+    // A: derive on-chain, through the real import table.
+    let returned = env.deploy_and_call(derive_wasm(&raw.0));
+    let derived: AccountId =
+        std::str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
+
+    // B: it agrees with the derivation the receiver check uses.
+    assert_eq!(derived, derive_universal_account_id(&raw));
+
+    // C: and the chain accepts it as the receiver of a state init.
+    env.create_universal_account(raw, &derived, Balance::from_near(1));
+    assert!(env.view_account(&derived).storage_usage > 0, "the account should have been created");
 }

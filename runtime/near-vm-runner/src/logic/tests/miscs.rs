@@ -7,7 +7,6 @@ use near_parameters::ExtCosts;
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
-use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
@@ -134,10 +133,12 @@ fn test_sha3_256() {
 /// an empty data map and an empty access-key set, all borsh zeroes.
 const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
 
-fn expected_account_id(state_init: &[u8]) -> AccountId {
-    use sha3::Digest;
-    encode_universal_account_id(&sha3::Sha3_256::digest(state_init).into())
-}
+/// Known-answer ids, hardcoded so the expectation does not come from the same
+/// primitives the host function uses. `derive_universal_account_id` is the
+/// authority for these; it lives in `near-primitives`, out of this crate's reach,
+/// so the cross-check against it is a test-loop test.
+const EMPTY_STATE_INIT_ACCOUNT_ID: &str = "0u1kajgpx8a97y8ap8y03pvt8kbm2p2cn9k5h17bgw1wa21j88865g"; // cspell:disable-line
+const GARBAGE_ACCOUNT_ID: &str = "0ux21v0ayd887nt762sfhvgfbv9q46vcgsw2s5x5mapcdx6b1x89sg"; // cspell:disable-line
 
 #[test]
 fn test_universal_state_init_to_account_id() {
@@ -147,7 +148,7 @@ fn test_universal_state_init_to_account_id() {
     let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
     logic.universal_state_init_to_account_id(state_init.len, state_init.ptr, 0).unwrap();
 
-    let expected = expected_account_id(&EMPTY_STATE_INIT);
+    let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
     logic.assert_read_register(expected.as_bytes(), 0);
 
     assert_costs(map! {
@@ -171,10 +172,24 @@ fn test_universal_state_init_to_account_id_from_register() {
     let mut logic = logic_builder.build();
 
     logic.wrapped_internal_write_register(1, &EMPTY_STATE_INIT).unwrap();
+    reset_costs_counter();
+
     logic.universal_state_init_to_account_id(u64::MAX, 1, 0).unwrap();
 
-    let expected = expected_account_id(&EMPTY_STATE_INIT);
-    assert_eq!(logic.registers().get_for_free(0).unwrap(), expected.as_bytes());
+    let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
+    logic.assert_read_register(expected.as_bytes(), 0);
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_register_base: 2,
+        ExtCosts::read_register_byte: EMPTY_STATE_INIT.len() as u64 + expected.len() as u64,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: expected.len() as u64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: expected.len() as u64,
+        ExtCosts::universal_state_init_to_account_id_base: 1,
+        ExtCosts::universal_state_init_to_account_id_byte: EMPTY_STATE_INIT.len() as u64,
+    });
 }
 
 /// The derivation commits to the bytes as given and looks at nothing else, so a
@@ -187,7 +202,7 @@ fn test_universal_state_init_to_account_id_accepts_any_bytes() {
 
     let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
     logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap();
-    logic.assert_read_register(expected_account_id(&[7u8, 7, 7]).as_bytes(), 0);
+    logic.assert_read_register(GARBAGE_ACCOUNT_ID.as_bytes(), 0);
 }
 
 #[test]

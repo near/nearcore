@@ -181,7 +181,7 @@ impl ExtCostsConfig {
             // Same hash as sha3_256 over the same bytes, so the per-byte cost is
             // sha3_256's; the base is scaled up for the base32 encoding. See the
             // calibration note in `parameters.yaml`.
-            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2870000000,
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2840000000,
             ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
