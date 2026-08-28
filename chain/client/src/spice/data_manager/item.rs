@@ -9,10 +9,27 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
 use std::collections::{HashMap, HashSet};
 use std::mem::replace;
 use std::sync::Arc;
+
+/// Identity of one piece of distributed data the engine tracks.
+// TODO(spice-data-distribution): witnesses and contract code move here when their
+// paths switch to the engine (#16275).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DataId {
+    /// `source` is the chunk whose execution produced the receipts; `to_shard` is their
+    /// destination. Produced by `source`'s producers, needed by next-block producers of
+    /// `to_shard`.
+    ReceiptProof { source: SpiceChunkId, to_shard: ShardId },
+}
+
+/// One tracked piece of data.
+// TODO(spice-data-distribution): a `Produce` variant is added with the serve path (#16275).
+pub(crate) enum Item {
+    Fetch(FetchItem),
+}
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) enum SpiceData {
@@ -38,7 +55,11 @@ pub(crate) enum FetchState {
     /// Consumer verified and persisted the artifact; terminal until expiry. The
     /// attribution stays because a fault can be discovered after local verification (for example the
     /// certified result for the chunk differs from locally verified witness) and must still map back to the senders.
-    ProcessedLocally { attribution: DataAttribution },
+    ProcessedLocally {
+        // TODO(spice-data-distribution): read by the certification comparator (#16275).
+        #[allow(dead_code)]
+        attribution: DataAttribution,
+    },
 }
 
 /// Runs a state transition that takes ownership of the (parts of) current state.
@@ -53,23 +74,30 @@ fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchSta
     result
 }
 
+/// An item produced by others and fetched by us.
 pub(crate) struct FetchItem {
     pub(crate) state: FetchState,
+    /// Height of the item's block.
+    pub(crate) height: BlockHeight,
     /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace clock.
     pub(crate) first_unit_at: Option<Instant>,
 }
 
 impl FetchItem {
-    pub(crate) fn waiting_for_push() -> Self {
-        Self { state: FetchState::WaitingForPush, first_unit_at: None }
+    pub(crate) fn waiting_for_push(height: BlockHeight) -> Self {
+        Self { state: FetchState::WaitingForPush, height, first_unit_at: None }
     }
 
-    pub(crate) fn collecting(encoder: Arc<ReedSolomonEncoder>) -> Self {
-        Self { state: FetchState::Collecting(Assembly::new(encoder)), first_unit_at: None }
+    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
+    #[allow(dead_code)]
+    pub(crate) fn collecting(encoder: Arc<ReedSolomonEncoder>, height: BlockHeight) -> Self {
+        Self { state: FetchState::Collecting(Assembly::new(encoder)), height, first_unit_at: None }
     }
 
     /// Starts a speculative pull: a waiting item begins collecting before any part
     /// arrived. Does nothing unless the item is waiting for the push.
+    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
+    #[allow(dead_code)]
     pub(crate) fn start_pulling(&mut self, encoder: Arc<ReedSolomonEncoder>) -> bool {
         if !matches!(self.state, FetchState::WaitingForPush) {
             return false;
@@ -132,18 +160,41 @@ impl FetchItem {
         Ok(result)
     }
 
-    pub(crate) fn mark_verified(&mut self) -> Result<(), AssemblyError> {
+    /// Marks the delivered data as verified. A `commitment` other than the
+    /// delivered one is rejected as stale.
+    pub(crate) fn mark_verified(
+        &mut self,
+        commitment: &SpiceDataCommitment,
+    ) -> Result<(), AssemblyError> {
         transition(&mut self.state, |state| match state {
-            FetchState::Delivered { attribution, .. } => {
+            FetchState::Delivered { attribution, residual } => {
+                if &attribution.decoded != commitment {
+                    return (
+                        FetchState::Delivered { attribution, residual },
+                        Err(AssemblyError::CommitmentMismatch),
+                    );
+                }
                 (FetchState::ProcessedLocally { attribution }, Ok(()))
             }
             state => (state, Err(AssemblyError::NotDelivered)),
         })
     }
 
-    pub(crate) fn mark_failed(&mut self) -> Result<HashSet<AccountId>, AssemblyError> {
+    /// Marks the delivered data as failed: bans the decoded commitment and resumes
+    /// collecting from the residual. A `commitment` other than the delivered one is
+    /// rejected as stale.
+    pub(crate) fn mark_failed(
+        &mut self,
+        commitment: &SpiceDataCommitment,
+    ) -> Result<HashSet<AccountId>, AssemblyError> {
         transition(&mut self.state, |state| match state {
             FetchState::Delivered { attribution, mut residual } => {
+                if &attribution.decoded != commitment {
+                    return (
+                        FetchState::Delivered { attribution, residual },
+                        Err(AssemblyError::CommitmentMismatch),
+                    );
+                }
                 let contributors = attribution.contributors();
                 residual.ban(attribution.decoded);
                 // an empty residual means the only evidence was the banned commitment's
@@ -190,8 +241,8 @@ impl VerifiedCodedPart {
         Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
-    // TODO(spice-data-distribution): these accessors only feed the old ingress path;
-    // they go when C1a routes ingress through the engine.
+    // TODO(spice-data-distribution): these accessors only feed the old witness ingress
+    // path; they go when witnesses move onto the engine (#16275).
     pub(crate) fn ordinal(&self) -> usize {
         self.ordinal
     }
@@ -275,11 +326,15 @@ impl Assembly {
         Ok(result)
     }
 
+    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
+    #[allow(dead_code)]
     pub(crate) fn is_complete(&self) -> bool {
         self.trackers.values().any(CodedTracker::is_complete)
     }
 
     /// Ordinals to ask for: an ordinal is skipped only if held under every commitment.
+    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
+    #[allow(dead_code)]
     pub(crate) fn missing_ordinals(&self) -> Vec<u64> {
         (0..self.encoder.total_parts())
             .filter(|ordinal| {
@@ -398,6 +453,8 @@ pub(crate) enum AssemblyError {
     NotCollecting,
     #[error("item is not waiting for a verdict")]
     NotDelivered,
+    #[error("verification is about a commitment other than the delivered one")]
+    CommitmentMismatch,
     #[error("part merkle proof does not verify against the commitment root")]
     InvalidMerkleProof,
     #[error("part ordinal is out of range")]

@@ -20,6 +20,7 @@ use near_client::ChunkValidationActor;
 use near_client::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
+use near_client::spice::data_manager::DataId;
 use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -37,11 +38,14 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId, SpiceChunkId,
+};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -901,9 +905,25 @@ impl TestEnv {
                     if id == executor_id {
                         continue;
                     }
+                    // This env bypasses real distribution, so there is no real
+                    // commitment; the verification result it would attribute goes to
+                    // a noop sender anyway.
+                    let commitment = SpiceDataCommitment {
+                        hash: CryptoHash::default(),
+                        root: CryptoHash::default(),
+                        encoded_length: 0,
+                    };
+                    let data_id = DataId::ReceiptProof {
+                        source: SpiceChunkId {
+                            block_hash,
+                            shard_id: receipt_proof.1.from_shard_id,
+                        },
+                        to_shard: receipt_proof.1.to_shard_id,
+                    };
                     executor.handle_incoming_receipts(ExecutorIncomingUnverifiedReceipts {
-                        block_hash,
+                        data_id,
                         receipt_proof: receipt_proof.clone(),
+                        commitment,
                     })
                 }
             }

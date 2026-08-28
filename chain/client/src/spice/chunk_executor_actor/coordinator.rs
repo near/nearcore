@@ -4,6 +4,7 @@
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
@@ -21,6 +22,7 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::{NumBlocks, ShardId};
 use near_store::ShardUId;
 use near_store::Store;
@@ -55,8 +57,11 @@ pub struct ChunkExecutorActor {
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
-    pub block_hash: CryptoHash,
+    /// Id the proof was delivered under.
+    pub data_id: DataId,
     pub receipt_proof: ReceiptProof,
+    /// Commitment the proof decoded from.
+    pub commitment: SpiceDataCommitment,
 }
 
 #[derive(Debug)]
@@ -377,7 +382,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { block_hash, receipt_proof } = receipts;
+        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof, commitment } = receipts;
+        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
@@ -386,7 +393,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = receipt_proof.1.to_shard_id;
+        let to_shard_id = *to_shard;
         // TODO(spice-resharding): a receipt for a shard this node *does* track can be
         // dropped here if it arrives before reconcile created the executor (startup /
         // catch-up, or around an epoch boundary). Reconcile from the source block's
@@ -395,7 +402,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
         };
-        if let Err(err) = executor.handle_incoming_receipt(block_hash, receipt_proof) {
+        if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof, commitment) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
     }
