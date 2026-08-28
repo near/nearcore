@@ -96,7 +96,7 @@ impl CloudStorage {
         }
     }
 
-    /// Saves the archival data associated with the given epoch ID.
+    /// Saves the archival data of the epoch that starts after `prev_epoch_end`.
     pub async fn archive_epoch_data(
         &self,
         hot_store: &Store,

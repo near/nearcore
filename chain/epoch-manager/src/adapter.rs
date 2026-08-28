@@ -116,7 +116,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns true, if the block the `BlockInfo` describes is the last block in its
-    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo`, nothing else.
+    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo` from the store.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError>;
 
     /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.

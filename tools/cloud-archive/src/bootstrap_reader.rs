@@ -23,13 +23,6 @@ impl BootstrapReaderCmd {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.start_height <= self.end_height,
-            "start_height ({}) must be <= end_height ({})",
-            self.start_height,
-            self.end_height,
-        );
-
         let near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .context("failed to load config")?;
 

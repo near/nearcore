@@ -80,7 +80,7 @@ pub(crate) fn pull_block_batch(
 }
 
 /// Writes one epoch's cloud data into `update`.
-pub fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) {
+pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) {
     let epoch_id = epoch_data.epoch_id();
     update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_data.epoch_info());
     update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_data.epoch_start_height());

@@ -19,6 +19,13 @@ pub fn bootstrap_range(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        start_height <= end_height,
+        "start_height ({}) must be <= end_height ({})",
+        start_height,
+        end_height,
+    );
+
     // `start_height` may carry no block, so the block walk starts at the nearest present
     // block below it and pulls that block's epoch.
     let (block_start_height, block) = find_present_block_at_or_below(cloud_storage, start_height)?;
@@ -27,6 +34,7 @@ pub fn bootstrap_range(
 
     let range_length = end_height - block_start_height + 1;
     let log_interval = std::cmp::max(cloud_storage.batch_size() as u64, range_length / 100);
+    let mut next_log_at = log_interval;
 
     // Fetch one batch per iteration and consume all its heights, so each
     // batch blob is downloaded and decompressed once rather than per height.
@@ -41,7 +49,8 @@ pub fn bootstrap_range(
         height = batch_end + 1;
         // Capped: a batch runs to its own end, which can be past `end_height`.
         let done = std::cmp::min(height - block_start_height, range_length);
-        if done.is_multiple_of(log_interval) || height > end_height {
+        if done >= next_log_at || height > end_height {
+            next_log_at = done + log_interval;
             let percent_done = done * 100 / range_length;
             tracing::info!(height, end_height, percent_done, "bootstrap progress");
         }
