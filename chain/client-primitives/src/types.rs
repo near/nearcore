@@ -1,4 +1,5 @@
 use near_primitives::block::Block;
+use near_primitives::epoch_sync::EpochSyncBatchIndex;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -111,7 +112,7 @@ impl StateSyncStatus {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, strum::AsRefStr)]
 pub enum EpochSyncStatus {
     /// Epoch sync decided but no request sent yet.
     NotStarted,
@@ -120,6 +121,17 @@ pub enum EpochSyncStatus {
         source_peer_height: BlockHeight,
         source_peer_id: PeerId,
         attempt_time: near_time::Utc,
+    },
+    /// Downloading the proof one batch at a time. Batches are fetched in order,
+    /// because each one is verified against the epoch before it.
+    FetchingBatches {
+        current_batch_index: EpochSyncBatchIndex,
+        source_peer_id: PeerId,
+        source_peer_height: BlockHeight,
+        attempt_time: near_time::Utc,
+        /// False once a response has been handled, so the next tick asks for the
+        /// batch now recorded rather than waiting out the timeout.
+        awaiting_response: bool,
     },
     /// Epoch sync proof applied successfully.
     Done,
@@ -209,6 +221,16 @@ impl From<EpochSyncStatus> for EpochSyncStatusView {
     fn from(status: EpochSyncStatus) -> Self {
         match status {
             EpochSyncStatus::NotStarted => EpochSyncStatusView::NotStarted,
+            EpochSyncStatus::FetchingBatches {
+                current_batch_index,
+                source_peer_id,
+                source_peer_height,
+                ..
+            } => EpochSyncStatusView::FetchingBatches {
+                current_batch_index,
+                source_peer_id: source_peer_id.to_string(),
+                source_peer_height,
+            },
             EpochSyncStatus::InProgress { source_peer_height, source_peer_id, attempt_time } => {
                 EpochSyncStatusView::InProgress {
                     source_peer_height,
