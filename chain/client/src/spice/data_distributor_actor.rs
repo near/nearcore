@@ -1025,8 +1025,15 @@ impl SpiceDataDistributorActor {
         let mut unneeded = Vec::new();
         for id in self.waiting_on_data.keys() {
             let block_hash = id.block_hash();
-            let Ok(height) = self.chain_store.get_block_height(block_hash) else {
-                continue;
+            let height = match self.chain_store.get_block_height(block_hash) {
+                Ok(height) => height,
+                Err(err) => {
+                    // The rules below should have dropped the entry before its block was
+                    // collected.
+                    tracing::error!(target: "spice_data_distribution", ?err, ?id, "block for which we wait on data is gone; stop waiting on it");
+                    unneeded.push((id.clone(), false));
+                    continue;
+                }
             };
             if height > final_head.height {
                 continue;
