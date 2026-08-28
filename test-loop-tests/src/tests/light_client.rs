@@ -403,48 +403,47 @@ fn test_light_client_execution_outcome_proof_across_resharding() {
         .epoch_length(epoch_length)
         .add_user_account(&user, Balance::from_near(10))
         .epoch_config_store(epoch_config_store)
+        .enable_rpc()
         .build();
 
     // One transaction per block, so every block in the range holds an outcome for the user's
     // shard. The last block before the layout change is therefore always covered.
-    let epoch_manager = env.validator().client().epoch_manager.clone();
+    let epoch_manager = env.rpc_node().client().epoch_manager.clone();
     let mut tx_hashes = Vec::new();
-    while epoch_manager.get_shard_layout(&env.validator().head().epoch_id).unwrap()
+    while epoch_manager.get_shard_layout(&env.rpc_node().head().epoch_id).unwrap()
         != new_shard_layout
     {
-        let tx = env.validator().tx_send_money(&user, &user, Balance::from_millinear(1));
-        tx_hashes.push(env.validator().submit_tx(tx));
-        env.validator_runner().run_for_number_of_blocks(1);
+        let tx = env.rpc_node().tx_send_money(&user, &user, Balance::from_millinear(1));
+        tx_hashes.push(env.rpc_node().submit_tx(tx));
+        env.rpc_runner().run_for_number_of_blocks(1);
         assert!(tx_hashes.len() < 20 * epoch_length as usize, "shard layout never changed");
     }
 
     // An outcome is only confirmed by a later block with a new chunk for its shard.
     let last_tx_hash = *tx_hashes.last().unwrap();
-    env.validator_runner().run_until_outcome_available(last_tx_hash, Duration::seconds(5));
-    env.validator_runner().run_for_number_of_blocks(1);
+    env.rpc_runner().run_until_outcome_available(last_tx_hash, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
-    let responses = {
-        let mut node = env.validator_mut();
-        let view_client = node.view_client_actor();
-        tx_hashes
-            .iter()
-            .map(|tx_hash| {
-                let id = TransactionOrReceiptId::Transaction {
-                    transaction_hash: *tx_hash,
-                    sender_id: user.clone(),
-                };
-                view_client.handle(GetExecutionOutcome { id }).unwrap()
-            })
-            .collect::<Vec<_>>()
-    };
+    let mut responses = Vec::new();
+    {
+        let mut rpc = env.rpc_node_mut();
+        let view_client = rpc.view_client_actor();
+        for tx_hash in &tx_hashes {
+            let id = TransactionOrReceiptId::Transaction {
+                transaction_hash: *tx_hash,
+                sender_id: user.clone(),
+            };
+            responses.push(view_client.handle(GetExecutionOutcome { id }).unwrap());
+        }
+    }
 
-    let node = env.validator();
-    let chain = &node.client().chain;
+    let rpc = env.rpc_node();
+    let chain = &rpc.client().chain;
     let mut covered_layout_change = false;
     for (tx_hash, response) in tx_hashes.iter().zip(responses) {
         let execution_outcome = chain.get_execution_outcome(tx_hash).unwrap();
-        let execution_epoch_id =
-            *chain.get_block_header(&execution_outcome.block_hash).unwrap().epoch_id();
+        let execution_header = chain.get_block_header(&execution_outcome.block_hash).unwrap();
+        let execution_epoch_id = *execution_header.epoch_id();
 
         // The handler replaces the block hash with the block that confirms the outcome.
         let confirming_block_hash = response.outcome_proof.block_hash;
