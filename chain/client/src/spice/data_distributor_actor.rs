@@ -299,15 +299,29 @@ struct WaitingOnDataEntry {
     /// Head height from which we send requests for this data. Designated recipients are allowed to
     /// request right away; fallback recipients hold back so the producers' push can arrive first.
     request_from_height: BlockHeight,
+    /// Diagnostics for entries that never resolve: the request round they were inserted at and
+    /// which path inserted them.
+    inserted_at_round: u64,
+    inserted_by: &'static str,
 }
 
 impl WaitingOnDataEntry {
-    fn request_immediately() -> Self {
-        Self { parts_by_commitment: HashMap::new(), request_from_height: 0 }
+    fn request_immediately(inserted_at_round: u64) -> Self {
+        Self {
+            parts_by_commitment: HashMap::new(),
+            request_from_height: 0,
+            inserted_at_round,
+            inserted_by: "designated",
+        }
     }
 
-    fn request_from_height(request_from_height: BlockHeight) -> Self {
-        Self { parts_by_commitment: HashMap::new(), request_from_height }
+    fn request_from_height(request_from_height: BlockHeight, inserted_at_round: u64) -> Self {
+        Self {
+            parts_by_commitment: HashMap::new(),
+            request_from_height,
+            inserted_at_round,
+            inserted_by: "fallback",
+        }
     }
 }
 
@@ -1278,8 +1292,10 @@ impl SpiceDataDistributorActor {
         {
             return Ok(());
         }
-        self.waiting_on_data
-            .insert(id, WaitingOnDataEntry::request_from_height(request_from_height));
+        self.waiting_on_data.insert(
+            id,
+            WaitingOnDataEntry::request_from_height(request_from_height, self.request_round),
+        );
         Ok(())
     }
 
@@ -1418,7 +1434,8 @@ impl SpiceDataDistributorActor {
                 tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
                 continue;
             }
-            self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
+            self.waiting_on_data
+                .insert(id, WaitingOnDataEntry::request_immediately(self.request_round));
         }
         Ok(())
     }
@@ -1454,14 +1471,53 @@ impl SpiceDataDistributorActor {
         };
         // TODO(spice): Stop waiting on witnesses past final certification head.
 
+        let tail_height = self.chain_store.tail();
+        if self.request_round % 60 == 0 {
+            let oldest = self
+                .waiting_on_data
+                .iter()
+                .min_by_key(|(_, waiting)| waiting.inserted_at_round)
+                .map(|(id, waiting)| {
+                    let block_height = self.chain_store.get_block_height(id.block_hash()).ok();
+                    (
+                        id.clone(),
+                        waiting.inserted_by,
+                        self.request_round - waiting.inserted_at_round,
+                        block_height,
+                    )
+                });
+            tracing::info!(
+                target: "spice_data_distribution",
+                waiting_entries = self.waiting_on_data.len(),
+                ?oldest,
+                head_height,
+                tail_height,
+                request_round = self.request_round,
+                "waiting on data summary"
+            );
+        }
         for (id, waiting) in &self.waiting_on_data {
             if head_height < waiting.request_from_height {
                 continue;
             }
-            let block = self
-                .chain_store
-                .get_block(id.block_hash())
-                .expect("block for which we wait on data should always be available");
+            let block = match self.chain_store.get_block(id.block_hash()) {
+                Ok(block) => block,
+                Err(err) => {
+                    tracing::error!(
+                        target: "spice_data_distribution",
+                        ?err,
+                        ?id,
+                        inserted_by = waiting.inserted_by,
+                        rounds_waited = self.request_round - waiting.inserted_at_round,
+                        request_from_height = waiting.request_from_height,
+                        received_commitments = waiting.parts_by_commitment.len(),
+                        head_height,
+                        tail_height,
+                        "block for which we wait on data is missing"
+                    );
+                    panic!("block for which we wait on data should always be available: {err:?}");
+                }
+            };
             let (_recipients, mut producers) = self.recipients_and_producers(&id, &block).expect(
                 "producers and recipients that we wait on data for should always be available",
             );
@@ -1582,7 +1638,20 @@ impl SpiceDataDistributorActor {
         let Some(data) = self.get_distribution_data(data_id, total_parts) else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
-            tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
+            let block_height = block.header().height();
+            let last_certified_height = self
+                .chain_store
+                .head()
+                .and_then(|head| {
+                    get_last_certified_block_header(&self.chain_store, &head.last_block_hash)
+                })
+                .map(|header| header.height())
+                .ok();
+            if last_certified_height.is_some_and(|certified| block_height <= certified) {
+                tracing::info!(target:"spice_data_distribution", ?data_id, ?requester, block_height, last_certified_height, "received request for unknown data of a certified block");
+            } else {
+                tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
+            }
             return Ok(());
         };
         // TODO(spice): Check that requester is one of the recipients and implement a

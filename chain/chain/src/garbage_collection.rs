@@ -500,6 +500,12 @@ impl ChainStore {
                     let prev_hash =
                         *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
+                    tracing::info!(
+                        target: "garbage_collection",
+                        height,
+                        ?block_hash,
+                        "clearing fork block"
+                    );
                     // It's safe to call `clear_block_data` for prev data because it clears fork only here
                     chain_store_update.clear_block_data(
                         epoch_manager.as_ref(),
