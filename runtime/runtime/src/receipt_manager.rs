@@ -10,9 +10,7 @@ use near_primitives::deterministic_account_id::{
 };
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::DataReceiver;
-use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInitCounts, state_init_counts,
-};
+use near_primitives::universal_state_init::RawStateInit;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
@@ -313,9 +311,6 @@ impl ReceiptManager {
     /// Attach a `UniversalStateInit` action, carrying `state_init` verbatim, to an
     /// existing receipt.
     ///
-    /// Returns the counts the action is priced on, so the VM can charge at
-    /// creation exactly what the action costs when it executes.
-    ///
     /// # Arguments
     ///
     /// * `receipt_index` - an index of Receipt to append an action
@@ -330,12 +325,10 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         state_init: RawStateInit,
         deposit: Balance,
-    ) -> UniversalStateInitCounts {
-        let counts = state_init_counts(&state_init);
+    ) {
         let action =
             Action::UniversalStateInit(Box::new(UniversalStateInitAction { state_init, deposit }));
         self.append_action(receipt_index, action);
-        counts
     }
 
     /// Set a data entry to an existing [`DeterministicStateInit`] action.

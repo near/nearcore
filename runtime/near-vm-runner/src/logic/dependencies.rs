@@ -456,14 +456,19 @@ pub trait External {
         value: Vec<u8>,
     ) -> Result<(), VMLogicError>;
 
+    /// The counts a `UniversalStateInit` action carrying `state_init` is priced on.
+    ///
+    /// Decoding is a host-side concern: the typed form carries public key handles,
+    /// whose types live outside this crate. Split from the append so the caller can
+    /// charge before the action exists, rather than relying on a failed charge
+    /// discarding a receipt it has already been added to.
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts;
+
     /// Attach a `UniversalStateInit` action, built from the bytes a contract
     /// supplied, to an existing receipt.
     ///
     /// The bytes go into the action verbatim, because the account the receipt
-    /// targets is identified by exactly them. Decoding is a host-side concern:
-    /// the typed form carries public key handles, whose types live outside this
-    /// crate. The counts the action is priced on come back, so the caller can
-    /// charge at creation what the action is charged when it executes.
+    /// targets is identified by exactly them.
     ///
     /// # Arguments
     ///
@@ -479,7 +484,7 @@ pub trait External {
         receipt_index: ReceiptIndex,
         state_init: RawStateInit,
         amount: Balance,
-    ) -> UniversalStateInitCounts;
+    );
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///

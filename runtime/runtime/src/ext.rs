@@ -8,7 +8,9 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
-use near_primitives::universal_state_init::{RawStateInit, UniversalStateInitCounts};
+use near_primitives::universal_state_init::{
+    RawStateInit, UniversalStateInitCounts, state_init_counts,
+};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
@@ -474,12 +476,16 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
+        state_init_counts(state_init)
+    }
+
     fn append_action_universal_state_init(
         &mut self,
         receipt_index: ReceiptIndex,
         state_init: RawStateInit,
         amount: Balance,
-    ) -> UniversalStateInitCounts {
+    ) {
         self.receipt_manager.append_universal_state_init(receipt_index, state_init, amount)
     }
 

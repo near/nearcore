@@ -3087,16 +3087,21 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         );
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        // Charged before the host is handed the payload, because decoding it is
-        // the work the per-byte fee pays for: charging afterwards would leave the
-        // decode bounded only by the far cheaper cost of reading the bytes in.
+        // The size terms are charged before the host is handed the payload, because
+        // decoding it is the work the per-byte fee pays for: charging afterwards
+        // would leave the decode bounded only by the far cheaper cost of reading
+        // the bytes in. The content terms follow as soon as the counts are known,
+        // still before the action exists, so a failed charge never leaves one
+        // behind on the receipt.
         let num_bytes = state_init.0.len() as u64;
         self.pay_universal_state_init_terms(universal_state_init_size_terms(num_bytes), sir)?;
+        let counts = self.ext.state_init_counts(&state_init);
+        debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
+        self.pay_universal_state_init_terms(universal_state_init_content_terms(counts), sir)?;
 
         self.result_state.deduct_balance(amount)?;
-        let counts = self.ext.append_action_universal_state_init(receipt_idx, state_init, amount);
-        debug_assert_eq!(counts.num_bytes, num_bytes, "the host must price the bytes we read");
-        self.pay_universal_state_init_terms(universal_state_init_content_terms(counts), sir)
+        self.ext.append_action_universal_state_init(receipt_idx, state_init, amount);
+        Ok(())
     }
 
     /// Charge the given terms of the `UniversalStateInit` action fee.
@@ -3104,11 +3109,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// The terms come from `near_parameters`, shared with
     /// `node_runtime::config::universal_state_init_fee`, so a contract-created
     /// action prepays exactly the exec fee it is charged when it runs.
-    ///
-    /// The content terms are charged after the action is built, since the entry
-    /// and key counts are only known once the host has decoded the state init.
-    /// Charging them late is safe: running out of gas aborts the whole function
-    /// call, and an aborted call emits none of the receipts it created.
     ///
     /// `pay_action_per_byte` is just "fee times count". Entries and keys are
     /// counted rather than measured in bytes, and the base term's count is one.

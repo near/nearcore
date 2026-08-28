@@ -466,6 +466,10 @@ const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
 #[test]
 fn test_promise_batch_action_universal_state_init() {
     let mut logic_builder = VMLogicBuilder::default();
+    // The mock cannot decode the payload, so the entry and key counts are dialled
+    // in here. Without them the per-entry and per-key terms are pinned nowhere.
+    logic_builder.ext.universal_state_init_entries = 2;
+    logic_builder.ext.universal_state_init_keys = 1;
     let mut logic = logic_builder.build();
 
     // The receiver is not the account this state init identifies. The VM does not
@@ -525,11 +529,28 @@ fn test_promise_batch_action_universal_state_init() {
         72_000_000 * EMPTY_STATE_INIT.len() as u64,
         "unexpected action gas usage {profile:?}"
     );
-    // `MockedExternal` cannot decode the state init, so it reports no entries and
-    // no keys. Those fees are exercised end to end in `test-loop-tests`.
-    for cost in [ActionCosts::universal_state_init_entry, ActionCosts::add_full_access_key] {
-        assert_eq!(profile.actions_profile[cost].as_gas(), 0, "unexpected {cost:?} {profile:?}");
-    }
+    // action_add_full_access_key, one per installed key
+    //    send 0.101_765_125 Tgas
+    //    exec 0.101_765_125 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::add_full_access_key].as_gas(),
+        101_765_125_000,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_universal_state_init_per_entry has no send fee, so it contributes
+    // nothing to the burnt profile however many entries there are; its 0.2 Tgas
+    // exec half shows up in `used_gas` below.
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_entry].as_gas(),
+        0,
+        "unexpected action gas usage {profile:?}"
+    );
+    // Pins the exec halves too, including the two per-entry terms the burnt
+    // profile cannot show. The action terms account for
+    //   base  7.930 Tgas + byte 1.42 Ggas + entry 400 Ggas + key 203.53 Ggas
+    //   = 8_534_950_250_000
+    // and the remaining ~246 Ggas is the ext costs of getting here.
+    assert_eq!(logic.used_gas().unwrap(), 8_781_142_525_081, "{profile:?}");
 
     assert_eq!(
         logic_builder.ext.action_log,
@@ -583,6 +604,11 @@ fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
             receiver_id: "rick.test".parse().unwrap(),
         }],
         "the state init must not reach the host before its bytes are paid for"
+    );
+    assert_eq!(
+        logic_builder.ext.state_init_counts_calls.get(),
+        0,
+        "the host must not be asked to decode before the bytes are paid for"
     );
 }
 
