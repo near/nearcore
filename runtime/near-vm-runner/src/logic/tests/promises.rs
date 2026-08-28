@@ -475,6 +475,22 @@ fn test_promise_batch_action_universal_state_init() {
 
     let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
     let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_universal_state_init(123, state_init.len, state_init.ptr, amount.ptr)
+        .expect_err("shouldn't accept a non-existent promise index");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_universal_state_init(
+            non_receipt,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect_err("shouldn't accept a joint promise index");
+
     reset_costs_counter();
 
     logic

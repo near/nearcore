@@ -28,7 +28,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{
     Action, GlobalContractDeployMode, GlobalContractIdentifier, UniversalStateInitAction,
 };
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -134,6 +134,22 @@ impl Env {
         receiver: &AccountId,
         deposit: Balance,
     ) {
+        let outcome =
+            self.try_create_universal_account(state_init, receiver, deposit).expect("valid tx");
+        assert_matches!(
+            outcome.status,
+            FinalExecutionStatus::SuccessValue(_),
+            "state init should have succeeded"
+        );
+    }
+
+    /// Like [`Self::create_universal_account`], but for inits expected to fail.
+    fn try_create_universal_account(
+        &mut self,
+        state_init: RawStateInit,
+        receiver: &AccountId,
+        deposit: Balance,
+    ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
         let signer = create_user_test_signer(&self.user_account);
         let tx = SignedTransaction::from_actions(
             self.next_nonce(),
@@ -146,7 +162,7 @@ impl Env {
             }))],
             self.block_hash(),
         );
-        self.run_tx(tx);
+        self.env.rpc_runner().execute_tx(tx, Duration::seconds(5))
     }
 
     /// Deploy `wasm` to the global-contract account and call its `main`, returning
@@ -581,4 +597,44 @@ fn test_universal_state_init_from_contract_malformed() {
         format!("{error:?}").contains("MalformedUniversalStateInit"),
         "expected the receipt to reject the payload, got {error:?}"
     );
+}
+
+/// A state init only creates the account its bytes identify. Addressed anywhere
+/// else the action is rejected, and nothing is installed at either id.
+#[test]
+fn test_universal_state_init_wrong_receiver() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-wrong-receiver").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
+    });
+    let raw = state_init.to_raw();
+    let derived = derive_universal_account_id(&raw);
+
+    // The `0u` id of an unrelated state init, so the receiver is well-formed but
+    // is not the one these bytes identify.
+    let elsewhere = derive_universal_account_id(&RawStateInit(vec![0u8; 10]));
+    assert_ne!(derived, elsewhere);
+
+    // Rejected when the transaction is validated, so it never reaches execution.
+    let error = env
+        .try_create_universal_account(raw, &elsewhere, Balance::from_near(1))
+        .expect_err("a mismatched receiver must be rejected");
+    assert_matches!(
+        error,
+        InvalidTxError::ActionsValidation(
+            ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+        )
+    );
+
+    assert!(env.try_view_account(&elsewhere).is_err(), "nothing at the addressed id");
+    assert!(env.try_view_account(&derived).is_err(), "nothing at the derived id either");
 }

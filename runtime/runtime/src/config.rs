@@ -243,9 +243,11 @@ pub fn total_send_fees(
 /// lets a contract create this action, so what a contract prepays is what the
 /// action is charged when it runs.
 ///
-/// Overflow is reported rather than panicked on. Reaching it takes counts orders of
-/// magnitude past the receipt size limit, but the host path charges this fee before
-/// that limit is checked, so nothing upstream rules it out.
+/// Overflow is reported rather than panicked on, though reaching it takes counts
+/// orders of magnitude past the transaction and receipt size limits, which are
+/// checked before this fee is computed on either path. (The VM charges a
+/// contract-created action through `pay_universal_state_init_terms` instead, and
+/// that does run before the receipt it builds is size-checked.)
 fn universal_state_init_fee(
     fees: &RuntimeFeesConfig,
     state_init: &RawStateInit,

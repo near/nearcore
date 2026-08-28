@@ -3114,7 +3114,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// counted rather than measured in bytes, and the base term's count is one.
     fn pay_universal_state_init_terms(
         &mut self,
-        terms: [(ActionCosts, u64); 2],
+        terms: impl IntoIterator<Item = (ActionCosts, u64)>,
         sir: bool,
     ) -> Result<()> {
         terms.into_iter().try_for_each(|(cost, units)| self.pay_action_per_byte(cost, units, sir))

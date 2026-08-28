@@ -3298,7 +3298,7 @@ pub fn promise_batch_action_universal_state_init(
 /// counted rather than measured in bytes, and the base term's count is one.
 fn pay_universal_state_init_terms(
     ctx: &mut Ctx,
-    terms: [(ActionCosts, u64); 2],
+    terms: impl IntoIterator<Item = (ActionCosts, u64)>,
     sir: bool,
 ) -> Result<()> {
     terms.into_iter().try_for_each(|(cost, units)| {
