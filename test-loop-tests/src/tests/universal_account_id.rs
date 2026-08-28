@@ -15,7 +15,7 @@ use crate::utils::account::{
 use crate::utils::transactions;
 use near_async::time::Duration;
 use near_client_primitives::types::QueryError;
-use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey};
+use near_crypto::{KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{
@@ -433,11 +433,13 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     }
     let mut env = Env::setup();
 
-    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-host-fn").public_key();
+    // The first canonical known-answer vector from
+    // `near_primitives::utils::tests::test_derive_universal_account_id`, so this
+    // pins the on-chain derivation to the value the NEP will publish.
     let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
         code: None,
         data: BTreeMap::new(),
-        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key)]),
+        access_keys: BTreeSet::from([PublicKeyHandle::MlDsa65(MlDsa65PublicKeyHandle([0x11; 32]))]),
     });
     let raw = state_init.to_raw();
 
@@ -446,7 +448,12 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     let derived: AccountId =
         std::str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
 
-    // B: it agrees with the derivation the receiver check uses.
+    // B: it is the canonical vector, and agrees with the derivation the receiver
+    // check uses.
+    assert_eq!(
+        derived.as_str(),
+        "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g" // cspell:disable-line
+    );
     assert_eq!(derived, derive_universal_account_id(&raw));
 
     // C: and the chain accepts it as the receiver of a state init.
