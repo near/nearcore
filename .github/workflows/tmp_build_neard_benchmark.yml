@@ -1,0 +1,19 @@
+name: tmp build neard for benchmark
+on:
+  push:
+    branches: [spice/nightly-data-distribution-debug-logs]
+  workflow_dispatch:
+jobs:
+  build-neard:
+    runs-on: warp-ubuntu-2404-x64-16x
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends llvm clang libclang-dev
+      - run: cargo build --release --features tx_generator,rpc_probe,protocol_feature_spice,nightly --config .cargo/config.profiling.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neard-binary
+          path: target/release/neard
