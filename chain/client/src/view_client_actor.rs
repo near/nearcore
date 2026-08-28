@@ -1144,43 +1144,48 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                 let mut outcome_proof = outcome;
                 let epoch_id =
                     *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(&epoch_id).into_chain_error()?;
                 let target_shard_id =
                     account_id_to_shard_id(self.epoch_manager.as_ref(), &account_id, &epoch_id)
                         .into_chain_error()?;
-                let target_shard_index = shard_layout
-                    .get_shard_index(target_shard_id)
-                    .map_err(Into::into)
-                    .into_chain_error()?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
                 )?;
-                if let Some((h, target_shard_id)) = res {
-                    outcome_proof.block_hash = h;
-                    // Here we assume the number of shards is small so this reconstruction
-                    // should be fast
-                    let outcome_roots = self
-                        .chain
-                        .get_block(&h)?
-                        .chunks()
-                        .iter()
-                        .map(|header| *header.prev_outcome_root())
-                        .collect::<Vec<_>>();
-                    if target_shard_index >= outcome_roots.len() {
-                        return Err(GetExecutionOutcomeError::InconsistentState {
-                            number_or_shards: outcome_roots.len(),
-                            execution_outcome_shard_id: target_shard_id,
-                        });
-                    }
-                    Ok(GetExecutionOutcomeResponse {
-                        outcome_proof: outcome_proof.into(),
-                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
-                    })
-                } else {
-                    Err(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })
+                let Some((confirming_block_hash, confirming_shard_id, confirming_shard_index)) =
+                    res
+                else {
+                    return Err(GetExecutionOutcomeError::NotConfirmed {
+                        transaction_or_receipt_id: id,
+                    });
+                };
+                outcome_proof.block_hash = confirming_block_hash;
+                let confirming_block = self.chain.get_block(&confirming_block_hash)?;
+                // Here we assume the number of shards is small so this reconstruction
+                // should be fast
+                let outcome_roots = confirming_block
+                    .chunks()
+                    .iter()
+                    .map(|header| *header.prev_outcome_root())
+                    .collect::<Vec<_>>();
+                let (outcome_root, outcome_root_paths) = merklize(&outcome_roots);
+                if &outcome_root != confirming_block.header().outcome_root() {
+                    return Err(GetExecutionOutcomeError::InternalError {
+                        error_message: "recomputed outcome root disagrees with the confirming \
+                                        block's committed root"
+                            .to_string(),
+                    });
                 }
+                let Some(outcome_root_proof) = outcome_root_paths.get(confirming_shard_index)
+                else {
+                    return Err(GetExecutionOutcomeError::InconsistentState {
+                        number_or_shards: outcome_roots.len(),
+                        execution_outcome_shard_id: confirming_shard_id,
+                    });
+                };
+                Ok(GetExecutionOutcomeResponse {
+                    outcome_proof: outcome_proof.into(),
+                    outcome_root_proof: outcome_root_proof.clone(),
+                })
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let head = self.chain.head()?;
