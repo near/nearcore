@@ -3298,15 +3298,50 @@ fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved(
     actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 
+    // Saving the witness distributes nothing: every validator gets it through the push.
     let witness = save_test_witness_for_chunk(&chain, &chunk_id);
+    actor.handle(SpiceDistributorStateWitness {
+        contract_accesses: HashSet::new(),
+        state_witness: witness.clone(),
+    });
+    assert!(outgoing_rc.try_recv().is_err());
+
     let next_block = produce_block(&mut chain, &chunk_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
-    let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
+    let epoch_id = chunk_block.header().epoch_id();
+    let producers: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(epoch_id, chunk_id.shard_id)
+        .unwrap()
+        .into_iter()
+        .collect();
+    let all_validators: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_info(epoch_id)
+        .unwrap()
+        .validators_iter()
+        .map(|validator| validator.take_account_id())
+        .filter(|validator| !producers.contains(validator))
+        .collect();
+    let mut accesses_targets = Vec::new();
+    let mut pushes = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        match message {
+            OutgoingMessage::NetworkRequests {
+                request: NetworkRequests::SpiceChunkContractAccesses(targets, _),
+            } => accesses_targets.push(HashSet::from_iter(targets)),
+            OutgoingMessage::NetworkRequests {
+                request: NetworkRequests::SpicePartialData { partial_data, recipients },
+            } => pushes.push((partial_data, recipients)),
+            message => panic!("unexpected message {message:?}"),
+        }
+    }
+    assert_eq!(accesses_targets, vec![all_validators.clone()]);
     assert_eq!(pushes.len(), 1, "the push was not retried once the witness was saved");
     let (partial_data, recipients) = pushes.swap_remove(0);
     assert_eq!(partial_data.block_hash(), &witness.chunk_id().block_hash);
-    assert_eq!(recipients, fallback_witness_recipients(&chain, &chunk_id));
+    assert_eq!(recipients, all_validators);
 }
 
 #[test]
@@ -3342,20 +3377,33 @@ fn test_fallback_witness_is_requested_only_after_the_pull_grace() {
 /// A producer's own part of `chunk_id`'s witness, the same content a fallback push carries.
 fn pushed_witness_data(chain: &Chain, chunk_id: &SpiceChunkId) -> SpicePartialData {
     let block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
-    let chunks = block.chunks();
-    let chunk_header =
-        chunks.iter_raw().find(|chunk| chunk.shard_id() == chunk_id.shard_id).unwrap();
-    let state_witness = new_test_witness_for_chunk(&block, chunk_header);
     let producer = chain
         .epoch_manager
         .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), chunk_id.shard_id)
         .unwrap()
         .swap_remove(0);
-    let (incoming, _) = get_incoming_data(
-        &producer,
-        chain,
-        SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness },
-    );
+    let fallback_only =
+        is_fallback_only_chunk(chain.epoch_manager.as_ref(), block.header(), chunk_id.shard_id)
+            .unwrap();
+    let (incoming, _) = if fallback_only {
+        // A fallback-only chunk has no initial distribution: the push carries its witness.
+        save_test_witness_for_chunk(chain, chunk_id);
+        get_incoming_data(
+            &producer,
+            chain,
+            ProcessedBlock { block_hash: *latest_block(chain).hash() },
+        )
+    } else {
+        let chunks = block.chunks();
+        let chunk_header =
+            chunks.iter_raw().find(|chunk| chunk.shard_id() == chunk_id.shard_id).unwrap();
+        let state_witness = new_test_witness_for_chunk(&block, chunk_header);
+        get_incoming_data(
+            &producer,
+            chain,
+            SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness },
+        )
+    };
     incoming.data
 }
 

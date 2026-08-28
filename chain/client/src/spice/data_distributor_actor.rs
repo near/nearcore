@@ -24,7 +24,7 @@ use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
 use near_chain::spice::all_stake_fallback::{
-    fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
+    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
@@ -351,6 +351,18 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
         SpiceDistributorStateWitness { state_witness, contract_accesses }: SpiceDistributorStateWitness,
     ) {
         let chunk_id = state_witness.chunk_id().clone();
+
+        // A fallback-only chunk certifies on the whole epoch's stake, so every validator gets its
+        // witness through the fallback push instead, on the next block we process. That push is
+        // what the schedule exercises, and nobody can certify the chunk before it.
+        match self.is_fallback_only_chunk(&chunk_id) {
+            Ok(false) => {}
+            Ok(true) => return,
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, ?chunk_id, "failed to check whether the chunk is fallback-only");
+                return;
+            }
+        }
 
         // Send contract accesses to chunk validators before distributing the witness.
         // Even when empty, this signals to validators that no contracts need to be fetched,
@@ -1108,29 +1120,41 @@ impl SpiceDataDistributorActor {
             else {
                 continue;
             };
-            let recipients: HashSet<AccountId> = fallback_endorsers(
+            let fallback_only = is_fallback_only_chunk(
                 self.epoch_manager.as_ref(),
-                chunk_block.header().epoch_id(),
+                chunk_block.header(),
                 chunk_id.shard_id,
-                chunk_block.header().height(),
-            )?
-            .into_iter()
-            .filter(|account_id| !producers.contains(account_id))
-            .collect();
+            )?;
+            // A fallback-only chunk had no initial distribution, so its designated validators
+            // need the push as well.
+            let endorsers = if fallback_only {
+                all_stake_fallback_assignment(
+                    self.epoch_manager.as_ref(),
+                    chunk_block.header().epoch_id(),
+                )?
+                .ordered_chunk_validators()
+            } else {
+                fallback_endorsers(
+                    self.epoch_manager.as_ref(),
+                    chunk_block.header().epoch_id(),
+                    chunk_id.shard_id,
+                    chunk_block.header().height(),
+                )?
+            };
+            let recipients: HashSet<AccountId> = endorsers
+                .into_iter()
+                .filter(|account_id| !producers.contains(account_id))
+                .collect();
             debug_assert!(!recipients.contains(me));
             if recipients.is_empty() {
                 continue;
             }
             let Some(mut distribution_data) = self.get_distribution_data(&data_id, producers.len())
             else {
-                if is_fallback_only_chunk(
-                    self.epoch_manager.as_ref(),
-                    chunk_block.header(),
-                    chunk_id.shard_id,
-                )? {
-                    // Eligible from its own block, before we applied the chunk that produces the
-                    // witness. Later blocks retry.
-                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not yet produced - chunk not applied");
+                if fallback_only {
+                    // Expected on the chunk's own block: it is eligible before the apply that
+                    // produces the witness. The first block we process after the apply pushes it.
+                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not produced yet");
                 } else {
                     tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
                 }
@@ -1433,6 +1457,11 @@ impl SpiceDataDistributorActor {
                 },
             ));
         }
+    }
+
+    fn is_fallback_only_chunk(&self, chunk_id: &SpiceChunkId) -> Result<bool, Error> {
+        let block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        Ok(is_fallback_only_chunk(self.epoch_manager.as_ref(), &block_header, chunk_id.shard_id)?)
     }
 
     fn get_distribution_data(
