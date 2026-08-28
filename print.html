@@ -6813,6 +6813,25 @@ periodically in the client actor — if the node is behind by more than
 <code>sync_height_threshold</code> (default 1) blocks, sync is enabled.</p>
 <p>The sync handler classifies the node into one of two categories based on how
 far behind it is, and routes it through the appropriate path.</p>
+<h3 id="picking-the-target-height"><a class="header" href="#picking-the-target-height">Picking the target height</a></h3>
+<p>The height to sync to comes from a peer, and a peer's claim is acted on only
+once its approvals verify against a known epoch's validators (&gt;2/3 stake).
+That check is a pass over about 100 signatures, so the node pays for it only
+when the claim could change the decision:</p>
+<ul>
+<li>A claim at or below <code>head + sync_height_threshold</code> is ignored: it cannot
+start sync. While already syncing the bar is the head itself.</li>
+<li>A block the node requested proves nothing new. It was requested to reach a
+height already proved, and block processing checks its approvals anyway.</li>
+<li>Each distinct header is checked once, whether it passes or fails, however
+many peers relay it.</li>
+</ul>
+<p>A peer with no proved height reads as level with our head, so it stays a
+candidate to download from but never sets the target. Once the head has not
+advanced for about one epoch, the node falls back to the unvalidated claimed
+heights, because the validator sets it knows no longer cover the tip. During
+block sync the node's own header head can also set the target, since header
+sync has already validated it.</p>
 <h3 id="the-two-horizons"><a class="header" href="#the-two-horizons">The two horizons</a></h3>
 <pre><code>         ┌───────────────┐
          │  Sync Needed  │
