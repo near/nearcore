@@ -5,7 +5,6 @@ use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
-use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
 #[derive(Clone, Copy)]
@@ -33,66 +32,6 @@ impl MemSlice {
         let start = T::try_from(self.ptr).map_err(|_| ())?;
         Ok(start..end)
     }
-}
-
-/// An abstraction over the memory of the smart contract.
-pub trait MemoryLike {
-    /// Returns success if the memory interval is completely inside smart
-    /// contract’s memory.
-    ///
-    /// You often don’t need to use this method since other methods will perform
-    /// the check, however it may be necessary to prevent potential denial of
-    /// service attacks.  See [`Self::read_memory`] for description.
-    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
-
-    /// Returns view of the content of the given memory interval.
-    ///
-    /// Not all implementations support borrowing the memory directly.  In those
-    /// cases, the data is copied into a vector.
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<'_, [u8]>, ()>;
-
-    /// Reads the content of the given memory interval.
-    ///
-    /// Returns error if the memory interval isn’t completely inside the smart
-    /// contract memory.
-    ///
-    /// # Potential denial of service
-    ///
-    /// Note that improper use of this function may lead to denial of service
-    /// attacks.  For example, consider the following function:
-    ///
-    /// ```
-    /// # use near_vm_runner::logic::{MemoryLike, MemSlice};
-    ///
-    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
-    ///     let mut vec = vec![0; slice.len()?];
-    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
-    ///     Ok(vec)
-    /// }
-    /// ```
-    ///
-    /// If attacker controls length argument, it may cause attempt at allocation
-    /// of arbitrarily-large buffer and crash the program.  In situations like
-    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
-    /// the length is valid.  For example:
-    ///
-    /// ```
-    /// # use near_vm_runner::logic::{MemoryLike, MemSlice};
-    ///
-    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
-    ///     mem.fits_memory(slice)?;
-    ///     let mut vec = vec![0; slice.len()?];
-    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
-    ///     Ok(vec)
-    /// }
-    /// ```
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
-
-    /// Writes the buffer into the smart contract memory.
-    ///
-    /// Returns error if the memory interval isn’t completely inside the smart
-    /// contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -461,7 +400,7 @@ pub trait External {
     /// specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
-    /// For more information, see [super::VMLogic::promise_batch_action_function_call_weight].
+    /// For more information, see the `promise_batch_action_function_call_weight` host function.
     ///
     /// # Arguments
     ///

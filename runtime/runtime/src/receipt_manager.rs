@@ -352,7 +352,8 @@ impl ReceiptManager {
     /// specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
-    /// For more information, see [super::VMLogic::promise_batch_action_function_call_weight].
+    /// For more information, see the `promise_batch_action_function_call_weight` host function
+    /// in `near-vm-runner`.
     ///
     /// # Arguments
     ///

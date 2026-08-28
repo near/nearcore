@@ -129,10 +129,10 @@ fn write_memory(
 /// there’s insufficient gas, memory interval is out of bounds or given register
 /// isn’t set.
 ///
-/// This is not a method on `VMLogic` so that the compiler can track borrowing
-/// of gas counter, memory and registers separately.  This allows `VMLogic` to
-/// borrow value from a register and then continue constructing mutable
-/// references to other fields in the structure..
+/// This is a free function rather than a method on `Ctx` so that the compiler
+/// can track borrowing of gas counter, memory and registers separately.  This
+/// allows a host function to borrow a value from a register and then continue
+/// constructing mutable references to other fields of the context.
 fn get_memory_or_register<'a>(
     gas_counter: &mut GasCounter,
     memory: &'a [u8],
