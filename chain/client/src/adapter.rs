@@ -27,6 +27,8 @@ pub fn client_sender_for_network(
         chunk_endorsement: chunk_endorsement_handler.into_async_sender(),
         epoch_sync_request: client_addr.clone().into_sender(),
         epoch_sync_response: client_addr.clone().into_sender(),
+        epoch_sync_batch_request: client_addr.clone().into_sender(),
+        epoch_sync_batch_response: client_addr.clone().into_sender(),
         optimistic_block_receiver: client_addr.into_sender(),
         current_epoch_height_request: view_client_addr.into_async_sender(),
     }
