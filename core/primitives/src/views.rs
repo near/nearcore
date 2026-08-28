@@ -18,6 +18,7 @@ use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerLiteV2};
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
+use crate::epoch_sync::EpochSyncBatchIndex;
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
@@ -553,7 +554,16 @@ pub struct NetworkInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum EpochSyncStatusView {
     NotStarted,
-    InProgress { source_peer_height: BlockHeight, source_peer_id: String, attempt_time: String },
+    InProgress {
+        source_peer_height: BlockHeight,
+        source_peer_id: String,
+        attempt_time: String,
+    },
+    FetchingBatches {
+        current_batch_index: EpochSyncBatchIndex,
+        source_peer_id: String,
+        source_peer_height: BlockHeight,
+    },
     Done,
 }
 
