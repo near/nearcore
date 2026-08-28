@@ -10,6 +10,7 @@ use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
+use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
 use near_chain::BlockHeader;
@@ -35,6 +36,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -89,6 +91,8 @@ pub(crate) struct PerShardChunkExecutor {
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
     parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
+    /// Network-path receipt proofs buffered until they can be verified.
+    /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
 }
 
@@ -167,11 +171,7 @@ impl PerShardChunkExecutor {
         // up), so verify-drain any receipts buffered against it before parking, so
         // this block can find its incoming receipts on disk.
         let prev_block_hash = *block.header().prev_hash();
-        if let Err(err) = self.unverified_receipts.try_drain(
-            &self.chain_store,
-            &self.core_reader,
-            &prev_block_hash,
-        ) {
+        if let Err(err) = self.drain_and_send_verifications(&prev_block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
         }
         self.parked_blocks.insert((block.header().height(), *block.hash()));
@@ -188,11 +188,14 @@ impl PerShardChunkExecutor {
     /// then re-drive the parked queue.
     pub(crate) fn handle_incoming_receipt(
         &mut self,
-        source_block: CryptoHash,
+        data_id: DataId,
         receipt_proof: ReceiptProof,
+        commitment: SpiceDataCommitment,
     ) -> Result<(), Error> {
-        self.unverified_receipts.buffer(source_block, receipt_proof);
-        self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, &source_block)?;
+        let DataId::ReceiptProof { source, .. } = &data_id;
+        let source_block = source.block_hash;
+        self.unverified_receipts.insert(data_id, receipt_proof, commitment);
+        self.drain_and_send_verifications(&source_block)?;
         self.try_apply_pending();
         Ok(())
     }
@@ -203,8 +206,22 @@ impl PerShardChunkExecutor {
         &mut self,
         source_block: &CryptoHash,
     ) -> Result<(), Error> {
-        self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)?;
+        self.drain_and_send_verifications(source_block)?;
         self.try_apply_pending();
+        Ok(())
+    }
+
+    /// Verify-drain receipts buffered against `source_block` and route each
+    /// verification result to the distributor.
+    fn drain_and_send_verifications(&mut self, source_block: &CryptoHash) -> Result<(), Error> {
+        let verifications = self.unverified_receipts.try_drain(
+            &self.chain_store,
+            &self.core_reader,
+            source_block,
+        )?;
+        for verification in verifications {
+            self.data_distributor_adapter.data_verification.send(verification);
+        }
         Ok(())
     }
 
