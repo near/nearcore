@@ -3279,34 +3279,57 @@ fn test_witness_is_pushed_only_once() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved() {
+fn test_fallback_only_witness_is_distributed_to_all_validators_when_saved() {
     // More validators than mandates per shard, so some are outside every chunk's designated set.
     let (_genesis, mut chain) = setup(2, 100);
     let chunk_id = grow_chain_to_fallback_only_chunk(&mut chain);
 
     let chunk_block = latest_block(&chain);
-    let producer = chain
+    let epoch_id = chunk_block.header().epoch_id();
+    let producers = chain
         .epoch_manager
-        .get_epoch_chunk_producers_for_shard(chunk_block.header().epoch_id(), chunk_id.shard_id)
+        .get_epoch_chunk_producers_for_shard(epoch_id, chunk_id.shard_id)
+        .unwrap();
+    let all_validators: HashSet<AccountId> = chain
+        .epoch_manager
+        .get_epoch_info(epoch_id)
         .unwrap()
-        .swap_remove(0);
+        .validators_iter()
+        .map(|validator| validator.take_account_id())
+        .filter(|validator| !producers.contains(validator))
+        .collect();
+    let chunks = chunk_block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == chunk_id.shard_id).unwrap();
+    let state_witness = new_test_witness_for_chunk(&chunk_block, chunk_header);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    // A fallback-only chunk is eligible on its own block, but its witness only exists once the
-    // producer applies the chunk, which needs the previous block certified.
-    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
-    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producers[0]);
+    actor.handle(SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness });
 
-    let witness = save_test_witness_for_chunk(&chain, &chunk_id);
+    let mut accesses_targets = Vec::new();
+    let mut pushes = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        match message {
+            OutgoingMessage::NetworkRequests {
+                request: NetworkRequests::SpiceChunkContractAccesses(targets, _),
+            } => accesses_targets.push(HashSet::from_iter(targets)),
+            OutgoingMessage::NetworkRequests {
+                request: NetworkRequests::SpicePartialData { partial_data, recipients },
+            } => pushes.push((partial_data, recipients)),
+            message => panic!("unexpected message {message:?}"),
+        }
+    }
+    assert_eq!(accesses_targets, vec![all_validators.clone()]);
+    assert_eq!(pushes.len(), 1);
+    let (partial_data, recipients) = pushes.swap_remove(0);
+    assert_eq!(partial_data.block_hash(), &chunk_id.block_hash);
+    assert_eq!(recipients, all_validators);
+
+    // The fallback push has nothing left to do for it.
     let next_block = produce_block(&mut chain, &chunk_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
-
-    let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
-    assert_eq!(pushes.len(), 1, "the push was not retried once the witness was saved");
-    let (partial_data, recipients) = pushes.swap_remove(0);
-    assert_eq!(partial_data.block_hash(), &witness.chunk_id().block_hash);
-    assert_eq!(recipients, fallback_witness_recipients(&chain, &chunk_id));
+    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 }
 
 #[test]

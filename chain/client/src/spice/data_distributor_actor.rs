@@ -24,7 +24,7 @@ use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
 };
 use near_chain::spice::all_stake_fallback::{
-    fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
+    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
@@ -637,12 +637,24 @@ impl SpiceDataDistributorActor {
                 let epoch_id = block.header().epoch_id();
                 let producers =
                     self.epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, *shard_id)?;
-                let validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-                    epoch_id,
+                // A fallback-only chunk certifies on the whole epoch's stake, so every validator
+                // gets its witness right away.
+                let recipients = if is_fallback_only_chunk(
+                    self.epoch_manager.as_ref(),
+                    block.header(),
                     *shard_id,
-                    block.header().height(),
-                )?;
-                let recipients = validator_assignments.ordered_chunk_validators();
+                )? {
+                    all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?
+                        .ordered_chunk_validators()
+                } else {
+                    self.epoch_manager
+                        .get_chunk_validator_assignments(
+                            epoch_id,
+                            *shard_id,
+                            block.header().height(),
+                        )?
+                        .ordered_chunk_validators()
+                };
                 (recipients, producers)
             }
         };
@@ -1089,6 +1101,14 @@ impl SpiceDataDistributorActor {
                 continue;
             }
             let chunk_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            // A fallback-only chunk's witness reaches every validator in the initial distribution.
+            if is_fallback_only_chunk(
+                self.epoch_manager.as_ref(),
+                chunk_block.header(),
+                chunk_id.shard_id,
+            )? {
+                continue;
+            }
             if !fallback_eligible(
                 self.epoch_manager.as_ref(),
                 chunk_block.header(),
@@ -1123,17 +1143,7 @@ impl SpiceDataDistributorActor {
             }
             let Some(mut distribution_data) = self.get_distribution_data(&data_id, producers.len())
             else {
-                if is_fallback_only_chunk(
-                    self.epoch_manager.as_ref(),
-                    chunk_block.header(),
-                    chunk_id.shard_id,
-                )? {
-                    // Eligible from its own block, before we applied the chunk that produces the
-                    // witness. Later blocks retry.
-                    tracing::debug!(target: "spice_data_distribution", ?data_id, "witness for the fallback-only chunk not yet produced - chunk not applied");
-                } else {
-                    tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
-                }
+                tracing::warn!(target: "spice_data_distribution", ?data_id, "no witness to push for the all-stake fallback");
                 continue;
             };
             let my_part = distribution_data.parts.swap_remove(my_producer_index);
@@ -1580,17 +1590,13 @@ impl SpiceDataDistributorActor {
         };
 
         let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        let epoch_id = block.header().epoch_id();
-        let validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_id.shard_id,
-            block.header().height(),
-        )?;
-        let targets: Vec<AccountId> = validator_assignments
-            .ordered_chunk_validators()
-            .into_iter()
-            .filter(|v| v != signer.validator_id())
-            .collect();
+        // The same validators the witness goes to; they wait on the accesses to validate it.
+        let data_id = SpiceDataIdentifier::Witness {
+            block_hash: chunk_id.block_hash,
+            shard_id: chunk_id.shard_id,
+        };
+        let (recipients, _producers) = self.recipients_and_producers(&data_id, &block)?;
+        let targets: Vec<AccountId> = recipients.into_iter().collect();
 
         let accesses_msg =
             SpiceChunkContractAccesses::new(chunk_id.clone(), contract_accesses, &signer);
