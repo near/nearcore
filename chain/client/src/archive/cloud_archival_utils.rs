@@ -3,6 +3,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::errors::EpochError;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
@@ -77,6 +78,13 @@ pub(crate) fn pull_block_batch(
         pull_epoch_data(store, cloud_storage, &next_epoch_id)?;
     }
     Ok(block_batch.end_height())
+}
+
+/// Writes the height the reader has taken the archive through.
+pub(crate) fn save_reader_head(store: &Store, height: BlockHeight) {
+    let mut update = store.store_update();
+    update.cloud_archival_store_update().set_reader_head(height);
+    update.commit();
 }
 
 /// Writes one epoch's cloud data into `update`.

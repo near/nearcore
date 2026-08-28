@@ -35,7 +35,9 @@ use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
+use near_store::archive::cloud_storage::config::create_test_cloud_storage;
 #[cfg(feature = "nightly")]
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
@@ -57,6 +59,8 @@ struct CloudArchiveHarness {
     snapshot_every_n_epochs: u64,
     /// Epochs garbage collection keeps, so a test can scale its run off it.
     gc_num_epochs_to_keep: u64,
+    /// Cloud archival batch size in blocks.
+    batch_size: u32,
     /// Account ID of the historical reader node, set after
     /// `bootstrap_historical_reader()`.
     historical_reader_id: Option<AccountId>,
@@ -115,6 +119,8 @@ impl CloudArchiveHarnessBuilder {
     }
 
     /// Sets the number of block-and-chunk-producer validators.
+    // TODO(cloud_archival): drop the raised counts once `block_dropper_by_height` also
+    // intercepts `BlockRequest` responses.
     fn validators(mut self, count: usize) -> Self {
         // `drop_blocks_at` / `drop_chunks` need count >= 4 to be observable on
         // the chain; see `block_dropper_by_height` in `test-loop-tests/src/utils/network.rs`.
@@ -246,6 +252,7 @@ impl CloudArchiveHarnessBuilder {
             cold_storage_enabled: self.cold_storage,
             snapshot_every_n_epochs,
             gc_num_epochs_to_keep: self.gc_num_epochs_to_keep,
+            batch_size: self.batch_size,
             historical_reader_id: None,
             new_shard_layout,
             resharding_boundary,
@@ -345,10 +352,15 @@ impl CloudArchiveHarness {
     /// Kills the RPC node the recent reader takes over from and brings up the
     /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
+        let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+        let epoch_manager = self.env.node_for_account(&reader_id).client().epoch_manager.clone();
+        let cloud_storage = self.open_cloud_storage(&reader_id);
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
             self.recent_reader_store(),
+            cloud_storage,
+            epoch_manager,
             Self::RECENT_READER_POLLING_INTERVAL,
         );
         let handle = reader.clone();
@@ -359,6 +371,25 @@ impl CloudArchiveHarness {
                 reader.cloud_archival_loop().await.expect("the recent reader stopped")
             });
         handle
+    }
+
+    /// Opens a handle on the archive's bucket, keyed by the chain the node it is opened
+    /// for runs.
+    fn open_cloud_storage(&self, account_id: &AccountId) -> Arc<CloudStorage> {
+        let chain_id = self.env.node_for_account(account_id).client().config.chain_id.clone();
+        create_test_cloud_storage(
+            self.env.shared_state.tempdir.path().to_path_buf(),
+            chain_id,
+            BucketConfig::with_batch_size_for_test(self.batch_size),
+        )
+    }
+
+    /// The height the recent reader has copied through.
+    fn recent_reader_head(&self) -> BlockHeight {
+        self.recent_reader_store()
+            .cloud_archival_store()
+            .reader_head()
+            .expect("the recent reader holds a head")
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -976,8 +1007,6 @@ fn test_cloud_archival_fully_skipped_batch() {
     // Drops every height of one batch. `[12, 13, 14, 15]` assumes batch_size 4.
     assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
     let dropped_heights: Vec<BlockHeight> = vec![12, 13, 14, 15];
-    // TODO(cloud_archival): drop validator count once `block_dropper_by_height`
-    // also intercepts `BlockRequest` responses.
     let mut h = CloudArchiveHarness::builder()
         .validators(12)
         .drop_blocks_at(&dropped_heights)
@@ -1974,8 +2003,8 @@ fn test_cloud_archival_resharding_gap_inverse_walk() {
 /// bucket from there. What gc took before the switch stays gone, and what the
 /// reader holds afterwards is kept, because no gc runs once it has switched.
 #[test]
-// TODO(cloud_archival): un-ignore once the recent reader follows the bucket.
-#[ignore]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader() {
     let mut h = CloudArchiveHarness::builder().delay_recent_reader().build();
     let gced = h.epoch_length / 2;
@@ -2004,7 +2033,7 @@ fn test_cloud_archival_recent_reader() {
     );
 
     // The reader takes whole batches, so its head may trail the bucket by one.
-    let head = reader_store.head().unwrap().height;
+    let head = h.recent_reader_head();
     let bucket_head = get_cloud_storage(&h.env, &h.writer_id)
         .get_cloud_block_head()
         .expect("reading the bucket's block head")
@@ -2014,6 +2043,62 @@ fn test_cloud_archival_recent_reader() {
         head + u64::from(CloudArchiveHarness::TEST_BATCH_SIZE) >= bucket_head,
         "the reader did not catch up: head {head}, bucket head {bucket_head}"
     );
+    // TODO(cloud_archival): assert reader-writer parity here once the follower writes
+    // shard rows.
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A run of dropped heights straddles a batch edge, so one batch loses its tail and the
+/// next loses its head, and the recent reader walks both.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_skipped_run_across_batch_edge() {
+    assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
+    // Straddles the edge of batch [48, 51], so one batch loses its tail and the next its
+    // head, and the reader has to walk over both.
+    let dropped_heights: Vec<BlockHeight> = vec![50, 51, 52];
+    let mut h = CloudArchiveHarness::builder()
+        .validators(12)
+        .drop_blocks_at(&dropped_heights)
+        .delay_recent_reader()
+        .disable_gc()
+        .build();
+    let first_dropped = dropped_heights[0];
+    let last_dropped = *dropped_heights.last().unwrap();
+    // One epoch short of the dropped run, so the reader takes over below it.
+    h.run_until_epoch(first_dropped / h.epoch_length - 1);
+    let reader = h.start_recent_reader();
+    // Two epochs past the run, so both readers are clear of it when the chain stops.
+    h.run_until_epoch(last_dropped / h.epoch_length + 2);
+
+    let head = h.recent_reader_head();
+    let reader_store = h.recent_reader_store().chain_store();
+    assert!(last_dropped <= head, "the reader stopped at {head}, below the dropped run");
+    for height in &dropped_heights {
+        assert!(
+            reader_store.get_block_hash_by_height(*height).is_err(),
+            "the reader holds a block at the dropped height {height}"
+        );
+    }
+    // The batch that lost its tail and the one that lost its head both landed whole.
+    assert!(
+        reader_store.get_block_hash_by_height(first_dropped - 1).is_ok(),
+        "the reader is missing the block below the dropped run"
+    );
+    assert!(
+        reader_store.get_block_hash_by_height(last_dropped + 1).is_ok(),
+        "the reader is missing the block above the dropped run"
+    );
+
+    // A range spanning the dropped run, so the bootstrap walks both clipped batches.
+    let start = first_dropped - h.epoch_length / 2;
+    let target = last_dropped + h.epoch_length / 2;
+    h.bootstrap_historical_reader(start, target);
+    h.assert_reader_writer_parity(start, target);
+    h.kill_historical_reader();
 
     reader.stop();
     h.shutdown();
