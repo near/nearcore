@@ -779,15 +779,18 @@ pub fn transfer_exec_fee(
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
-    // A `0u` receiver has no `AccountType` variant and reads as `NamedAccount`,
-    // so it is handled before the match. Like a deterministic account, the
-    // transfer creates it; its keys arrive later with the state init.
+    // Only the caller knows whether universal accounts are enabled, so the surcharge
+    // is decided here. Like a deterministic account, the transfer creates it; its
+    // keys arrive later with the state init.
     if receiver_is_universal {
         return transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap();
     }
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,
+        // Reached before the feature activates, when the caller resolved
+        // `receiver_is_universal` to false. No account is created, so no surcharge.
+        (_, AccountType::UniversalAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
         (false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
@@ -815,7 +818,7 @@ pub fn transfer_send_fee(
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    // See `transfer_exec_fee`: `0u` receivers are not an `AccountType`.
+    // See `transfer_exec_fee` for why the surcharge is decided here.
     if receiver_is_universal {
         return transfer_fee
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
@@ -824,6 +827,9 @@ pub fn transfer_send_fee(
     match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
         (_, AccountType::NamedAccount) => transfer_fee,
+        // Reached before the feature activates, when the caller resolved
+        // `receiver_is_universal` to false. No account is created, so no surcharge.
+        (_, AccountType::UniversalAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
         (false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
@@ -968,4 +974,30 @@ pub fn universal_state_init_content_terms(
         // Each installed key is a full-access key write, priced the same as `AddKey`.
         (ActionCosts::add_full_access_key, counts.num_keys),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RuntimeFeesConfig;
+
+    /// The account type is the same on every protocol version, so a `0u` receiver
+    /// reaches these before the feature activates and must cost a plain transfer.
+    #[test]
+    fn universal_receiver_pays_plain_transfer_until_enabled() {
+        let cfg = RuntimeFeesConfig::test();
+        let transfer_exec = cfg.fee(ActionCosts::transfer).exec_fee();
+        let create_exec = cfg.fee(ActionCosts::create_account).exec_fee();
+
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, false, AccountType::UniversalAccount),
+            transfer_exec,
+            "a 0u receiver costs a plain transfer before the feature is on"
+        );
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, true, AccountType::UniversalAccount),
+            transfer_exec.checked_add(create_exec).unwrap(),
+            "and one create_account once it is"
+        );
+    }
 }

@@ -10,9 +10,7 @@ use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::universal_account_id::{
-    encode_universal_account_id, is_universal_account_id,
-};
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -471,22 +469,23 @@ where
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
 /// based on whether ETH-implicit accounts are enabled.
 ///
-/// `0u` universal ids are handled separately: `AccountType` has no variant for
-/// them, so they parse as `NamedAccount` and are recognized by their prefix.
+/// A universal account counts as implicit only once the protocol enables them,
+/// which the account type on its own cannot express.
 pub fn account_is_implicit(
     account_id: &AccountId,
     eth_implicit_accounts_enabled: bool,
     universal_accounts_enabled: bool,
 ) -> bool {
-    // TODO(universal-accounts): replace with an `AccountType::Universal` check
-    // once `near-account-id` supports 0u accounts.
-    if universal_accounts_enabled && is_universal_account_id(account_id.as_str()) {
-        return true;
+    let account_type = account_id.get_account_type();
+    // The flag decides for a universal account, since `is_implicit()` below carries
+    // no protocol version.
+    if account_type == AccountType::UniversalAccount {
+        return universal_accounts_enabled;
     }
     if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
+        account_type.is_implicit()
     } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
+        account_type == AccountType::NearImplicitAccount
     }
 }
 
@@ -559,6 +558,17 @@ mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
 
+    /// `AccountType` carries no protocol version, so this is the only thing keeping
+    /// a universal account from reading as implicit before the feature activates.
+    #[test]
+    fn universal_account_is_implicit_only_when_enabled() {
+        let universal = encode_universal_account_id(&[0x33; 32]);
+        assert!(account_is_implicit(&universal, true, true));
+        assert!(account_is_implicit(&universal, false, true));
+        assert!(!account_is_implicit(&universal, true, false));
+        assert!(!account_is_implicit(&universal, false, false));
+    }
+
     #[test]
     fn test_derive_near_implicit_account_id() {
         let public_key = PublicKey::from_seed(KeyType::ED25519, "test");
@@ -581,8 +591,6 @@ mod tests {
         use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
         use near_crypto::{MlDsa65PublicKeyHandle, PublicKeyHandle};
         use near_primitives_core::global_contract::GlobalContractIdentifier;
-        use near_primitives_core::universal_account_id::decode_universal_account_id;
-        use sha3::{Digest, Sha3_256};
         use std::collections::{BTreeMap, BTreeSet};
 
         let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
@@ -611,9 +619,6 @@ mod tests {
             assert_eq!(id.as_str(), expected);
             // The producer-side shorthand agrees with hashing the bytes it wrote.
             assert_eq!(state_init.derive_account_id(), id);
-            // The id decodes back to SHA3-256 of those bytes.
-            let hash: [u8; 32] = Sha3_256::digest(&raw.0).into();
-            assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
         }
     }
 

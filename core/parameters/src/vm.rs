@@ -218,10 +218,16 @@ pub struct Config {
     pub fix_contract_loading_error: bool,
 
     /// Enable the `EthImplicitAccounts` protocol feature.
+    // TODO(eth-implicit): delete this. It has been always true since
+    // MIN_SUPPORTED_PROTOCOL_VERSION passed the activation version 70. Removing it
+    // is a compile error at every reader, which is how the rest gets found.
     pub eth_implicit_accounts: bool,
 
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION
+    // passes the activation version, after which it is always true. Removing it is
+    // a compile error at every reader, which is how the rest gets found.
     pub universal_accounts: bool,
 
     /// Whether to discard custom sections.

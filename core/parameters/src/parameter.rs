@@ -249,7 +249,13 @@ pub enum Parameter {
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
+    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION has passed
+    // the activation version 70. Removing it makes the runtime-config rows naming
+    // it fail to parse, which is how those get found.
     EthImplicitAccounts,
+    // TODO(universal-accounts): delete once MIN_SUPPORTED_PROTOCOL_VERSION passes
+    // the activation version. Removing it makes the runtime-config rows naming it
+    // fail to parse, which is how those get found.
     UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
