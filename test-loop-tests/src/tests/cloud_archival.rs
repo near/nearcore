@@ -385,11 +385,12 @@ impl CloudArchiveHarness {
     }
 
     /// The height the recent reader has copied through.
-    fn recent_reader_head(&self) -> BlockHeight {
+    fn recent_reader_height(&self) -> BlockHeight {
         self.recent_reader_store()
             .cloud_archival_store()
             .reader_head()
             .expect("the recent reader holds a head")
+            .height
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -2033,7 +2034,7 @@ fn test_cloud_archival_recent_reader() {
     );
 
     // The reader takes whole batches, so its head may trail the bucket by one.
-    let head = h.recent_reader_head();
+    let head = h.recent_reader_height();
     let bucket_head = get_cloud_storage(&h.env, &h.writer_id)
         .get_cloud_block_head()
         .expect("reading the bucket's block head")
@@ -2074,7 +2075,7 @@ fn test_cloud_archival_skipped_run_across_batch_edge() {
     // Two epochs past the run, so both readers are clear of it when the chain stops.
     h.run_until_epoch(last_dropped / h.epoch_length + 2);
 
-    let head = h.recent_reader_head();
+    let head = h.recent_reader_height();
     let reader_store = h.recent_reader_store().chain_store();
     assert!(last_dropped <= head, "the reader stopped at {head}, below the dropped run");
     for height in &dropped_heights {
