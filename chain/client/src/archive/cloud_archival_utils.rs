@@ -74,13 +74,13 @@ struct EpochEnd {
 /// Downloads the batch containing `start_height` and writes its block rows from there
 /// to the batch's end in one commit. When an epoch ends inside the batch, the epoch
 /// starting after it is pulled too.
-pub(crate) fn pull_block_batch(
+pub(crate) async fn pull_block_batch(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_manager: &dyn EpochManagerAdapter,
     start_height: BlockHeight,
 ) -> Result<BlockBatchPull, CloudArchivalReaderError> {
-    let block_batch = cloud_storage.get_block_batch_for_height(start_height)?;
+    let block_batch = cloud_storage.get_block_batch_for_height(start_height).await?;
     let mut last_present_block_hash = None;
     let mut epoch_end: Option<EpochEnd> = None;
     let mut update = store.store_update();
@@ -101,7 +101,7 @@ pub(crate) fn pull_block_batch(
     }
     update.commit();
     if let Some(epoch_end) = &epoch_end {
-        pull_epoch_data(store, cloud_storage, &epoch_end.next_epoch_id)?;
+        pull_epoch_data(store, cloud_storage, &epoch_end.next_epoch_id).await?;
     }
     let opening_epoch_id =
         epoch_end.filter(|end| end.height < block_batch.end_height()).map(|end| end.next_epoch_id);
@@ -115,21 +115,21 @@ pub(crate) fn pull_block_batch(
 /// Seeds the store with what the epoch manager needs to answer for `height`, and
 /// returns the hash of the nearest present block below it. `height` must therefore
 /// be above the first archived block.
-pub(crate) fn install_anchors(
+pub(crate) async fn install_anchors(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_manager: &dyn EpochManagerAdapter,
     height: BlockHeight,
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
     let (_, prev_block) =
-        find_present_block_below(cloud_storage, height).map_err(|err| match err {
+        find_present_block_below(cloud_storage, height).await.map_err(|err| match err {
             CloudRetrievalError::NoBlockData { .. } => {
                 CloudArchivalReaderError::NoAnchorBelow { start_height: height }
             }
             err => err.into(),
         })?;
     let prev_block_epoch_id = *prev_block.block().header().epoch_id();
-    pull_epoch_data(store, cloud_storage, &prev_block_epoch_id)?;
+    pull_epoch_data(store, cloud_storage, &prev_block_epoch_id).await?;
 
     let prev_block_hash = *prev_block.block().header().hash();
     let mut update = store.store_update();
@@ -139,7 +139,7 @@ pub(crate) fn install_anchors(
 
     let start_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
     if start_epoch_id != prev_block_epoch_id {
-        pull_epoch_data(store, cloud_storage, &start_epoch_id)?;
+        pull_epoch_data(store, cloud_storage, &start_epoch_id).await?;
     }
     Ok(prev_block_hash)
 }
@@ -197,16 +197,16 @@ pub(crate) fn save_shard_data(update: &mut StoreUpdate, shard_id: ShardId, shard
 
 /// First present block below `height`. Errors if no such block exists in cloud
 /// (e.g. `height` sits below the first archived block).
-pub fn find_present_block_below(
+pub async fn find_present_block_below(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
 ) -> Result<(BlockHeight, BlockData), CloudRetrievalError> {
     assert!(height > 0, "no block sits below height 0");
     let mut h = height - 1;
-    let mut batch = cloud_storage.get_block_batch_for_height(h)?;
+    let mut batch = cloud_storage.get_block_batch_for_height(h).await?;
     loop {
         if h < batch.start_height() {
-            batch = cloud_storage.get_block_batch_for_height(h)?;
+            batch = cloud_storage.get_block_batch_for_height(h).await?;
         }
         if let Some(block) = batch.get_block_at_height(h) {
             return Ok((h, block.clone()));
@@ -219,26 +219,26 @@ pub fn find_present_block_below(
 /// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
 /// whose state-header is present in cloud for `shard_id`. Errors when the walk-back
 /// reaches below the earliest archived data without finding a snapshot.
-pub fn find_snapshot_at_or_before(
+pub async fn find_snapshot_at_or_before(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
     shard_id: ShardId,
 ) -> Result<(EpochHeight, EpochId), CloudArchivalReaderError> {
-    let (_, initial_block) = find_present_block_below(cloud_storage, height + 1)?;
+    let (_, initial_block) = find_present_block_below(cloud_storage, height + 1).await?;
     let mut epoch_id = *initial_block.block().header().epoch_id();
 
     loop {
-        let epoch_data = cloud_storage.get_epoch_data(epoch_id)?;
+        let epoch_data = cloud_storage.get_epoch_data(epoch_id).await?;
         let epoch_height = epoch_data.epoch_info().epoch_height();
         let epoch_start_height = epoch_data.epoch_start_height();
 
         tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
 
-        if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id)? {
+        if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id).await? {
             return Ok((epoch_height, epoch_id));
         }
 
-        let batch = cloud_storage.get_block_batch_for_height(epoch_start_height)?;
+        let batch = cloud_storage.get_block_batch_for_height(epoch_start_height).await?;
         // Epoch start is by chain definition always produced; if it's None in cloud
         // we don't have earlier chain data, so the walk-back can't continue.
         let Some(epoch_start_block) = batch.get_block_at_height(epoch_start_height) else {
@@ -247,18 +247,18 @@ pub fn find_snapshot_at_or_before(
         if epoch_start_block.block_info().is_genesis() {
             return Err(CloudArchivalReaderError::NoSnapshotFound);
         }
-        let (_, prev_block) = find_present_block_below(cloud_storage, epoch_start_height)?;
+        let (_, prev_block) = find_present_block_below(cloud_storage, epoch_start_height).await?;
         epoch_id = *prev_block.block().header().epoch_id();
     }
 }
 
 /// Downloads one epoch's data out of the bucket and writes it into the store.
-pub(crate) fn pull_epoch_data(
+pub(crate) async fn pull_epoch_data(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_id: &EpochId,
 ) -> Result<(), CloudRetrievalError> {
-    let epoch_data = cloud_storage.get_epoch_data(*epoch_id)?;
+    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).await?;
     let mut update = store.store_update();
     save_epoch_data(&mut update, &epoch_data);
     update.commit();

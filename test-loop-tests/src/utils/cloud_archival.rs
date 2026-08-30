@@ -126,7 +126,7 @@ pub fn run_until_one_epoch_after_resharding(
     }
 }
 
-fn execute_future<F: Future>(fut: F) -> F::Output {
+pub(crate) fn exec<F: Future>(fut: F) -> F::Output {
     // If this causes issues, use the testloop future spawner and wait for 0 blocks so the
     // event loop can run it.
     futures::executor::block_on(fut)
@@ -169,8 +169,7 @@ pub fn gc_and_heads_sanity_checks(
     let head = chain_store.head().unwrap();
     let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
     for shard_id in shard_layout.shard_ids() {
-        let ext_shard_head =
-            execute_future(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
+        let ext_shard_head = exec(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
         match ext_shard_head {
             Ok(Some(shard_head)) => {
                 assert!(
@@ -234,7 +233,8 @@ pub(crate) fn get_state_header_for_epoch(
     epoch_id: EpochId,
     shard_id: ShardId,
 ) -> ShardStateSyncResponseHeader {
-    let epoch_height = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_info().epoch_height();
+    let epoch_height =
+        exec(cloud_storage.get_epoch_data(epoch_id)).unwrap().epoch_info().epoch_height();
     cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap()
 }
 
@@ -275,7 +275,7 @@ pub(crate) fn simulate_lagging_shard(
     let node_data = env.get_node_data_by_account_id(writer_id);
     let identifier = node_data.identifier.clone();
     let node_state = env.kill_node(&identifier);
-    execute_future(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
+    exec(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
     let new_identifier = format!("{}-restart", identifier);
     env.restart_node(&new_identifier, node_state);
 }
@@ -376,7 +376,7 @@ pub fn snapshots_sanity_check(
         let mut num_shards_with_snapshot = 0;
         for shard_id in &shards {
             let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, *shard_id);
-            let state_header = execute_future(fut);
+            let state_header = exec(fut);
             if state_header.is_ok() {
                 num_shards_with_snapshot += 1;
             }
@@ -391,7 +391,7 @@ pub fn snapshots_sanity_check(
                 shards.len(),
             )
         }
-        if cloud_storage.get_epoch_data(epoch_id).is_ok() {
+        if exec(cloud_storage.get_epoch_data(epoch_id)).is_ok() {
             epoch_heights_with_epoch_data.insert(epoch_height);
         }
     }
@@ -525,7 +525,7 @@ pub fn assert_resharding_epoch_snapshot_forced(
         "test needs the resharding epoch off the snapshot cadence"
     );
     for &shard_uid in &info.new_shard_uids {
-        let state_header = execute_future(cloud_storage.retrieve_state_header(
+        let state_header = exec(cloud_storage.retrieve_state_header(
             resharding_epoch_height,
             resharding_epoch_id,
             shard_uid.shard_id(),
@@ -552,13 +552,13 @@ pub fn bootstrap_historical_reader(
         let client = env.node_for_account(reader_id).client();
         let store = client.chain.chain_store.store();
         let epoch_manager = client.epoch_manager.clone();
-        bootstrap_range(
+        exec(bootstrap_range(
             &store,
             &cloud_storage,
             epoch_manager.as_ref(),
             start_height,
             target_block_height,
-        )
+        ))
         .expect("bootstrap_range should succeed");
     }
 
@@ -566,9 +566,9 @@ pub fn bootstrap_historical_reader(
     // carries no data, so snap it down to the nearest present block at or below
     // it (no state changes between them).
     let (target_block_height, target_block_data) =
-        find_present_block_below(&cloud_storage, target_block_height + 1).unwrap();
+        exec(find_present_block_below(&cloud_storage, target_block_height + 1)).unwrap();
     let target_epoch_id = *target_block_data.block().header().epoch_id();
-    let target_epoch_data = cloud_storage.get_epoch_data(target_epoch_id).unwrap();
+    let target_epoch_data = exec(cloud_storage.get_epoch_data(target_epoch_id)).unwrap();
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -583,7 +583,7 @@ pub fn bootstrap_historical_reader(
         // Reconstruct from the nearest snapshot at or below the bootstrap start,
         // loaded from cloud state parts, then apply deltas forward to the target.
         let (snapshot_epoch_height, snapshot_epoch_id) =
-            find_snapshot_at_or_before(&cloud_storage, start_height, shard_id).unwrap();
+            exec(find_snapshot_at_or_before(&cloud_storage, start_height, shard_id)).unwrap();
         // Both values come off the header's single chunk, so the state root and
         // the height it applies at cannot disagree.
         let state_header = cloud_storage
@@ -593,7 +593,7 @@ pub fn bootstrap_historical_reader(
         let reconstruction_start_height = state_header.chunk_height_included();
 
         assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        execute_future(download_and_apply_state_snapshot(
+        exec(download_and_apply_state_snapshot(
             &tries,
             &cloud_storage,
             &snapshot_epoch_id,
