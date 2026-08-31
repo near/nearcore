@@ -429,15 +429,9 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
-    /// Whether to use isolated compiler-daemon subprocesses when an executable
-    /// is available. Disable this to always compile contracts in-process.
+    /// Whether to use isolated compiler-daemon subprocesses. Disable this to
+    /// always compile contracts in-process.
     pub enable_compiler_daemon: bool,
-
-    /// Optional path to the compiler daemon executable.
-    ///
-    /// Relative paths are interpreted relative to `home_dir`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compiler_daemon_binary_path: Option<PathBuf>,
 
     /// Location where to store a cache of compiled contracts.
     ///
@@ -536,7 +530,6 @@ impl Default for Config {
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
             enable_compiler_daemon: false,
-            compiler_daemon_binary_path: None,
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,

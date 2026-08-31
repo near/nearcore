@@ -115,11 +115,6 @@ name = "bench-contracts-compilation"
 path = "benchmarks/compile_contracts.rs"
 required-features = ["wasmtime_vm"]
 
-[[bin]]
-name = "near-vm-compiler-daemon"
-path = "src/bin/compiler_daemon.rs"
-required-features = ["wasmtime_vm"]
-
 [[test]]
 name = "compiler_daemon"
 harness = false

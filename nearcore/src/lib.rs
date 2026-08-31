@@ -54,10 +54,10 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError, is_cloud_reader_store};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::{env, fs};
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
@@ -92,194 +92,6 @@ pub fn get_default_home() -> PathBuf {
     }
 
     PathBuf::default()
-}
-
-fn resolve_compiler_daemon_binary(
-    home_dir: &Path,
-    configured_path: Option<&Path>,
-    current_exe: Option<&Path>,
-) -> Option<PathBuf> {
-    if let Some(configured_path) = configured_path {
-        let configured_path = if configured_path.is_relative() {
-            home_dir.join(configured_path)
-        } else {
-            configured_path.to_path_buf()
-        };
-        if let Some(configured_path) = canonicalize_usable_compiler_daemon_binary(&configured_path)
-        {
-            return Some(configured_path);
-        }
-        tracing::warn!(
-            path = %configured_path.display(),
-            "configured compiler daemon binary is not usable"
-        );
-    }
-
-    let sibling =
-        current_exe?.parent()?.join(format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX));
-    canonicalize_usable_compiler_daemon_binary(&sibling)
-}
-
-fn canonicalize_usable_compiler_daemon_binary(path: &Path) -> Option<PathBuf> {
-    let path = fs::canonicalize(path).ok()?;
-    (path.is_absolute() && is_usable_compiler_daemon_binary(&path)).then_some(path)
-}
-
-fn is_usable_compiler_daemon_binary(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use rustix::fs::{Access, AtFlags, CWD, accessat};
-        // cspell:ignore EACCESS
-        accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
-}
-
-#[cfg(test)]
-mod compiler_daemon_binary_tests {
-    use super::config::Config;
-    use super::resolve_compiler_daemon_binary;
-    use std::env;
-    use std::fs::{self, File};
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::{Path, PathBuf};
-    use tempfile::TempDir;
-
-    fn daemon_binary_name() -> String {
-        format!("near-vm-compiler-daemon{}", env::consts::EXE_SUFFIX)
-    }
-
-    #[test]
-    fn compiler_daemon_is_disabled_by_default_and_can_be_enabled() {
-        assert!(!Config::default().enable_compiler_daemon);
-        let config: Config = serde_json::from_value(serde_json::json!({
-            "enable_compiler_daemon": true
-        }))
-        .unwrap();
-        assert!(config.enable_compiler_daemon);
-    }
-
-    fn create_executable(dir: &Path, name: &str) -> PathBuf {
-        let path = dir.join(name);
-        File::create(&path).unwrap();
-        #[cfg(unix)]
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        path
-    }
-
-    fn current_exe(dir: &Path) -> PathBuf {
-        create_executable(dir, "neard")
-    }
-
-    #[test]
-    fn configured_daemon_binary_takes_precedence() {
-        let temp_dir = TempDir::new().unwrap();
-        let configured = create_executable(temp_dir.path(), "configured-daemon");
-        let current_exe = current_exe(temp_dir.path());
-        let _sibling = create_executable(temp_dir.path(), &daemon_binary_name());
-
-        assert_eq!(
-            resolve_compiler_daemon_binary(
-                temp_dir.path(),
-                Some(configured.as_path()),
-                Some(current_exe.as_path())
-            ),
-            Some(configured)
-        );
-    }
-
-    #[test]
-    fn relative_configured_daemon_binary_is_canonicalized() {
-        let current_dir = env::current_dir().unwrap();
-        let temp_dir = TempDir::new_in(&current_dir).unwrap();
-        let relative_home = temp_dir.path().strip_prefix(current_dir).unwrap();
-        assert!(relative_home.is_relative());
-        let configured = create_executable(relative_home, "configured-daemon");
-        let expected = fs::canonicalize(&configured).unwrap();
-
-        let resolved = resolve_compiler_daemon_binary(
-            relative_home,
-            Some(Path::new("configured-daemon")),
-            None,
-        );
-
-        assert_eq!(resolved, Some(expected.clone()));
-        assert!(expected.is_absolute());
-    }
-
-    #[test]
-    fn relative_default_daemon_binary_is_canonicalized() {
-        let current_dir = env::current_dir().unwrap();
-        let temp_dir = TempDir::new_in(&current_dir).unwrap();
-        let relative_home = temp_dir.path().strip_prefix(current_dir).unwrap();
-        assert!(relative_home.is_relative());
-        let current_exe = current_exe(relative_home);
-        let sibling = create_executable(relative_home, &daemon_binary_name());
-        let expected = fs::canonicalize(sibling).unwrap();
-
-        let resolved =
-            resolve_compiler_daemon_binary(Path::new(""), None, Some(current_exe.as_path()));
-
-        assert_eq!(resolved, Some(expected.clone()));
-        assert!(expected.is_absolute());
-    }
-
-    #[test]
-    fn directory_is_not_a_usable_daemon_binary() {
-        let temp_dir = TempDir::new().unwrap();
-        let directory = temp_dir.path().join("daemon-directory");
-        fs::create_dir(&directory).unwrap();
-
-        assert_eq!(resolve_compiler_daemon_binary(temp_dir.path(), Some(&directory), None), None);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn non_executable_file_is_not_a_usable_daemon_binary() {
-        let temp_dir = TempDir::new().unwrap();
-        let daemon = temp_dir.path().join("daemon");
-        File::create(&daemon).unwrap();
-        fs::set_permissions(&daemon, fs::Permissions::from_mode(0o644)).unwrap();
-
-        assert_eq!(resolve_compiler_daemon_binary(temp_dir.path(), Some(&daemon), None), None);
-    }
-
-    #[test]
-    fn sibling_is_used_after_invalid_configured_daemon_binary() {
-        let temp_dir = TempDir::new().unwrap();
-        let current_exe = current_exe(temp_dir.path());
-        let sibling = create_executable(temp_dir.path(), &daemon_binary_name());
-
-        assert_eq!(
-            resolve_compiler_daemon_binary(
-                temp_dir.path(),
-                Some(Path::new("missing-daemon")),
-                Some(current_exe.as_path())
-            ),
-            Some(sibling)
-        );
-    }
-
-    #[test]
-    fn no_daemon_binary_returns_none() {
-        let temp_dir = TempDir::new().unwrap();
-        let current_exe = current_exe(temp_dir.path());
-
-        assert_eq!(
-            resolve_compiler_daemon_binary(temp_dir.path(), None, Some(current_exe.as_path())),
-            None
-        );
-    }
 }
 
 /// Opens node’s storage performing migrations and checks when necessary.
@@ -584,27 +396,17 @@ pub async fn start_with_config_and_synchronization_impl(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     if config.config.enable_compiler_daemon {
-        let current_exe = env::current_exe().ok();
-        if let Some(daemon_binary) = resolve_compiler_daemon_binary(
-            home_dir,
-            config.config.compiler_daemon_binary_path.as_deref(),
-            current_exe.as_deref(),
-        ) {
-            tracing::info!(path = %daemon_binary.display(), "using compiler daemon binary");
-            near_vm_runner::compiler_daemon::set_daemon_binary(daemon_binary);
-            let status = near_vm_runner::compiler_daemon::start_daemon()
-                .map_err(anyhow::Error::msg)
-                .context("failed to start compiler daemon")?;
-            tracing::info!(
-                compatibility_hash = status.compiler_compatibility_hash,
-                isolation = ?status.isolation,
-                "compiler daemon worker is ready"
-            );
-        } else {
-            tracing::debug!(
-                "compiler daemon binary unavailable, WASM compilation will run in-process"
-            );
-        }
+        let current_exe = env::current_exe().context("failed to locate the neard executable")?;
+        tracing::info!(path = %current_exe.display(), "using neard as compiler daemon binary");
+        near_vm_runner::compiler_daemon::set_daemon_binary(current_exe);
+        let status = near_vm_runner::compiler_daemon::start_daemon()
+            .map_err(anyhow::Error::msg)
+            .context("failed to start compiler daemon")?;
+        tracing::info!(
+            compatibility_hash = status.compiler_compatibility_hash,
+            isolation = ?status.isolation,
+            "compiler daemon worker is ready"
+        );
     } else {
         tracing::info!("compiler daemon is disabled, WASM compilation will run in-process");
     }

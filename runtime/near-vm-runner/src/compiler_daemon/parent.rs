@@ -97,6 +97,7 @@ impl DaemonProcess {
         // configuration from neard.
         let mut command = Command::new(binary);
         command
+            .arg("compile-wasm")
             .env_clear()
             // Rayon determines its global compilation pool size from this
             // variable.

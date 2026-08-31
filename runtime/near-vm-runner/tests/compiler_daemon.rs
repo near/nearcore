@@ -1,6 +1,7 @@
 //! Integration test for the out-of-process compiler daemon.
 //!
-//! The tests spawn the dedicated daemon binary Cargo builds for this package.
+//! This executable serves as both parent and child, matching how neard starts
+//! compiler workers without requiring a second binary.
 
 // cspell:words landlock sandboxed
 
@@ -14,7 +15,7 @@ use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
 #[cfg(feature = "test_features")]
 use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract};
-use std::path::PathBuf;
+use std::env;
 use std::sync::Arc;
 #[cfg(feature = "test_features")]
 use std::time::{Duration, Instant};
@@ -22,9 +23,11 @@ use std::time::{Duration, Instant};
 const TEST_POOL_SIZE: usize = 4;
 
 fn main() {
-    compiler_daemon::set_daemon_binary(PathBuf::from(env!(
-        "CARGO_BIN_EXE_near-vm-compiler-daemon"
-    )));
+    if env::args_os().nth(1).is_some_and(|arg| arg == "compile-wasm") {
+        compiler_daemon::daemon_main();
+    }
+
+    compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
 
     test_startup_probe();
