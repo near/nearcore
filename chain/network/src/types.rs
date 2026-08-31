@@ -339,10 +339,10 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
-/// These are the information needed for highest height peers. For these peers, we guarantee that
-/// the height and hash of the latest block are set.
+/// A peer's own claim about its chain head, which `FullPeerInfo` holds as an
+/// `Option`. Neither the height nor the hash is verified.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighestHeightPeerInfo {
+pub struct PeerAdvertisedHead {
     pub peer_info: PeerInfo,
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -356,10 +356,10 @@ pub struct HighestHeightPeerInfo {
     pub archival: bool,
 }
 
-impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
+impl From<FullPeerInfo> for Option<PeerAdvertisedHead> {
     fn from(p: FullPeerInfo) -> Self {
         if p.chain_info.last_block.is_some() {
-            Some(HighestHeightPeerInfo {
+            Some(PeerAdvertisedHead {
                 peer_info: p.peer_info,
                 genesis_id: p.chain_info.genesis_id,
                 highest_block_height: p.chain_info.last_block.unwrap().height,
@@ -420,7 +420,7 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
+    pub highest_height_peers: Vec<PeerAdvertisedHead>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.

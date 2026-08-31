@@ -22,7 +22,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::StateResponse;
 use near_network::types::{
-    HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerAdvertisedHead, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -221,7 +221,7 @@ impl StateSync {
         &mut self,
         chain: &Chain,
         block_header: &BlockHeader,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
     ) -> Vec<(CryptoHash, PeerId)> {
         let now = self.clock.now_utc();
 
@@ -272,7 +272,7 @@ impl StateSync {
         shard_tracker: &ShardTracker,
         chain: &mut Chain,
         highest_height: u64,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let sync_hash = sync_status.sync_hash;

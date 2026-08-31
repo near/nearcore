@@ -31,8 +31,8 @@ use near_network::state_witness::{
     PartialWitnessSenderForNetwork,
 };
 use near_network::types::{
-    BlockInfo, ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerAdvertisedHead, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo, SnapshotHostEvent,
     StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
 };
@@ -233,7 +233,7 @@ impl TestLoopPeerManagerActor {
                 highest_height_peers: self
                     .last_block_headers
                     .iter()
-                    .map(|(peer_info, header)| HighestHeightPeerInfo {
+                    .map(|(peer_info, header)| PeerAdvertisedHead {
                         archival: self.shared_state.is_peer_archival(&peer_info.id),
                         genesis_id: self.genesis_id.clone(),
                         highest_block_hash: *header.hash(),
