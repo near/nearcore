@@ -2,7 +2,7 @@ use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_network::config::MAX_BLOCK_HEADER_HASHES;
-use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -39,7 +39,7 @@ pub struct HeaderSync {
     batch_progress: BatchProgress,
 
     /// Peer from which the next batch of headers was requested.
-    syncing_peer: Option<HighestHeightPeerInfo>,
+    syncing_peer: Option<PeerAdvertisedHead>,
 
     /// When the stalling was first detected.
     stalling_ts: Option<Utc>,
@@ -110,7 +110,7 @@ impl HeaderSync {
         &mut self,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
         ban_stalling_peers: bool,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
@@ -188,7 +188,7 @@ impl HeaderSync {
         chain: &Chain,
         header_head: &Tip,
         highest_height: BlockHeight,
-        peers: &[HighestHeightPeerInfo],
+        peers: &[PeerAdvertisedHead],
     ) -> Result<(), near_chain::Error> {
         let Some(peer) = peers.choose(&mut thread_rng()).cloned() else { return Ok(()) };
         let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
@@ -239,7 +239,7 @@ impl HeaderSync {
     fn request_headers(
         &self,
         chain: &Chain,
-        peer: &HighestHeightPeerInfo,
+        peer: &PeerAdvertisedHead,
     ) -> Result<(), near_chain::Error> {
         let locator = self.get_locator(chain)?;
         tracing::debug!(target: "sync", peer_id = %peer.peer_info.id, ?locator, "requesting headers");
