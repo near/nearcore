@@ -27,7 +27,6 @@ use near_parameters::{
     universal_state_init_content_terms, universal_state_init_size_terms,
 };
 use near_primitives_core::account::AccountContract;
-use near_primitives_core::account::id::AccountType;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
@@ -3505,19 +3504,17 @@ pub fn promise_batch_action_transfer(
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    let receiver_is_universal = ctx.config.universal_accounts
-        && receiver_id.get_account_type() == AccountType::UniversalAccount;
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
         ctx.config.eth_implicit_accounts,
-        receiver_is_universal,
+        ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
         ctx.config.eth_implicit_accounts,
-        receiver_is_universal,
+        ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );
     let burn_cost = send_fee;

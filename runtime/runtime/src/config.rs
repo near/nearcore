@@ -12,18 +12,10 @@ use near_parameters::{
     gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
     universal_state_init_content_terms, universal_state_init_size_terms,
 };
-use near_primitives::account::id::AccountType;
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 use near_primitives::universal_state_init::{RawStateInit, state_init_counts};
-
-/// Whether a transfer to `receiver_id` creates a `0u` universal account, which
-/// carries the same implied `CreateAccount` fee as a deterministic account.
-fn receiver_is_universal(config: &RuntimeConfig, receiver_id: &AccountId) -> bool {
-    config.wasm_config.universal_accounts
-        && receiver_id.get_account_type() == AccountType::UniversalAccount
-}
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -131,7 +123,7 @@ pub fn total_send_fees(
                     fees,
                     sender_is_receiver,
                     config.wasm_config.eth_implicit_accounts,
-                    receiver_is_universal(config, receiver_id),
+                    config.wasm_config.universal_accounts,
                     receiver_id.get_account_type(),
                 )
             }
@@ -370,7 +362,7 @@ pub fn exec_fee(
             transfer_exec_fee(
                 fees,
                 config.wasm_config.eth_implicit_accounts,
-                receiver_is_universal(config, receiver_id),
+                config.wasm_config.universal_accounts,
                 receiver_id.get_account_type(),
             )
         }

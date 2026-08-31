@@ -775,37 +775,36 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     eth_implicit_accounts_enabled: bool,
-    receiver_is_universal: bool,
+    universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
-    // Only the caller knows whether universal accounts are enabled, so the surcharge
-    // is decided here. Like a deterministic account, the transfer creates it; its
-    // keys arrive later with the state init.
-    if receiver_is_universal {
-        return transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap();
-    }
-    match (eth_implicit_accounts_enabled, receiver_account_type) {
+    let create_account_fee = cfg.fee(ActionCosts::create_account).exec_fee();
+    match receiver_account_type {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
-        // Reached before the feature activates, when the caller resolved
-        // `receiver_is_universal` to false. No account is created, so no surcharge.
-        (_, AccountType::UniversalAccount) => transfer_fee,
-        // No account will be created, just a regular transfer.
-        (false, AccountType::EthImplicitAccount) => transfer_fee,
-        // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        AccountType::NamedAccount => transfer_fee,
+        // Like a deterministic account, the transfer creates it; its keys arrive
+        // later with the state init.
+        AccountType::UniversalAccount if universal_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
         }
+        // No account will be created, just a regular transfer.
+        AccountType::UniversalAccount => transfer_fee,
+        // Extra fee for the CreateAccount.
+        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
+        // No account will be created, just a regular transfer.
+        AccountType::EthImplicitAccount => transfer_fee,
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (_, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
+        AccountType::NearImplicitAccount => transfer_fee
+            .checked_add(create_account_fee)
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
             .unwrap(),
         // Extra fees for the implied CreateAccount action.
-        (_, AccountType::NearDeterministicAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        AccountType::NearDeterministicAccount => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
         }
     }
 }
@@ -814,38 +813,37 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     eth_implicit_accounts_enabled: bool,
-    receiver_is_universal: bool,
+    universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    // See `transfer_exec_fee` for why the surcharge is decided here.
-    if receiver_is_universal {
-        return transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap();
-    }
-    match (eth_implicit_accounts_enabled, receiver_account_type) {
+    let create_account_fee = cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
+    match receiver_account_type {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
-        // Reached before the feature activates, when the caller resolved
-        // `receiver_is_universal` to false. No account is created, so no surcharge.
-        (_, AccountType::UniversalAccount) => transfer_fee,
+        AccountType::NamedAccount => transfer_fee,
+        // Like a deterministic account, the transfer creates it; its keys arrive
+        // later with the state init.
+        AccountType::UniversalAccount if universal_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
         // No account will be created, just a regular transfer.
-        (false, AccountType::EthImplicitAccount) => transfer_fee,
+        AccountType::UniversalAccount => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap(),
+        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
+        // No account will be created, just a regular transfer.
+        AccountType::EthImplicitAccount => transfer_fee,
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (_, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+        AccountType::NearImplicitAccount => transfer_fee
+            .checked_add(create_account_fee)
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
             .unwrap(),
         // Extra fees for the implied  CreateAccount action.
-        (_, AccountType::NearDeterministicAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap(),
+        AccountType::NearDeterministicAccount => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
     }
 }
 
@@ -998,6 +996,11 @@ mod tests {
             transfer_exec_fee(&cfg, true, true, AccountType::UniversalAccount),
             transfer_exec.checked_add(create_exec).unwrap(),
             "and one create_account once it is"
+        );
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, true, AccountType::NamedAccount),
+            transfer_exec,
+            "the flag on its own does not price another receiver as a creation"
         );
     }
 }
