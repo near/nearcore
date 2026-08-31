@@ -114,8 +114,9 @@ pub(crate) async fn pull_block_batch(
     })
 }
 
-/// Downloads the batch of `shard_id` data that `from_height` falls in and writes the rows
-/// it holds at that height and above in one commit.
+/// Downloads `shard_uid`'s batch for the window `from_height` falls in and writes the
+/// rows it carries at or above that height, in one commit. A batch that opens above
+/// `from_height`, which is a shard a resharding added there, is written from its own start.
 pub(crate) async fn pull_shard_batch(
     store: &Store,
     cloud_storage: &CloudStorage,

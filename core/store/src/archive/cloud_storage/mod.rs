@@ -87,9 +87,9 @@ impl CloudStorage {
         Ok(batch)
     }
 
-    /// Fetches the batch of `shard_id` data that `block_height` falls in. The batch can
-    /// open above or end below that height, which is what a shard added or retired by a
-    /// resharding looks like.
+    /// Fetches `shard_id`'s batch for the window `block_height` falls in. What the batch
+    /// carries can open above or end below that height, which is what a shard added or
+    /// retired by a resharding looks like.
     pub async fn get_shard_batch(
         &self,
         block_height: BlockHeight,
