@@ -59,7 +59,7 @@ pub fn set_test_action_for_next_request(action: super::protocol::TestAction) {
 /// Only works once, subsequent calls are ignored.
 pub fn set_daemon_binary(path: PathBuf) {
     if DAEMON_BINARY.set(path).is_err() {
-        tracing::warn!("set_daemon_binary called more than once, ignoring");
+        tracing::error!("set_daemon_binary called more than once, ignoring");
     }
 }
 
