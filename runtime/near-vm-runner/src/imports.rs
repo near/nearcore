@@ -210,6 +210,14 @@ imports! {
     set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
     current_contract_code<[register_id: u64] -> [u64]>,
     refund_to_account_id<[register_id: u64] -> []>,
+    // ######################
+    // # Universal accounts #
+    // ######################
+    #[universal_accounts] universal_state_init_to_account_id<[
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64
+    ] -> []>,
     // #######################
     // # Promise API actions #
     // #######################

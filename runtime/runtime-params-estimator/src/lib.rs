@@ -275,6 +275,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Keccak256Byte, keccak256_byte),
     (Cost::Keccak512Base, keccak512_base),
     (Cost::Keccak512Byte, keccak512_byte),
+    (Cost::UniversalStateInitToAccountIdBase, universal_state_init_to_account_id_base),
+    (Cost::UniversalStateInitToAccountIdByte, universal_state_init_to_account_id_byte),
     (Cost::Sha3256Base, sha3_256_base),
     (Cost::Sha3256Byte, sha3_256_byte),
     (Cost::Sha3384Base, sha3_384_base),
@@ -1189,6 +1191,35 @@ fn keccak512_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn keccak512_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
+}
+
+fn universal_state_init_to_account_id_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.universal_state_init_to_account_id_base {
+        return cost.clone();
+    }
+    let cost = fn_cost(
+        ctx,
+        "universal_state_init_to_account_id_10b_10k",
+        ExtCosts::universal_state_init_to_account_id_base,
+        10_000,
+    );
+    ctx.cached.universal_state_init_to_account_id_base.insert(cost).clone()
+}
+fn universal_state_init_to_account_id_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base = universal_state_init_to_account_id_base(ctx);
+    // inside the WASM function, there are 10k calls to the host function.
+    let base_call_num = 10_000;
+    // each call derives an id from a 10kiB state init
+    let iteration_bytes = 10 * 1024;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(
+        ctx,
+        "universal_state_init_to_account_id_10kib_10k",
+        ExtCosts::universal_state_init_to_account_id_byte,
+        total_bytes,
+    );
+    // subtract the base cost, which `fn_cost` has already spread over the bytes
+    byte - base / iteration_bytes
 }
 
 fn sha3_256_base(ctx: &mut EstimatorContext) -> GasCost {

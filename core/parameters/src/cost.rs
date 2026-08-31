@@ -178,6 +178,11 @@ impl ExtCostsConfig {
             // based on relative measurements compared to ed25519
             ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
+            // Same hash as sha3_256 over the same bytes, so the per-byte cost is
+            // sha3_256's; the base is scaled up for the base32 encoding. See the
+            // calibration note in `parameters.yaml`.
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2840000000,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
@@ -368,6 +373,8 @@ pub enum ExtCosts {
     sha3_512_byte = 93,
     ml_dsa_verify_base = 94,
     ml_dsa_verify_byte = 95,
+    universal_state_init_to_account_id_base = 96,
+    universal_state_init_to_account_id_byte = 97,
 }
 
 // Type of an action, used in fees logic.
@@ -450,6 +457,12 @@ impl ExtCosts {
             ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
             ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
             ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::universal_state_init_to_account_id_base => {
+                Parameter::WasmUniversalStateInitToAccountIdBase
+            }
+            ExtCosts::universal_state_init_to_account_id_byte => {
+                Parameter::WasmUniversalStateInitToAccountIdByte
+            }
             ExtCosts::sha3_256_base => Parameter::WasmSha3256Base,
             ExtCosts::sha3_256_byte => Parameter::WasmSha3256Byte,
             ExtCosts::sha3_384_base => Parameter::WasmSha3384Base,
