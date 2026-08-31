@@ -1,10 +1,10 @@
 use crate::archive::cloud_archival_utils::{
-    find_present_block_at_or_below, pull_block_batch, pull_epoch_data, save_shard_data,
+    find_present_block_at_or_below, pull_block_batch, pull_epoch_data, save_reader_head,
+    save_shard_data,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::Store;
-use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 
 /// Downloads block, epoch, and per-shard chunk data covering `[start_height,
@@ -43,9 +43,7 @@ pub fn bootstrap_range(
         let batch_end = pull_block_batch(store, cloud_storage, epoch_manager, height)?;
         // A presence marker, so far: nothing reads the height it names.
         // TODO(cloud_archival): resume from it, counting the shard rows too.
-        let mut update = store.store_update();
-        update.cloud_archival_store_update().set_reader_head(batch_end);
-        update.commit();
+        save_reader_head(store, batch_end);
         height = batch_end + 1;
         // Capped: a batch runs to its own end, which can be past `end_height`.
         let done = std::cmp::min(height - block_start_height, range_length);
