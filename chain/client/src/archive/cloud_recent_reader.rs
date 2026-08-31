@@ -85,7 +85,7 @@ impl CloudArchivalRecentReader {
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {
-            let sleep_duration = match self.try_pull_next_batch(&reader_head) {
+            let sleep_duration = match self.try_pull_next_batch(&reader_head).await {
                 Ok(outcome) => {
                     tracing::trace!(target: "cloud_archival", ?outcome, "pull");
                     match outcome {
@@ -108,11 +108,11 @@ impl CloudArchivalRecentReader {
     }
 
     /// Takes the batches after `reader_head`, once the bucket has them.
-    fn try_pull_next_batch(
+    async fn try_pull_next_batch(
         &self,
         reader_head: &CloudReaderHead,
     ) -> Result<PullOutcome, CloudArchivalReaderError> {
-        let cloud_block_head = self.cloud_storage.get_cloud_block_head()?;
+        let cloud_block_head = self.cloud_storage.get_cloud_block_head().await?;
         if !cloud_block_head.is_some_and(|cloud_head| cloud_head > reader_head.height) {
             return Ok(PullOutcome::WaitingForBlocks);
         }
@@ -121,7 +121,8 @@ impl CloudArchivalRecentReader {
             &self.cloud_storage,
             self.epoch_manager.as_ref(),
             reader_head.height + 1,
-        )?;
+        )
+        .await?;
         // TODO(cloud_archival): write the batch's shard rows here once every shard it
         // covers has published its cloud head.
         let last_present_block_hash =
