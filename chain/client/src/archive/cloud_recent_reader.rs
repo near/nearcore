@@ -6,7 +6,7 @@ use near_chain_configs::InterruptHandle;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::types::BlockHeight;
 use near_store::Store;
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
 use std::sync::Arc;
 
@@ -52,13 +52,30 @@ impl CloudArchivalRecentReader {
     ///
     /// A store a stopped node handed over carries no reader head yet and takes that
     /// node's final head, since its own head can sit on a block that later reorged.
+    /// Taking it over also drops the height index above that head.
     fn ensure_reader_head(&self) -> Result<BlockHeight, CloudArchivalReaderError> {
         if let Some(reader_head) = self.store.cloud_archival_store().reader_head() {
             return Ok(reader_head);
         }
         let final_head = self.store.chain_store().final_head()?;
+        let header_head = self.store.chain_store().header_head()?;
+        self.clear_unfinalized_height_index(final_head.height, header_head.height);
         save_reader_head(&self.store, final_head.height);
         Ok(final_head.height)
+    }
+
+    /// Drops the height index above `final_height`, where a handed-over store names the
+    /// branch its node last held rather than the finalized chain.
+    fn clear_unfinalized_height_index(
+        &self,
+        final_height: BlockHeight,
+        header_height: BlockHeight,
+    ) {
+        let mut update = self.store.store_update();
+        for height in final_height + 1..=header_height {
+            update.chain_store_update().delete_block_height(height);
+        }
+        update.commit();
     }
 
     /// Stops the loop after the iteration in flight.

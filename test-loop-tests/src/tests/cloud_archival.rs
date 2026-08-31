@@ -34,7 +34,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, 
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::create_test_cloud_storage;
@@ -2099,6 +2099,61 @@ fn test_cloud_archival_skipped_run_across_batch_edge() {
     h.bootstrap_historical_reader(start, target);
     h.assert_reader_writer_parity(start, target);
     h.kill_historical_reader();
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A height the archive reports empty is cleared from the reader's index, so a row a
+/// fork left in the handed-over store cannot answer a query for that height.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_reader_clears_forked_height() {
+    let forked_height: BlockHeight = 20;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[forked_height])
+        .delay_recent_reader()
+        .disable_gc()
+        .build();
+    // Just past the dropped height, so it lands above the handed-over final head, the
+    // range where a node's index names its own branch.
+    h.run_until(forked_height + 1);
+    let reader = h.start_recent_reader();
+
+    // Stands for what a fork leaves behind: the node handed its store over holding a
+    // block at a height the finalized chain then skipped. The reader loop has not run
+    // yet, so this lands before the first batch.
+    let store = h.recent_reader_store();
+    let final_head = store.chain_store().final_head().expect("the store must carry a final head");
+    let header_head =
+        store.chain_store().header_head().expect("the store must carry a header head");
+    assert!(
+        final_head.height < forked_height && forked_height <= header_head.height,
+        "h={forked_height} must sit above the final head {} and at or below the header head {}",
+        final_head.height,
+        header_head.height
+    );
+    let mut update = store.store_update();
+    update.chain_store_update().set_block_height(&final_head.last_block_hash, forked_height);
+    update.commit();
+
+    // Two epochs past the dropped height, so the reader is clear of it when the chain stops.
+    h.run_until_epoch(forked_height / h.epoch_length + 2);
+
+    let head = h.recent_reader_head();
+    assert!(forked_height <= head, "the reader stopped at {head}, below the forked height");
+    let batch =
+        get_cloud_storage(&h.env, &h.writer_id).get_block_batch_for_height(forked_height).unwrap();
+    assert!(
+        batch.get_block_at_height(forked_height).is_none(),
+        "the archive must report h={forked_height} empty"
+    );
+    assert!(
+        store.chain_store().get_block_hash_by_height(forked_height).is_err(),
+        "the reader kept a block at the forked height {forked_height}"
+    );
 
     reader.stop();
     h.shutdown();
