@@ -148,14 +148,25 @@ fn slow_test_non_adversarial_case() {
             assert_eq!(block.header().prev_height().unwrap(), height - 1);
             let prev_block =
                 test.env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
+            // A chunk may be missed in the first block of an epoch: its grandparent anchor is
+            // the penultimate block of the previous epoch, where the parent-missing anchored
+            // lookup defers until the parent is processed. Under spice, certification lag
+            // extends epochs past their nominal length and the possibly-last predicate is
+            // certification-blind, so the deferral window covers the whole extension, not
+            // just the first block. A missed chunk must still carry over unchanged.
+            let missed_chunk_allowed = cfg!(feature = "protocol_feature_spice")
+                || block.header().epoch_id() != prev_block.header().epoch_id();
             for i in 0..4 {
-                // TODO: mysteriously we might miss a chunk around epoch boundaries.
-                // Figure out why...
                 assert!(
                     block.chunks()[i].height_created() == prev_block.header().height() + 1
-                        || (height % EPOCH_LENGTH == 1
+                        || (missed_chunk_allowed
                             && block.chunks()[i].chunk_hash()
-                                == prev_block.chunks()[i].chunk_hash())
+                                == prev_block.chunks()[i].chunk_hash()),
+                    "shard {i} chunk height_created {} at block height {height} \
+                     (epoch {:?}, prev epoch {:?})",
+                    block.chunks()[i].height_created(),
+                    block.header().epoch_id(),
+                    prev_block.header().epoch_id(),
                 );
             }
         }
@@ -278,9 +289,13 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                         prev_block.chunks()[shard_index].chunk_hash()
                     );
                 } else {
-                    // TODO: mysteriously we might miss a chunk around epoch boundaries.
-                    // Figure out why...
-                    let is_epoch_boundary = height % EPOCH_LENGTH == 1;
+                    // A chunk may be missed in the first block of an epoch: its grandparent
+                    // anchor is the penultimate block of the previous epoch, where the
+                    // parent-missing anchored lookup defers until the parent is processed.
+                    // Detect the boundary from the epoch ids, not `height % EPOCH_LENGTH`:
+                    // under spice certification lag extends epochs past their nominal length.
+                    let is_epoch_boundary =
+                        block.header().epoch_id() != prev_block.header().epoch_id();
                     let chunk_header = &block.chunks()[shard_index];
                     let prev_chunk_header = &prev_block.chunks()[shard_index];
                     let is_new_chunk =
