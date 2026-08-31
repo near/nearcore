@@ -28,6 +28,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::pre_early_kickout_upgrade_edge;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -38,7 +39,10 @@ use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, ProtocolVersion, ShardId,
+};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 
@@ -146,10 +150,6 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
 ///
 /// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
 /// resharding caller must map a shard to its prior parent instead.
-///
-/// Callers are nightly-only, but this module is not gated, so the stable build would
-/// see this as dead code under `-D warnings`.
-#[cfg_attr(not(feature = "nightly"), allow(dead_code))]
 pub(crate) fn assert_state_synced_for_reassigned_shard(
     env: &TestLoopEnv,
     validators: &[AccountId],
@@ -889,19 +889,16 @@ fn test_state_request() {
     spam_state_sync_header_reqs(&mut env);
 }
 
-// State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
-// upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_state_sync_protocol_upgrade() {
+// State sync during protocol upgrade. Starts at `old_protocol`, and the chain upgrades to
+// `new_protocol` mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
+fn state_sync_protocol_upgrade(old_protocol: ProtocolVersion, new_protocol: ProtocolVersion) {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(EPOCH_LENGTH)
-        .protocol_version(PROTOCOL_VERSION - 1)
+        .protocol_version(old_protocol)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
@@ -912,6 +909,7 @@ fn test_state_sync_protocol_upgrade() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_protocol))
         .clients(clients.clone())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
@@ -919,6 +917,45 @@ fn test_state_sync_protocol_upgrade() {
     let client = env.node(0).client();
     let tip = client.chain.head().unwrap();
     let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
-    assert_eq!(version, PROTOCOL_VERSION);
+    assert_eq!(version, new_protocol);
+
+    // Both versions must appear, or the run never crossed the upgrade it is named for.
+    let versions_seen = collect_distinct_epoch_ids(client)
+        .into_iter()
+        .map(|epoch_id| client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        versions_seen.contains(&old_protocol) && versions_seen.contains(&new_protocol),
+        "expected epochs at both {old_protocol} and {new_protocol}, saw {versions_seen:?}"
+    );
+
     assert_shard_shuffling_happened(&env, &clients);
+    // Shuffling alone only proves an assignment changed; a validator can serve a reassigned shard
+    // from state it kept two epochs ago. Holding the new epoch's `ChunkExtra` is only reachable
+    // through a real sync, so this is what makes the test about state sync.
+    let state_synced = assert_state_synced_for_reassigned_shard(&env, &clients);
+    assert!(
+        !state_synced.is_empty(),
+        "no validator acquired state for a newly assigned shard, so no state sync ran"
+    );
+}
+
+// The upgrade edge the client actually votes for. On a stable build where EarlyKickout is the
+// newest feature this also crosses its activation, so state sync runs on both sides of it.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_protocol_upgrade() {
+    state_sync_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION);
+}
+
+// Sibling of the above pinned below EarlyKickout activation, so state sync across an upgrade
+// keeps being covered with the legacy chunk-producer resolution on both sides. Once EarlyKickout
+// is stable it is the only state-sync fixture that runs entirely with the feature off.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_protocol_upgrade_pre_early_kickout() {
+    let (old_protocol, new_protocol) = pre_early_kickout_upgrade_edge();
+    state_sync_protocol_upgrade(old_protocol, new_protocol);
 }

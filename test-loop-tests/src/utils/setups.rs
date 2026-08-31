@@ -5,6 +5,7 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
 use near_vm_runner::logic::ProtocolVersion;
 
 pub fn derive_new_epoch_config_from_boundary(
@@ -17,6 +18,25 @@ pub fn derive_new_epoch_config_from_boundary(
     tracing::info!(target: "test", ?base_shard_layout, ?new_shard_layout, "shard layout");
     let epoch_config = base_epoch_config.clone().with_shard_layout(new_shard_layout.clone());
     (epoch_config, new_shard_layout)
+}
+
+/// The upgrade edge `(old, new)` that sits directly below `EarlyKickout` activation.
+///
+/// Once `EarlyKickout` is the stable protocol version, the default `PROTOCOL_VERSION - 1 ->
+/// PROTOCOL_VERSION` edge crosses activation, so a fixture using it no longer runs on both sides
+/// of the upgrade under the legacy chunk-producer resolution. Pinning here keeps that path
+/// covered, and is worth doing only for fixtures that actually exercise that resolution. The
+/// activation edge itself is owned by `tests::protocol_upgrade` and
+/// `tests::sync::early_kickout_sync`.
+pub fn pre_early_kickout_upgrade_edge() -> (ProtocolVersion, ProtocolVersion) {
+    let new_protocol = ProtocolFeature::EarlyKickout.protocol_version() - 1;
+    let old_protocol = new_protocol - 1;
+    assert!(
+        old_protocol >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "pre-activation edge {old_protocol} -> {new_protocol} is below the minimum supported \
+         version {MIN_SUPPORTED_PROTOCOL_VERSION}"
+    );
+    (old_protocol, new_protocol)
 }
 
 /// Two protocol upgrades would happen as soon as possible,

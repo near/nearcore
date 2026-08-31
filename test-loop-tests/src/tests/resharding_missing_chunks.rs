@@ -25,15 +25,18 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
+use crate::utils::setups::{
+    derive_new_epoch_config_from_boundary, pre_early_kickout_upgrade_edge,
+    two_upgrades_voting_schedule,
+};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -50,11 +53,10 @@ struct BlockRecord {
 /// A shard that misses all chunks for the epoch(s) preceding a resharding split
 /// must still be able to reshard and let its children produce chunks. Before the
 /// fix the children halt permanently.
-#[test]
-// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
-// that this fix and scenario don't cover; resharding under spice is not supported yet.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_resharding_parent_missing_full_epoch_before_split() {
+///
+/// The split lands at `target_protocol_version`, reached by two upgrades from
+/// `target_protocol_version - 2`.
+fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: ProtocolVersion) {
     init_test_logger();
 
     let epoch_length = 5;
@@ -78,7 +80,12 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
 
     // Genesis two protocol versions back, so the split can be pushed out by an
     // intermediate no-op upgrade (base -> base -> new layout).
-    let base_protocol_version = PROTOCOL_VERSION - 2;
+    let base_protocol_version = target_protocol_version - 2;
+    assert!(
+        base_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "genesis version {base_protocol_version} is below the minimum supported \
+         {MIN_SUPPORTED_PROTOCOL_VERSION}"
+    );
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(base_protocol_version)
         .validators_spec(validators_spec)
@@ -90,7 +97,7 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
     let (new_epoch_config, new_shard_layout) =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
     // base_protocol_version and +1 keep the base layout (no resharding); +2 (=
-    // PROTOCOL_VERSION) introduces the new layout, so the split lands a few epochs
+    // target_protocol_version) introduces the new layout, so the split lands a few epochs
     // in (around epoch height 6), clear of warmup and within the silenced window.
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config.clone())),
@@ -127,7 +134,7 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
-        .protocol_upgrade_schedule(two_upgrades_voting_schedule(PROTOCOL_VERSION))
+        .protocol_upgrade_schedule(two_upgrades_voting_schedule(target_protocol_version))
         .skip_warmup()
         .build()
         .drop(drop_condition);
@@ -225,4 +232,27 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
          (parent's last chunk was in epoch {last_parent_chunk_epoch}, before the split epoch E={epoch_e}); \
          the resharded shard halted permanently",
     );
+}
+
+/// The split lands at the version the client votes for. On a stable build where EarlyKickout is
+/// the newest feature, that also turns the feature on in the split epoch, so this covers the
+/// resharding boundary and the activation edge at once.
+#[test]
+// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
+// that this fix and scenario don't cover; resharding under spice is not supported yet.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_parent_missing_full_epoch_before_split() {
+    resharding_parent_missing_full_epoch_before_split(PROTOCOL_VERSION);
+}
+
+/// Sibling of the above with the split pinned below EarlyKickout activation. Once EarlyKickout is
+/// stable, every other resharding fixture splits at the activation version, so this is the only
+/// one left that reshards with the legacy chunk-producer resolution on both sides of the split.
+#[test]
+// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
+// that this fix and scenario don't cover; resharding under spice is not supported yet.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_parent_missing_full_epoch_before_split_pre_early_kickout() {
+    let (_, target_protocol_version) = pre_early_kickout_upgrade_edge();
+    resharding_parent_missing_full_epoch_before_split(target_protocol_version);
 }

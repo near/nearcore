@@ -497,8 +497,10 @@ fn test_early_kickout_reassignment() {
 /// node resolves every shard with no `ChunkProducerNotInDB`, agrees with the
 /// source, and reproduces >= 1 real reassignment.
 ///
-/// The 151->152 activation edge is intentionally not exercised here; it is
-/// covered by the epoch-manager unit tests and the cold-storage boundary test.
+/// The activation edge is intentionally not exercised here; this chain is at the
+/// EarlyKickout version from genesis. `sync::early_kickout_sync` case D runs the same
+/// epoch-sync path over a chain that crosses the edge, and the epoch-manager unit tests
+/// (`epoch_sync_seeder_*_activation`) pin the seeder's gate on both sides of it.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_epoch_sync_bootstrap() {
