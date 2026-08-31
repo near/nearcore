@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 mod tests {
     use crate::Chain;
     use crate::ChainStoreAccess;
@@ -814,22 +813,37 @@ mod tests {
     }
 }
 
-/// With EarlyKickout disabled (stable), resolution must match the legacy ChunkProductionKey computation.
-#[cfg(not(feature = "nightly"))]
-mod stable_tests {
-    use crate::test_utils::setup;
+/// With EarlyKickout disabled, resolution must match the legacy ChunkProductionKey computation.
+mod pre_activation_tests {
+    use crate::test_utils::setup_with_tx_validity_period_at_version;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::types::ProtocolVersion;
+    use near_primitives::version::ProtocolFeature;
 
+    /// Highest protocol version with EarlyKickout still off.
+    const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
+        ProtocolFeature::EarlyKickout.protocol_version() - 1;
+
+    // A spice build has no protocol version that is both >= Spice and < EarlyKickout,
+    // so the feature-off path cannot be exercised there.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     #[test]
     fn test_resolution_matches_legacy_computation_when_feature_off() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         clock.advance(Duration::milliseconds(3444));
-        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+        // Only one block is built, so the chain never leaves the genesis epoch and the
+        // pinned version holds for the whole test.
+        let (mut chain, epoch_manager, _, signer) = setup_with_tx_validity_period_at_version(
+            clock.clock(),
+            100,
+            1000,
+            PV_BEFORE_EARLY_KICKOUT,
+        );
 
         let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
         clock.advance(Duration::milliseconds(1));

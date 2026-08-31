@@ -29,16 +29,12 @@
 use crate::test_utils::{
     record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
 };
-#[cfg(feature = "nightly")]
 use crate::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EARLY_KICKOUT_EPOCH_GRACE_BLOCKS};
 use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorId};
-#[cfg(feature = "nightly")]
 use near_primitives::types::{ShardId, ValidatorInfoIdentifier};
-#[cfg(feature = "nightly")]
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(feature = "nightly")]
 use std::ops::RangeInclusive;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
@@ -206,7 +202,6 @@ fn genesis_final_basis_resolves_through_dummy_instead_of_erroring() {
         0,
         "genesis must resolve to height 0 through the stored dummy BlockInfo",
     );
-    #[cfg(feature = "nightly")]
     {
         let blacklist = handle.get_chunk_producer_blacklist(&canonical_hash(2)).unwrap();
         assert!(
@@ -254,7 +249,6 @@ fn high_genesis_final_basis_keeps_blacklist_empty() {
         0,
         "the walk resolves a high genesis through the dummy BlockInfo to height 0",
     );
-    #[cfg(feature = "nightly")]
     {
         let blacklist =
             handle.get_chunk_producer_blacklist(&canonical_hash(GENESIS_HEIGHT + 2)).unwrap();
@@ -271,7 +265,6 @@ fn high_genesis_final_basis_keeps_blacklist_empty() {
 /// Anchor heights where the two nodes' `EpochStart` values straddle the grace threshold:
 /// last-final is the anchor's grandparent, so a node holding `EpochStart = s` activates the
 /// blacklist from `anchor_height = GRACE + s + 2` onward.
-#[cfg(feature = "nightly")]
 fn disagreement_anchors() -> RangeInclusive<BlockHeight> {
     (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_LOW + FINALITY_LAG)
         ..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + FINALITY_LAG - 1)
@@ -279,12 +272,10 @@ fn disagreement_anchors() -> RangeInclusive<BlockHeight> {
 
 /// Anchors inspected by layers 2 and 3: the disagreement window plus margin on both sides,
 /// so the output shows agreement before it, disagreement inside it, agreement after it.
-#[cfg(feature = "nightly")]
 fn scan_anchors() -> RangeInclusive<BlockHeight> {
     (EARLY_KICKOUT_EPOCH_GRACE_BLOCKS - 2)..=(EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + SIBLING_HIGH + 4)
 }
 
-#[cfg(feature = "nightly")]
 fn head_height() -> BlockHeight {
     *scan_anchors().end()
 }
@@ -293,7 +284,6 @@ fn head_height() -> BlockHeight {
 /// canonically theirs. Otherwise layer 3 would ride on sampler luck: if the canonical pick
 /// there is the healthy validator, blacklist-aware and plain picks coincide and the test is
 /// silent even when layer 2 diverged. This makes the divergence observable, not manufactured.
-#[cfg(feature = "nightly")]
 fn pick_down_validator() -> ValidatorId {
     let em = new_epoch_manager();
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
@@ -303,14 +293,12 @@ fn pick_down_validator() -> ValidatorId {
     epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap()
 }
 
-#[cfg(feature = "nightly")]
 fn shard_id_of(handle: &EpochManagerHandle) -> ShardId {
     handle.get_shard_layout(&EpochId::default()).unwrap().shard_ids().next().unwrap()
 }
 
 /// What one node believes at one anchor: whether the early-kickout blacklist is active, and
 /// which producer the consensus reader returns for the anchor's grandchild chunk.
-#[cfg(feature = "nightly")]
 #[derive(Debug, PartialEq, Eq)]
 struct Belief {
     blacklist: HashMap<ShardId, HashSet<ValidatorId>>,
@@ -323,7 +311,6 @@ struct Belief {
     walk_epoch_start: BlockHeight,
 }
 
-#[cfg(feature = "nightly")]
 fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief {
     let anchor = canonical_hash(anchor_height);
     let shard_id = shard_id_of(handle);
@@ -348,7 +335,6 @@ fn belief_at(handle: &EpochManagerHandle, anchor_height: BlockHeight) -> Belief 
 /// `(produced, expected)` per `(account, shard)` up to `block_hash`, via
 /// `get_validator_info`, which reads the same aggregator `shard_tracker` the blacklist math
 /// does — so this is the blacklist's only input besides the epoch start.
-#[cfg(feature = "nightly")]
 fn chunk_counters(
     handle: &EpochManagerHandle,
     block_hash: CryptoHash,
@@ -372,7 +358,6 @@ fn chunk_counters(
 /// Fails loudly if the fixture cannot express the property: the down node must actually be
 /// blacklisted by the end of the scan on *both* nodes, otherwise every comparison below is
 /// vacuously equal.
-#[cfg(feature = "nightly")]
 fn assert_fixture_is_live(handle: &EpochManagerHandle, down: ValidatorId, label: &str) {
     let last = *scan_anchors().end();
     let shard_id = shard_id_of(handle);
@@ -389,14 +374,12 @@ fn assert_fixture_is_live(handle: &EpochManagerHandle, down: ValidatorId, label:
 
 /// Reads both nodes' beliefs at every scanned anchor, once. Layers 2 and 3 filter these rows
 /// rather than sweeping the accessors again, so the table and the assertions can't disagree.
-#[cfg(feature = "nightly")]
 fn scan(a: &EpochManagerHandle, b: &EpochManagerHandle) -> Vec<(BlockHeight, Belief, Belief)> {
     scan_anchors().map(|anchor| (anchor, belief_at(a, anchor), belief_at(b, anchor))).collect()
 }
 
 /// Renders the per-anchor comparison so a failure shows exactly where the two nodes split.
 /// Returns the table and the anchors where the two beliefs differ in any field.
-#[cfg(feature = "nightly")]
 fn render_table(
     rows: &[(BlockHeight, Belief, Belief)],
     start_a: BlockHeight,
@@ -431,7 +414,6 @@ fn render_table(
 }
 
 /// Builds the two nodes for layers 2 and 3.
-#[cfg(feature = "nightly")]
 fn build_pair(high_first_b: bool) -> (EpochManagerHandle, EpochManagerHandle, ValidatorId) {
     let down = pick_down_validator();
     let a = build_node(false, down, head_height());
@@ -444,7 +426,6 @@ fn build_pair(high_first_b: bool) -> (EpochManagerHandle, EpochManagerHandle, Va
 /// LAYER 2. Does the divergence reach the grace window: two honest nodes on the same
 /// canonical chain must agree on whether the early-kickout blacklist is active at a given
 /// anchor.
-#[cfg(feature = "nightly")]
 #[test]
 fn grace_expiry_does_not_depend_on_fork_processing_order() {
     let (a, b, down) = build_pair(true);
@@ -506,7 +487,6 @@ fn grace_expiry_does_not_depend_on_fork_processing_order() {
 
 /// LAYER 3. Does the divergence reach consensus: the producer that chunk validation expects
 /// for the anchor's grandchild chunk must be the same on both nodes.
-#[cfg(feature = "nightly")]
 #[test]
 fn anchored_chunk_producer_does_not_depend_on_fork_processing_order() {
     let (a, b, down) = build_pair(true);
@@ -546,7 +526,6 @@ fn anchored_chunk_producer_does_not_depend_on_fork_processing_order() {
 
 /// Control. Same fixture, both nodes using the SAME processing order: everything must match.
 /// If this ever fails, the three tests above prove nothing about fork order.
-#[cfg(feature = "nightly")]
 #[test]
 fn same_processing_order_nodes_agree_everywhere() {
     let (a, b, _down) = build_pair(false);

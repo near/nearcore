@@ -621,13 +621,13 @@ impl ProtocolFeature {
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
+            ProtocolFeature::EarlyKickout => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::FixMlDsaCostCharging => 153,
             ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
