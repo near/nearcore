@@ -28,9 +28,10 @@
 //! because its genesis epoch runs one protocol version back and EarlyKickout has to be
 //! active there.
 //!
-//! Production trips the blacklist at 100 misses accumulated past a 1000-block
-//! start-of-epoch grace, which is ~1100 blocks — far more than a test-loop chain
-//! can run. All of them therefore shrink both thresholds through
+//! Production accumulates misses from epoch start but keeps the blacklist suppressed
+//! through a 1000-block start-of-epoch grace, so the earliest exclusion is ~1000 blocks
+//! in — far more than a test-loop chain can run. All of them therefore shrink both
+//! thresholds through
 //! `set_early_kickout_thresholds_for_testing` so the gate trips in tens of
 //! blocks. The overrides are thread-local with production-constant defaults, so
 //! nothing outside these tests is affected; the exact production values

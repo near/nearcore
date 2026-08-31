@@ -90,7 +90,8 @@ fn early_kickout_epoch_grace_blocks() -> u64 {
 
 /// Test-only overrides for the two early-kickout thresholds.
 ///
-/// Reaching the production gate (100 misses past a 1000-block grace) takes ~1100 blocks,
+/// Misses accumulate from epoch start, but the blacklist stays suppressed until the anchor is
+/// past the 1000-block grace, so the earliest exclusion on a real chain is ~1000 blocks in,
 /// which a test-loop chain cannot afford. These knobs let a test shrink both so the gate
 /// trips in tens of blocks. The thread-local defaults are the production constants, so
 /// any build carrying `test_features` (the CI test runs enable it workspace-wide)

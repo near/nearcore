@@ -101,7 +101,7 @@ A chunk producer is excluded on a shard when both hold for its stats in the curr
 
 Exclusion is per shard, and stats never cross an epoch boundary. A 1000-block grace window
 at the start of each epoch delays the first possible exclusion, so a producer cannot be
-excluded before roughly block 1100 of an epoch. A safety valve keeps the least-bad producer
+excluded before roughly block 1000 of an epoch. A safety valve keeps the least-bad producer
 eligible when the rule would exclude every distinct producer on a shard, so a shard can never
 run out of chunk producers.
 
