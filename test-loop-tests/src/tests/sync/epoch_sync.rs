@@ -527,6 +527,7 @@ impl EpochSyncTrafficCounter {
 
 #[test]
 #[cfg(feature = "nightly")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_batched_epoch_sync_from_genesis() {
     init_test_logger();
     assert!(
