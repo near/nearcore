@@ -57,8 +57,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (129, include_config!("129.yaml")),
-    // Price gas-key exec fees on trie_id_len() and send fees on len().
-    (153, include_config!("153.yaml")),
     // Make `0u` ids implicit, so a transfer can fund a universal account
     // before its state init is applied.
     (154, include_config!("154.yaml")),
