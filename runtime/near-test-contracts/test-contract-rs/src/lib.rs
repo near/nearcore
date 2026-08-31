@@ -131,6 +131,15 @@ extern "C" {
         account_id_ptr: u64,
         amount_ptr: u64,
     ) -> u64;
+    #[cfg(feature = "nightly")]
+    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_universal_state_init(
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64,
+    );
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -373,6 +382,37 @@ pub unsafe fn ext_used_gas() {
     let gas = used_gas() - initial_used_gas;
     let result = gas.to_le_bytes();
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
+
+/// Creates the `0u` universal account described by the raw state init passed as
+/// input, funding it with the attached deposit.
+///
+/// A contract cannot derive a universal account id on its own, so it asks the
+/// host for it and points the promise at what comes back.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init() {
+    input(0);
+    let mut state_init = vec![0u8; register_len(0) as usize];
+    read_register(0, state_init.as_mut_ptr());
+    let state_init_len = state_init.len() as u64;
+    let state_init_ptr = state_init.as_ptr() as *const u64 as u64;
+
+    // Register 1 receives the account id this state init derives to.
+    universal_state_init_to_account_id(state_init_len, state_init_ptr, 1);
+    // `u64::MAX` as the length reads the account id from register 1.
+    let promise_idx = promise_batch_create(u64::MAX, 1);
+
+    let mut amount = [0u8; size_of::<u128>()];
+    attached_deposit(amount.as_mut_ptr());
+    promise_batch_action_universal_state_init(
+        promise_idx,
+        state_init_len,
+        state_init_ptr,
+        amount.as_ptr() as *const u64 as u64,
+    );
+    // Return the promise so the caller's outcome reflects whether the init ran.
+    promise_return(promise_idx);
 }
 
 #[unsafe(no_mangle)]

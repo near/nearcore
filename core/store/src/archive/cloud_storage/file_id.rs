@@ -1,6 +1,6 @@
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::batch::BatchId;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
 
 /// Cloud directories that can be safely listed (recursively).
@@ -45,7 +45,7 @@ pub enum CloudStorageFileID {
     /// Identifier of the state snapshot header file for the given epoch and shard.
     StateHeader(EpochHeight, EpochId, ShardId),
     /// Identifier of one state snapshot part file for the given epoch and shard.
-    StatePart(EpochHeight, EpochId, ShardId, PartId),
+    StatePart(EpochHeight, EpochId, ShardId, StatePartId),
 }
 
 impl CloudStorageFileID {
@@ -96,7 +96,7 @@ impl CloudStorage {
             ),
             CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id) => (
                 format!("epoch_height={epoch_height}/epoch_id={}/shard_id={shard_id}", epoch_id.0),
-                format!("state_part_{:06}_of_{:06}", part_id.idx, part_id.total),
+                format!("state_part_{:06}_of_{:06}", part_id.index, part_id.total),
             ),
         };
         dir_path = format!("chain_id={}/{}", self.chain_id, dir_path);

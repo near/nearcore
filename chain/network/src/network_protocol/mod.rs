@@ -10,6 +10,7 @@ pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
+use near_primitives::state_part::StatePartIndex;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -947,8 +948,8 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::StatePartRequest(request) => write!(
                 f,
-                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
-                request.sync_hash, request.shard_id, request.part_id,
+                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_idx={:?})",
+                request.sync_hash, request.shard_id, request.part_idx,
             ),
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
@@ -967,8 +968,8 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::StateRequestAck(ack) => write!(
                 f,
-                "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
-                ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
+                "StateRequestAck(sync_hash={:?}, shard_id={:?}, part_or_header={:?}, body={:?})",
+                ack.sync_hash, ack.shard_id, ack.part_or_header, ack.body,
             ),
             RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
                 f,
@@ -1595,10 +1596,10 @@ impl StateResponseInfo {
         }
     }
 
-    pub fn part_id(&self) -> Option<u64> {
+    pub fn part_idx(&self) -> Option<StatePartIndex> {
         match self {
-            Self::V1(info) => info.state_response.part_id(),
-            Self::V2(info) => info.state_response.part_id(),
+            Self::V1(info) => info.state_response.part_idx(),
+            Self::V2(info) => info.state_response.part_idx(),
         }
     }
 

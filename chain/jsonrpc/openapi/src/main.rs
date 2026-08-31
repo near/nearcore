@@ -703,7 +703,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.3.17".to_string(),
+            version: "1.3.22".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -842,6 +842,14 @@ fn main() {
         "Queries status of a transaction by hash and returns the final transaction result."
             .to_string(),
     );
+    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "tx_status".to_string(),
+        "Queries status of a transaction by hash, \
+        returning the final transaction result and details of all receipts."
+            .to_string(),
+    );
     add_spec_for_path::<RpcValidatorRequest, RpcValidatorResponse, RpcValidatorError>(
         &mut all_schemas,
         &mut all_paths,
@@ -951,7 +959,10 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_tx_status".to_string(),
-        "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.".to_string(),
+        "[Deprecated] Queries status of a transaction by hash, \
+        returning the final transaction result and details of all receipts. \
+        Consider using `tx_status` instead."
+            .to_string(),
     );
     add_spec_for_path::<RpcValidatorsOrderedRequest, RpcValidatorsOrderedResponse, RpcValidatorError>(
         &mut all_schemas,

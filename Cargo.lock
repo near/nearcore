@@ -161,9 +161,12 @@ dependencies = [
 
 [[package]]
 name = "arc-swap"
-version = "1.5.0"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5d78ce20460b82d3fa150275ed9d55e21064fc7951177baacf86a145c4a4b1f"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "archery"
@@ -4179,6 +4182,7 @@ dependencies = [
  "clap",
  "near-chain-configs",
  "near-client",
+ "near-epoch-manager",
  "near-primitives",
  "near-store",
  "nearcore",
@@ -5199,6 +5203,7 @@ dependencies = [
  "serde",
  "serde_ignored",
  "serde_json",
+ "strum",
  "tempfile",
  "testlib",
  "thiserror 2.0.18",
@@ -6367,15 +6372,16 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.23.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ea8c51b5dc1d8e5fd3350ec8167f464ec0995e79f2e90a075b63371500d557f"
+checksum = "e902a69d09078829137b4a5d9d082e0490393537badd7c91a3d69d14639e115f"
 dependencies = [
+ "arc-swap",
  "combine",
  "itoa",
+ "num-bigint 0.4.6",
  "percent-encoding",
  "ryu",
- "sha1_smol",
  "url",
 ]
 
@@ -7305,12 +7311,6 @@ dependencies = [
  "cpufeatures",
  "digest 0.10.7",
 ]
-
-[[package]]
-name = "sha1_smol"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"

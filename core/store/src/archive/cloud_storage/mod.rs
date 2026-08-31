@@ -73,7 +73,6 @@ impl CloudStorage {
 
     /// Highest height whose block data is in the bucket, if the writer has
     /// published a block head at all.
-    #[cfg(feature = "test_features")]
     pub fn get_cloud_block_head(&self) -> Result<Option<BlockHeight>, CloudRetrievalError> {
         block_on_future(self.retrieve_cloud_block_head_if_exists())
     }
@@ -144,11 +143,6 @@ fn block_on_future<F: Future>(fut: F) -> F::Output {
 
 /// Columns the cloud-archive reader reproduces from cloud data.
 pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
-    // From BlockData.
-    #[cfg(feature = "nightly")]
-    if col == DBCol::ChunkProducers {
-        return true;
-    }
     matches!(
         col,
         // From BlockData.
@@ -156,6 +150,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             | DBCol::BlockInfo
             | DBCol::NextBlockHashes
             | DBCol::BlockMerkleTree
+            | DBCol::ChunkProducers
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight

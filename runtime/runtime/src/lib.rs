@@ -122,6 +122,7 @@ pub mod state_viewer;
 #[cfg(test)]
 mod tests;
 mod types;
+mod universal_account_id;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -538,7 +539,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -624,6 +625,18 @@ impl Runtime {
                     account_id,
                     receipt,
                     deterministic_state_init_action,
+                    &mut result,
+                )?;
+            }
+            Action::UniversalStateInit(universal_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.universal_state_init.inc();
+                universal_account_id::action_universal_state_init(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    receipt,
+                    universal_state_init_action,
                     &mut result,
                 )?;
             }

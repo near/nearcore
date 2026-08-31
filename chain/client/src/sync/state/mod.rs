@@ -26,7 +26,7 @@ use near_network::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::state_part::StatePart;
+use near_primitives::state_part::{StatePart, StatePartIndex};
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::ShardId;
 use near_store::Store;
@@ -450,7 +450,7 @@ pub(self) trait StateSyncDownloadSource: Send + Sync + 'static {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id: u64,
+        part_idx: StatePartIndex,
         handle: Arc<TaskHandle>,
         cancel: CancellationToken,
     ) -> BoxFuture<'_, Result<StatePart, near_chain::Error>>;

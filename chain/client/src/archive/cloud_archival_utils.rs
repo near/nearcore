@@ -1,5 +1,9 @@
+use near_chain::Error;
+use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::errors::EpochError;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
@@ -10,14 +14,18 @@ use near_store::{DBCol, Store, StoreUpdate};
 pub enum CloudArchivalReaderError {
     #[error(transparent)]
     Retrieval(#[from] CloudRetrievalError),
+    #[error(transparent)]
+    Chain(#[from] Error),
+    #[error(transparent)]
+    Epoch(#[from] EpochError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
 }
 
 /// Writes block-level columns from a cloud `BlockData` into `update`.
 ///
-/// Block, BlockHeader, BlockInfo (content-addressed by hash) and, on nightly,
-/// ChunkProducers all use `insert_ser` (insert-only columns). BlockHeight and
+/// Block, BlockHeader, BlockInfo (content-addressed by hash) and ChunkProducers
+/// all use `insert_ser` (insert-only columns). BlockHeight and
 /// BlockMerkleTree use `set_ser` (regular columns, keyed by height or hash, safe
 /// to overwrite).
 pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
@@ -32,7 +40,6 @@ pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), &block_hash);
     update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_data.block_merkle_tree());
 
-    #[cfg(feature = "nightly")]
     for (shard_id, stake) in block_data.chunk_producers() {
         update.insert_ser(
             DBCol::ChunkProducers,
@@ -42,14 +49,51 @@ pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     }
 }
 
-/// Writes epoch-level data from cloud storage into the local store.
-pub fn save_epoch_data(store: &Store, epoch_id: &EpochId, epoch_data: &EpochData) {
+/// Downloads the batch containing `start_height`, writes its block rows from there to
+/// the batch's end in one commit, and returns that end. When an epoch ends inside the
+/// batch, the epoch starting after it is pulled too, that boundary being the only thing
+/// that names a new epoch.
+pub(crate) fn pull_block_batch(
+    store: &Store,
+    cloud_storage: &CloudStorage,
+    epoch_manager: &dyn EpochManagerAdapter,
+    start_height: BlockHeight,
+) -> Result<BlockHeight, CloudArchivalReaderError> {
+    let block_batch = cloud_storage.get_block_batch_for_height(start_height)?;
+    let mut next_epoch_id = None;
     let mut update = store.store_update();
+    for block_height in start_height..=block_batch.end_height() {
+        let Some(block_data) = block_batch.get_block_at_height(block_height) else {
+            continue;
+        };
+        save_block_data(&mut update, block_data);
+        if next_epoch_id.is_none()
+            && epoch_manager.is_next_block_in_next_epoch(block_data.block_info())?
+        {
+            next_epoch_id = Some(*block_data.block().header().next_epoch_id());
+        }
+    }
+    update.commit();
+    if let Some(next_epoch_id) = next_epoch_id {
+        pull_epoch_data(store, cloud_storage, &next_epoch_id)?;
+    }
+    Ok(block_batch.end_height())
+}
 
+/// Writes the height the reader has taken the archive through.
+pub(crate) fn save_reader_head(store: &Store, height: BlockHeight) {
+    let mut update = store.store_update();
+    update.cloud_archival_store_update().set_reader_head(height);
+    update.commit();
+}
+
+/// Writes one epoch's cloud data into `update`.
+pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) {
+    let epoch_id = epoch_data.epoch_id();
     update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_data.epoch_info());
     update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_data.epoch_start_height());
-
-    update.commit();
+    let first_block_info = epoch_data.epoch_first_block_info();
+    update.insert_ser(DBCol::BlockInfo, first_block_info.hash().as_ref(), first_block_info);
 }
 
 /// Writes one shard's columns from its cloud `ShardData` into `update`.
@@ -123,18 +167,20 @@ pub fn find_snapshot_at_or_before(
     }
 }
 
-/// Downloads and saves epoch-level data for a new epoch.
-pub(crate) fn save_new_epoch(
+/// Downloads one epoch's data out of the bucket and writes it into the store.
+pub(crate) fn pull_epoch_data(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_id: &EpochId,
 ) -> Result<EpochData, CloudRetrievalError> {
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id)?;
-    save_epoch_data(store, epoch_id, &epoch_data);
+    let mut update = store.store_update();
+    save_epoch_data(&mut update, &epoch_data);
+    update.commit();
     tracing::info!(
         ?epoch_id,
         epoch_start_height = epoch_data.epoch_start_height(),
-        "saved epoch data"
+        "pulled epoch data"
     );
     Ok(epoch_data)
 }

@@ -7,13 +7,24 @@ use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
-    ActionCosts, ExtCosts, ExtCostsConfig, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
+    ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
     SignatureKind, gas_key_add_key_exec_fee, gas_key_add_key_send_fee, gas_key_transfer_exec_fee,
     gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
+    universal_state_init_content_terms, universal_state_init_size_terms,
 };
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
+use near_primitives::universal_state_init::{RawStateInit, state_init_counts};
+use near_primitives_core::universal_account_id::is_universal_account_id;
+
+/// Whether a transfer to `receiver_id` creates a `0u` universal account, which
+/// carries the same implied `CreateAccount` fee as a deterministic account.
+fn receiver_is_universal(config: &RuntimeConfig, receiver_id: &AccountId) -> bool {
+    // TODO(universal-accounts): replace with an `AccountType::Universal` check
+    // once `near-account-id` supports 0u accounts.
+    config.wasm_config.universal_accounts && is_universal_account_id(receiver_id.as_str())
+}
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -121,6 +132,7 @@ pub fn total_send_fees(
                     fees,
                     sender_is_receiver,
                     config.wasm_config.eth_implicit_accounts,
+                    receiver_is_universal(config, receiver_id),
                     receiver_id.get_account_type(),
                 )
             }
@@ -209,10 +221,45 @@ pub fn total_send_fees(
                 gas_key_send_pk_len(config, &action.public_key),
             )
             .total(),
+            UniversalStateInit(action) => {
+                universal_state_init_fee(fees, &action.state_init, |fee| {
+                    fee.send_fee(sender_is_receiver)
+                })?
+            }
         };
         result = result.checked_add_result(delta)?;
     }
     Ok(result)
+}
+
+/// Sum the universal-state-init action fee at `rate`, over every term of it.
+///
+/// The byte count is the length of the payload itself, not of the state it decodes
+/// to. Those differ: borsh drops duplicate storage keys on decode, so pricing the
+/// decoded form would let a large payload that collapses to nothing ride along for
+/// the base fee alone.
+///
+/// The terms come from `near_parameters`, shared with the VM host function that
+/// lets a contract create this action, so what a contract prepays is what the
+/// action is charged when it runs.
+///
+/// Overflow is reported rather than panicked on, though reaching it takes counts
+/// orders of magnitude past the transaction and receipt size limits, which are
+/// checked before this fee is computed on either path. (The VM charges a
+/// contract-created action through `pay_universal_state_init_terms` instead, and
+/// that does run before the receipt it builds is size-checked.)
+fn universal_state_init_fee(
+    fees: &RuntimeFeesConfig,
+    state_init: &RawStateInit,
+    rate: impl Fn(&Fee) -> ParameterCost,
+) -> Result<ParameterCost, IntegerOverflowError> {
+    let counts = state_init_counts(state_init);
+    universal_state_init_size_terms(counts.num_bytes)
+        .into_iter()
+        .chain(universal_state_init_content_terms(counts))
+        .try_fold(ParameterCost::ZERO, |sum, (cost, units)| {
+            sum.checked_add_result(rate(fees.fee(cost)).checked_mul_result(units)?)
+        })
 }
 
 fn permission_send_fees(
@@ -293,10 +340,14 @@ pub fn total_prepaid_send_fees(
     Ok(result)
 }
 
-pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> ParameterCost {
+pub fn exec_fee(
+    config: &RuntimeConfig,
+    action: &Action,
+    receiver_id: &AccountId,
+) -> Result<ParameterCost, IntegerOverflowError> {
     use Action::*;
     let fees = &config.fees;
-    match action {
+    let cost = match action {
         CreateAccount(_) => fees.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
@@ -320,6 +371,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             transfer_exec_fee(
                 fees,
                 config.wasm_config.eth_implicit_accounts,
+                receiver_is_universal(config, receiver_id),
                 receiver_id.get_account_type(),
             )
         }
@@ -361,6 +413,9 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
+        UniversalStateInit(action) => {
+            universal_state_init_fee(fees, &action.state_init, Fee::exec_fee)?
+        }
         TransferToGasKey(action) => {
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
@@ -369,7 +424,8 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             gas_key_transfer_exec_fee(fees, receiver_id.len(), action.public_key.trie_id_len())
                 .total()
         }
-    }
+    };
+    Ok(cost)
 }
 
 fn permission_exec_fees(
@@ -590,11 +646,11 @@ pub fn total_prepaid_exec_fees(
                 config,
                 action,
                 delegate_action.receiver_id(),
-            ))?;
+            )?)?;
             delta =
                 delta.checked_add_result(fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
-            delta = exec_fee(config, action, receiver_id);
+            delta = exec_fee(config, action, receiver_id)?;
         }
 
         result = result.checked_add_result(delta)?;
@@ -651,12 +707,14 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_crypto::SecretKey;
+    use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
     use near_primitives::action::TransferAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedSignedDelegateAction,
     };
     use near_primitives::transaction::{TransactionNonce, TransactionV0};
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
     const VERIFY_GAS: u64 = 80_000_000_000;
@@ -837,5 +895,75 @@ mod tests {
         let pq = cost_of(&config, KeyType::MLDSA65, vec![transfer()]);
         assert_eq!(pq.gas_burnt, ed.gas_burnt);
         assert_eq!(pq.gas_cost, ed.gas_cost);
+    }
+
+    /// Every term of the universal-state-init fee, priced at `unit` gas, except
+    /// `costly` at `u64::MAX`.
+    fn universal_state_init_fees(unit: u64, costly: &[ActionCosts]) -> RuntimeFeesConfig {
+        let mut fees = RuntimeFeesConfig::test();
+        let terms = [
+            ActionCosts::universal_state_init_base,
+            ActionCosts::universal_state_init_byte,
+            ActionCosts::universal_state_init_entry,
+            ActionCosts::add_full_access_key,
+        ];
+        terms.into_iter().for_each(|cost| fees.action_fees[cost] = Fee::new(unit, unit, unit));
+        costly
+            .iter()
+            .for_each(|&cost| fees.action_fees[cost] = Fee::new(u64::MAX, u64::MAX, u64::MAX));
+        fees
+    }
+
+    /// The universal-state-init fee reports an overflow instead of panicking.
+    /// The counts needed to get here are orders of magnitude beyond the receipt
+    /// size limit, so this only pins the failure mode.
+    #[test]
+    fn universal_state_init_fee_reports_overflow() {
+        // Two data entries of two bytes each, and two access keys.
+        let handle =
+            |seed| PublicKeyHandle::from(SecretKey::from_seed(KeyType::ED25519, seed).public_key());
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"a".to_vec(), b"1".to_vec()), (b"b".to_vec(), b"2".to_vec())]),
+            access_keys: BTreeSet::from([handle("uaid-fee-1"), handle("uaid-fee-2")]),
+        })
+        .to_raw();
+
+        // A sane call still sums normally: base + the payload's own length in
+        // bytes + 2 entries + 2 keys.
+        let num_bytes = state_init.0.len() as u64;
+        let fees = universal_state_init_fees(1, &[]);
+        let ok = universal_state_init_fee(&fees, &state_init, Fee::exec_fee).unwrap();
+        assert_eq!(ok.gas, Gas::from_gas(1 + num_bytes + 2 + 2));
+
+        // Priced at u64::MAX, each count-multiplied term overflows on its own...
+        for cost in [
+            ActionCosts::universal_state_init_byte,
+            ActionCosts::universal_state_init_entry,
+            ActionCosts::add_full_access_key,
+        ] {
+            let fees = universal_state_init_fees(0, &[cost]);
+            assert_eq!(
+                universal_state_init_fee(&fees, &state_init, Fee::exec_fee),
+                Err(IntegerOverflowError)
+            );
+        }
+
+        // ...and the summation overflows on the base term, whose count is one.
+        let fees = universal_state_init_fees(1, &[ActionCosts::universal_state_init_base]);
+        assert_eq!(
+            universal_state_init_fee(&fees, &state_init, Fee::exec_fee),
+            Err(IntegerOverflowError)
+        );
+
+        // Bytes that do not decode still pay for their length, but describe no
+        // entries and no keys, so those terms stay at zero even priced at u64::MAX.
+        let fees = universal_state_init_fees(
+            1,
+            &[ActionCosts::universal_state_init_entry, ActionCosts::add_full_access_key],
+        );
+        let malformed = RawStateInit(vec![7, 7, 7]);
+        let bytes_only = universal_state_init_fee(&fees, &malformed, Fee::exec_fee).unwrap();
+        assert_eq!(bytes_only.gas, Gas::from_gas(1 + 3));
     }
 }

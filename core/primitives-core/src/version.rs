@@ -343,6 +343,7 @@ pub enum ProtocolFeature {
     DynamicResharding,
     GasKeys,
     /// Meta transactions with gas key support via `Action::DelegateV2`.
+    /// Note: Later disabled by `RejectDelegateV2`.
     DelegateV2,
     #[deprecated]
     _DeprecatedFixAccessKeyAllowanceCharging,
@@ -447,6 +448,19 @@ pub enum ProtocolFeature {
     ReceiptPromiseInputSizeLimit,
     /// Reject `FunctionCall` actions with an empty `method_name` during action validation.
     RejectEmptyMethodName,
+    /// Reject `Action::DelegateV2`. This disables meta transactions from gas
+    /// keys, because the inner nonce advances a gas key of the delegate sender
+    /// and `PendingTransactionQueue` does not see it: the queue reads only the
+    /// outer transaction's signer, public key and nonce index, so its nonce and
+    /// gas key balance commitments would miss that key. The `DelegateV2`
+    /// variant and `VersionedDelegateActionPayload` remain so a later delegate
+    /// action version can reuse them.
+    RejectDelegateV2,
+    /// Reject a `WithdrawFromGasKey` action nested inside a delegate action.
+    /// The SPICE pending transaction queue scans only the top level actions of
+    /// a transaction for `WithdrawFromGasKey`, so a nested one drains a gas key
+    /// that the queue still counts as funded.
+    RejectWithdrawFromGasKeyInDelegate,
     EnforcePerReceiptStorageProofLimit,
     /// Extend the per-receipt storage proof limit to every action kind. The
     /// `RecordedStorageCounter` only runs inside the VM, so it bounds
@@ -469,6 +483,10 @@ pub enum ProtocolFeature {
     ///   verification, instead of on the signer shard, so it counts against the
     ///   right `compute_limit`.
     FixMlDsaCostCharging,
+    /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
+    /// action, which creates an account whose ID is derived from its canonical state
+    /// init (contract code, storage, and access keys).
+    UniversalAccounts,
 }
 
 impl ProtocolFeature {
@@ -596,9 +614,10 @@ impl ProtocolFeature {
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
             ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
-
-            ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::FixContractLoadingError => 87,
             ProtocolFeature::RejectEmptyMethodName => 87,
+            ProtocolFeature::RejectDelegateV2 => 87,
+            ProtocolFeature::RejectWithdrawFromGasKeyInDelegate => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
@@ -610,6 +629,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::EarlyKickout => 152,
             ProtocolFeature::FixMlDsaCostCharging => 153,
+            ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

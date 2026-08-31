@@ -1,7 +1,7 @@
 use super::StateSyncDownloadSource;
 use super::chain_requests::StateHeaderValidationRequest;
 use super::task_tracker::TaskTracker;
-use super::util::get_state_header_if_exists_in_storage;
+use super::util::{get_state_header_if_exists_in_storage, increment_download_count};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
@@ -9,7 +9,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
@@ -141,7 +141,7 @@ impl StateSyncDownloader {
         sync_hash: CryptoHash,
         state_root: CryptoHash,
         num_state_parts: u64,
-        part_id: u64,
+        part_idx: StatePartIndex,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
@@ -155,9 +155,9 @@ impl StateSyncDownloader {
                 return Err(near_chain::Error::Other("Cancelled".to_owned()));
             }
             let handle =
-                task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
+                task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_idx)).await;
             handle.set_status("Reading existing part");
-            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id) {
+            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_idx) {
                 return Ok(());
             }
 
@@ -166,7 +166,7 @@ impl StateSyncDownloader {
                     .download_shard_part(
                         shard_id,
                         sync_hash,
-                        part_id,
+                        part_idx,
                         handle.clone(),
                         cancel.clone(),
                     )
@@ -175,17 +175,18 @@ impl StateSyncDownloader {
                     runtime_adapter.validate_state_part(
                         shard_id,
                         &state_root,
-                        PartId { idx: part_id, total: num_state_parts },
+                        StatePartId { index: part_idx, total: num_state_parts },
                         &part,
                     ),
                     StatePartValidationResult::Valid
                 ) {
                     let mut store_update = store.store_update();
-                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap();
                     let bytes = part.to_bytes();
                     store_update.set(DBCol::StateParts, &key, &bytes);
                     store_update.commit();
                 } else {
+                    increment_download_count(shard_id, "part", "network", "validation_failed");
                     return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
                 }
                 Ok(())
@@ -213,10 +214,10 @@ fn does_state_part_exist_on_disk(
     store: &Store,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: u64,
+    part_idx: StatePartIndex,
 ) -> bool {
     store.exists(
         DBCol::StateParts,
-        &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
+        &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap(),
     )
 }

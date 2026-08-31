@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.17"
+    "version": "1.3.22"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -427,7 +427,7 @@
     },
     "/EXPERIMENTAL_tx_status": {
       "post": {
-        "description": "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.",
+        "description": "[Deprecated] Queries status of a transaction by hash, returning the final transaction result and details of all receipts. Consider using `tx_status` instead.",
         "operationId": "EXPERIMENTAL_tx_status",
         "requestBody": {
           "content": {
@@ -1106,6 +1106,34 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/JsonRpcRequest_for_tx"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tx_status": {
+      "post": {
+        "description": "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.",
+        "operationId": "tx_status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_tx_status"
               }
             }
           },
@@ -2505,6 +2533,13 @@
               "ReceiptStorageProofSizeExceeded"
             ],
             "type": "object"
+          },
+          {
+            "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
+            "enum": [
+              "MalformedUniversalStateInit"
+            ],
+            "type": "string"
           }
         ]
       },
@@ -2883,6 +2918,30 @@
             },
             "required": [
               "WithdrawFromGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "properties": {
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "state_init": {
+                    "$ref": "#/components/schemas/RawStateInit"
+                  }
+                },
+                "required": [
+                  "state_init",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
             ],
             "type": "object"
           }
@@ -3357,6 +3416,130 @@
             "description": "The method name in a FunctionCall action must not be empty.",
             "enum": [
               "FunctionCallEmptyMethodName"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receiver id of a `UniversalStateInit` action does not match the id\nderived from its state init.",
+            "properties": {
+              "InvalidUniversalStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidUniversalStateInitReceiver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage key in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitKeyLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage value in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitValueLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
+            "enum": [
+              "MalformedUniversalStateInit"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction includes a feature that was removed at or before the\ncurrent protocol version. The counterpart of\n`UnsupportedProtocolFeature`, which covers features not yet available.",
+            "properties": {
+              "RemovedProtocolFeature": {
+                "properties": {
+                  "protocol_feature": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "protocol_feature",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RemovedProtocolFeature"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A `WithdrawFromGasKey` action must not be nested inside a delegate action.",
+            "enum": [
+              "WithdrawFromGasKeyNotAllowedInDelegate"
             ],
             "type": "string"
           }
@@ -7106,6 +7289,22 @@
             ],
             "description": "Cost per reading trie node from DB"
           },
+          "universal_state_init_to_account_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of deriving a `0u` account id from a raw state init."
+          },
+          "universal_state_init_to_account_id_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte of the raw state init."
+          },
           "utf16_decoding_base": {
             "allOf": [
               {
@@ -8900,7 +9099,7 @@
             "type": "string"
           },
           {
-            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
+            "description": "A plain access key nonce does not select one of the gas key's nonces.\n`DelegateV2` was intended to carry a gas key nonce, however gas key\nmeta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.",
             "enum": [
               "DelegateActionRequiresNonGasKey"
             ],
@@ -10441,6 +10640,33 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_tx",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_tx_status": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "tx_status"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcTransactionStatusRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_tx_status",
         "type": "object"
       },
       "JsonRpcRequest_for_validators": {
@@ -12447,6 +12673,18 @@
               "WithdrawFromGasKey"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "$ref": "#/components/schemas/UniversalStateInitAction"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -12757,6 +12995,10 @@
           "end"
         ],
         "type": "object"
+      },
+      "RawStateInit": {
+        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Two encodings of the same logical value\nare two different accounts, which is deliberate: canonical encoding cannot be\nenforced end to end anyway, since contracts serialize their own nested state\ninside the opaque storage values.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
+        "type": "string"
       },
       "ReceiptEnumView": {
         "oneOf": [
@@ -22310,6 +22552,22 @@
           }
         ]
       },
+      "UniversalStateInitAction": {
+        "description": "Create a `0u` universal account from its state init. The receiver id must\nequal `derive_universal_account_id(state_init)`; the attached `deposit`\ncovers the new account's storage staking.\n\nThe state init travels as the bytes the producer serialized, because the\nreceiver id commits to exactly those bytes. The typed [`UniversalStateInit`]\nis a decoded view of them, used where the state has to be installed or priced.",
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/RawStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
+        ],
+        "type": "object"
+      },
       "UseGlobalContractAction": {
         "description": "Use global contract action",
         "properties": {
@@ -22423,6 +22681,10 @@
               }
             ],
             "description": "See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode)."
+          },
+          "universal_accounts": {
+            "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",
+            "type": "boolean"
           },
           "vm_kind": {
             "allOf": [

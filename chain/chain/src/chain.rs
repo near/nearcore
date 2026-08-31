@@ -4066,11 +4066,13 @@ impl Chain {
     /// If sharding changes before we can find a block with a new chunk for the shard,
     /// find the first block that contains a new chunk for any of the shards that split from the
     /// original shard
+    /// The returned shard id and shard index both belong to the returned block's shard layout,
+    /// which can differ from the layout of `block_hash`.
     pub fn get_next_block_hash_with_new_chunk(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
+    ) -> Result<Option<(CryptoHash, ShardId, ShardIndex)>, Error> {
         let mut block_hash = *block_hash;
         let mut epoch_id = *self.get_block_header(&block_hash)?.epoch_id();
         let mut shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -4104,7 +4106,7 @@ impl Chain {
                 let chunk_header =
                     &chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
                 if chunk_header.height_included() == block.header().height() {
-                    return Ok(Some((block_hash, shard_id)));
+                    return Ok(Some((block_hash, shard_id, shard_index)));
                 }
             }
         }

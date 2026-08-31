@@ -613,7 +613,7 @@ fn convert_account_delete_to_operations(
     previous_account_state: Option<near_primitives::views::AccountView>,
 ) {
     let previous_account_balances = if let Some(previous_account_state) = previous_account_state {
-        crate::utils::RosettaAccountBalances::from_account(previous_account_state, runtime_config)
+        crate::utils::RosettaAccountBalances::from_account(&previous_account_state, runtime_config)
     } else {
         return;
     };

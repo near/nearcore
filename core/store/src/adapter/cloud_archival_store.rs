@@ -1,7 +1,8 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{
-    CLOUD_BLOCK_HEAD_KEY, CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY, CLOUD_SHARD_HEAD_PREFIX,
-    cloud_shard_head_key, cloud_shard_head_key_shard_id,
+    CLOUD_READER_HEAD_KEY, CLOUD_WRITER_BLOCK_HEAD_KEY, CLOUD_WRITER_MIN_HEAD_KEY,
+    CLOUD_WRITER_PREV_EPOCH_END_KEY, CLOUD_WRITER_SHARD_HEAD_PREFIX, cloud_writer_shard_head_key,
+    cloud_writer_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::BorshDeserialize;
@@ -32,30 +33,37 @@ impl CloudArchivalStoreAdapter {
     }
 
     /// Height up to which every archivized component has reached the bucket.
-    pub fn min_head(&self) -> Option<BlockHeight> {
-        self.store.get_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
+    pub fn writer_min_head(&self) -> Option<BlockHeight> {
+        self.store.get_ser(DBCol::BlockMisc, CLOUD_WRITER_MIN_HEAD_KEY)
     }
 
     /// Height up to which block data has reached the bucket.
-    pub fn block_head(&self) -> Option<BlockHeight> {
-        self.store.get_ser(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY)
+    pub fn writer_block_head(&self) -> Option<BlockHeight> {
+        self.store.get_ser(DBCol::BlockMisc, CLOUD_WRITER_BLOCK_HEAD_KEY)
     }
 
     /// Height up to which one shard's data has reached the bucket.
-    pub fn shard_head(&self, shard_id: ShardId) -> Option<BlockHeight> {
-        self.store.get_ser(DBCol::BlockMisc, &cloud_shard_head_key(shard_id))
+    pub fn writer_shard_head(&self, shard_id: ShardId) -> Option<BlockHeight> {
+        self.store.get_ser(DBCol::BlockMisc, &cloud_writer_shard_head_key(shard_id))
     }
 
     /// Last block of the latest fully archivized epoch.
-    pub fn prev_epoch_end(&self) -> Option<CryptoHash> {
-        self.store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY)
+    pub fn writer_prev_epoch_end(&self) -> Option<CryptoHash> {
+        self.store.get_ser(DBCol::BlockMisc, CLOUD_WRITER_PREV_EPOCH_END_KEY)
+    }
+
+    /// Height a reader has written every component through, absent unless this store
+    /// is a reader's.
+    pub fn reader_head(&self) -> Option<BlockHeight> {
+        self.store.get_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY)
     }
 
     /// Every shard the node has recorded a head for, in shard order.
-    pub fn all_shard_heads(&self) -> Vec<(ShardId, BlockHeight)> {
+    pub fn all_writer_shard_heads(&self) -> Vec<(ShardId, BlockHeight)> {
         let mut heads = Vec::new();
-        for (key, value) in self.store.iter_prefix(DBCol::BlockMisc, CLOUD_SHARD_HEAD_PREFIX) {
-            let Some(shard_id) = cloud_shard_head_key_shard_id(&key) else {
+        for (key, value) in self.store.iter_prefix(DBCol::BlockMisc, CLOUD_WRITER_SHARD_HEAD_PREFIX)
+        {
+            let Some(shard_id) = cloud_writer_shard_head_key_shard_id(&key) else {
                 continue;
             };
             let Ok(height) = BlockHeight::try_from_slice(&value) else {
@@ -96,19 +104,27 @@ impl<'a> CloudArchivalStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
-    pub fn set_min_head(&mut self, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY, &height);
+    pub fn set_writer_min_head(&mut self, height: BlockHeight) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_WRITER_MIN_HEAD_KEY, &height);
     }
 
-    pub fn set_block_head(&mut self, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY, &height);
+    pub fn set_writer_block_head(&mut self, height: BlockHeight) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_WRITER_BLOCK_HEAD_KEY, &height);
     }
 
-    pub fn set_shard_head(&mut self, shard_id: ShardId, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockMisc, &cloud_shard_head_key(shard_id), &height);
+    pub fn set_writer_shard_head(&mut self, shard_id: ShardId, height: BlockHeight) {
+        self.store_update.set_ser(
+            DBCol::BlockMisc,
+            &cloud_writer_shard_head_key(shard_id),
+            &height,
+        );
     }
 
-    pub fn set_prev_epoch_end(&mut self, block_hash: CryptoHash) {
-        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY, &block_hash);
+    pub fn set_writer_prev_epoch_end(&mut self, block_hash: CryptoHash) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_WRITER_PREV_EPOCH_END_KEY, &block_hash);
+    }
+
+    pub fn set_reader_head(&mut self, height: BlockHeight) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, &height);
     }
 }

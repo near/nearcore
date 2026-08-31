@@ -14,7 +14,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -88,7 +88,7 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     let mut parts_downloaded: u64 = 0;
     *status.lock() = ShardSyncStatus::StateDownloadParts { done: 0, total: num_parts };
-    let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
+    let mut parts_to_download: Vec<StatePartIndex> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
         // to send the requests to the same host. It allows the host to benefit from caching the part.
@@ -101,19 +101,27 @@ pub(super) async fn run_state_sync_for_shard(
     }
     while !parts_to_download.is_empty() {
         return_if_cancelled!(cancel);
+        // `buffer_unordered`, not `buffered`: the latter holds completed futures in their slots
+        // until all earlier ones yield, so one part stuck until the p2p timeout would block new
+        // requests and drop this shard's parallelism to one. Download order carries no meaning.
         let results = tokio_stream::iter(parts_to_download.clone())
-            .map(|part_id| {
+            .map(|part_idx| {
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
                     shard_id,
                     sync_hash,
                     state_root,
                     num_parts,
-                    part_id,
+                    part_idx,
                     cancel.clone(),
                 );
-                respawn_for_parallelism(&*future_spawner, "state sync download part", future)
+                let future =
+                    respawn_for_parallelism(&*future_spawner, "state sync download part", future);
+                // Results arrive in completion order, so the part id can't be recovered from
+                // the position in the output. Carry it in the error, the only branch that
+                // needs it, so the stream stays a `TryStream`.
+                async move { future.await.map_err(|err| (part_idx, err)) }
             })
-            .buffered(concurrency_limit.into())
+            .buffer_unordered(concurrency_limit.into())
             .inspect_ok(|_| {
                 parts_downloaded += 1;
                 *status.lock() = ShardSyncStatus::StateDownloadParts {
@@ -121,55 +129,37 @@ pub(super) async fn run_state_sync_for_shard(
                     total: num_parts,
                 };
             })
+            .inspect_err(|(part_id, err)| {
+                tracing::debug!(target: "sync", ?shard_id, part_id, ?err, "state part download failed");
+            })
             .collect::<Vec<_>>()
             .await;
         // Update the list of parts_to_download retaining only the ones that failed.
         // Failed single attempts already wait `retry_backoff` inside the downloader
         // before returning, so the next round is paced without an extra delay here.
-        parts_to_download = results
-            .iter()
-            .enumerate()
-            .filter_map(|(task_index, res)| {
-                res.as_ref().err().map(|_| parts_to_download[task_index])
-            })
-            .collect();
+        parts_to_download =
+            results.into_iter().filter_map(|res| res.err().map(|(part_id, _)| part_id)).collect();
     }
 
     return_if_cancelled!(cancel);
     *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
-    // Clear flat storage before applying state parts.
-    //
-    // If flat storage is already loaded in memory, it means a previous state
-    // sync completed and flat state may have been modified by subsequent block
-    // processing. We must clear everything and re-apply from scratch.
-    //
-    // If flat storage is NOT in memory but some parts were already applied
-    // (i.e. we crashed mid-sync and are resuming), skip cleanup to preserve
-    // the progress made so far.
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    let flat_storage_exists = flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
-    let apply_parts_started = any(0..num_parts, |part_id| {
-        let key = StatePartKey(sync_hash, shard_id, part_id);
-        let key_bytes = borsh::to_vec(&key).unwrap();
-        store.exists(DBCol::StatePartsApplied, &key_bytes)
-    });
-    if apply_parts_started && !flat_storage_exists {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
+    if keep_applied_state_parts(&store, shard_uid, sync_hash, num_parts) {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "resuming an unfinished apply, keeping the state parts already applied");
     } else {
-        if flat_storage_exists && apply_parts_started {
-            tracing::debug!(target: "sync", ?shard_id, ?sync_hash,
-                "clearing completed flat storage and re-applying state parts");
-        } else {
-            tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
-        }
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
         let mut store_update = store.store_update();
-        flat_storage_manager
+        // A shard being state synced is usually absent from the registry, and then this
+        // clears nothing.
+        let cleared_via_registry = flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        // Also clear StatePartsApplied markers so the parts are re-applied.
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id);
+        if !cleared_via_registry {
+            store_update.flat_store_update().remove_flat_storage(shard_uid);
+        }
+        for part_idx in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_idx);
             let key_bytes = borsh::to_vec(&key).unwrap();
             store_update.delete(DBCol::StatePartsApplied, &key_bytes);
         }
@@ -179,7 +169,7 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     let mut parts_done: u64 = 0;
     tokio_stream::iter(0..num_parts)
-        .map(|part_id| {
+        .map(|part_idx| {
             let store = store.clone();
             let runtime = runtime.clone();
             let computation_task_tracker = computation_task_tracker.clone();
@@ -191,7 +181,7 @@ pub(super) async fn run_state_sync_for_shard(
                 cancel,
                 sync_hash,
                 shard_id,
-                part_id,
+                part_idx,
                 num_parts,
                 state_root,
                 epoch_id,
@@ -254,6 +244,33 @@ pub(super) async fn run_state_sync_for_shard(
     Ok(())
 }
 
+/// Whether the parts recorded in `StatePartsApplied` still describe the state on disk.
+///
+/// They do only while an apply is unfinished. `Ready` means an earlier sync already applied
+/// every part, after which finalize applies a chunk on top and refcount-deletes the base nodes
+/// the new root does not share, so the parts must be applied again.
+///
+/// The status comes from the database rather than the flat storage registry: the registry is
+/// empty after a restart, and `init_flat_storage` only fills it for the head epoch's layout,
+/// which excludes a shard being state synced while the head is still at genesis.
+fn keep_applied_state_parts(
+    store: &Store,
+    shard_uid: ShardUId,
+    sync_hash: CryptoHash,
+    num_parts: u64,
+) -> bool {
+    let previous_apply_completed = matches!(
+        store.flat_store().get_flat_storage_status(shard_uid),
+        FlatStorageStatus::Ready(_)
+    );
+    let apply_parts_started = any(0..num_parts, |part_idx| {
+        let key = StatePartKey(sync_hash, shard_uid.shard_id(), part_idx);
+        let key_bytes = borsh::to_vec(&key).unwrap();
+        store.exists(DBCol::StatePartsApplied, &key_bytes)
+    });
+    apply_parts_started && !previous_apply_completed
+}
+
 fn create_flat_storage_for_shard(
     store: &Store,
     runtime: &dyn RuntimeAdapter,
@@ -303,12 +320,12 @@ async fn apply_state_part(
     cancel: CancellationToken,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: u64,
+    part_idx: StatePartIndex,
     num_parts: u64,
     state_root: CryptoHash,
     epoch_id: EpochId,
 ) -> Result<StatePartApplyResult, near_chain::Error> {
-    let key = StatePartKey(sync_hash, shard_id, part_id);
+    let key = StatePartKey(sync_hash, shard_id, part_idx);
     let key_bytes = borsh::to_vec(&key).unwrap();
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
@@ -317,7 +334,7 @@ async fn apply_state_part(
     }
     return_if_cancelled!(cancel);
     let handle =
-        computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
+        computation_task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_idx)).await;
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
     let bytes = store
@@ -325,7 +342,7 @@ async fn apply_state_part(
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
-                part_id, shard_id
+                part_idx, shard_id
             ))
         })?
         .to_vec();
@@ -334,7 +351,7 @@ async fn apply_state_part(
     runtime.apply_state_part(
         shard_id,
         &state_root,
-        PartId { idx: part_id, total: num_parts },
+        StatePartId { index: part_idx, total: num_parts },
         &state_part,
         &epoch_id,
     )?;
@@ -357,6 +374,7 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
+    use near_store::flat::BlockInfo;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -387,6 +405,32 @@ mod tests {
         (runtime, store, tmp_dir)
     }
 
+    #[test]
+    fn applied_parts_kept_only_while_apply_is_unfinished() {
+        let store = create_test_store();
+        let shard_uid = ShardUId::single_shard();
+        let sync_hash = CryptoHash::default();
+        let key_bytes = borsh::to_vec(&StatePartKey(sync_hash, shard_uid.shard_id(), 0)).unwrap();
+        let mut store_update = store.store_update();
+        store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
+        store_update.commit();
+        assert!(keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
+
+        let mut store_update = store.flat_store().store_update();
+        store_update.set_flat_storage_status(
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo {
+                    hash: CryptoHash::default(),
+                    prev_hash: CryptoHash::default(),
+                    height: 1,
+                },
+            }),
+        );
+        store_update.commit();
+        assert!(!keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
+    }
+
     #[tokio::test]
     async fn test_apply_state() {
         let (runtime, store, _tmp_dir) = create_test_runtime_and_store();
@@ -396,14 +440,14 @@ mod tests {
         // Some arbitrary values for use in the test
         let sync_hash = CryptoHash::default();
         let shard_id = ShardLayout::single_shard().get_shard_id(0).unwrap();
-        let part_id = 0;
+        let part_idx = 0;
         let num_parts = 1;
         let state_root = CryptoHash::default();
         let epoch_id = EpochId::default();
 
         // Create and store a state part
         let state_part = create_dummy_state_part();
-        let key = StatePartKey(sync_hash, shard_id, part_id);
+        let key = StatePartKey(sync_hash, shard_id, part_idx);
         let key_bytes = borsh::to_vec(&key).unwrap();
         let part_bytes = state_part.to_bytes();
 
@@ -419,7 +463,7 @@ mod tests {
             cancel.clone(),
             sync_hash,
             shard_id,
-            part_id,
+            part_idx,
             num_parts,
             state_root,
             epoch_id,
@@ -441,7 +485,7 @@ mod tests {
             cancel.clone(),
             sync_hash,
             shard_id,
-            part_id,
+            part_idx,
             num_parts,
             state_root,
             epoch_id,

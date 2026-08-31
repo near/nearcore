@@ -15,7 +15,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -240,7 +240,7 @@ pub(crate) fn get_state_header_for_epoch(
 
 pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.cloud_archival_store().min_head().expect("CLOUD_MIN_HEAD should exist")
+    hot_store.cloud_archival_store().writer_min_head().expect("the writer min head should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -403,7 +403,8 @@ pub fn snapshots_sanity_check(
 
     // Every epoch through the last one the writer finished archiving. A batch that
     // ended exactly at an epoch's last block published the next epoch's data too.
-    let last_archived_epoch_last_block = store.cloud_archival_store().prev_epoch_end().unwrap();
+    let last_archived_epoch_last_block =
+        store.cloud_archival_store().writer_prev_epoch_end().unwrap();
     let last_archived_epoch_id =
         client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
     let last_archived_epoch_info = EpochInfo::try_from_slice(
@@ -548,9 +549,17 @@ pub fn bootstrap_historical_reader(
 
     // Download all blocks in the range into the reader's store.
     {
-        let store = env.node_for_account(reader_id).client().chain.chain_store.store();
-        bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
-            .expect("bootstrap_range should succeed");
+        let client = env.node_for_account(reader_id).client();
+        let store = client.chain.chain_store.store();
+        let epoch_manager = client.epoch_manager.clone();
+        bootstrap_range(
+            &store,
+            &cloud_storage,
+            epoch_manager.as_ref(),
+            start_height,
+            target_block_height,
+        )
+        .expect("bootstrap_range should succeed");
     }
 
     // Resolve the target's epoch for the shard layout. A skipped-slot target
@@ -653,7 +662,7 @@ async fn download_and_apply_state_snapshot(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
     for part_index in 0..num_parts {
-        let part_id = PartId::new(part_index, num_parts);
+        let part_id = StatePartId::new(part_index, num_parts);
         let state_part = cloud_storage
             .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
             .await
@@ -761,10 +770,17 @@ pub(crate) fn assert_reader_writer_parity(
 }
 
 /// Compares the writer's rows in `col` against the full reader.
+/// Every in-scope writer row is present in the reader with the same value. Extra
+/// reader rows are allowed, e.g. because of a batch being written whole.
 fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
     let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
-    assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch");
+    for (key, writer_value) in writer_kvs {
+        let reader_value = reader_all_kvs
+            .get(key)
+            .unwrap_or_else(|| panic!("{col} row missing from the reader: {key:?}"));
+        assert_eq!(reader_value, writer_value, "{col} value mismatch for {key:?}");
+    }
 }
 
 /// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.
@@ -827,8 +843,7 @@ fn writer_kvs(
             }
         }
         // ChunkProducers rows are keyed by block hash across all shards of the
-        // next epoch, so one prefix scan captures every row for this block.
-        #[cfg(feature = "nightly")]
+        // anchor's own epoch, so one prefix scan captures every row for this block.
         for (key, value) in writer.iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()) {
             kvs.get_mut(&DBCol::ChunkProducers).unwrap().insert(key.into_vec(), value.into_vec());
         }

@@ -1994,7 +1994,10 @@ impl EpochManager {
     }
 
     /// Returns true if the next block after `block_info` will be in the next epoch.
-    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+    pub(crate) fn is_next_block_in_next_epoch(
+        &self,
+        block_info: &BlockInfo,
+    ) -> Result<bool, EpochError> {
         if block_info.is_genesis() {
             return Ok(true);
         }
@@ -2320,8 +2323,8 @@ impl EpochManager {
         shard_layout: &ShardLayout,
         prev_hash: &CryptoHash,
     ) -> Option<HashMap<ShardId, ValidatorId>> {
-        // `DBCol::ChunkProducers` only exists under nightly (as does an enabled
-        // EarlyKickout); stable always uses the legacy sampler.
+        // The aggregator's access to `DBCol::ChunkProducers` stays nightly-gated (an
+        // enabled EarlyKickout is nightly-only); stable always uses the legacy sampler.
         #[cfg(feature = "nightly")]
         {
             use near_primitives::utils::get_block_shard_id;
