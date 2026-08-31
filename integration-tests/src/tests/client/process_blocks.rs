@@ -22,8 +22,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    BlockInfo, ConnectedPeerInfo, NetworkInfo, PeerAdvertisedHead, PeerChainInfo,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
+    BlockInfo, ConnectedPeerInfo, NetworkInfo, PeerChainInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
@@ -471,14 +471,6 @@ async fn client_sync_headers() {
             }],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![PeerAdvertisedHead {
-                peer_info: peer_info2,
-                genesis_id: Default::default(),
-                highest_block_height: 5,
-                highest_block_hash: hash(&[5]),
-                tracked_shards: vec![],
-                archival: false,
-            }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
