@@ -339,40 +339,6 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
-/// A peer's own claim about its chain head, which `FullPeerInfo` holds as an
-/// `Option`. Neither the height nor the hash is verified.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PeerAdvertisedHead {
-    pub peer_info: PeerInfo,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
-    /// Height and hash of the highest block we've ever received from the peer
-    pub highest_block_height: BlockHeight,
-    /// Hash of the latest block
-    pub highest_block_hash: CryptoHash,
-    /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
-    /// Denote if a node is running in archival mode or not.
-    pub archival: bool,
-}
-
-impl From<FullPeerInfo> for Option<PeerAdvertisedHead> {
-    fn from(p: FullPeerInfo) -> Self {
-        if p.chain_info.last_block.is_some() {
-            Some(PeerAdvertisedHead {
-                peer_info: p.peer_info,
-                genesis_id: p.chain_info.genesis_id,
-                highest_block_height: p.chain_info.last_block.unwrap().height,
-                highest_block_hash: p.chain_info.last_block.unwrap().hash,
-                tracked_shards: p.chain_info.tracked_shards,
-                archival: p.chain_info.archival,
-            })
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct BlockInfo {
     pub height: BlockHeight,
@@ -420,7 +386,6 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<PeerAdvertisedHead>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.

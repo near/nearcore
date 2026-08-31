@@ -1,14 +1,13 @@
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_network::config::MAX_BLOCK_HEADER_HASHES;
-use near_network::types::{NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerAdapter};
 use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use std::cmp::min;
 
 /// Maximum number of block headers send over the network.
@@ -110,8 +109,9 @@ impl HeaderSync {
         &mut self,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &[PeerAdvertisedHead],
+        peers_ahead: &[PeerAdvertisedHead],
         ban_stalling_peers: bool,
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
         let header_head = chain.header_head()?;
         let now = self.clock.now_utc();
@@ -153,7 +153,13 @@ impl HeaderSync {
 
         // If idle (no request in flight), pick a peer and send a request.
         if self.syncing_peer.is_none() {
-            self.start_header_batch(chain, &header_head, highest_height, highest_height_peers)?;
+            self.start_header_batch(
+                chain,
+                &header_head,
+                highest_height,
+                peers_ahead,
+                peer_selector,
+            )?;
         }
 
         Ok(())
@@ -189,8 +195,11 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
         peers: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
-        let Some(peer) = peers.choose(&mut thread_rng()).cloned() else { return Ok(()) };
+        let Some(peer) = peer_selector.pick(peers, self.clock.now_utc()).cloned() else {
+            return Ok(());
+        };
         let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
         if peer.highest_block_height.min(shutdown_height) <= header_head.height {
             return Ok(());
