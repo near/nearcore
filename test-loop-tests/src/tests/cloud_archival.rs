@@ -264,6 +264,15 @@ impl CloudArchiveHarnessBuilder {
     }
 }
 
+/// Which reader a check runs against.
+#[derive(Clone, Copy)]
+enum Reader {
+    Historical,
+    // TODO(cloud_archival): construct this once the recent reader writes shard rows.
+    #[allow(dead_code)]
+    Recent,
+}
+
 impl CloudArchiveHarness {
     const DEFAULT_EPOCH_LENGTH: BlockHeightDelta = 10;
     /// The node the recent reader takes over from. Every test runs one.
@@ -439,13 +448,15 @@ impl CloudArchiveHarness {
         );
     }
 
-    fn assert_reader_writer_parity(&self, start: BlockHeight, end: BlockHeight) {
-        assert_reader_writer_parity(
-            &self.historical_reader_store(),
-            &self.writer_store(),
-            start,
-            end,
-        );
+    fn reader_store(&self, reader: Reader) -> Store {
+        match reader {
+            Reader::Historical => self.historical_reader_store(),
+            Reader::Recent => self.recent_reader_store(),
+        }
+    }
+
+    fn assert_reader_writer_parity(&self, reader: Reader, start: BlockHeight, end: BlockHeight) {
+        assert_reader_writer_parity(&self.reader_store(reader), &self.writer_store(), start, end);
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
@@ -681,8 +692,8 @@ fn test_cloud_archival_batching_blob_per_batch() {
 /// state snapshot and per-block state deltas.
 #[test]
 // TODO(cloud_archival): assert the balance against a bootstrapped block once the
-// reader reconstructs ChunkExtra. The query resolves against the chain head, which
-// is genesis here, so the balance comes out of genesis state.
+// reader carries a chain head above genesis. The query resolves against that head,
+// which is genesis here, so the balance comes out of genesis state.
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
@@ -696,7 +707,7 @@ fn test_cloud_archival_use_snapshot() {
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.assert_reader_account_balance(
         &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
         CloudArchiveHarness::USER_BALANCE,
@@ -969,7 +980,7 @@ fn test_cloud_archival_single_skipped_slot() {
     );
 
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1044,14 +1055,14 @@ fn test_cloud_archival_fully_skipped_batch() {
     // A range spanning the skipped batch: the reader writes nothing for those heights and
     // must still match the writer everywhere else.
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     let gap_target = first_above_gap + h.epoch_length / 2;
     // The corner case the skipped batch creates, covered here: a start height with no
     // block of its own, above the last block of one epoch and below the first of the next.
     h.bootstrap_historical_reader(dropped_heights[0], gap_target);
-    h.assert_reader_writer_parity(dropped_heights[0], gap_target);
+    h.assert_reader_writer_parity(Reader::Historical, dropped_heights[0], gap_target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1063,8 +1074,8 @@ fn test_cloud_archival_fully_skipped_batch() {
 /// path during state apply.
 #[test]
 // TODO(cloud_archival): assert the balance against a bootstrapped block once the
-// reader reconstructs ChunkExtra. The query resolves against the chain head, which
-// is genesis here, so the balance comes out of genesis state.
+// reader carries a chain head above genesis. The query resolves against that head,
+// which is genesis here, so the balance comes out of genesis state.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
@@ -1116,7 +1127,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     );
 
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     // A correct balance proves bootstrap completed without panic, the trie
     // was reconstructed up to the last present block at or below the target,
     // and the carried-over chunk path was traversed during state apply.
@@ -1279,7 +1290,7 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     let start = h.epoch_length / 2;
     let target = 3 * h.epoch_length;
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1413,7 +1424,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
     assert!(total_receipt_to_tx > 0, "no receipt_to_tx entries were compared");
 
     h.bootstrap_historical_reader(start, end);
-    h.assert_reader_writer_parity(start, end);
+    h.assert_reader_writer_parity(Reader::Historical, start, end);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1675,7 +1686,7 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let shard_batch =
-        |height, shard| exec(cloud_storage.get_shard_batch_for_height(height, shard)).unwrap();
+        |height, shard| cloud_storage.get_shard_batch_for_height(height, shard).unwrap();
     let spans_boundary = |start: BlockHeight, end: BlockHeight| {
         start <= r.resharding_block_height && end > r.resharding_block_height
     };
@@ -1712,6 +1723,10 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
         "removed parent's local shard head must stop at the resharding block"
     );
 
+    // TODO(cloud_archival): once state reconstruction crosses a resharding, bootstrap from
+    // the height below the resharding block to the height above it and compare against the
+    // writer. Both readers take the batch clamp and the two-layout shard set from there.
+
     h.shutdown();
 }
 
@@ -1730,7 +1745,7 @@ fn test_cloud_archival_writer_resharding_on_batch_boundary() {
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let shard_batch =
-        |height, shard| exec(cloud_storage.get_shard_batch_for_height(height, shard)).unwrap();
+        |height, shard| cloud_storage.get_shard_batch_for_height(height, shard).unwrap();
 
     assert_eq!(
         shard_batch(r.resharding_block_height, r.parent_shard).end_height(),
@@ -1742,6 +1757,10 @@ fn test_cloud_archival_writer_resharding_on_batch_boundary() {
         r.resharding_block_height + 1,
         "new child shard batch must start in the next batch, after the boundary"
     );
+
+    // TODO(cloud_archival): once state reconstruction crosses a resharding, bootstrap over
+    // the resharding block and the height above it, where both readers must leave the child
+    // out of the first batch.
 
     h.shutdown();
 }
@@ -2046,8 +2065,8 @@ fn test_cloud_archival_recent_reader() {
         head + u64::from(CloudArchiveHarness::TEST_BATCH_SIZE) >= bucket_head,
         "the reader did not catch up: head {head}, bucket head {bucket_head}"
     );
-    // TODO(cloud_archival): assert reader-writer parity here once the follower writes
-    // shard rows.
+    // TODO(cloud_archival): assert reader-writer parity here once the recent reader
+    // writes shard rows.
 
     reader.stop();
     h.shutdown();
@@ -2100,7 +2119,8 @@ fn test_cloud_archival_skipped_run_across_batch_edge() {
     let start = first_dropped - h.epoch_length / 2;
     let target = last_dropped + h.epoch_length / 2;
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    // TODO(cloud_archival): run this for `Reader::Recent` too, once it writes shard rows.
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     reader.stop();

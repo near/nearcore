@@ -1,7 +1,9 @@
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreUpdateAdapter;
@@ -9,7 +11,7 @@ use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
-use near_store::{DBCol, Store, StoreUpdate};
+use near_store::{DBCol, ShardUId, Store, StoreUpdate};
 use std::collections::HashSet;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -112,6 +114,47 @@ pub(crate) async fn pull_block_batch(
     })
 }
 
+/// Downloads `shard_uid`'s batch for the window `from_height` falls in and writes the
+/// rows it carries at or above that height, in one commit. A batch that opens above
+/// `from_height`, which is a shard a resharding added there, is written from its own start.
+pub(crate) async fn pull_shard_batch(
+    store: &Store,
+    cloud_storage: &CloudStorage,
+    shard_uid: ShardUId,
+    from_height: BlockHeight,
+) -> Result<(), CloudArchivalReaderError> {
+    let shard_batch = cloud_storage.get_shard_batch(from_height, shard_uid.shard_id()).await?;
+    // A shard the reader still tracks at `from_height` cannot have a batch that ended
+    // below it: a retired shard's batch ends where the epoch it belonged to does.
+    if shard_batch.end_height() < from_height {
+        return Err(CloudRetrievalError::NoShardData {
+            height: from_height,
+            shard_id: shard_uid.shard_id(),
+        }
+        .into());
+    }
+    // TODO(cloud_archival): in case of resharding, install the shard's state from its epoch
+    // snapshot and walk the recorded inverse changes down.
+    let mut start_height = from_height;
+    if shard_batch.start_height() > from_height {
+        tracing::info!(
+            %shard_uid,
+            from_height,
+            batch_start = shard_batch.start_height(),
+            "shard opens inside the batch, so a resharding added it there",
+        );
+        start_height = shard_batch.start_height();
+    }
+    let mut update = store.store_update();
+    for height in start_height..=shard_batch.end_height() {
+        if let Some(shard_data) = shard_batch.get_data_at_height(height) {
+            save_shard_data(&mut update, shard_uid, shard_data);
+        }
+    }
+    update.commit();
+    Ok(())
+}
+
 /// Seeds the store with what the epoch manager needs to answer for `height`, and
 /// returns the hash of the nearest present block below it. `height` must therefore
 /// be above the first archived block.
@@ -144,19 +187,21 @@ pub(crate) async fn install_anchors(
     Ok(prev_block_hash)
 }
 
-/// The shards of both epochs a batch can hold blocks in.
-pub(crate) fn batch_shard_ids(
+/// The shards this reader tracks in both epochs a batch can hold blocks in.
+pub(crate) fn shards_tracked_in_batch(
     epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
     prev_block_hash: &CryptoHash,
     opening_epoch_id: Option<EpochId>,
-) -> Result<HashSet<ShardId>, CloudArchivalReaderError> {
+) -> Result<HashSet<ShardUId>, CloudArchivalReaderError> {
     let batch_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-    let mut shard_ids: HashSet<ShardId> =
-        epoch_manager.get_shard_layout(&batch_epoch_id)?.shard_ids().collect();
-    if let Some(opening_epoch_id) = opening_epoch_id {
-        shard_ids.extend(epoch_manager.get_shard_layout(&opening_epoch_id)?.shard_ids());
+    let mut epoch_ids = vec![batch_epoch_id];
+    epoch_ids.extend(opening_epoch_id);
+    let mut shard_uids = HashSet::new();
+    for epoch_id in epoch_ids {
+        shard_uids.extend(shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?);
     }
-    Ok(shard_ids)
+    Ok(shard_uids)
 }
 
 /// Stores how far the reader has taken the archive, and returns that head.
@@ -182,11 +227,22 @@ pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) 
 }
 
 /// Writes one shard's columns from its cloud `ShardData` into `update`.
-pub(crate) fn save_shard_data(update: &mut StoreUpdate, shard_id: ShardId, shard_data: &ShardData) {
+pub(crate) fn save_shard_data(
+    update: &mut StoreUpdate,
+    shard_uid: ShardUId,
+    shard_data: &ShardData,
+) {
     // TODO(cloud_archival): reconstruct the remaining shard columns and apply
     // per-block state deltas.
-    let block_shard_id = get_block_shard_id(shard_data.block_hash(), shard_id);
+    let block_hash = shard_data.block_hash();
+    let block_shard_id = get_block_shard_id(block_hash, shard_uid.shard_id());
     update.set_ser(DBCol::ChunkApplyStats, &block_shard_id, shard_data.chunk_apply_stats());
+    // ChunkExtra is the one shard column keyed by the shard's uid.
+    update.set_ser(
+        DBCol::ChunkExtra,
+        &get_block_shard_uid(block_hash, &shard_uid),
+        shard_data.chunk_extra(),
+    );
     if let Some(chunk) = shard_data.chunk() {
         update.insert_ser(DBCol::Chunks, chunk.chunk_hash().as_ref(), chunk);
     }

@@ -534,6 +534,22 @@ pub fn assert_resharding_epoch_snapshot_forced(
     }
 }
 
+/// Brings up a reader node tracking every shard, and returns its store.
+pub(crate) fn add_reader_node(env: &mut TestLoopEnv, reader_id: &AccountId) -> Store {
+    let node_state = env
+        .node_state_builder()
+        .account_id(reader_id)
+        .cloud_storage(true)
+        // TODO(cloud_archival): cover with test a reader on `TrackedShardsConfig::Shards`,
+        // where `shards_tracked_in_batch` returns a subset of the layout.
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+        })
+        .build();
+    env.add_node(reader_id.as_ref(), node_state);
+    env.node_for_account(reader_id).client().chain.chain_store().store()
+}
+
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
 pub fn bootstrap_historical_reader(
@@ -542,8 +558,7 @@ pub fn bootstrap_historical_reader(
     start_height: BlockHeight,
     target_block_height: BlockHeight,
 ) {
-    let node_state = env.node_state_builder().account_id(reader_id).cloud_storage(true).build();
-    env.add_node(reader_id.as_ref(), node_state);
+    add_reader_node(env, reader_id);
 
     let cloud_storage = get_cloud_storage(env, reader_id);
 
@@ -552,10 +567,12 @@ pub fn bootstrap_historical_reader(
         let client = env.node_for_account(reader_id).client();
         let store = client.chain.chain_store.store();
         let epoch_manager = client.epoch_manager.clone();
+        let shard_tracker = client.shard_tracker.clone();
         exec(bootstrap_range(
             &store,
             &cloud_storage,
             epoch_manager.as_ref(),
+            &shard_tracker,
             start_height,
             target_block_height,
         ))
@@ -743,7 +760,6 @@ pub(crate) fn assert_reader_writer_parity(
                     DBCol::NextBlockHashes
                         | DBCol::BlockPerHeight
                         | DBCol::ChunkHashesByHeight
-                        | DBCol::ChunkExtra
                         | DBCol::IncomingReceipts
                         | DBCol::OutcomeIds
                         | DBCol::TransactionResultForBlock
@@ -842,12 +858,16 @@ fn writer_kvs(
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
             }
         }
-        // ChunkProducers rows are keyed by block hash across all shards of the
-        // anchor's own epoch, so one prefix scan captures every row for this block.
-        for (key, value) in writer.iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()) {
-            kvs.get_mut(&DBCol::ChunkProducers).unwrap().insert(key.into_vec(), value.into_vec());
+        // Each of these is keyed by block hash followed by a per-shard suffix, so a
+        // prefix scan on the hash finds every shard's row without asking which shards
+        // this block's epoch had.
+        for col in [DBCol::ChunkProducers, DBCol::ChunkExtra] {
+            for (key, value) in writer.iter_prefix(col, block_hash.as_ref()) {
+                kvs.get_mut(&col).unwrap().insert(key.into_vec(), value.into_vec());
+            }
         }
-        let block = writer_store.get_block(&block_hash).expect("block exists, checked above");
+        let block =
+            writer_store.get_block(&block_hash).expect("the caller disabled garbage collection");
         for chunk_header in block.chunks().iter_raw() {
             collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }
