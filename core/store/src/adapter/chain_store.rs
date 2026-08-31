@@ -464,7 +464,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 
     pub fn delete_block_height(&mut self, height: BlockHeight) {
-        self.store_update.delete(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap());
+        self.store_update.delete(DBCol::BlockHeight, &index_to_bytes(height));
     }
 
     pub fn set_header_head(&mut self, header_head: &Tip) {

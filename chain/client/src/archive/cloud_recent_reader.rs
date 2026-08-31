@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Result of one recent-reader iteration.
 #[derive(Debug)]
 enum PullOutcome {
-    /// Took the batches ending at this height.
+    /// Took the batch ending at this height.
     Pulled { batch_end: BlockHeight },
     /// The bucket holds no block past the reader's head.
     WaitingForBlocks,
@@ -59,18 +59,14 @@ impl CloudArchivalRecentReader {
         }
         let final_head = self.store.chain_store().final_head()?;
         let header_head = self.store.chain_store().header_head()?;
-        self.clear_unfinalized_height_index(final_head.height, header_head.height);
+        self.clear_height_index_range(final_head.height, header_head.height);
         save_reader_head(&self.store, final_head.height);
         Ok(final_head.height)
     }
 
-    /// Drops the height index above `final_height`, where a handed-over store names the
-    /// branch its node last held rather than the finalized chain.
-    fn clear_unfinalized_height_index(
-        &self,
-        final_height: BlockHeight,
-        header_height: BlockHeight,
-    ) {
+    /// Deletes the height index rows in `(final_height, header_height]`. Above the final
+    /// head, a handed-over store can hold a fork the finalized chain dropped.
+    fn clear_height_index_range(&self, final_height: BlockHeight, header_height: BlockHeight) {
         let mut update = self.store.store_update();
         for height in final_height + 1..=header_height {
             update.chain_store_update().delete_block_height(height);
