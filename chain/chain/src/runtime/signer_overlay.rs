@@ -51,14 +51,17 @@ impl SignerOverlay {
         if let Some(idx) = nonce_index {
             key_entry.gas_key_nonces.get(&idx).copied()
         } else {
-            // With no access key this is a bootstrap, whose nonce is on the
-            // account. Falling through to `None` here would let the gap check
-            // wave a stale-nonce transaction through instead of holding it.
-            match &key_entry.access_key {
-                Some(access_key) => Some(access_key.nonce),
-                None => entry.account.bootstrap_nonce(),
-            }
+            // A missing access key means a self-signed state init, whose nonce
+            // is on the account instead; see `cached_bootstrap_nonce`.
+            key_entry.access_key.as_ref().map(|access_key| access_key.nonce)
         }
+    }
+
+    /// Returns the bootstrap nonce of an uninitialized account from the overlay
+    /// if available. `None` on a cache miss and for an account that is already
+    /// initialized, which carries no such nonce.
+    pub fn cached_bootstrap_nonce(&self, account_id: &AccountId) -> Option<Nonce> {
+        self.entries.get(account_id)?.account.bootstrap_nonce()
     }
 
     /// Returns mutable references to the account and per-key state, loading

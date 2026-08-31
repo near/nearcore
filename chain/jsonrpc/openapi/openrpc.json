@@ -1297,7 +1297,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far. Its state arrives with\na `UniversalStateInit`; until then only that action and a transfer are\nallowed. Distinct from `AccountDoesNotExist`: the account is there.",
+            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far.",
             "properties": {
               "AccountNotInitialized": {
                 "properties": {

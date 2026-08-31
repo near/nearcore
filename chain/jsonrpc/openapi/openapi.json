@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.22"
+    "version": "1.3.23"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2566,7 +2566,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far. Its state arrives with\na `UniversalStateInit`; until then only that action and a transfer are\nallowed. Distinct from `AccountDoesNotExist`: the account is there.",
+            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far.",
             "properties": {
               "AccountNotInitialized": {
                 "properties": {
