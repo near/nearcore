@@ -17,3 +17,8 @@ max_receipt_total_input_size: {old: 4_294_967_295, new: 4_194_944}
 
 # Enable the ML-DSA-65 (FIPS 204) signature verification host function.
 ml_dsa_verify_host_fn: { old: false, new: true }
+
+# Charge the contract-loading fee and finalize as a gas-bearing abort when a
+# compiled module fails to load at `Module::deserialize`, instead of a
+# zero-gas nop.
+fix_contract_loading_error: { old: false, new: true }

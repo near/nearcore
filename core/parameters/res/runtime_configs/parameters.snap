@@ -160,6 +160,8 @@ wasm_p256_verify_base                      1_300_000_000_000
 wasm_p256_verify_byte                             13_000_000
 wasm_ml_dsa_verify_base                      540_000_000_000
 wasm_ml_dsa_verify_byte                           11_000_000
+wasm_universal_state_init_to_account_id_base       8_520_000_000
+wasm_universal_state_init_to_account_id_byte          21_471_105
 wasm_log_base                                  3_543_313_050
 wasm_log_byte                                     13_198_791
 wasm_storage_write_base                       64_196_736_000, compute:      200_000_000_000

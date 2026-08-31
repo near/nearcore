@@ -9,8 +9,9 @@ use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDi
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
 use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -95,15 +96,15 @@ impl CloudStorage {
         }
     }
 
-    /// Saves the archival data associated with the given epoch ID.
+    /// Saves the archival data of the epoch that starts after `prev_epoch_end`.
     pub async fn archive_epoch_data(
         &self,
         hot_store: &Store,
         shard_layout: &ShardLayout,
-        epoch_id: EpochId,
+        prev_epoch_end: &CryptoHash,
     ) -> Result<(), CloudArchivingError> {
-        let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), epoch_id)?;
-        let file_id = CloudStorageFileID::Epoch(epoch_id);
+        let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), prev_epoch_end)?;
+        let file_id = CloudStorageFileID::Epoch(*epoch_data.epoch_id());
         let blob = borsh::to_vec(&epoch_data).unwrap();
         self.upload_compressed(file_id, blob).await
     }

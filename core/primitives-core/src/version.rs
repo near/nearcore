@@ -614,8 +614,7 @@ impl ProtocolFeature {
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
             ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
-
-            ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::FixContractLoadingError => 87,
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RejectDelegateV2 => 87,
             ProtocolFeature::RejectWithdrawFromGasKeyInDelegate => 87,

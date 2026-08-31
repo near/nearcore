@@ -1,6 +1,7 @@
 use anyhow::Context;
 use near_chain_configs::GenesisValidationMode;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
+use near_epoch_manager::EpochManager;
 use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use std::path::Path;
@@ -22,13 +23,6 @@ impl BootstrapReaderCmd {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.start_height <= self.end_height,
-            "start_height ({}) must be <= end_height ({})",
-            self.start_height,
-            self.end_height,
-        );
-
         let near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .context("failed to load config")?;
 
@@ -66,7 +60,19 @@ impl BootstrapReaderCmd {
         let cloud_storage =
             storage.get_cloud_storage().context("cloud storage not available")?.clone();
 
-        bootstrap_range(&store, &cloud_storage, self.start_height, self.end_height)?;
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+
+        bootstrap_range(
+            &store,
+            &cloud_storage,
+            epoch_manager.as_ref(),
+            self.start_height,
+            self.end_height,
+        )?;
 
         tracing::info!(
             start_height = self.start_height,
