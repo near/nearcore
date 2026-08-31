@@ -87,20 +87,16 @@ impl CloudStorage {
         Ok(batch)
     }
 
-    /// Fetches the full shard batch containing `block_height`. See
-    /// `get_block_batch_for_height`.
-    pub async fn get_shard_batch_for_height(
+    /// Fetches the batch of `shard_id` data that `block_height` falls in. The batch can
+    /// open above or end below that height, which is what a shard added or retired by a
+    /// resharding looks like.
+    pub async fn get_shard_batch(
         &self,
         block_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ShardBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        let batch = self.retrieve_shard_batch(shard_id, batch_id).await?;
-        if block_height < batch.start_height() || block_height > batch.end_height() {
-            // Batch is partial and doesn't cover the requested height (e.g. pre-resharding child).
-            return Err(CloudRetrievalError::NoShardData { height: block_height, shard_id });
-        }
-        Ok(batch)
+        self.retrieve_shard_batch(shard_id, batch_id).await
     }
 }
 

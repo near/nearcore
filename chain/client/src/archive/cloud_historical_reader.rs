@@ -1,8 +1,9 @@
 use crate::archive::cloud_archival_utils::{
-    batch_shard_ids, install_anchors, pull_block_batch, save_reader_head, save_shard_data,
+    install_anchors, pull_block_batch, pull_shard_batch, save_reader_head, shards_tracked_in_batch,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::types::BlockHeight;
 use near_store::Store;
 use near_store::archive::cloud_storage::CloudStorage;
 
@@ -17,6 +18,7 @@ pub async fn bootstrap_range(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) -> anyhow::Result<()> {
@@ -39,10 +41,14 @@ pub async fn bootstrap_range(
     let mut height = start_height;
     while height <= end_height {
         let batch_pull = pull_block_batch(store, cloud_storage, epoch_manager, height).await?;
-        let shard_ids =
-            batch_shard_ids(epoch_manager, &prev_block_hash, batch_pull.opening_epoch_id)?;
-        for shard_id in shard_ids {
-            save_shard_range(store, cloud_storage, shard_id, height, batch_pull.end_height).await?;
+        let shard_uids = shards_tracked_in_batch(
+            epoch_manager,
+            shard_tracker,
+            &prev_block_hash,
+            batch_pull.opening_epoch_id,
+        )?;
+        for shard_uid in shard_uids {
+            pull_shard_batch(store, cloud_storage, shard_uid, height).await?;
         }
         if let Some(block_hash) = batch_pull.last_present_block_hash {
             prev_block_hash = block_hash;
@@ -58,31 +64,5 @@ pub async fn bootstrap_range(
         }
     }
 
-    Ok(())
-}
-
-/// Writes one shard's data across `[start_height, end_height]`.
-async fn save_shard_range(
-    store: &Store,
-    cloud_storage: &CloudStorage,
-    shard_id: ShardId,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
-) -> anyhow::Result<()> {
-    let mut height = start_height;
-    while height <= end_height {
-        // TODO(cloud_archival): handle a shard whose blob starts above this height,
-        // which a bootstrap crossing a resharding hits.
-        let batch = cloud_storage.get_shard_batch_for_height(height, shard_id).await?;
-        let last_in_batch = std::cmp::min(batch.end_height(), end_height);
-        let mut update = store.store_update();
-        for h in height..=last_in_batch {
-            if let Some(shard_data) = batch.get_data_at_height(h) {
-                save_shard_data(&mut update, shard_id, shard_data);
-            }
-        }
-        update.commit();
-        height = last_in_batch + 1;
-    }
     Ok(())
 }

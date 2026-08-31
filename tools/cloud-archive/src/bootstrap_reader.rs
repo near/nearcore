@@ -2,6 +2,7 @@ use anyhow::Context;
 use near_chain_configs::GenesisValidationMode;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use std::path::Path;
@@ -66,10 +67,17 @@ impl BootstrapReaderCmd {
             Some(home_dir),
         );
 
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config.clone(),
+            epoch_manager.clone(),
+            near_config.validator_signer,
+        );
+
         tokio_runtime.block_on(bootstrap_range(
             &store,
             &cloud_storage,
             epoch_manager.as_ref(),
+            &shard_tracker,
             self.start_height,
             self.end_height,
         ))?;

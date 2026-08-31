@@ -1,4 +1,6 @@
-use crate::archive::cloud_storage::{BlockData, CloudRetrievalError, CloudStorage, ShardData};
+use crate::archive::cloud_storage::{
+    BlockData, CloudRetrievalError, CloudStorage, ShardBatch, ShardData,
+};
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use std::future::Future;
@@ -25,13 +27,27 @@ impl CloudStorage {
         Ok(batch.get_block_at_height(block_height).cloned())
     }
 
+    /// The batch of `shard_id` data covering `block_height`, rejecting one that opens
+    /// above or ends below it.
+    pub fn get_shard_batch_for_height(
+        &self,
+        block_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ShardBatch, CloudRetrievalError> {
+        let batch = block_on_future(self.get_shard_batch(block_height, shard_id))?;
+        if block_height < batch.start_height() || block_height > batch.end_height() {
+            return Err(CloudRetrievalError::NoShardData { height: block_height, shard_id });
+        }
+        Ok(batch)
+    }
+
     /// One shard's data at one height. `Ok(None)` when the height has no block.
     pub fn get_shard_data(
         &self,
         block_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<ShardData>, CloudRetrievalError> {
-        let batch = block_on_future(self.get_shard_batch_for_height(block_height, shard_id))?;
+        let batch = self.get_shard_batch_for_height(block_height, shard_id)?;
         Ok(batch.get_data_at_height(block_height).cloned())
     }
 }
