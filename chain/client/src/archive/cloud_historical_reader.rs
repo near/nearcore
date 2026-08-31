@@ -1,6 +1,7 @@
 use crate::archive::cloud_archival_utils::{
     install_anchors, pull_block_batch, pull_shard_batch, save_reader_head, shards_tracked_in_batch,
 };
+use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
@@ -28,6 +29,11 @@ pub async fn bootstrap_range(
         start_height,
         end_height,
     );
+    // `tracked_shards_config` defaults to `NoShards`, so a config that never named a
+    // shard bootstraps block data alone.
+    if matches!(shard_tracker.tracked_shards_config(), TrackedShardsConfig::NoShards) {
+        tracing::warn!("tracked_shards_config selects no shards; bootstrapping block data only");
+    }
 
     let mut prev_block_hash =
         install_anchors(store, cloud_storage, epoch_manager, start_height).await?;

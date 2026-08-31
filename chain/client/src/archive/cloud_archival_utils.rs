@@ -123,9 +123,27 @@ pub(crate) async fn pull_shard_batch(
     from_height: BlockHeight,
 ) -> Result<(), CloudArchivalReaderError> {
     let shard_batch = cloud_storage.get_shard_batch(from_height, shard_uid.shard_id()).await?;
+    // A shard the reader still tracks at `from_height` cannot have a batch that ended
+    // below it: a retired shard's batch ends where the epoch it belonged to does.
+    if shard_batch.end_height() < from_height {
+        return Err(CloudRetrievalError::NoShardData {
+            height: from_height,
+            shard_id: shard_uid.shard_id(),
+        }
+        .into());
+    }
     // TODO(cloud_archival): in case of resharding, install the shard's state from its epoch
     // snapshot and walk the recorded inverse changes down.
-    let start_height = std::cmp::max(from_height, shard_batch.start_height());
+    let mut start_height = from_height;
+    if shard_batch.start_height() > from_height {
+        tracing::info!(
+            %shard_uid,
+            from_height,
+            batch_start = shard_batch.start_height(),
+            "shard opens inside the batch, so a resharding added it there",
+        );
+        start_height = shard_batch.start_height();
+    }
     let mut update = store.store_update();
     for height in start_height..=shard_batch.end_height() {
         if let Some(shard_data) = shard_batch.get_data_at_height(height) {
