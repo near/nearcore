@@ -135,6 +135,7 @@ impl EpochSync {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
+                    peer_selector.record_failed_to_serve(source_peer_id, self.clock.now_utc());
                 } else {
                     return Ok(());
                 }
@@ -625,6 +626,18 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
     }
 }
 
+impl ClientActor {
+    /// The peer answered, but not with a proof we can use. It did not serve what
+    /// it advertised, so it leaves the preferred set the way silence would. The
+    /// request stands until its timeout, which paces the next attempt.
+    fn note_epoch_sync_proof_unusable(&mut self, peer_id: &PeerId) {
+        self.client
+            .sync_handler
+            .peer_selector
+            .record_failed_to_serve(peer_id, self.clock.now_utc());
+    }
+}
+
 impl Handler<EpochSyncResponseMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         // Pre-check: only decode if we are expecting an epoch sync response from this peer.
@@ -641,6 +654,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             Ok(proof) => proof,
             Err(err) => {
                 tracing::error!(target: "sync", ?err, "failed to uncompress epoch sync proof");
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
                 return;
             }
         };
@@ -655,9 +669,14 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             self.client.epoch_manager.as_ref(),
         ) {
             Ok(true) => {}
-            Ok(false) => return, // silently ignored (logged inside validate_proof)
+            Ok(false) => {
+                // Logged inside validate_proof.
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
+                return;
+            }
             Err(err) => {
                 tracing::error!(target: "sync", ?err, "failed to validate epoch sync proof");
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
                 return;
             }
         }

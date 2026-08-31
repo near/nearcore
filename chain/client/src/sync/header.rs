@@ -23,7 +23,9 @@ struct BatchProgress {
     expected_height: BlockHeight,
     /// Header head height at the moment this batch was requested.
     header_head_height: BlockHeight,
-    highest_height_of_peers: BlockHeight,
+    /// The head the peer we asked advertised, capped by any expected shutdown.
+    /// Reaching it completes the batch: the peer said it has nothing beyond.
+    peer_advertised_height: BlockHeight,
 }
 
 /// Helper to keep track of sync headers.
@@ -78,7 +80,7 @@ impl HeaderSync {
                 timeout: clock.now_utc(),
                 expected_height: 0,
                 header_head_height: 0,
-                highest_height_of_peers: 0,
+                peer_advertised_height: 0,
             },
             syncing_peer: None,
             stalling_ts: None,
@@ -122,11 +124,11 @@ impl HeaderSync {
                 timeout,
                 expected_height,
                 header_head_height,
-                highest_height_of_peers,
+                peer_advertised_height,
             } = self.batch_progress;
 
             let batch_complete = header_head.height
-                >= min(header_head_height + MAX_BLOCK_HEADERS - 4, highest_height_of_peers);
+                >= min(header_head_height + MAX_BLOCK_HEADERS - 4, peer_advertised_height);
             let stalling = header_head.height <= expected_height && now > timeout;
 
             if batch_complete {
@@ -135,6 +137,12 @@ impl HeaderSync {
             } else if stalling {
                 if self.stalling_ts.is_none() {
                     self.stalling_ts = Some(now);
+                }
+                // Falling short of the expected rate counts, not only silence: a
+                // peer sending one header per timeout would otherwise hold its
+                // place in the window.
+                if let Some(peer) = &self.syncing_peer {
+                    peer_selector.record_failed_to_serve(&peer.peer_info.id, now);
                 }
                 if ban_stalling_peers {
                     self.try_ban_stalling_peer(highest_height);
@@ -146,20 +154,14 @@ impl HeaderSync {
                     expected_height: self
                         .compute_expected_height(header_head.height, self.progress_timeout),
                     header_head_height,
-                    highest_height_of_peers,
+                    peer_advertised_height,
                 };
             }
         }
 
         // If idle (no request in flight), pick a peer and send a request.
         if self.syncing_peer.is_none() {
-            self.start_header_batch(
-                chain,
-                &header_head,
-                highest_height,
-                peers_ahead,
-                peer_selector,
-            )?;
+            self.start_header_batch(chain, &header_head, peers_ahead, peer_selector)?;
         }
 
         Ok(())
@@ -173,6 +175,9 @@ impl HeaderSync {
             return;
         }
         let Some(peer) = &self.syncing_peer else { return };
+        // TODO: A stall is judged against the peer's own advertised height, but this
+        // guard still keys on the global target. Either ban on the same basis, or drop
+        // banning here in favor of demotion, which expires and cannot starve the pool.
         if highest_height != peer.highest_block_height {
             return;
         }
@@ -193,7 +198,6 @@ impl HeaderSync {
         &mut self,
         chain: &Chain,
         header_head: &Tip,
-        highest_height: BlockHeight,
         peers: &[PeerAdvertisedHead],
         peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
@@ -201,7 +205,8 @@ impl HeaderSync {
             return Ok(());
         };
         let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
-        if peer.highest_block_height.min(shutdown_height) <= header_head.height {
+        let peer_advertised_height = peer.highest_block_height.min(shutdown_height);
+        if peer_advertised_height <= header_head.height {
             return Ok(());
         }
         self.request_headers(chain, &peer)?;
@@ -212,7 +217,7 @@ impl HeaderSync {
             timeout: now + self.initial_timeout,
             expected_height: self.compute_expected_height(header_head.height, self.initial_timeout),
             header_head_height: header_head.height,
-            highest_height_of_peers: highest_height,
+            peer_advertised_height,
         };
         Ok(())
     }
