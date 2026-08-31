@@ -1,6 +1,7 @@
 use crate::archive::cloud_storage::{BlockData, CloudRetrievalError, CloudStorage, ShardData};
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+use std::future::Future;
 
 /// Single-item fetches, and the state header, in the blocking form tests call them in.
 /// Production callers go through the batch fetches on `CloudStorage`, so consecutive-height
