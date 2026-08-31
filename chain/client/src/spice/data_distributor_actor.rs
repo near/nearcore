@@ -382,6 +382,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         let block_hash = *data.block_hash();
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::PartialData,
             &block_hash,
         ) {
@@ -418,6 +419,7 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
     ) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ContractCodeRequest,
             &request.chunk_id().block_hash,
         ) {
@@ -1466,6 +1468,7 @@ impl SpiceDataDistributorActor {
         for (data_id, ordinals) in wants {
             if !self.spice_gate.should_process_entry(
                 &self.chain_store,
+                self.epoch_manager.as_ref(),
                 SpiceMessageKind::DataRequest,
                 data_id.block_hash(),
             ) {

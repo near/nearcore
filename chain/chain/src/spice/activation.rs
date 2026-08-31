@@ -1,7 +1,9 @@
 //! Runtime spice-activation gate for the spice actors.
 
 use crate::metrics;
+use crate::spice::boundary::is_spice_activation_parent;
 use near_chain_primitives::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 #[cfg(feature = "test_features")]
@@ -90,8 +92,12 @@ impl SpiceMessageGate {
     /// Whether an inbound spice message referencing `block_hash` should be processed. One drop
     /// counts one message.
     ///
-    /// The authoritative answer is the referenced block itself. When that block is
-    /// not on disk we cannot ask it, and we must not simply drop: spice legitimately
+    /// The authoritative answer is the referenced block itself. A resolved pre-spice
+    /// block is still accepted when it is a verified activation parent: its execution
+    /// results are certified under spice, so the endorsements, witnesses and data
+    /// doing that all reference its hash, and there is no resend — dropping them
+    /// while heads are still pre-spice would starve certification. When the block
+    /// is not on disk we cannot ask it, and we must not simply drop: spice legitimately
     /// receives data ahead of its block and buffers it. So fall back to the head — a
     /// node whose head is still pre-spice has no legitimate spice sender and drops,
     /// while a node past activation keeps buffering exactly as before.
@@ -102,10 +108,11 @@ impl SpiceMessageGate {
     pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         kind: SpiceMessageKind,
         block_hash: &CryptoHash,
     ) -> bool {
-        self.decide(chain_store, kind, block_hash, DropUnit::Message)
+        self.decide(chain_store, epoch_manager, kind, block_hash, DropUnit::Message)
     }
 
     /// Whether one entry of a batched spice message should be processed. The other entries are
@@ -114,21 +121,38 @@ impl SpiceMessageGate {
     pub fn should_process_entry(
         &mut self,
         chain_store: &ChainStoreAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         kind: SpiceMessageKind,
         block_hash: &CryptoHash,
     ) -> bool {
-        self.decide(chain_store, kind, block_hash, DropUnit::Entry)
+        self.decide(chain_store, epoch_manager, kind, block_hash, DropUnit::Entry)
     }
 
     fn decide(
         &mut self,
         chain_store: &ChainStoreAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         kind: SpiceMessageKind,
         block_hash: &CryptoHash,
         unit: DropUnit,
     ) -> bool {
         let enabled = match spice_enabled_for_block(chain_store, block_hash) {
-            Ok(enabled) => enabled,
+            Ok(true) => true,
+            Ok(false) => match is_spice_activation_parent(epoch_manager, block_hash) {
+                Ok(is_activation_parent) => is_activation_parent,
+                // The block is on disk but its epoch info is not readable: we cannot
+                // verify it as an activation parent, so treat it as plainly pre-spice.
+                Err(err) => {
+                    tracing::warn!(
+                        target: "spice_activation",
+                        ?err,
+                        kind = kind.as_str(),
+                        %block_hash,
+                        "cannot verify activation parent for spice message, dropping",
+                    );
+                    false
+                }
+            },
             Err(_) => match spice_enabled_at_head(chain_store) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
