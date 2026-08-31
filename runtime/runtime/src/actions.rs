@@ -232,6 +232,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         *account = Some(Account::new_uninitialized(
             deposit,
             fee_config.storage_usage_config.num_bytes_account,
+            initial_nonce_value(block_height),
         ));
         return;
     }
@@ -865,8 +866,17 @@ pub(crate) fn check_account_existence(
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
         | Action::WithdrawFromGasKey(_) => {
-            if account.is_none() {
+            let Some(account) = account else {
                 return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            };
+            // An uninitialized `0u` account holds a balance and nothing else, so
+            // for everything but its own state init and a transfer it is as good
+            // as absent.
+            if !account.is_initialized() {
+                return Err(ActionErrorKind::AccountNotInitialized {
                     account_id: account_id.clone(),
                 }
                 .into());
@@ -908,23 +918,36 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
+        VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    };
+    use near_primitives::action::{
+        AddKeyAction, DeleteKeyAction, DeployGlobalContractAction, GlobalContractDeployMode,
+        GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+        UseGlobalContractAction, WithdrawFromGasKeyAction,
     };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
+    use near_primitives::types::Nonce;
+    use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
     const TEST_GAS_KEY_NUM_NONCES: u16 = 1;
+    /// Seed for an uninitialized account's pre-key nonce; its value is
+    /// irrelevant to these tests, which never check a nonce.
+    const BOOTSTRAP_NONCE: Nonce = 1_000_000;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -2236,6 +2259,181 @@ mod tests {
                 },
             )
             .into())
+        );
+    }
+
+    fn account_id() -> AccountId {
+        // cspell:disable-next-line
+        "0u4bwt6zbknvvcyzmfnfhitcfzatxtthkbzdcm4zwezyf7zwe6pnc4c".parse().unwrap()
+    }
+
+    fn public_key() -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn signed_delegate_action() -> SignedDelegateAction {
+        SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: account_id(),
+                receiver_id: account_id(),
+                actions: vec![
+                    NonDelegateAction::try_from(Action::Transfer(TransferAction {
+                        deposit: Balance::from_yoctonear(1),
+                    }))
+                    .unwrap(),
+                ],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: public_key(),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }
+    }
+
+    /// Every action that needs a set-up account, i.e. the arm of
+    /// `check_account_existence` that rejects a missing one.
+    fn actions_requiring_an_account() -> Vec<Action> {
+        vec![
+            Action::DeployContract(DeployContractAction { code: vec![] }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "foo".to_string(),
+                args: vec![],
+                gas: Gas::from_teragas(1),
+                deposit: Balance::ZERO,
+            })),
+            Action::Stake(Box::new(StakeAction {
+                stake: Balance::from_yoctonear(1),
+                public_key: public_key(),
+            })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key() })),
+            Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id: "bob.near".parse().unwrap(),
+            }),
+            Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: vec![].into(),
+                deploy_mode: GlobalContractDeployMode::CodeHash,
+            }),
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+            })),
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: public_key(),
+                deposit: Balance::from_yoctonear(1),
+            })),
+            Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+                public_key: public_key(),
+                amount: Balance::from_yoctonear(1),
+            })),
+            // Meta-transactions: a delegate whose sender is an uninitialized
+            // account is stopped here, before `validate_delegate_action_key`
+            // would look for a key it does not have. Gasless self-init through a
+            // delegate is an explicit non-goal, so this pins it shut.
+            Action::Delegate(Box::new(signed_delegate_action())),
+            Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                delegate_action: VersionedDelegateActionPayload::V2(DelegateActionV2 {
+                    sender_id: account_id(),
+                    receiver_id: account_id(),
+                    actions: vec![],
+                    nonce: TransactionNonce::from_nonce(1),
+                    max_block_height: 1000,
+                    public_key: public_key(),
+                }),
+                signature: Signature::empty(KeyType::ED25519),
+            })),
+        ]
+    }
+
+    /// An uninitialized account holds a balance and nothing else, so for anything
+    /// but its own state init and a transfer it is as good as absent.
+    #[test]
+    fn uninitialized_account_rejects_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, BOOTSTRAP_NONCE));
+        let expected: Result<(), ActionError> =
+            Err(ActionErrorKind::AccountNotInitialized { account_id: account_id.clone() }.into());
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(&action, &uninitialized, &account_id, &config, false),
+                expected,
+                "expected rejection for {action:?}",
+            );
+        }
+    }
+
+    /// The same actions are fine once the state is installed. Guards against the
+    /// check rejecting more than the uninitialized case.
+    #[test]
+    fn initialized_account_accepts_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let initialized =
+            Some(Account::new(Balance::from_near(1), Balance::ZERO, AccountContract::None, 100));
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(&action, &initialized, &account_id, &config, false),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+    }
+
+    /// A missing account still reports `AccountDoesNotExist`, so the new variant
+    /// does not swallow the pre-existing case.
+    #[test]
+    fn missing_account_still_reports_does_not_exist() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(&action, &None, &account_id, &config, false),
+                Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into()),
+                "expected AccountDoesNotExist for {action:?}",
+            );
+        }
+    }
+
+    /// The two actions an uninitialized account must still accept: the state init
+    /// that sets it up, and a transfer that funds it further.
+    #[test]
+    fn uninitialized_account_accepts_state_init_and_transfer() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, BOOTSTRAP_NONCE));
+
+        let state_init = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: RawStateInit(vec![]),
+            deposit: Balance::ZERO,
+        }));
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+
+        for action in [state_init, transfer] {
+            assert_eq!(
+                check_account_existence(&action, &uninitialized, &account_id, &config, false),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+
+        // Creating it again is still the pre-existing "already exists", not the new error.
+        assert_eq!(
+            check_account_existence(
+                &Action::CreateAccount(CreateAccountAction {}),
+                &uninitialized,
+                &account_id,
+                &config,
+                false,
+            ),
+            Err(ActionErrorKind::AccountAlreadyExists { account_id }.into())
         );
     }
 }

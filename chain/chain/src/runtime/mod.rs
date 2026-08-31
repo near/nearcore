@@ -52,7 +52,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -61,9 +61,10 @@ use node_runtime::cache_warming::cache_keys_differ;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
-    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorization,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
+    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
@@ -771,38 +772,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, authorization) = get_signer_and_authorization(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
         let block_height: Option<BlockHeight> = None;
-        if let Some(nonce_index) = tx.nonce().nonce_index() {
-            let current_nonce =
-                get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .ok_or_else(|| {
-                        let num_nonces = access_key
-                            .gas_key_info()
-                            .map_or(0, |gas_key_info| gas_key_info.num_nonces);
-                        InvalidTxError::InvalidNonceIndex {
-                            tx_nonce_index: Some(nonce_index),
-                            num_nonces,
-                        }
-                    })?;
-            match verify_and_charge_gas_key_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &access_key,
-                current_nonce,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ) {
-                TxVerdict::Success(_) => Ok(()),
-                TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
-            }
-        } else {
-            match verify_and_charge_tx_ephemeral(
+
+        let verdict = match authorization {
+            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
                 runtime_config,
                 &signer,
                 &access_key,
@@ -810,12 +787,43 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &cost,
                 block_height,
                 pending_constraints,
-            ) {
-                TxVerdict::Success(_) => Ok(()),
-                TxVerdict::Failed(error) => Err(error),
-                // verify_and_charge_tx_ephemeral never returns DepositFailed.
-                TxVerdict::DepositFailed { .. } => unreachable!(),
+            ),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                let current_nonce =
+                    get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
+                        .ok_or_else(|| {
+                            let num_nonces = access_key
+                                .gas_key_info()
+                                .map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                            InvalidTxError::InvalidNonceIndex {
+                                tx_nonce_index: Some(nonce_index),
+                                num_nonces,
+                            }
+                        })?;
+                verify_and_charge_gas_key_tx_ephemeral(
+                    runtime_config,
+                    &signer,
+                    &access_key,
+                    current_nonce,
+                    &tx,
+                    &cost,
+                    block_height,
+                    pending_constraints,
+                )
             }
+            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
+                runtime_config,
+                &signer,
+                &tx,
+                &cost,
+                block_height,
+                pending_constraints,
+            ),
+        };
+
+        match verdict {
+            TxVerdict::Success(_) => Ok(()),
+            TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
         }
     }
 
@@ -1100,36 +1108,49 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verdict = if let Some(nonce_index) = nonce_index {
-                    let current_nonce = *key_entry
-                        .gas_key_nonces
-                        .get(&nonce_index)
-                        .expect("loaded by get_or_load_entry_mut");
-                    verify_and_charge_gas_key_tx_ephemeral(
+
+                let verdict = match &key_entry.access_key {
+                    None => verify_and_charge_bootstrap_tx_ephemeral(
                         runtime_config,
                         account,
-                        &key_entry.access_key,
-                        current_nonce,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
                         &pending_constraints,
-                    )
-                } else {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        account,
-                        &key_entry.access_key,
-                        validated_tx.to_tx(),
-                        &cost,
-                        Some(next_block_height),
-                        &pending_constraints,
-                    )
+                    ),
+                    Some(access_key) => {
+                        if let Some(nonce_index) = nonce_index {
+                            let current_nonce = *key_entry
+                                .gas_key_nonces
+                                .get(&nonce_index)
+                                .expect("loaded by get_or_load_entry_mut");
+                            verify_and_charge_gas_key_tx_ephemeral(
+                                runtime_config,
+                                account,
+                                access_key,
+                                current_nonce,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                                &pending_constraints,
+                            )
+                        } else {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                account,
+                                access_key,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                                &pending_constraints,
+                            )
+                        }
+                    }
                 };
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.
-                        result.apply(account, &mut key_entry.access_key);
+                        result.apply(account, key_entry.access_key.as_mut());
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);
                         }
@@ -1689,10 +1710,18 @@ fn peek_nonce_for_gap_check(
 ) -> Result<Option<Nonce>, StorageError> {
     let throwaway_trie = trie.recording_reads_new_recorder();
     if let Some(idx) = nonce_index {
-        get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
-    } else {
-        Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|ak| ak.nonce))
+        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
     }
+    if let Some(access_key) = get_access_key(&throwaway_trie, account_id, public_key)? {
+        return Ok(Some(access_key.nonce));
+    }
+    if let Some(account) = get_account(&throwaway_trie, account_id)? {
+        // No access key: for a self-signed state init the nonce lives on the account
+        // instead, and skipping the gap check here would let a stale-nonce bootstrap
+        // be popped from the pool and discarded rather than held for a later chunk.
+        return Ok(account.bootstrap_nonce());
+    }
+    Ok(None)
 }
 
 /// How much gas of the next chunk we want to spend on converting new

@@ -15,8 +15,10 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    TxAuthorization, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_authorization,
+    is_bootstrap, set_tx_state_changes, validate_transaction,
+    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -308,14 +310,18 @@ pub enum AccessKeyUpdate {
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
     /// Gas key tx: set gas_key_info.balance and persist external nonce.
     GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
+    /// Self-signed universal-account state init: there is no access key yet, so
+    /// the nonce lives on the account until the state init installs the keys.
+    Bootstrap { nonce: Nonce },
 }
 
 impl VerificationResult {
-    /// Apply the state changes described by this result to the given account and access key.
-    pub fn apply(&self, account: &mut Account, access_key: &mut AccessKey) {
+    /// Apply the state changes described by this result.
+    pub fn apply(&self, account: &mut Account, access_key: Option<&mut AccessKey>) {
         account.set_amount(self.new_account_amount);
         match &self.access_key_update {
             AccessKeyUpdate::Regular { nonce, new_allowance } => {
+                let access_key = access_key.expect("regular tx must have an access key");
                 access_key.nonce = *nonce;
                 if let Some(a) = new_allowance {
                     access_key.permission.function_call_permission_mut().unwrap().allowance =
@@ -323,7 +329,15 @@ impl VerificationResult {
                 }
             }
             AccessKeyUpdate::GasKey { new_balance, .. } => {
+                let access_key = access_key.expect("gas key tx must have an access key");
                 access_key.gas_key_info_mut().unwrap().balance = *new_balance;
+            }
+            AccessKeyUpdate::Bootstrap { nonce } => {
+                // Consumed on the account, so the same signed bytes cannot be
+                // replayed even if the state init that follows them fails.
+                account
+                    .set_bootstrap_nonce(*nonce)
+                    .expect("bootstrap tx must have an uninitialized signer");
             }
         }
     }
@@ -332,7 +346,7 @@ impl VerificationResult {
     pub fn gas_key_nonce_update(&self) -> Option<(NonceIndex, Nonce)> {
         match &self.access_key_update {
             AccessKeyUpdate::GasKey { nonce_index, nonce, .. } => Some((*nonce_index, *nonce)),
-            _ => None,
+            AccessKeyUpdate::Regular { .. } | AccessKeyUpdate::Bootstrap { .. } => None,
         }
     }
 }
@@ -1679,7 +1693,10 @@ impl Runtime {
         validator_accounts_update: &ValidatorAccountsUpdate,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
-            if let Some(mut account) = get_account(state_update, account_id)? {
+            // An uninitialized account holds no stake and cannot have been a
+            // validator, so treat it exactly like a missing one.
+            let account = get_account(state_update, account_id)?.filter(Account::is_initialized);
+            if let Some(mut account) = account {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
                     let locked = account.locked().checked_add(*reward).ok_or_else(|| {
@@ -2099,8 +2116,13 @@ impl Runtime {
                 None => unreachable!("accounts should've been prefetched"),
             };
             let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-            let access_key = match access_key.as_deref_mut() {
-                Some(Ok(Some(ak))) => ak,
+            let mut access_key = match access_key.as_deref_mut() {
+                Some(Ok(Some(ak))) => Some(ak),
+                // A self-signed state init is the only transaction that may have
+                // no access key: the key it is signed with arrives with the
+                // state init the transaction itself carries. Its nonce lives on
+                // the account instead, so nothing is written to the key store.
+                Some(Ok(None)) if is_bootstrap(account, &tx.transaction) => None,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
@@ -2120,51 +2142,68 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
-            // Verify and charge based on transaction type (gas key vs regular access key)
-            let verdict = if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
-                // Gas key transaction - load nonce from prefetched cache
-                let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
-                let current_nonce = match nonce_entry.as_deref() {
-                    Some(Ok(Some(n))) => *n,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "gas key nonce not found");
-                        let num_nonces =
-                            access_key.gas_key_info().map(|info| info.num_nonces).unwrap_or(0);
-                        let outcome = ExecutionOutcomeWithId::failed(
-                            tx,
-                            InvalidTxError::InvalidNonceIndex {
-                                tx_nonce_index: Some(nonce_index),
-                                num_nonces,
-                            },
-                        );
-                        processing_state.outcomes.push(outcome);
-                        continue;
+
+            let verdict = match access_key.as_deref_mut() {
+                // A self-signed universal-account state init. Its nonce lives on
+                // the account until the state init installs the keys, so nothing
+                // is read from or written to the key store on this path.
+                None => verify_and_charge_bootstrap_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                    &PendingConstraints::default(),
+                ),
+                Some(access_key) => {
+                    if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                        // Gas key transaction - load nonce from prefetched cache
+                        let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
+                        let current_nonce = match nonce_entry.as_deref() {
+                            Some(Ok(Some(n))) => *n,
+                            Some(Ok(None)) => {
+                                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                                tracing::debug!(%tx_hash, "gas key nonce not found");
+                                let num_nonces = access_key
+                                    .gas_key_info()
+                                    .map(|info| info.num_nonces)
+                                    .unwrap_or(0);
+                                let outcome = ExecutionOutcomeWithId::failed(
+                                    tx,
+                                    InvalidTxError::InvalidNonceIndex {
+                                        tx_nonce_index: Some(nonce_index),
+                                        num_nonces,
+                                    },
+                                );
+                                processing_state.outcomes.push(outcome);
+                                continue;
+                            }
+                            Some(Err(e)) => return Err(e.clone().into()),
+                            None => unreachable!("gas key nonces should've been prefetched"),
+                        };
+                        verify_and_charge_gas_key_tx_ephemeral(
+                            &processing_state.apply_state.config,
+                            account,
+                            access_key,
+                            current_nonce,
+                            &tx.transaction,
+                            &cost,
+                            Some(block_height),
+                            &PendingConstraints::default(),
+                        )
+                    } else {
+                        // Regular access key transaction
+                        verify_and_charge_tx_ephemeral(
+                            &processing_state.apply_state.config,
+                            account,
+                            access_key,
+                            &tx.transaction,
+                            &cost,
+                            Some(block_height),
+                            &PendingConstraints::default(),
+                        )
                     }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("gas key nonces should've been prefetched"),
-                };
-                verify_and_charge_gas_key_tx_ephemeral(
-                    &processing_state.apply_state.config,
-                    account,
-                    access_key,
-                    current_nonce,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                    &PendingConstraints::default(),
-                )
-            } else {
-                // Regular access key transaction
-                verify_and_charge_tx_ephemeral(
-                    &processing_state.apply_state.config,
-                    account,
-                    access_key,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                    &PendingConstraints::default(),
-                )
+                }
             };
 
             // Build the outcome and extract the verification result (if any).
@@ -2276,7 +2315,7 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
 
-            result.apply(account, access_key);
+            result.apply(account, access_key.as_deref_mut());
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
             // Update gas key nonce if applicable
             if let Some((nonce_index, new_nonce)) = result.gas_key_nonce_update() {
@@ -2292,12 +2331,17 @@ impl Runtime {
                     *entry = Ok(Some(new_nonce));
                 }
             }
-            set_access_key(
-                &mut processing_state.state_update,
-                signer_id.clone(),
-                pubkey.clone(),
-                access_key,
-            );
+            // Nothing to write on the bootstrap path: the key does not exist yet
+            // and the state init is what creates it. Writing one here would leave
+            // an uninitialized account holding a key if the state init then failed.
+            if let Some(access_key) = access_key.as_deref_mut() {
+                set_access_key(
+                    &mut processing_state.state_update,
+                    signer_id.clone(),
+                    pubkey.clone(),
+                    access_key,
+                );
+            }
             processing_state
                 .state_update
                 .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });

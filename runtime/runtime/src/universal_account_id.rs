@@ -43,6 +43,7 @@ pub(crate) fn action_universal_state_init(
         None => maybe_account.insert(Account::new_uninitialized(
             Balance::ZERO,
             storage_usage_config.num_bytes_account,
+            initial_nonce_value(apply_state.block_height),
         )),
     };
 

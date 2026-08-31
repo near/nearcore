@@ -57,7 +57,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKeyInfo};
+use near_primitives_core::account::{AccountContract, AccountState, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -94,6 +94,19 @@ pub struct AccountView {
     /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
+    /// Whether the account's state has been installed. Only a universal account
+    /// can be uninitialized: it holds a balance and nothing else until a
+    /// `UniversalStateInit` arrives. Omitted for initialized accounts, which is
+    /// every account that existed before universal accounts.
+    #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
+    pub state: AccountState,
+    /// The nonce an uninitialized account's own transactions must use, present
+    /// only while it has no access keys. A self-signed state init is the one
+    /// transaction that can be sent before any key exists, and this is the only
+    /// way for a client to learn the nonce it must carry: there is no access key
+    /// to query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_nonce: Option<Nonce>,
 }
 
 /// A view of the contract code.
@@ -108,10 +121,6 @@ pub struct ContractCodeView {
     pub hash: CryptoHash,
 }
 
-// TODO(universal-accounts): `AccountView` has no `state` field, so an uninitialized account
-// is reported as an ordinary one. That hits `view_account` and, via
-// `StateChangeValueView::AccountUpdate`, everything downstream of state
-// changes. Needs fixing before universal accounts stabilize.
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
         let (global_contract_hash, global_contract_account_id) =
@@ -128,6 +137,8 @@ impl From<&Account> for AccountView {
             storage_paid_at: 0,
             global_contract_hash,
             global_contract_account_id,
+            state: account.state(),
+            bootstrap_nonce: account.bootstrap_nonce(),
         }
     }
 }

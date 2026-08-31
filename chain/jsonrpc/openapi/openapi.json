@@ -1634,6 +1634,14 @@
         ],
         "type": "object"
       },
+      "AccountState": {
+        "description": "Whether an account's state has been installed.\n\nOnly universal accounts can be uninitialized: they come into existence when\na transfer funds a `0u` id whose state init has not been applied yet. A\ndeterministic `0s` account waiting for its state init is an ordinary V1\naccount with no contract, not this.",
+        "enum": [
+          "initialized",
+          "uninitialized"
+        ],
+        "type": "string"
+      },
       "AccountView": {
         "description": "A view of the account",
         "properties": {
@@ -1644,6 +1652,13 @@
               }
             ],
             "description": "Liquid (non-staked) account balance, in yoctoNEAR."
+          },
+          "bootstrap_nonce": {
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it has no access keys. A self-signed state init is the one\ntransaction that can be sent before any key exists, and this is the only\nway for a client to learn the nonce it must carry: there is no access key\nto query.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           },
           "code_hash": {
             "allOf": [
@@ -1688,6 +1703,14 @@
               }
             ],
             "description": "Staked balance locked for validation, in yoctoNEAR."
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountState"
+              }
+            ],
+            "description": "Whether the account's state has been installed. Only a universal account\ncan be uninitialized: it holds a balance and nothing else until a\n`UniversalStateInit` arrives. Omitted for initialized accounts, which is\nevery account that existed before universal accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -2540,6 +2563,27 @@
               "MalformedUniversalStateInit"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far. Its state arrives with\na `UniversalStateInit`; until then only that action and a transfer are\nallowed. Distinct from `AccountDoesNotExist`: the account is there.",
+            "properties": {
+              "AccountNotInitialized": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AccountNotInitialized"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -20023,6 +20067,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bootstrap_nonce": {
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it has no access keys. A self-signed state init is the one\ntransaction that can be sent before any key exists, and this is the only\nway for a client to learn the nonce it must carry: there is no access key\nto query.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "code_hash": {
             "allOf": [
               {
@@ -20066,6 +20117,14 @@
               }
             ],
             "description": "Staked balance locked for validation, in yoctoNEAR."
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountState"
+              }
+            ],
+            "description": "Whether the account's state has been installed. Only a universal account\ncan be uninitialized: it holds a balance and nothing else until a\n`UniversalStateInit` arrives. Omitted for initialized accounts, which is\nevery account that existed before universal accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -21441,6 +21500,13 @@
                     ],
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
+                  "bootstrap_nonce": {
+                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it has no access keys. A self-signed state init is the one\ntransaction that can be sent before any key exists, and this is the only\nway for a client to learn the nonce it must carry: there is no access key\nto query.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "code_hash": {
                     "allOf": [
                       {
@@ -21484,6 +21550,14 @@
                       }
                     ],
                     "description": "Staked balance locked for validation, in yoctoNEAR."
+                  },
+                  "state": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountState"
+                      }
+                    ],
+                    "description": "Whether the account's state has been installed. Only a universal account\ncan be uninitialized: it holds a balance and nothing else until a\n`UniversalStateInit` arrives. Omitted for initialized accounts, which is\nevery account that existed before universal accounts."
                   },
                   "storage_paid_at": {
                     "default": 0,

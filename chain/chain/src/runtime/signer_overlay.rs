@@ -7,7 +7,10 @@ use std::collections::hash_map::Entry;
 
 /// Per-(account, public_key) state in the overlay.
 pub(crate) struct KeyEntry {
-    pub access_key: AccessKey,
+    /// `None` for a self-signed universal-account state init, which has no
+    /// access key yet: the key arrives with the state init it carries, and its
+    /// nonce lives on the account until then.
+    pub access_key: Option<AccessKey>,
     pub gas_key_nonces: HashMap<NonceIndex, Nonce>,
 }
 
@@ -43,11 +46,18 @@ impl SignerOverlay {
         public_key: &PublicKey,
         nonce_index: Option<NonceIndex>,
     ) -> Option<Nonce> {
-        let key_entry = self.entries.get(account_id)?.keys.get(public_key)?;
+        let entry = self.entries.get(account_id)?;
+        let key_entry = entry.keys.get(public_key)?;
         if let Some(idx) = nonce_index {
             key_entry.gas_key_nonces.get(&idx).copied()
         } else {
-            Some(key_entry.access_key.nonce)
+            // With no access key this is a bootstrap, whose nonce is on the
+            // account. Falling through to `None` here would let the gap check
+            // wave a stale-nonce transaction through instead of holding it.
+            match &key_entry.access_key {
+                Some(access_key) => Some(access_key.nonce),
+                None => entry.account.bootstrap_nonce(),
+            }
         }
     }
 
@@ -80,9 +90,12 @@ impl SignerOverlay {
         let key_entry = match keys.entry(public_key.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let Some(access_key) = get_access_key(trie, account_id, public_key)? else {
+                let access_key = get_access_key(trie, account_id, public_key)?;
+                // Missing access key is allowed only for self-signed universal state init.
+                // Which, in turn, is only allowed when the account is not initialized yet.
+                if access_key.is_none() && account.is_initialized() {
                     return Ok(None);
-                };
+                }
                 entry.insert(KeyEntry { access_key, gas_key_nonces: HashMap::new() })
             }
         };
