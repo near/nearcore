@@ -5,9 +5,19 @@ use crate::db::{
     cloud_writer_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
+
+/// How far a reader has taken the archive, and the block it continues from.
+#[derive(Clone, Copy, Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct CloudReaderHead {
+    /// Height every component is written through. Can name a height carrying no block.
+    pub height: BlockHeight,
+    /// Nearest present block at or below `height`.
+    pub last_present_block_hash: CryptoHash,
+}
 
 /// What the node's own store holds for cloud archival.
 #[derive(Clone)]
@@ -52,9 +62,9 @@ impl CloudArchivalStoreAdapter {
         self.store.get_ser(DBCol::BlockMisc, CLOUD_WRITER_PREV_EPOCH_END_KEY)
     }
 
-    /// Height a reader has written every component through, absent unless this store
-    /// is a reader's.
-    pub fn reader_head(&self) -> Option<BlockHeight> {
+    /// How far a reader has written every component, absent unless this store is a
+    /// reader's.
+    pub fn reader_head(&self) -> Option<CloudReaderHead> {
         self.store.get_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY)
     }
 
@@ -124,7 +134,7 @@ impl<'a> CloudArchivalStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::BlockMisc, CLOUD_WRITER_PREV_EPOCH_END_KEY, &block_hash);
     }
 
-    pub fn set_reader_head(&mut self, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, &height);
+    pub fn set_reader_head(&mut self, head: &CloudReaderHead) {
+        self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, head);
     }
 }

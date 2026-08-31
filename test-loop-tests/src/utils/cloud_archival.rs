@@ -6,7 +6,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
 use near_client::archive::cloud_archival_utils::{
-    find_present_block_at_or_below, find_snapshot_at_or_before,
+    find_present_block_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
@@ -566,7 +566,7 @@ pub fn bootstrap_historical_reader(
     // carries no data, so snap it down to the nearest present block at or below
     // it (no state changes between them).
     let (target_block_height, target_block_data) =
-        find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
+        find_present_block_below(&cloud_storage, target_block_height + 1).unwrap();
     let target_epoch_id = *target_block_data.block().header().epoch_id();
     let target_epoch_data = cloud_storage.get_epoch_data(target_epoch_id).unwrap();
 
