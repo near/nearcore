@@ -378,8 +378,9 @@ pub(crate) fn blacklist_for_epoch(
     shard_layout: &ShardLayout,
     blocks_into_epoch: BlockHeight,
 ) -> ChunkProducerBlacklist {
-    // Redundant in production: `chunk_producer_blacklist_at_anchor` returns on this same
-    // mismatch before its epoch-start walk. Kept as defense in depth for direct callers.
+    // Both checks are redundant in production: `chunk_producer_blacklist_at_anchor` makes them
+    // before the aggregator walk it feeds this from. Kept as defense in depth for direct
+    // callers, and so the two copies of the grace comparison cannot drift.
     if aggregator.epoch_id != *target_epoch_id {
         return ChunkProducerBlacklist::empty();
     }
@@ -2409,20 +2410,44 @@ impl EpochManager {
         if *final_hash == CryptoHash::default() {
             return Ok(ChunkProducerBlacklist::empty());
         }
-        let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
-        if aggregator.epoch_id != *epoch.epoch_id {
-            // Cross-epoch basis: empty either way, but checked before the walk — right
-            // after epoch sync the aggregator block's `BlockInfo` may not exist.
+        // Resolve the basis epoch WITHOUT the aggregator walk. Both checks below usually make
+        // the walk's result irrelevant, and the walk terminates only at the maintained
+        // aggregator sync point or the epoch start: a fork block whose basis sits behind that
+        // sync point would re-scan the epoch from its start, once per fork block, under the
+        // write lock on the block-processing path. The sync-point arm keeps the
+        // post-epoch-sync tolerance — that block's `BlockInfo` may not exist, and the walk
+        // never read it either (`aggregate_epoch_info_upto` early-returns on hash equality).
+        let basis_epoch_id = if *final_hash == self.epoch_info_aggregator.last_block_hash {
+            self.epoch_info_aggregator.epoch_id
+        } else {
+            // The walk's own first action is this same read, so a missing basis still fails.
+            *self.get_block_info(final_hash)?.epoch_id()
+        };
+        if basis_epoch_id != *epoch.epoch_id {
+            // Cross-epoch basis: empty either way, but checked before the epoch-start lookup —
+            // right after epoch sync the aggregator block's `BlockInfo` may not exist.
             return Ok(ChunkProducerBlacklist::empty());
         }
         // Epoch start via the `BlockInfo` walk, not `DBCol::EpochStart`: boundary fork
         // siblings overwrite that shared row, so its value depends on processing order.
         // A genesis final block resolves through the stored dummy `BlockInfo` (height 0).
-        // A miss here propagates. That is structural corruption everywhere except one
-        // transient state: an equivocated prev-epoch sibling final on the uninstalled
-        // epoch-sync aggregator sync-point — there failing closed beats masking with grace.
+        //
+        // Fail-closed still holds where it decides anything: a missing basis propagates (the
+        // read above, or the `epoch_first_block` read here), and a past-grace basis still runs
+        // the walk. What no longer fails is a block missing strictly BEHIND an in-grace or
+        // cross-epoch basis: those bases have a provably empty blacklist, so the row seeded
+        // here is the same canonical sampler pick every node writes for this anchor whatever
+        // its retention. Recovering there is intended. Failing closed on a missing basis is
+        // still right for the one non-corruption case that produces it — an equivocated
+        // prev-epoch sibling final on the uninstalled epoch-sync sync point — because masking
+        // it as grace would seed a row the rest of the network disagrees with.
         let epoch_start = self.get_epoch_start_height(final_hash)?;
         let blocks_into_epoch = final_height.saturating_sub(epoch_start);
+        if blocks_into_epoch < early_kickout_epoch_grace_blocks() {
+            // Same comparison `blacklist_for_epoch` makes, hoisted above the walk.
+            return Ok(ChunkProducerBlacklist::empty());
+        }
+        let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
         Ok(blacklist_for_epoch(
             &aggregator,
             epoch.epoch_id,

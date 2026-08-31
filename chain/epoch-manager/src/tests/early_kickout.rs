@@ -1076,11 +1076,11 @@ fn per_shard_blacklist_isolated() {
     );
 }
 
-/// Records a block whose finality is pinned to `(final_hash, final_height)` with all chunks
-/// produced. Holding those fixed across many blocks freezes `largest_final_height`, so
-/// `record_block_info`'s incremental aggregator update is skipped and the per-block seed walk
-/// re-scans the growing not-yet-finalized suffix — the finality-stall regime.
-fn record_block_frozen_final(
+/// Records a block with all chunks produced and its finality pinned to `(final_hash,
+/// final_height)`. The finals are explicit because the seeder's basis is exactly that pair,
+/// and `record_block` stores an internally unusual one (`last_final_hash` = parent with
+/// `last_final_height` = height - 2), which makes any sync-point reasoning wrong.
+fn record_block_with_final(
     em: &mut EpochManager,
     prev: CryptoHash,
     cur: CryptoHash,
@@ -1094,11 +1094,12 @@ fn record_block_frozen_final(
     record_block_with_final_and_mask(em, prev, cur, height, final_hash, final_height, chunk_mask);
 }
 
-// Regression guard: with finality frozen the seeder walks only to the pinned last-final block,
-// so per-block cost is O(1) and total is linear, not the old O(stall-depth) suffix re-walk. Two
-// stall depths check the per-block walk does not grow with depth.
+// Regression guard: under a finality stall the pinned last-final basis stays inside the
+// start-of-epoch grace, where the blacklist is empty by rule, so the seeder returns before its
+// aggregator walk and recording costs no walk iterations at all. This supersedes the earlier
+// O(1)-per-block bound. Two stall depths check the guarantee is depth-independent.
 #[test]
-fn seed_walk_bounded_under_finality_stall() {
+fn seed_walk_skipped_during_in_grace_stall() {
     use std::sync::atomic::Ordering;
 
     // Total per-block seeding walk iterations over a `count`-block stall frozen at genesis.
@@ -1109,7 +1110,7 @@ fn seed_walk_bounded_under_finality_stall() {
         record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
         let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
         for height in 1..=count {
-            record_block_frozen_final(
+            record_block_with_final(
                 &mut em,
                 h[(height - 1) as usize],
                 h[height as usize],
@@ -1121,29 +1122,165 @@ fn seed_walk_bounded_under_finality_stall() {
         em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before
     }
 
-    let short = 40u64;
-    let long = 120u64;
-    let walked_short = stall_walk(short);
-    let walked_long = stall_walk(long);
-    let per_block_cap = 4;
-    assert!(
-        walked_short >= short as usize,
-        "seed walk should touch >= 1 block per recorded block, got {walked_short}"
+    for count in [40u64, 120] {
+        let walked = stall_walk(count);
+        assert_eq!(
+            walked, 0,
+            "a {count}-block stall must not walk at all: the pinned genesis basis is inside the \
+             start-of-epoch grace"
+        );
+    }
+}
+
+/// Asserts the seeded `DBCol::ChunkProducers` row for `anchor` is the canonical sampler pick,
+/// which is what an empty blacklist must produce. The walk counter alone can be satisfied by a
+/// wrong early return, so every hoist test pins the row as well.
+fn assert_seeded_row_is_canonical(
+    em: &EpochManager,
+    anchor: CryptoHash,
+    anchor_height: u64,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) {
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let seeded = em
+        .store
+        .store_ref()
+        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &get_block_shard_id(&anchor, shard_id))
+        .expect("the seeder must write the anchor's ChunkProducers row");
+    let canonical = epoch_info
+        .sample_chunk_producer(
+            shard_layout,
+            shard_id,
+            anchor_height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+        )
+        .unwrap();
+    assert_eq!(
+        seeded.account_id(),
+        epoch_info.get_validator(canonical).account_id(),
+        "an empty blacklist must seed the canonical sample",
     );
-    assert!(
-        walked_short <= per_block_cap * short as usize,
-        "short stall walk {walked_short} exceeds {per_block_cap}/block — suffix re-walk regression?"
+}
+
+// Regression guard for the fork-walk hoist: recording a fork sibling whose last-final basis
+// sits STRICTLY BEHIND the maintained aggregator sync point must not walk at all. The
+// aggregator walk only terminates at the sync point or the epoch start, and the sync point is
+// unreachable walking back from such a basis, so before the hoist the seeder re-scanned the
+// epoch from its start — O(blocks into epoch) `BlockInfo` reads plus a `DBCol::ChunkProducers`
+// get per walked block, under the write lock, once per fork block.
+#[test]
+fn seed_walk_skips_fork_basis_behind_sync_point() {
+    use std::sync::atomic::Ordering;
+
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    // Epoch length 10_000 keeps the whole chain in epoch 0, so the basis stays same-epoch and
+    // the grace check, not the cross-epoch check, is what has to fire.
+    let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
+    const TIP: u64 = 30;
+    let h: Vec<CryptoHash> = (0..=TIP).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+    // Steady finality: each block is final on the block two heights back, so after the tip the
+    // maintained aggregator sync point is `h[TIP - 2]`.
+    for height in 1..=TIP {
+        let two_back = height.saturating_sub(2);
+        record_block_with_final(
+            &mut em,
+            h[height as usize - 1],
+            h[height as usize],
+            height,
+            h[two_back as usize],
+            two_back,
+        );
+    }
+
+    // Fork sibling of the tip, final on `h[TIP - 3]`: one block behind the sync point
+    // `h[TIP - 2]`. The basis has to be a STRICT ancestor of the sync point for this to
+    // discriminate — a basis equal to the sync point walks zero iterations even without the
+    // hoist, because `aggregate_epoch_info_upto` early-returns on hash equality.
+    let basis = TIP - 3;
+    let fork = hash(b"fork sibling of the tip");
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    record_block_with_final(&mut em, h[(TIP - 1) as usize], fork, TIP, h[basis as usize], basis);
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    assert_eq!(
+        walked, 0,
+        "the fork record must not walk: its basis does not advance `largest_final_height` (no \
+         incremental aggregator update) and the basis is inside the start-of-epoch grace, so \
+         the seeder returns before its walk. Pre-hoist this walked ~{basis} iterations"
     );
-    assert!(
-        walked_long <= per_block_cap * long as usize,
-        "long stall walk {walked_long} exceeds {per_block_cap}/block — suffix re-walk regression?"
+
+    let epoch_id = em.get_epoch_id(&fork).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
+}
+
+// Cross-epoch companion to the test above: an epoch-1 fork sibling whose last-final basis is an
+// epoch-0 block strictly behind the maintained sync point. Here the hoisted cross-epoch check
+// is what returns before the walk, not the grace check.
+#[test]
+fn seed_walk_skips_cross_epoch_fork_basis_behind_sync_point() {
+    use std::sync::atomic::Ordering;
+
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    // Short epoch so the boundary lands a few blocks in and the fork can sit inside epoch 1
+    // while its basis is still in epoch 0.
+    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
+    const MAX_HEIGHT: u64 = 40;
+    let h: Vec<CryptoHash> = (0..=MAX_HEIGHT).map(|i| hash(&i.to_le_bytes())).collect();
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+
+    // Steady finality again, driven to exactly two blocks past the first epoch-1 block, so the
+    // tip's basis (and therefore the sync point) is that first epoch-1 block.
+    let mut epoch1_first = None;
+    let mut tip = None;
+    for height in 1..=MAX_HEIGHT {
+        let two_back = height.saturating_sub(2);
+        record_block_with_final(
+            &mut em,
+            h[height as usize - 1],
+            h[height as usize],
+            height,
+            h[two_back as usize],
+            two_back,
+        );
+        if epoch1_first.is_none()
+            && em.get_epoch_id(&h[height as usize]).unwrap() != EpochId::default()
+        {
+            epoch1_first = Some(height);
+        }
+        if epoch1_first.is_some_and(|first| height == first + 2) {
+            tip = Some(height);
+            break;
+        }
+    }
+    let epoch1_first = epoch1_first.expect("expected an epoch boundary within MAX_HEIGHT blocks");
+    let tip = tip.expect("expected room for two blocks past the boundary");
+
+    // Fork sibling of the tip, final on the last epoch-0 block: the parent of the sync point
+    // `h[epoch1_first]`, and in the previous epoch. The fork height is strictly inside epoch 1,
+    // so the record neither advances `largest_final_height` nor finalizes an epoch — the seeder
+    // is the only possible walk source.
+    let basis = epoch1_first - 1;
+    assert_eq!(
+        em.get_epoch_id(&h[basis as usize]).unwrap(),
+        EpochId::default(),
+        "the fork basis must still be in epoch 0"
     );
-    // Linearity: 3x the depth must not more than 3x the walk (a quadratic re-walk would ~9x).
-    assert!(
-        walked_long * short as usize <= 2 * walked_short * long as usize,
-        "per-block walk grew with stall depth ({walked_short} over {short} vs {walked_long} over \
-         {long}) — finality-stall suffix re-walk regression?"
+    let fork = hash(b"cross-epoch fork sibling of the tip");
+    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
+    record_block_with_final(&mut em, h[tip as usize - 1], fork, tip, h[basis as usize], basis);
+    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
+    assert_eq!(
+        walked, 0,
+        "a cross-epoch fork basis must not walk. Pre-hoist this walked ~{epoch1_first} iterations"
     );
+
+    let epoch_id = em.get_epoch_id(&fork).unwrap();
+    assert_ne!(epoch_id, EpochId::default(), "the fork block must be in epoch 1");
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    assert_seeded_row_is_canonical(&em, fork, tip, &epoch_info, &shard_layout);
 }
 
 /// Drives `count` blocks in epoch 0 where the single shard's chunk is ALWAYS missed,
@@ -1210,18 +1347,42 @@ struct EpochSyncFixture {
     /// The uninstalled aggregator position.
     third_last: CryptoHash,
     third_last_height: u64,
+    second_last_height: u64,
 }
 
 impl EpochSyncFixture {
     /// An anchor a few blocks past the boundary, final on the uninstalled aggregator
     /// position — the shape all epoch-sync regression tests below exercise.
     fn seed_anchor(&self, hash: CryptoHash) -> SeedAnchor {
-        SeedAnchor {
-            hash,
-            height: self.third_last_height + 4,
-            final_hash: self.third_last,
-            final_height: self.third_last_height,
-        }
+        self.seed_anchor_final_on(hash, self.third_last, self.third_last_height)
+    }
+
+    /// Same shape with an explicit basis, for the cases where the basis itself IS installed
+    /// but a block strictly behind it is not.
+    fn seed_anchor_final_on(
+        &self,
+        hash: CryptoHash,
+        final_hash: CryptoHash,
+        final_height: u64,
+    ) -> SeedAnchor {
+        SeedAnchor { hash, height: final_height + 4, final_hash, final_height }
+    }
+
+    /// Runs the seeder for `anchor`, sampling in `epoch_id`, and commits on success. A
+    /// failure drops the update, matching what the chain does when a record fails.
+    fn seed(&self, anchor: &SeedAnchor, epoch_id: &EpochId) -> Result<(), EpochError> {
+        let mut seed_update = self.em.store.store_update();
+        self.em.seed_chunk_producers(
+            &mut seed_update,
+            anchor,
+            SampleEpoch {
+                epoch_id,
+                epoch_info: &self.epoch_info,
+                shard_layout: &self.shard_layout,
+            },
+        )?;
+        seed_update.commit();
+        Ok(())
     }
 }
 
@@ -1234,6 +1395,7 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     const PREV_EPOCH_FIRST_HEIGHT: u64 = 90;
     const PREV_EPOCH_LAST_HEIGHT: u64 = 99;
     let third_last_height = PREV_EPOCH_LAST_HEIGHT - 2;
+    let second_last_height = PREV_EPOCH_LAST_HEIGHT - 1;
 
     let prev_epoch_id = EpochId(hash(b"prev epoch"));
     let epoch_id = EpochId(hash(b"current epoch"));
@@ -1269,7 +1431,7 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
     em.init_after_epoch_sync(
         &mut store_update,
         prev_epoch_block(first, PREV_EPOCH_FIRST_HEIGHT, hash(b"block before prev epoch")),
-        prev_epoch_block(second_last, PREV_EPOCH_LAST_HEIGHT - 1, third_last),
+        prev_epoch_block(second_last, second_last_height, third_last),
         prev_epoch_block(last, PREV_EPOCH_LAST_HEIGHT, second_last),
         &prev_epoch_id,
         epoch_info.clone(),
@@ -1292,6 +1454,7 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
         last,
         third_last,
         third_last_height,
+        second_last_height,
     }
 }
 
@@ -1303,44 +1466,70 @@ fn epoch_sync_fixture() -> EpochSyncFixture {
 fn seeder_tolerates_post_epoch_sync_aggregator_anchor() {
     let fx = epoch_sync_fixture();
 
-    // Final block == the aggregator position: the aggregator walk short-circuits and
-    // returns the prev-epoch aggregator, mismatching the (current) sample epoch.
+    // Final block == the aggregator position: the basis epoch resolves to the maintained
+    // aggregator's epoch without reading the (missing) `BlockInfo`, and mismatches the
+    // (current) sample epoch.
     let anchor = fx.seed_anchor(hash(b"current epoch block"));
-    let mut seed_update = fx.em.store.store_update();
-    fx.em
-        .seed_chunk_producers(
-            &mut seed_update,
-            &anchor,
-            SampleEpoch {
-                epoch_id: &fx.epoch_id,
-                epoch_info: &fx.epoch_info,
-                shard_layout: &fx.shard_layout,
-            },
-        )
+    fx.seed(&anchor, &fx.epoch_id)
         .expect("cross-epoch anchor after epoch sync must seed, not error");
-    seed_update.commit();
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
+    );
+}
 
-    // Empty blacklist -> the seeded row is the canonical sample at the anchor offset.
-    let shard_id = fx.shard_layout.shard_ids().next().unwrap();
-    let key = get_block_shard_id(&anchor.hash, shard_id);
-    let seeded = fx
-        .em
-        .store
-        .store_ref()
-        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-        .expect("seeder must write the ChunkProducers row for the anchor");
-    let canonical = fx
-        .epoch_info
-        .sample_chunk_producer(
-            &fx.shard_layout,
-            shard_id,
-            anchor.height + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
-        )
-        .unwrap();
-    assert_eq!(
-        seeded.account_id(),
-        fx.epoch_info.get_validator(canonical).account_id(),
-        "empty blacklist must seed the canonical sample",
+// Converted error path from the fork-walk hoist: the basis itself IS installed, but a block
+// strictly BEHIND it is not — exactly the hole epoch sync leaves. The basis is inside the
+// start-of-epoch grace, where the blacklist is empty by rule, so the row seeded here is the
+// canonical sampler pick every node writes for this anchor regardless of retention. Recovering
+// instead of failing is intended: pre-hoist the walk reached the hole and died on the
+// store-less `header_head().expect` path.
+#[test]
+fn seeder_recovers_from_hole_behind_in_grace_basis() {
+    let fx = epoch_sync_fixture();
+
+    // The prev epoch's second-last block: installed, nine blocks into its epoch (well inside
+    // the 1000-block grace), with its parent `third_last` never installed.
+    let anchor = fx.seed_anchor_final_on(
+        hash(b"prev epoch sibling final on the second-last block"),
+        fx.second_last,
+        fx.second_last_height,
+    );
+    fx.seed(&anchor, &fx.prev_epoch_id)
+        .expect("an in-grace basis must seed without walking past the basis");
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
+    );
+}
+
+// Same hole, but the anchor samples the current epoch while the basis stays in the previous
+// one, so the hoisted cross-epoch check is what returns before the walk. Distinct from
+// `seeder_tolerates_post_epoch_sync_aggregator_anchor`, where the basis IS the sync point and
+// the walk short-circuited on hash equality even before the hoist.
+#[test]
+fn seeder_recovers_from_hole_behind_cross_epoch_basis() {
+    let fx = epoch_sync_fixture();
+
+    let anchor = fx.seed_anchor_final_on(
+        hash(b"current epoch block final on the prev second-last block"),
+        fx.second_last,
+        fx.second_last_height,
+    );
+    fx.seed(&anchor, &fx.epoch_id)
+        .expect("a cross-epoch basis must seed without walking past the basis");
+    assert_seeded_row_is_canonical(
+        &fx.em,
+        anchor.hash,
+        anchor.height,
+        &fx.epoch_info,
+        &fx.shard_layout,
     );
 }
 
@@ -1353,18 +1542,8 @@ fn seeder_propagates_missing_block_info_on_same_epoch_basis() {
     let fx = epoch_sync_fixture();
 
     let anchor = fx.seed_anchor(hash(b"prev epoch extra block"));
-    let mut seed_update = fx.em.store.store_update();
     let err = fx
-        .em
-        .seed_chunk_producers(
-            &mut seed_update,
-            &anchor,
-            SampleEpoch {
-                epoch_id: &fx.prev_epoch_id,
-                epoch_info: &fx.epoch_info,
-                shard_layout: &fx.shard_layout,
-            },
-        )
+        .seed(&anchor, &fx.prev_epoch_id)
         .expect_err("a missing BlockInfo on a same-epoch basis must propagate");
     assert_eq!(
         err,
