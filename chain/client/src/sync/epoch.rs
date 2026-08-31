@@ -1227,19 +1227,18 @@ impl ClientActor {
 mod tests {
     use super::EpochSync;
     use near_async::time::Utc;
+    use near_chain::Error;
     use near_primitives::block_header::BlockHeader;
     use near_primitives::epoch_sync::{
         EPOCHS_PER_BATCH_V1, EpochSyncProofBatchV1, EpochSyncProofCurrentEpochData,
         EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofTailV1,
         EpochSyncProofV1,
     };
+    use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::Balance;
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
-
-    use near_chain::Error;
-    use near_primitives::hash::CryptoHash;
 
     fn fake_header() -> Arc<BlockHeader> {
         Arc::new(BlockHeader::genesis(
