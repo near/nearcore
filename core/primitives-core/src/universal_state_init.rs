@@ -46,3 +46,18 @@ pub struct RawStateInit(
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub Vec<u8>,
 );
+
+/// What a `UniversalStateInit` action is priced on.
+///
+/// Shared with `near-vm-runner`: a contract hands the host opaque bytes, only the
+/// host can decode them, and the VM needs these numbers to charge at creation
+/// exactly what the action is charged when it executes.
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
+pub struct UniversalStateInitCounts {
+    /// Length of the payload itself, not of the state it decodes to.
+    pub num_bytes: u64,
+    /// Number of storage entries.
+    pub num_entries: u64,
+    /// Number of access keys.
+    pub num_keys: u64,
+}

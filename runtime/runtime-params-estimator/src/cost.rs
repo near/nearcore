@@ -426,6 +426,12 @@ pub enum Cost {
     /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
     /// keccak512-hash host function.
     Keccak512Byte,
+    /// Estimates `universal_state_init_to_account_id_base`, the cost charged once per
+    /// call to the universal-account-id derivation host function.
+    UniversalStateInitToAccountIdBase,
+    /// Estimates `universal_state_init_to_account_id_byte`, the cost charged per state
+    /// init byte in calls to the universal-account-id derivation host function.
+    UniversalStateInitToAccountIdByte,
     /// Estimates `sha3_256_base`, the cost charged once per call to the
     /// sha3-256-hash host function.
     Sha3256Base,

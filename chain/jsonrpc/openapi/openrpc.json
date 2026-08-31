@@ -4689,6 +4689,22 @@
             ],
             "description": "Cost per reading trie node from DB"
           },
+          "universal_state_init_to_account_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of deriving a `0u` account id from a raw state init."
+          },
+          "universal_state_init_to_account_id_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte of the raw state init."
+          },
           "utf16_decoding_base": {
             "allOf": [
               {

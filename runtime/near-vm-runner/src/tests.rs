@@ -10,6 +10,7 @@ mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;
 mod ts_contract;
+mod universal_state_init_to_account_id_integration;
 mod view_call_gas_limit;
 mod wasm_validation;
 
