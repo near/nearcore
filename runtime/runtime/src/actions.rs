@@ -265,19 +265,16 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 &apply_state.config.fees.storage_usage_config,
             ));
         }
-        AccountType::UniversalAccount => {
-            // The account type is the same on every protocol version, so this arm
-            // relies on `account_is_implicit` having refused before the feature is
-            // enabled. Re-check that upstream gate if this ever trips.
-            debug_assert!(apply_state.config.wasm_config.universal_accounts);
+        AccountType::UniversalAccount if apply_state.config.wasm_config.universal_accounts => {
             *account = Some(Account::new_uninitialized(
                 deposit,
                 fee_config.storage_usage_config.num_bytes_account,
             ));
         }
         // This panic is unreachable as this is an implicit account creation transfer.
-        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
-        AccountType::NamedAccount => panic!("must be implicit"),
+        // `check_account_existence` would fail because `account_is_implicit` would return false
+        // for such a receiver.
+        AccountType::NamedAccount | AccountType::UniversalAccount => panic!("must be implicit"),
     }
 }
 
