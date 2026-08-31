@@ -1884,7 +1884,7 @@ is defined by <code>EpochInfo</code> for <code>T+1</code> and the information ag
 <li><code>validators</code>: the list of validators selected for epoch <code>T+2</code></li>
 <li><code>validator_to_index</code>: Mapping from account id to index in <code>validators</code></li>
 <li><code>block_producers_settlement</code>: defines the mapping from height to block producer</li>
-<li><code>chunk_producers_settlement</code>: defines the mapping from height and shard id to chunk producer</li>
+<li><code>chunk_producers_settlement</code>: defines the base mapping from height and shard id to chunk producer. From protocol version 87 on, this mapping can be overridden within the epoch, see <a href="ChainSpec/EpochAndStaking/EpochManager.html#early-chunk-producer-reassignment">Early chunk producer reassignment</a></li>
 <li><code>hidden_validators_settlement</code>: TODO</li>
 <li><code>fishermen</code>, <code>fishermen_to_index</code>: TODO. disabled on mainnet through a large <code>fishermen_threshold</code> in config</li>
 <li><code>stake_change</code>: TODO</li>
@@ -1963,6 +1963,30 @@ then its reward for epoch <code>T</code> is automatically added to the proposal.
 <code>chunk_producers_settlement</code>sets. This algorithm is described in <a href="ChainSpec/EpochAndStaking/../../Economics/Economics.html#validator-selection">Economics</a>.</p>
 <h3 id="validator-reward"><a class="header" href="#validator-reward">Validator reward</a></h3>
 <p>Rewards calculation is described in the <a href="ChainSpec/EpochAndStaking/../../Economics/Economics.html#validator-rewards-calculation">Economics</a> section.</p>
+<h2 id="early-chunk-producer-reassignment"><a class="header" href="#early-chunk-producer-reassignment">Early chunk producer reassignment</a></h2>
+<p>The <a href="ChainSpec/EpochAndStaking/EpochManager.html#kickout-set">kickout set</a> only takes effect at an epoch boundary, so a chunk producer that
+stops producing keeps its slots for the rest of the epoch. From protocol version 87 on, the
+protocol also reassigns chunk producer slots <em>within</em> an epoch.</p>
+<p>A chunk producer is excluded on a shard when both hold for its stats in the current epoch:</p>
+<ul>
+<li>it missed at least 100 chunks on that shard, and</li>
+<li>its produced-to-expected ratio on that shard is below 80%.</li>
+</ul>
+<p>Exclusion is per shard, and stats never cross an epoch boundary. A 1000-block grace window
+at the start of each epoch delays the first possible exclusion, so a producer cannot be
+excluded before roughly block 1000 of an epoch. A safety valve keeps the least-bad producer
+eligible when the rule would exclude every distinct producer on a shard, so a shard can never
+run out of chunk producers.</p>
+<p>The chunk producer for the chunks anchored at a block is sampled with the excluded producers
+removed, and the result is persisted in <code>DBCol::ChunkProducers</code> keyed by
+<code>(anchor_block_hash, shard_id)</code>. The anchor is the chunk's grandparent block, so a chunk at
+height <code>h</code> reads the row written for the block at height <code>h - 2</code>. Chunk validation reads that
+row verbatim rather than re-sampling, which is what makes the assignment identical on every
+node: the exclusion set is derived from the anchor's last-final block, which is
+header-derived and therefore the same everywhere for a canonical anchor.</p>
+<p>Within the first two blocks of an epoch the anchor belongs to the previous epoch. The
+exclusion set is provably empty there, because stats do not cross the boundary, so those
+chunks fall back to the plain settlement sampler.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="staking-and-slashing"><a class="header" href="#staking-and-slashing">Staking and slashing</a></h1>
 <h2 id="stake-invariant"><a class="header" href="#stake-invariant">Stake invariant</a></h2>
