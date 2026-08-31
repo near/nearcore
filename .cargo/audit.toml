@@ -41,6 +41,11 @@ ignore = [
     # never mixes Engine-owned objects.
     "RUSTSEC-2026-0222",
 
+    # RUSTSEC-2026-0269: the sandbox escape is in Wasmtime's WASI filesystem
+    # implementation. Nearcore uses Wasmtime to execute contracts with its own
+    # host functions and does not enable or link Wasmtime's WASI support.
+    "RUSTSEC-2026-0269",
+
     # bitmaps is unmaintained (repo archived 2026-05-03), but imbl depends on it
     # and every version is affected, so there is nothing to upgrade to. imbl is
     # itself the maintained replacement for im, which nearcore used before.

@@ -598,8 +598,10 @@ mod tests {
             access_keys: BTreeSet::new(),
         });
 
-        // Canonical known-answer vectors. Keep stable: reused by the NEP and by the
-        // on-chain `raw_state_init_to_account_id` host fn's cross-check.
+        // Canonical known-answer vectors. Keep stable: they seed the NEP, and
+        // `test_universal_state_init_to_account_id_matches_receiver_check` pins the
+        // `universal_state_init_to_account_id` host function against the first of
+        // them, so what a contract derives on-chain is what this function derives.
         for (state_init, expected) in [
             (&key_only, "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"), // cspell:disable-line
             (&contract, "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"), // cspell:disable-line

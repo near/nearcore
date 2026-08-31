@@ -532,7 +532,6 @@ impl<'a> ChainStoreUpdate<'a> {
     /// (block_hash, shard_id), so the hash prefixes all shards' rows. Callers delete alongside
     /// the block's `BlockInfo`, except the `clear_chunk_data_and_headers` sweep, which uses it
     /// for header-only hashes that never got a body (their `BlockInfo` persists).
-    #[cfg(feature = "nightly")]
     fn gc_chunk_producers_for_block(&mut self, block_hash: &CryptoHash) {
         let cp_keys: Vec<Box<[u8]>> = self
             .store()
@@ -605,10 +604,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // Delete the header's ChunkProducers rows before the height index is dropped,
                 // else header-only hashes (never given a body, so never seen by
                 // clear_block_data) orphan their rows.
-                #[cfg(feature = "nightly")]
                 self.gc_chunk_producers_for_block(&header_hash);
-                #[cfg(not(feature = "nightly"))]
-                let _ = header_hash;
             }
 
             // 4. Delete chunks_tail-related data
@@ -754,7 +750,6 @@ impl<'a> ChainStoreUpdate<'a> {
         // ChunkProducers is keyed by ShardId, not ShardUId; the get_shard_uids_to_gc union can
         // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the same
         // delete twice. Prefix-scan by block hash deletes each row once, next-layout rows too.
-        #[cfg(feature = "nightly")]
         self.gc_chunk_producers_for_block(&block_hash);
 
         // 3. Delete block_hash-indexed data
@@ -1029,7 +1024,6 @@ impl<'a> ChainStoreUpdate<'a> {
         // ChunkProducers is seeded together with BlockInfo (see record_block_info_impl), so
         // delete it here alongside BlockInfo. Insert-only, so the stale row must go before
         // re-processing re-seeds it.
-        #[cfg(feature = "nightly")]
         self.gc_chunk_producers_for_block(&block_hash);
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());

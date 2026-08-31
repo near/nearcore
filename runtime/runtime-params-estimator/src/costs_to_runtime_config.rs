@@ -147,6 +147,12 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::keccak256_byte => Cost::Keccak256Byte,
         ExtCosts::keccak512_base => Cost::Keccak512Base,
         ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::universal_state_init_to_account_id_base => {
+            Cost::UniversalStateInitToAccountIdBase
+        }
+        ExtCosts::universal_state_init_to_account_id_byte => {
+            Cost::UniversalStateInitToAccountIdByte
+        }
         ExtCosts::sha3_256_base => Cost::Sha3256Base,
         ExtCosts::sha3_256_byte => Cost::Sha3256Byte,
         ExtCosts::sha3_384_base => Cost::Sha3384Base,

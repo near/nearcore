@@ -18,6 +18,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing.workspace = true
 
 near-client.workspace = true
+near-epoch-manager.workspace = true
 
 nearcore.workspace = true
 near-chain-configs.workspace = true

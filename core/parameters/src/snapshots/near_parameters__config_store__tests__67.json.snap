@@ -205,7 +205,9 @@ snapshot_kind: text
       "bls12381_p1_decompress_base": 300000000000000,
       "bls12381_p1_decompress_element": 300000000000000,
       "bls12381_p2_decompress_base": 300000000000000,
-      "bls12381_p2_decompress_element": 300000000000000
+      "bls12381_p2_decompress_element": 300000000000000,
+      "universal_state_init_to_account_id_base": 8520000000,
+      "universal_state_init_to_account_id_byte": 21471105
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,

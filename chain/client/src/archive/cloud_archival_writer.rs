@@ -507,9 +507,11 @@ impl CloudArchivalWriter {
         &self,
         prev_epoch_end: CryptoHash,
     ) -> Result<(), CloudArchivingError> {
+        // TODO(cloud_archival): consider dropping the shard layout argument once `EpochInfo`
+        // carries it.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_epoch_end)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await
+        self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, &prev_epoch_end).await
     }
 
     /// Returns the hash of the last block of the (at most one) epoch ending

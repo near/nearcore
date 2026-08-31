@@ -5,6 +5,7 @@ use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
+use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
 
 /// Representation of the address slice of guest memory.
 #[derive(Clone, Copy)]
@@ -393,6 +394,36 @@ pub trait External {
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> Result<(), VMLogicError>;
+
+    /// The counts a `UniversalStateInit` action carrying `state_init` is priced on.
+    ///
+    /// Decoding is a host-side concern: the typed form carries public key handles,
+    /// whose types live outside this crate. Split from the append so the caller can
+    /// charge before the action exists, rather than relying on a failed charge
+    /// discarding a receipt it has already been added to.
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts;
+
+    /// Attach a `UniversalStateInit` action, built from the bytes a contract
+    /// supplied, to an existing receipt.
+    ///
+    /// The bytes go into the action verbatim, because the account the receipt
+    /// targets is identified by exactly them.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `state_init`    - the borsh of a `UniversalStateInit`
+    /// * `amount`        - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    );
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///

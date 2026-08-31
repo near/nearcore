@@ -549,9 +549,17 @@ pub fn bootstrap_historical_reader(
 
     // Download all blocks in the range into the reader's store.
     {
-        let store = env.node_for_account(reader_id).client().chain.chain_store.store();
-        bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
-            .expect("bootstrap_range should succeed");
+        let client = env.node_for_account(reader_id).client();
+        let store = client.chain.chain_store.store();
+        let epoch_manager = client.epoch_manager.clone();
+        bootstrap_range(
+            &store,
+            &cloud_storage,
+            epoch_manager.as_ref(),
+            start_height,
+            target_block_height,
+        )
+        .expect("bootstrap_range should succeed");
     }
 
     // Resolve the target's epoch for the shard layout. A skipped-slot target
@@ -762,10 +770,17 @@ pub(crate) fn assert_reader_writer_parity(
 }
 
 /// Compares the writer's rows in `col` against the full reader.
+/// Every in-scope writer row is present in the reader with the same value. Extra
+/// reader rows are allowed, e.g. because of a batch being written whole.
 fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
     let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
-    assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch");
+    for (key, writer_value) in writer_kvs {
+        let reader_value = reader_all_kvs
+            .get(key)
+            .unwrap_or_else(|| panic!("{col} row missing from the reader: {key:?}"));
+        assert_eq!(reader_value, writer_value, "{col} value mismatch for {key:?}");
+    }
 }
 
 /// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.

@@ -73,7 +73,6 @@ impl CloudStorage {
 
     /// Highest height whose block data is in the bucket, if the writer has
     /// published a block head at all.
-    #[cfg(feature = "test_features")]
     pub fn get_cloud_block_head(&self) -> Result<Option<BlockHeight>, CloudRetrievalError> {
         block_on_future(self.retrieve_cloud_block_head_if_exists())
     }
