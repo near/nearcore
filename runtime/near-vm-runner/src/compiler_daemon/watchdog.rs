@@ -51,8 +51,8 @@ impl ProcessWatchdog {
         Ok(generation)
     }
 
-    /// Disarm synchronously so the worker cannot be checked in while a timeout
-    /// for its previous request is still racing with the caller.
+    /// Disarm synchronously before returning the worker to the pool, so a
+    /// timeout for its previous request cannot race with its next user.
     pub(super) fn finish<T>(
         &self,
         generation: u64,

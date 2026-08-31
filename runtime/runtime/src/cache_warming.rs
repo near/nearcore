@@ -61,11 +61,11 @@ pub fn cache_keys_differ(a: Arc<Config>, b: Arc<Config>) -> bool {
 /// Precompile `code` against `current_config` synchronously and
 /// — when `next_config` is `Some` and its cache-key signature differs from
 /// `current_config` — additionally enqueue a fire-and-forget warming
-/// compilation against `next_config` on the [`contract_cache_warming_pool`].
+/// compilation against `next_config` on the [`contract_cache_warming_pool`]
+/// with `CompilePriority::Background`.
 ///
-/// Errors from either compile are dropped.
-///
-/// Uses `CompilePriority::Critical` if the out-of-process compiler is enabled.
+/// Errors from either compile are dropped. The synchronous `current_config`
+/// compilation uses `CompilePriority::Critical`.
 pub(crate) fn precompile_contract_with_warming(
     code: &ContractCode,
     current_config: Arc<Config>,

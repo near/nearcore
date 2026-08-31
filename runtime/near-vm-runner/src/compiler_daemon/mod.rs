@@ -25,6 +25,7 @@ pub use parent::{
 };
 use std::time::Duration;
 
+// TODO(jakmeier): make the worker resource and pool limits configurable.
 /// Minimum per-worker virtual memory budget.
 ///
 /// Applied as `RLIMIT_AS` in the daemon child (virtual memory, not physical).
@@ -68,4 +69,4 @@ const DEFAULT_TOTAL_MEMORY_BUDGET_BYTES: u64 = 16 * bytesize::GIB;
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Per-request retry budget on IPC failure (for example, a worker crash).
-const MAX_SPAWN_ATTEMPTS: u32 = 2;
+const MAX_REQUEST_ATTEMPTS: u32 = 2;

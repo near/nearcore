@@ -281,12 +281,15 @@ pub(crate) fn execute_function_call(
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
+    // Most VM runner errors translate to `RuntimeError` and propagate to the
+    // caller. Unknown compilation errors panic on the state-transition path so
+    // a validator cannot commit a potentially nondeterministic result. View
+    // calls instead return an aborted outcome because they do not change state.
+    // User-code errors are stored in `outcome.aborted` and do not reach these
+    // match arms.
+    //
+    // TODO: Compilation must become asynchronous before this can work with
+    // SPICE, where chunks are determined before execution.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             if runtime_ext.account().contract().is_some() {
@@ -339,12 +342,11 @@ pub(crate) fn execute_function_call(
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
             if context.view_config.is_none() {
-                // apply-path: do not commit the potentially non-deterministic
-                // error on chain, prefer panicking
+                // Do not commit a potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");
             } else {
-                // view-call: do not crash the node, a non-deterministic RPC
-                // response is acceptable
+                // A view call does not change state, so returning the local
+                // compilation failure is safe and avoids crashing the node.
                 return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
                     CompilationError::WasmtimeCompileError { msg: debug_message },
                 )));

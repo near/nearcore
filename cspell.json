@@ -290,6 +290,7 @@
         "nearprotocol",
         "nearup",
         "nearvm",
+        "Landlock",
         "netdev",
         "newtype",
         "nextest",

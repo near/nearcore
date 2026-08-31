@@ -12,28 +12,32 @@
 //! hot path need no annotation (a forgotten one is never starved), and only the
 //! known background/interactive entry points opt down.
 
-/// Relative urgency of a contract compilation. Lower discriminant = more urgent.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// Relative urgency of a contract compilation, from most to least urgent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, strum::EnumCount)]
 pub enum CompilePriority {
     /// On the critical path of chunk application or contract deployment.
     /// The default: anything not explicitly lowered is treated as critical.
     #[default]
-    Critical = 0,
+    Critical,
     /// User-facing but off the block-production path (e.g. RPC view calls).
-    Interactive = 1,
+    Interactive,
     /// Best-effort background work: cache pre-warming, state sync, witness
     /// validation precompiles.
-    Background = 2,
+    Background,
 }
 
 impl CompilePriority {
     /// Number of distinct priority classes; used to size per-class structures.
     // Only read by the compiler-daemon pool, which is gated on `wasmtime_vm`.
     #[cfg_attr(not(feature = "wasmtime_vm"), allow(dead_code))]
-    pub(crate) const COUNT: usize = 3;
+    pub(crate) const COUNT: usize = <Self as strum::EnumCount>::COUNT;
 
     #[cfg_attr(not(feature = "wasmtime_vm"), allow(dead_code))]
     pub(crate) fn index(self) -> usize {
-        self as usize
+        match self {
+            Self::Critical => 0,
+            Self::Interactive => 1,
+            Self::Background => 2,
+        }
     }
 }

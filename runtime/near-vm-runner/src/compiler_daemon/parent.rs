@@ -1,9 +1,9 @@
 //! Parent-side client for the out-of-process compiler daemon.
 //!
-//! A pool of worker subprocesses serves compilations in parallel, so
-//! independent compilations shards run concurrently with independent memory
-//! limits . The pool spawns workers lazily up to a configured maximum and
-//! blocks callers when all workers are busy.
+//! A pool of worker subprocesses serves compilations in parallel, allowing
+//! independent shards to compile concurrently with independent memory limits.
+//! The pool spawns workers lazily up to a configured maximum and blocks callers
+//! when all workers are busy.
 //!
 //! Worker checkout is priority-ordered: when a worker frees up, the most urgent
 //! waiting caller is served first (see [`CompilePriority`]).
@@ -16,7 +16,7 @@ use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::{
     DAEMON_STARTUP_TIMEOUT, DEFAULT_RAYON_THREADS_PER_WORKER, DEFAULT_TOTAL_MEMORY_BUDGET_BYTES,
-    MAX_POOL_SIZE, MAX_SPAWN_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
+    MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::wasmtime_runner::compiler_compatibility_hash;
@@ -101,7 +101,7 @@ impl DaemonProcess {
             .env_clear()
             // Rayon determines its global compilation pool size from this
             // variable.
-            // TODO: make this configurable
+            // TODO(jakmeier): make this configurable
             .env("RAYON_NUM_THREADS", DEFAULT_RAYON_THREADS_PER_WORKER.to_string())
             .current_dir("/")
             .stdin(Stdio::piped())
@@ -169,11 +169,10 @@ impl DaemonProcess {
     fn compile_raw(&mut self, request: &CompileRequest) -> Result<CompileResult, String> {
         let request_bytes =
             borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
-        // The test-only request below exercises watchdog recovery from an
-        // unresponsive worker.
-        // For now, production requests have no deadline. We prefer a hanging
-        // node over the alternatives. (crashing or committing a potentially
-        // nondeterministic error)
+        // The test-only `Timeout` action exercises watchdog recovery from an
+        // unresponsive worker. Normal compilation requests have no deadline
+        // right now, since we decided a hanging node is preferable to crashing
+        // or committing a potentially nondeterministic error.
         let timeout = compilation_request_timeout(request);
         let generation = timeout.map(|timeout| self.watchdog.arm(timeout)).transpose()?;
         let result = write_frame(&mut self.stdin, &request_bytes)
@@ -513,8 +512,8 @@ pub fn start_daemon() -> Result<DaemonStatus, String> {
 /// contains failures which prevented the compiler worker from returning a
 /// compilation result.
 ///
-/// Blocks if all workers are busy, ordered by `priority`. Panics if no daemon
-/// binary has been configured via `set_daemon_binary`.
+/// Blocks if all workers are busy and serves waiting callers by priority.
+/// Panics if no daemon binary has been configured via `set_daemon_binary`.
 pub fn compile_in_subprocess(
     prepared_code: &[u8],
     limit_config: &LimitConfig,
@@ -530,7 +529,7 @@ pub fn compile_in_subprocess(
     let pool = get_or_init_pool();
 
     let mut last_err = String::new();
-    for attempt in 0..MAX_SPAWN_ATTEMPTS {
+    for attempt in 0..MAX_REQUEST_ATTEMPTS {
         let mut lease = match pool.checkout(priority) {
             Ok(worker) => Lease { pool, worker: Some(worker) },
             Err(spawn_err) => {
@@ -561,7 +560,7 @@ pub fn compile_in_subprocess(
             }
         }
     }
-    tracing::error!(attempts = MAX_SPAWN_ATTEMPTS, "compiler daemon failed, giving up");
+    tracing::error!(attempts = MAX_REQUEST_ATTEMPTS, "compiler daemon failed, giving up");
     Err(VMRunnerError::WasmCompilationUnknownError { debug_message: last_err })
 }
 
