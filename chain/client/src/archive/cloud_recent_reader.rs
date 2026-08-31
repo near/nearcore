@@ -4,6 +4,7 @@ use crate::archive::cloud_archival_utils::{
 use near_async::time::{Clock, Duration};
 use near_chain_configs::InterruptHandle;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::types::BlockHeight;
 use near_store::Store;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};

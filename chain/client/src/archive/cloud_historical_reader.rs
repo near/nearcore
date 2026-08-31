@@ -10,6 +10,9 @@ use near_store::archive::cloud_storage::CloudStorage;
 /// end_height]` from cloud storage and writes it into the local store.
 ///
 /// Rows reach past `end_height`, since each batch is written to its own end.
+///
+/// `start_height` must be above the first archived block, since the walk is anchored on
+/// the block below it.
 pub fn bootstrap_range(
     store: &Store,
     cloud_storage: &CloudStorage,

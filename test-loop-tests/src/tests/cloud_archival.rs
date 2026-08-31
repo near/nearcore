@@ -2143,7 +2143,7 @@ fn test_cloud_archival_reader_clears_forked_height() {
     // Two epochs past the dropped height, so the reader is clear of it when the chain stops.
     h.run_until_epoch(forked_height / h.epoch_length + 2);
 
-    let head = h.recent_reader_head();
+    let head = h.recent_reader_height();
     assert!(forked_height <= head, "the reader stopped at {head}, below the forked height");
     let batch =
         get_cloud_storage(&h.env, &h.writer_id).get_block_batch_for_height(forked_height).unwrap();

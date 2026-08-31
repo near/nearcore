@@ -23,6 +23,8 @@ pub enum CloudArchivalReaderError {
     Epoch(#[from] EpochError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
+    #[error("no block below {start_height}, which must be above the first archived block")]
+    NoAnchorBelow { start_height: BlockHeight },
 }
 
 /// Writes block-level columns from a cloud `BlockData` into `update`.
@@ -111,14 +113,21 @@ pub(crate) fn pull_block_batch(
 }
 
 /// Seeds the store with what the epoch manager needs to answer for `height`, and
-/// returns the hash of the nearest present block below it.
+/// returns the hash of the nearest present block below it. `height` must therefore
+/// be above the first archived block.
 pub(crate) fn install_anchors(
     store: &Store,
     cloud_storage: &CloudStorage,
     epoch_manager: &dyn EpochManagerAdapter,
     height: BlockHeight,
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
-    let (_, prev_block) = find_present_block_below(cloud_storage, height)?;
+    let (_, prev_block) =
+        find_present_block_below(cloud_storage, height).map_err(|err| match err {
+            CloudRetrievalError::NoBlockData { .. } => {
+                CloudArchivalReaderError::NoAnchorBelow { start_height: height }
+            }
+            err => err.into(),
+        })?;
     let prev_block_epoch_id = *prev_block.block().header().epoch_id();
     pull_epoch_data(store, cloud_storage, &prev_block_epoch_id)?;
 
