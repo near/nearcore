@@ -23,6 +23,7 @@ use crate::wasmtime_runner::compiler_compatibility_hash;
 use near_parameters::vm::LimitConfig;
 use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
+use std::borrow::Cow;
 #[cfg(feature = "test_features")]
 use std::cell::Cell;
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult};
@@ -166,7 +167,7 @@ impl DaemonProcess {
     /// - `Ok(Ok(bytes))` -- compilation succeeded
     /// - `Ok(Err(msg))` -- daemon reported a compilation error (not retryable)
     /// - `Err(msg)` -- IPC failure, daemon likely crashed (retryable)
-    fn compile_raw(&mut self, request: &CompileRequest) -> Result<CompileResult, String> {
+    fn compile_raw(&mut self, request: &CompileRequest<'_>) -> Result<CompileResult, String> {
         let request_bytes =
             borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
         // The test-only `Timeout` action exercises watchdog recovery from an
@@ -228,7 +229,7 @@ fn validate_daemon_status(status: DaemonStatus) -> Result<DaemonStatus, String> 
     Ok(status)
 }
 
-fn compilation_request_timeout(_request: &CompileRequest) -> Option<Duration> {
+fn compilation_request_timeout(_request: &CompileRequest<'_>) -> Option<Duration> {
     #[cfg(feature = "test_features")]
     if _request.test_action == Some(super::protocol::TestAction::Timeout) {
         return Some(Duration::from_millis(100));
@@ -520,7 +521,7 @@ pub fn compile_in_subprocess(
     priority: CompilePriority,
 ) -> Result<Result<Vec<u8>, CompilationError>, VMRunnerError> {
     let request = CompileRequest {
-        prepared_code: prepared_code.to_vec(),
+        prepared_code: Cow::Borrowed(prepared_code),
         max_memory_pages: limit_config.max_memory_pages,
         #[cfg(feature = "test_features")]
         test_action: NEXT_TEST_ACTION.with(Cell::take),

@@ -3,6 +3,7 @@
 // cspell:words landlock
 
 use borsh::{BorshDeserialize, BorshSerialize, from_slice, to_vec};
+use std::borrow::Cow;
 use std::io::{self, ErrorKind, Read, Write};
 
 /// Test-only behavior requested from a compiler worker.
@@ -37,8 +38,8 @@ pub enum DaemonStartup {
 }
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
-pub struct CompileRequest {
-    pub prepared_code: Vec<u8>,
+pub struct CompileRequest<'a> {
+    pub prepared_code: Cow<'a, [u8]>,
     pub max_memory_pages: u32,
     #[cfg(feature = "test_features")]
     pub test_action: Option<TestAction>,

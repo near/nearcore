@@ -55,7 +55,7 @@ pub fn daemon_main() -> ! {
             Ok(f) => f,
             Err(_) => std::process::exit(0),
         };
-        let request: CompileRequest = match borsh::from_slice(&frame) {
+        let request: CompileRequest<'_> = match borsh::from_slice(&frame) {
             Ok(r) => r,
             Err(err) => abort_worker(format!("failed to deserialize request: {err}")),
         };
@@ -69,7 +69,7 @@ pub fn daemon_main() -> ! {
 
 fn handle_request(
     engines: &mut HashMap<u32, wasmtime::Engine>,
-    request: CompileRequest,
+    request: CompileRequest<'_>,
     sandbox_status: &SandboxStatus,
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]
@@ -97,7 +97,7 @@ fn handle_request(
 
 fn handle_compile(
     engines: &mut HashMap<u32, wasmtime::Engine>,
-    request: CompileRequest,
+    request: CompileRequest<'_>,
 ) -> Result<Vec<u8>, String> {
     let engine = match engines.entry(request.max_memory_pages) {
         hash_map::Entry::Occupied(e) => e.into_mut(),
