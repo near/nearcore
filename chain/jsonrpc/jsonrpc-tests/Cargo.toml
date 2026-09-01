@@ -16,6 +16,7 @@ axum.workspace = true
 axum-test.workspace = true
 borsh.workspace = true
 parking_lot.workspace = true
+rand.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 serde_json.workspace = true
 tokio.workspace = true

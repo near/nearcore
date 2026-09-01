@@ -133,6 +133,47 @@ fn test_spice_partial_data_faults_with_dropped_pushes() {
     assert_endorsed(&observed, &recipients);
 }
 
+/// The receipt-proof twin of `dropped_pushes`: drop the receipt proofs most of one
+/// shard's producers send, leaving too few pushed parts to decode, so the other shard's
+/// producers can only keep applying — and certification advancing — by requesting the
+/// data from the producer still answering. Contrast `starve_receipt_proofs`, where the
+/// whole shard goes silent and certification stops for good.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_partial_data_faults_with_dropped_receipt_proof_pushes() {
+    let Setup { mut env, producers, recipients, faults, observed } = setup_with_shards(2, 8);
+    let mut shards = shard_producers(&env, &recipients[0]);
+    shards.sort_by_key(|(shard_id, _)| *shard_id);
+    let [(_, silenced_shard), (_, other_shard)] = &shards[..] else {
+        panic!("expected two shards")
+    };
+    assert_eq!(silenced_shard.len() + other_shard.len(), producers.len());
+    // With four producers per shard a proof decodes from two parts, so three silent
+    // producers leave one pushed part — not enough without requesting.
+    let silent = &silenced_shard[1..];
+    assert!(
+        silenced_shard.len() - silent.len()
+            < reed_solomon_num_data_parts(silenced_shard.len(), DATA_PARTS_RATIO),
+        "the producers left alone still push enough parts to decode, so recovery never runs"
+    );
+    faults.lock().only_kind = Some(SpiceDataKind::ReceiptProof);
+    faults.lock().drop_from.extend(silent.iter().cloned());
+
+    run_past_certified_frontier(&mut env, &recipients[0], 2 * PULL_HEIGHTS);
+
+    let observed = observed.lock();
+    assert!(observed.dropped > 0, "no receipt proof was dropped");
+    // The dropped proofs' recipients are the other shard's producers; every one of them
+    // has to request the missing parts to keep applying its shard.
+    for recipient in other_shard {
+        assert!(
+            observed.data_requests.contains_key(recipient),
+            "{recipient} never had to request the dropped receipt proofs"
+        );
+    }
+    assert_endorsed(&observed, &recipients);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_with_delayed_pushes() {

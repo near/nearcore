@@ -17,6 +17,12 @@ pub(crate) struct TimingConfig {
     pub(crate) backoff_cap: Duration,
     /// Every interval is jittered by up to this fraction in either direction.
     pub(crate) jitter_frac: f64,
+    /// After a pull trigger opens for an item, how long to wait for a straggler push
+    /// before the first pull.
+    pub(crate) pull_delay_after_gate: Duration,
+    /// After an item's first unit arrives, how long to wait for the other producers'
+    /// pushes before pulling the still-missing ordinals.
+    pub(crate) pull_delay_after_first_unit: Duration,
 }
 
 impl Default for TimingConfig {
@@ -27,6 +33,8 @@ impl Default for TimingConfig {
             backoff_multiplier: 2,
             backoff_cap: Duration::seconds(2),
             jitter_frac: 0.25,
+            pull_delay_after_gate: Duration::milliseconds(200),
+            pull_delay_after_first_unit: Duration::milliseconds(200),
         }
     }
 }
@@ -93,6 +101,17 @@ impl<K> Eq for Deadline<K> {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WakeAt(pub(crate) Option<Instant>);
 
+impl WakeAt {
+    /// The earlier of two wake-ups. One timer for it is enough: processing it reports
+    /// the later one again.
+    pub(crate) fn earliest(self, other: WakeAt) -> WakeAt {
+        match (self.0, other.0) {
+            (Some(a), Some(b)) => WakeAt(Some(a.min(b))),
+            (a, b) => WakeAt(a.or(b)),
+        }
+    }
+}
+
 /// Wake-ups for keyed items, earliest first.
 /// Scheduling a key again does not cancel its earlier wake-up; a superseded wake-up still pops, and the
 /// caller can tell it apart by its instant no longer matching the item's `next_deadline`.
@@ -113,8 +132,8 @@ impl<K> DeadlineScheduler<K> {
         self.heap.push(Deadline { at, lane, key });
     }
 
-    /// The earliest entry's instant if it is not covered by the last reported one: it was
-    /// scheduled ahead of it, or the reported one has popped. Stale entries included.
+    /// The earliest scheduled wake, unless a call already returned an instant at or before
+    /// it that has not popped yet.
     pub(crate) fn take_wake(&mut self) -> WakeAt {
         let Some(front) = self.heap.peek().map(|deadline| deadline.at) else {
             return WakeAt(None);

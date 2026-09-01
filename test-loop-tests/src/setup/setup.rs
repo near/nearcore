@@ -39,6 +39,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_primitives::genesis::GenesisId;
+use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
@@ -49,6 +50,8 @@ use near_vm_runner::{
 };
 use nearcore::state_sync::StateSyncDumper;
 use parking_lot::RwLock;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::broadcast;
@@ -459,6 +462,10 @@ pub fn setup_client(
 
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
         test_loop.clock(),
+        // Deterministic, and different per node so the nodes' retry jitter does not line up.
+        StdRng::seed_from_u64(u64::from_le_bytes(
+            hash(account_id.as_bytes()).0[..8].try_into().unwrap(),
+        )),
         epoch_manager.clone(),
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),
