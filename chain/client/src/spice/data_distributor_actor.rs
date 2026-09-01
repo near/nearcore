@@ -26,7 +26,7 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
-use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
@@ -1000,6 +1000,58 @@ impl SpiceDataDistributorActor {
         self.pending_partial_data.len()
     }
 
+    #[cfg(any(test, feature = "test_features"))]
+    pub fn waiting_on_data_ids(&self) -> Vec<SpiceDataIdentifier> {
+        self.waiting_on_data.keys().cloned().collect()
+    }
+
+    /// Data of a block on a dead fork (below the final head, off the canonical chain) is never
+    /// applied. A witness of a chunk certified as of the final head is never endorsed, and the
+    /// producers collect it (see `clear_witnesses_data`). Neither may ever arrive.
+    fn stop_waiting_on_data_for_dead_forks_and_final_certified_blocks(&mut self) {
+        let Ok(final_head) = self.chain_store.final_head() else {
+            return;
+        };
+        let last_certified_height = match get_last_certified_block_header(
+            &self.chain_store,
+            &final_head.last_block_hash,
+        ) {
+            Ok(header) => header.height(),
+            Err(err) => {
+                tracing::debug!(target: "spice_data_distribution", ?err, "no last certified block to stop waiting on witnesses at");
+                return;
+            }
+        };
+        let mut unneeded = Vec::new();
+        for id in self.waiting_on_data.keys() {
+            let block_hash = id.block_hash();
+            let height = match self.chain_store.get_block_height(block_hash) {
+                Ok(height) => height,
+                Err(err) => {
+                    // The rules below should have dropped the entry before its block was
+                    // collected.
+                    tracing::error!(target: "spice_data_distribution", ?err, ?id, "block for which we wait on data is gone; stop waiting on it");
+                    unneeded.push((id.clone(), false));
+                    continue;
+                }
+            };
+            if height > final_head.height {
+                continue;
+            }
+            let on_dead_fork =
+                self.chain_store.get_block_hash_by_height(height).ok().as_ref() != Some(block_hash);
+            let certified = matches!(id, SpiceDataIdentifier::Witness { .. })
+                && height <= last_certified_height;
+            if on_dead_fork || certified {
+                unneeded.push((id.clone(), on_dead_fork));
+            }
+        }
+        for (id, on_dead_fork) in unneeded {
+            tracing::debug!(target: "spice_data_distribution", ?id, on_dead_fork, last_certified_height, "data is no longer needed; stop waiting on it");
+            self.waiting_on_data.remove(&id);
+        }
+    }
+
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This
     // would help make sure that we cannot have and request data at the same time.
     /// As a non-designated epoch validator, certify overdue chunks via the all-stake fallback:
@@ -1372,6 +1424,7 @@ impl SpiceDataDistributorActor {
     }
 
     fn schedule_data_fetching(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.stop_waiting_on_data_for_dead_forks_and_final_certified_blocks();
         self.request_waiting_on_data();
         self.request_round = self.request_round.wrapping_add(1);
 

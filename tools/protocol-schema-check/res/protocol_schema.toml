@@ -100,6 +100,7 @@ ChunkStateWitness = 2526307047
 ChunkStateWitnessAck = 177881908
 ChunkStateWitnessV2 = 1907746384
 ChunkStats = 4176245277
+CloudReaderHead = 4159040927
 CodeBytes = 2940589161
 CodeHash = 457384689
 CompilationError = 3636972954

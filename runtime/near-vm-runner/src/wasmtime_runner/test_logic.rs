@@ -3,7 +3,6 @@ use super::logic;
 use crate::logic::errors::VMLogicError;
 use crate::logic::gas_counter::GasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
 use near_parameters::RuntimeFeesConfig;
@@ -124,7 +123,7 @@ impl WasmtimeTestLogic<'_> {
     #[track_caller]
     pub(crate) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
         let len = self.registers().get_len(register_id).unwrap();
-        let ptr = MockedMemory::MEMORY_SIZE - len;
+        let ptr = self.memory.data_size(&self.store) as u64 - len;
         self.read_register(register_id, ptr).unwrap();
         let got = self.internal_mem_read(ptr, len);
         assert_eq!(want, &got[..]);

@@ -13,9 +13,6 @@
 //! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
 //! `test_resolution_errors_on_anchor_db_miss`); `tests::early_kickout_e2e` owns sync
 //! under an *active* kickout, where rows deviate from the plain schedule.
-//!
-//! Nightly-only (gated at `sync/mod.rs`): EarlyKickout only enters `PROTOCOL_VERSION`
-//! on nightly.
 
 use super::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -254,8 +251,8 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 fn slow_test_early_kickout_activation_edge_block_sync() {
     init_test_logger();
 
-    // Not `PROTOCOL_VERSION - 1`: that sits well above EarlyKickout on nightly and
-    // would give no activation edge.
+    // Not `PROTOCOL_VERSION - 1`: on a nightly build that sits well above EarlyKickout
+    // and would give no activation edge.
     let genesis_protocol_version = ProtocolFeature::EarlyKickout.protocol_version() - 1;
     assert!(
         genesis_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,

@@ -268,7 +268,7 @@ fix_contract_loading_error              true
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
 universal_accounts                      false
-fix_ml_dsa_cost_charging                false
+fix_ml_dsa_cost_charging                true
 discard_custom_sections                 true
 reftypes_bulk_memory                    true
 max_congestion_incoming_gas             400_000_000_000_000_000
@@ -311,7 +311,7 @@ gas_key_host_fns                        true
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
 ml_dsa_verify_host_fn                   true
-sha3_host_fns                           false
+sha3_host_fns                           true
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
 bls12381_not_in_group_fix               false
