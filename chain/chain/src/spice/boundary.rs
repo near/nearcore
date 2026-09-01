@@ -7,6 +7,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::{
     ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
@@ -110,6 +111,18 @@ pub fn synthesize_execution_result(
     block: &Block,
     shard_id: ShardId,
 ) -> Result<ChunkExecutionResult, Error> {
+    Ok(synthesize_execution_result_and_receipt_proofs(chain_store, epoch_manager, block, shard_id)?
+        .0)
+}
+
+/// Same as [`synthesize_execution_result`], also returning the receipt proofs the
+/// result's receipts root commits to, for persisting at the boundary.
+pub fn synthesize_execution_result_and_receipt_proofs(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<(ChunkExecutionResult, Vec<ReceiptProof>), Error> {
     let epoch_id = block.header().epoch_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id)?;
     let chunk_extra = chain_store.chunk_store().get_chunk_extra(block.hash(), &shard_uid)?;
@@ -127,12 +140,16 @@ pub fn synthesize_execution_result(
     )?;
 
     let next_shard_layout = epoch_manager.get_shard_layout_from_prev_block(block.hash())?;
-    let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
-        &next_shard_layout,
-        shard_id,
-        outgoing_receipts,
-    )?;
-    Ok(ChunkExecutionResult { chunk_extra: chunk_extra.as_ref().clone(), outgoing_receipts_root })
+    let (outgoing_receipts_root, receipt_proofs) =
+        Chain::create_receipts_proofs_from_outgoing_receipts(
+            &next_shard_layout,
+            shard_id,
+            outgoing_receipts,
+        )?;
+    Ok((
+        ChunkExecutionResult { chunk_extra: chunk_extra.as_ref().clone(), outgoing_receipts_root },
+        receipt_proofs,
+    ))
 }
 
 /// Tripwire against the two sources of truth at the boundary: a certified execution
