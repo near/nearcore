@@ -326,6 +326,26 @@ impl ViewClientActor {
             self.epoch_manager.get_epoch_start_height(cur_block_info.hash())?
                 + self.epoch_manager.get_epoch_config(&epoch_id)?.epoch_length;
 
+        // An account that is not a validator of this epoch is never sampled as a block or
+        // chunk producer, so the whole remainder of the epoch is a single window.
+        let Some(&validator_id) = epoch_info.get_validator_id(&account_id) else {
+            let rest_of_epoch = head.height..next_epoch_start_height;
+            return Ok(if rest_of_epoch.is_empty() { vec![] } else { vec![rest_of_epoch] });
+        };
+
+        // Sampling only ever returns validators listed in the corresponding settlement, so an
+        // account missing from one can never be drawn from it and needs no sampling there.
+        let samples_as_block_producer =
+            epoch_info.block_producers_settlement().contains(&validator_id);
+        let chunk_producer_shard_ids: Vec<ShardId> = shard_ids
+            .iter()
+            .copied()
+            .filter(|&shard_id| {
+                let Ok(shard_index) = shard_layout.get_shard_index(shard_id) else { return false };
+                epoch_info.chunk_producers_settlement()[shard_index].contains(&validator_id)
+            })
+            .collect();
+
         let mut windows: MaintenanceWindowsView = Vec::new();
         let mut start_block_of_window: Option<BlockHeight> = None;
         let last_block_of_epoch = next_epoch_start_height - 1;
@@ -333,16 +353,14 @@ impl ViewClientActor {
         // This loop does not go beyond the current epoch so it is valid to use
         // the EpochInfo and ShardLayout from the current epoch.
         for block_height in head.height..next_epoch_start_height {
-            let bp = epoch_info.sample_block_producer(block_height);
-            let bp = epoch_info.get_validator(bp).account_id().clone();
-            let mut cps = shard_ids.iter().map(|&shard_id| {
-                let cp = epoch_info
-                    .sample_chunk_producer(&shard_layout, shard_id, block_height)
-                    .unwrap();
-                let cp = epoch_info.get_validator(cp).account_id().clone();
-                cp
+            let produces_block = samples_as_block_producer
+                && epoch_info.sample_block_producer(block_height) == validator_id;
+            let mut chunk_producers = chunk_producer_shard_ids.iter().map(|&shard_id| {
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, block_height).unwrap()
             });
-            if account_id != bp && !cps.any(|a| *a == account_id) {
+            if !produces_block
+                && !chunk_producers.any(|chunk_producer| chunk_producer == validator_id)
+            {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);

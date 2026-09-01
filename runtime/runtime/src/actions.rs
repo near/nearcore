@@ -32,7 +32,6 @@ use near_primitives::types::{
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::universal_account_id::is_universal_account_id;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
@@ -223,19 +222,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
-    // TODO(universal-accounts): replace with an `AccountType::Universal` variant in the match
-    // below once `near-account-id` supports 0u accounts. For now this needs to be checked before
-    // the match, because 0u account is parsed as `AccountType::NamedAccount` and would panic.
-    if apply_state.config.wasm_config.universal_accounts
-        && is_universal_account_id(account_id.as_str())
-    {
-        *account = Some(Account::new_uninitialized(
-            deposit,
-            fee_config.storage_usage_config.num_bytes_account,
-            initial_nonce_value(block_height),
-        ));
-        return;
-    }
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
@@ -279,9 +265,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 &apply_state.config.fees.storage_usage_config,
             ));
         }
+        AccountType::UniversalAccount if apply_state.config.wasm_config.universal_accounts => {
+            *account = Some(Account::new_uninitialized(
+                deposit,
+                fee_config.storage_usage_config.num_bytes_account,
+                initial_nonce_value(block_height),
+            ));
+        }
         // This panic is unreachable as this is an implicit account creation transfer.
-        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
-        AccountType::NamedAccount => panic!("must be implicit"),
+        // `check_account_existence` would fail because `account_is_implicit` would return false
+        // for such a receiver.
+        AccountType::NamedAccount | AccountType::UniversalAccount => panic!("must be implicit"),
     }
 }
 
