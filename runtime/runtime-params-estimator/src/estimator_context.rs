@@ -538,7 +538,7 @@ impl Testbed<'_> {
         ) else {
             panic!("tx verification should not fail in estimator");
         };
-        result.apply(&mut signer, Some(&mut access_key));
+        result.apply(&mut signer, Some(&mut access_key)).expect("tx must apply in estimator");
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, Some(&access_key));
         clock.elapsed()
     }

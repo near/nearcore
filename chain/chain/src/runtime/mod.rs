@@ -1004,8 +1004,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // Nonce gap check: if the tx requires sequential nonces and
                 // there is a gap, leave it in the pool for a future block
                 // rather than popping and discarding it.
-                if let Some(current_nonce) =
-                    gap_check_nonce(&state_update.trie_update.trie, &signer_overlay, tx_peek)?
+                let current_nonce =
+                    gap_check_nonce(&state_update.trie_update.trie, &signer_overlay, tx_peek)?;
+                if let Some(current_nonce) = current_nonce
                     && tx_peek.nonce().nonce() > current_nonce.saturating_add(1)
                 {
                     if !validate_tx_ttl(tx_peek.to_signed_tx()) {
@@ -1127,7 +1128,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.
-                        result.apply(account, key_entry.access_key.as_mut());
+                        result.apply(account, key_entry.access_key.as_mut())?;
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);
                         }
@@ -1703,7 +1704,7 @@ fn gap_check_nonce(
     // while the account is uninitialized. Reading it for anything else would
     // hold a junk transaction until its TTL expires, since that nonce can
     // authorize nothing but the bootstrap itself.
-    if tx.to_tx().state_init_bootstrap().is_some() {
+    if tx.to_tx().is_state_init_bootstrap() {
         if let Some(nonce) = signer_overlay.cached_bootstrap_nonce(account_id) {
             return Ok(Some(nonce));
         }

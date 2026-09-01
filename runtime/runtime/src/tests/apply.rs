@@ -255,8 +255,13 @@ fn test_apply_check_balance_validation_rewards() {
 /// rejects the write on such an account, which fails the whole chunk rather
 /// than the account. Reachable for a `0u` account that staked, unstaked, was
 /// deleted and was then funded again while still inside the stake-return window.
+///
+/// A positive `max_of_stakes` for such an account is a different matter: it
+/// cannot hold locked balance at all, so that combination is corrupt state and
+/// fails loudly. (A reward cannot be owed here, since earning one puts that
+/// epoch's stake into `max_of_stakes`, which this branch already rejects.)
 #[test]
-fn test_apply_validator_update_skips_uninitialized_account() {
+fn test_apply_validator_update_uninitialized_account() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
         Balance::from_near(1_000_000),
@@ -269,11 +274,12 @@ fn test_apply_validator_update_skips_uninitialized_account() {
     let uninitialized: AccountId =
         // cspell:disable-next-line
         "0u4bwt6zbknvvcyzmfnfhitcfzatxtthkbzdcm4zwezyf7zwe6pnc4c".parse().unwrap();
+    let balance = Balance::from_near(1);
     let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
     set_account(
         &mut state,
         uninitialized.clone(),
-        &Account::new_uninitialized(Balance::from_near(1), 100, initial_nonce_value(1)),
+        &Account::new_uninitialized(balance, 100, initial_nonce_value(1)),
     );
     state.commit(StateChangeCause::InitialState);
     let trie_changes = state.finalize().unwrap().trie_changes;
@@ -281,17 +287,14 @@ fn test_apply_validator_update_skips_uninitialized_account() {
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit();
 
-    let validator_accounts_update = ValidatorAccountsUpdate {
-        stake_info: vec![(uninitialized, Balance::ZERO)].into_iter().collect(),
-        validator_rewards: Default::default(),
-        last_proposals: Default::default(),
-        protocol_treasury_account_id: None,
-    };
-
-    // Applying at all is the property under test: an inconsistent-state error
-    // here would be a failed chunk.
-    runtime
-        .apply(
+    let apply_with = |max_of_stakes| {
+        let validator_accounts_update = ValidatorAccountsUpdate {
+            stake_info: vec![(uninitialized.clone(), max_of_stakes)].into_iter().collect(),
+            validator_rewards: Default::default(),
+            last_proposals: Default::default(),
+            protocol_treasury_account_id: None,
+        };
+        runtime.apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &Some(validator_accounts_update),
             &apply_state,
@@ -300,7 +303,28 @@ fn test_apply_validator_update_skips_uninitialized_account() {
             &epoch_info_provider,
             Default::default(),
         )
+    };
+
+    // Zero stake is the tail of a return window, and applying at all is the
+    // property under test: an inconsistent-state error would be a failed chunk.
+    let result = apply_with(Balance::ZERO)
         .expect("an uninitialized account in stake_info must not fail the chunk");
+    let mut store_update = tries.store_update();
+    let new_root =
+        tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+    let account = get_account(&state, &uninitialized).unwrap().unwrap();
+    assert!(!account.is_initialized(), "the skip must leave the account untouched");
+    assert_eq!(account.amount(), balance);
+
+    // A stake it cannot hold is corrupt state, not something to skip over.
+    let err = apply_with(Balance::from_near(1))
+        .expect_err("an uninitialized account cannot hold a positive max of stakes");
+    assert!(
+        matches!(err, RuntimeError::StorageError(StorageError::StorageInconsistentState(_))),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]
@@ -5920,8 +5944,19 @@ mod self_signed_state_init {
         let (root, outcomes) =
             apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx.clone()]);
         // The transaction converted, so it reports a receipt id; the receipt is
-        // what fails.
+        // what fails, and it has to fail on the storage stake rather than on
+        // anything else, or the test would pass for the wrong reason.
         assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| matches!(outcome.outcome.status, ExecutionStatus::Failure(_)))
+            .expect("the state init receipt must have failed");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::LackBalanceForState { .. }),
+            "the init must fail on storage staking, not something else"
+        );
 
         let state = tries.new_trie_update(ShardUId::single_shard(), root);
         let account = get_account(&state, &account_id).unwrap().unwrap();
@@ -6130,6 +6165,105 @@ mod self_signed_state_init {
                 "no key may be installed for {action:?}",
             );
         }
+    }
+
+    /// The other direction: an owner-only action placed *after* the state init
+    /// runs against an account the init has already initialized, so it is
+    /// allowed. Actions in one receipt run in order, and the init is what flips
+    /// the account, so the guard that refuses these before the init must not
+    /// refuse them here.
+    #[test]
+    fn owner_only_actions_after_the_init_succeed() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let signer = signer_for("bootstrap-suffix");
+        let other = signer_for("bootstrap-suffix-other");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        // A key the state init does not commit to, which only an `AddKey` after
+        // the init can install.
+        let add_key = Action::AddKey(Box::new(AddKeyAction {
+            public_key: other.public_key(),
+            access_key: AccessKey::full_access(),
+        }));
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![add_key]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| !matches!(outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_)))
+            .expect("the state init receipt must have an outcome");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::SuccessValue(_),
+            "an AddKey after the init must not be refused as AccountNotInitialized"
+        );
+
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized());
+        assert!(
+            get_access_key(&state, &account_id, &other.public_key()).unwrap().is_some(),
+            "the added key must be installed"
+        );
+    }
+
+    /// `DeleteAccount` as the final action, which `DeleteActionMustBeFinal`
+    /// makes the only position it can take. The init initializes the account and
+    /// the delete then removes it, both inside one receipt, so the account is
+    /// gone by the end of the chunk.
+    #[test]
+    fn a_delete_after_the_init_removes_the_account() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let signer = signer_for("bootstrap-then-delete");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let balance = Balance::from_near(10);
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, balance);
+
+        // The beneficiary has to exist, otherwise the balance transfer the delete
+        // sends it would come straight back as a refund.
+        let beneficiary: AccountId = "beneficiary.near".parse().unwrap();
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        set_account(
+            &mut state,
+            beneficiary.clone(),
+            &Account::new(Balance::from_near(1), Balance::ZERO, AccountContract::None, 100),
+        );
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        let delete = Action::DeleteAccount(DeleteAccountAction { beneficiary_id: beneficiary });
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![delete]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| !matches!(outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_)))
+            .expect("the state init receipt must have an outcome");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::SuccessValue(_),
+            "initializing and then deleting in one receipt must succeed"
+        );
+
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(
+            get_account(&state, &account_id).unwrap().is_none(),
+            "the account must be gone once the delete has run"
+        );
     }
 
     /// A committed key that was deleted after the account was initialized cannot

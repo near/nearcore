@@ -47,7 +47,7 @@ use near_primitives::types::{
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
@@ -1875,6 +1875,10 @@ fn test_prepare_transactions_shared_balance_across_keys() {
 #[test]
 fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
     let (mut env, chain, _) = get_test_env_with_chain_and_pool();
 
     // The account id commits to `committed` and to nothing else, so `attacker`
@@ -1974,6 +1978,10 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
 #[test]
 fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
     let (mut env, chain, _) = get_test_env_with_chain_and_pool();
 
     let unused: AccountId = "unused.near".parse().unwrap();

@@ -253,6 +253,13 @@ impl Transaction {
             state_init.access_keys().contains(&handle).then_some(&**action)
         })
     }
+
+    /// Whether this transaction is shaped as a self-signed universal account
+    /// bootstrap. [`Self::state_init_bootstrap`] is the same check for callers
+    /// that need the action itself.
+    pub fn is_state_init_bootstrap(&self) -> bool {
+        self.state_init_bootstrap().is_some()
+    }
 }
 
 impl BorshSerialize for Transaction {
@@ -1317,7 +1324,7 @@ mod tests {
             vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
         );
 
-        assert!(tx.state_init_bootstrap().is_some());
+        assert!(tx.is_state_init_bootstrap());
     }
 
     /// The signing key must be one the account id commits to. Without this, the
@@ -1329,7 +1336,7 @@ mod tests {
         let state_init = state_init_for(&[committed]);
         let tx = bootstrap_tx(&state_init, outsider, vec![]);
 
-        assert!(tx.state_init_bootstrap().is_none());
+        assert!(!tx.is_state_init_bootstrap());
     }
 
     /// An ML-DSA-65 handle is a hash of the key, so a naive public-key
@@ -1340,7 +1347,7 @@ mod tests {
         let state_init = state_init_for(from_ref(&signer));
         let tx = bootstrap_tx(&state_init, signer, vec![]);
 
-        assert!(tx.state_init_bootstrap().is_some());
+        assert!(tx.is_state_init_bootstrap());
     }
 
     /// The state init must derive to the account it is addressed to, otherwise
@@ -1365,7 +1372,7 @@ mod tests {
             }))],
         });
 
-        assert!(tx.state_init_bootstrap().is_none());
+        assert!(!tx.is_state_init_bootstrap());
     }
 
     /// The account pays for itself, so the transaction must be addressed to the
@@ -1380,7 +1387,7 @@ mod tests {
             Transaction::V1(tx) => tx.signer_id = "relayer.near".parse().unwrap(),
         }
 
-        assert!(tx.state_init_bootstrap().is_none());
+        assert!(!tx.is_state_init_bootstrap());
     }
 
     /// A gas key is state the account does not have yet, so a bootstrap can
@@ -1404,7 +1411,7 @@ mod tests {
             nonce_mode: NonceMode::Monotonic,
         });
 
-        assert!(tx.state_init_bootstrap().is_none());
+        assert!(!tx.is_state_init_bootstrap());
     }
 
     /// A state init nested in a `Delegate` is validated against the delegate's
@@ -1443,6 +1450,6 @@ mod tests {
             actions: vec![delegate],
         });
 
-        assert!(tx.state_init_bootstrap().is_none());
+        assert!(!tx.is_state_init_bootstrap());
     }
 }

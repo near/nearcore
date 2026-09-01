@@ -317,29 +317,52 @@ pub enum AccessKeyUpdate {
 
 impl VerificationResult {
     /// Apply the state changes described by this result.
-    pub fn apply(&self, account: &mut Account, access_key: Option<&mut AccessKey>) {
+    ///
+    /// `access_key` must be present for every update except `Bootstrap`, which
+    /// requires an uninitialized account instead. Each verifier returns only the
+    /// variant matching what its caller loaded, so a mismatch means the two have
+    /// drifted apart; it is reported rather than panicked on, because this runs
+    /// while a chunk is being applied and a panic there stops the node instead of
+    /// the transaction.
+    pub fn apply(
+        &self,
+        account: &mut Account,
+        access_key: Option<&mut AccessKey>,
+    ) -> Result<(), StorageError> {
+        let inconsistent = |what: &str| {
+            StorageError::StorageInconsistentState(format!(
+                "{what} for {:?}",
+                self.access_key_update
+            ))
+        };
         account.set_amount(self.new_account_amount);
         match &self.access_key_update {
             AccessKeyUpdate::Regular { nonce, new_allowance } => {
-                let access_key = access_key.expect("regular tx must have an access key");
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 access_key.nonce = *nonce;
                 if let Some(a) = new_allowance {
-                    access_key.permission.function_call_permission_mut().unwrap().allowance =
-                        Some(*a);
+                    let permission = access_key
+                        .permission
+                        .function_call_permission_mut()
+                        .ok_or_else(|| inconsistent("no function call permission"))?;
+                    permission.allowance = Some(*a);
                 }
             }
             AccessKeyUpdate::GasKey { new_balance, .. } => {
-                let access_key = access_key.expect("gas key tx must have an access key");
-                access_key.gas_key_info_mut().unwrap().balance = *new_balance;
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
+                let gas_key_info =
+                    access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
+                gas_key_info.balance = *new_balance;
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
                 // Consumed on the account, so the same signed bytes cannot be
                 // replayed even if the state init that follows them fails.
                 account
                     .set_bootstrap_nonce(*nonce)
-                    .expect("bootstrap tx must have an uninitialized signer");
+                    .map_err(|_| inconsistent("account is already initialized"))?;
             }
         }
+        Ok(())
     }
 
     /// Extract the gas key nonce update, if this is a gas key transaction.
@@ -1693,9 +1716,28 @@ impl Runtime {
         validator_accounts_update: &ValidatorAccountsUpdate,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
-            // An uninitialized account holds no stake and cannot have been a
-            // validator, so treat it exactly like a missing one.
-            let account = get_account(state_update, account_id)?.filter(Account::is_initialized);
+            let account = get_account(state_update, account_id)?;
+            // An uninitialized account holds no stake, so there is nothing to
+            // give back, and `set_locked` would fail. Reachable at the tail of a
+            // return window: a `0u` validator can unstake, delete the account,
+            // and be funded again, which brings the account ID back as uninitialized,
+            // while `stake_info` still names it.
+            //
+            // No reward can be owed to it. Earning reward means having validated in
+            // the epoch being paid for, which puts that epoch's stake into
+            // `max_of_stakes`. A positive `max_of_stakes` means the account
+            // still held locked balance and could not have been deleted.
+            if account.as_ref().is_some_and(|account| !account.is_initialized()) {
+                if *max_of_stakes > Balance::ZERO {
+                    return Err(StorageError::StorageInconsistentState(format!(
+                        "FATAL: staking invariant does not hold. Uninitialized account {} \
+                         cannot hold the maximum of stakes {} of the past three epochs",
+                        account_id, max_of_stakes
+                    ))
+                    .into());
+                }
+                continue;
+            }
             if let Some(mut account) = account {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
@@ -2315,7 +2357,7 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
 
-            result.apply(account, access_key.as_deref_mut());
+            result.apply(account, access_key.as_deref_mut())?;
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
             // Update gas key nonce if applicable
             if let Some((nonce_index, new_nonce)) = result.gas_key_nonce_update() {

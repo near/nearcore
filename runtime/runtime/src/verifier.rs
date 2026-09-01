@@ -198,7 +198,7 @@ pub fn get_signer_and_authorization(
 /// an access key: the stateless half is decided by the transaction's own shape,
 /// the stateful half is that the account is still uninitialized.
 pub fn is_bootstrap(account: &Account, tx: &Transaction) -> bool {
-    !account.is_initialized() && tx.state_init_bootstrap().is_some()
+    !account.is_initialized() && tx.is_state_init_bootstrap()
 }
 
 /// Validates FunctionCall permission constraints:
@@ -412,12 +412,12 @@ pub fn verify_and_charge_tx_ephemeral(
 /// alone.
 ///
 /// That claim is re-checked here rather than assumed from the caller. Three
-/// paths reach this verifier, and the chunk producer's picks it on nothing but
-/// a missing access key, which an uninitialized account always has. Checking
-/// here is what makes the property hold for all of them, and it is the whole of
-/// the authorization: everything below is only what a key would otherwise have
-/// provided, a nonce plus the balance and storage checks. The nonce lives on
-/// the account until the state init installs the keys.
+/// paths reach this verifier, and the chunk producer's path picks it on nothing
+/// more than a missing access key, which an uninitialized account always has.
+/// Re-checking here is what makes the property hold for all three, and it is
+/// the whole of the authorization: everything below is only what a key would
+/// otherwise have provided, a nonce plus the balance and storage checks. The
+/// nonce lives on the account until the state init installs the keys.
 ///
 /// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
 /// Performs no mutation; changes are returned in the `VerificationResult`.
@@ -430,26 +430,24 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     pending: &PendingConstraints,
 ) -> TxVerdict {
     let account_id = tx.signer_id();
-    if !is_bootstrap(account, tx) {
-        // The same error the other paths report for a key that is not on the
-        // account, so a transaction rejected here and one rejected at apply
-        // look identical.
-        return TxVerdict::Failed(InvalidTxError::InvalidAccessKeyError(
-            InvalidAccessKeyError::AccessKeyNotFound {
-                account_id: account_id.clone(),
-                public_key: tx.public_key().clone().into(),
-            },
-        ));
-    }
-    let Some(current_nonce) = account.bootstrap_nonce() else {
-        // Unreachable: `is_bootstrap` above requires an uninitialized account,
-        // and only an uninitialized account carries this nonce.
-        return TxVerdict::Failed(
-            StorageError::StorageInconsistentState(format!(
-                "{account_id}: bootstrap of an account with no bootstrap nonce"
-            ))
-            .into(),
-        );
+    // Only an uninitialized account carries this nonce, which is the stateful
+    // half of `is_bootstrap`, so reading it doubles as that check. The feature
+    // check is redundant, since an uninitialized account cannot exist without
+    // it, but it keeps this path gated by something local rather than by an
+    // invariant held somewhere else.
+    let bootstrap_nonce = account.bootstrap_nonce();
+    let current_nonce = match bootstrap_nonce {
+        Some(nonce) if config.wasm_config.universal_accounts && tx.is_state_init_bootstrap() => {
+            nonce
+        }
+        _ => {
+            return TxVerdict::Failed(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: account_id.clone(),
+                    public_key: tx.public_key().clone().into(),
+                },
+            ));
+        }
     };
 
     let TransactionCost {
@@ -1121,7 +1119,7 @@ mod tests {
             TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
         };
         let mut access_key = authorization.into_access_key();
-        result.apply(&mut signer, access_key.as_mut());
+        result.apply(&mut signer, access_key.as_mut())?;
         set_tx_state_changes(state_update, &validated_tx, &signer, access_key.as_ref());
         Ok(result)
     }
