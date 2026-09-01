@@ -8,6 +8,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
+use near_chain::spice::boundary::is_spice_activation_parent;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
@@ -187,13 +188,25 @@ impl ChunkExecutorActor {
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         // A block from a pre-spice epoch was already executed synchronously as part
         // of block processing and has no spice state to work from, so this returns
-        // without touching it.
+        // without touching it — except an activation parent, whose committed
+        // pre-spice results bootstrap the boundary.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
+                self.bootstrap_boundary_source_block(block_hash)?;
+            }
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
+        // Second bootstrap trigger, on a first spice block: receipts pushed at the
+        // activation parent's trigger can reach a node before it has created its
+        // executors and are dropped with no retry, so that trigger alone is not safe.
+        // TODO(spice-boundary): collapse to the activation-parent trigger alone once
+        // receive-side buffering of boundary receipts lands.
+        if is_spice_activation_parent(self.epoch_manager.as_ref(), &prev_block_hash)? {
+            self.bootstrap_boundary_source_block(&prev_block_hash)?;
+        }
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
@@ -201,6 +214,21 @@ impl ChunkExecutorActor {
         // finalize trigger never fires; finalize here instead.
         if self.all_tracked_shards_applied(block_hash)? {
             self.finalize_block(block_hash)?;
+        }
+        Ok(())
+    }
+
+    /// Runs the boundary bootstrap of the activation parent `block_hash` on every
+    /// tracked shard's executor. Reconciles with `block_hash` as the parent first,
+    /// so the executors exist even when this is the first spice work on the chain.
+    /// TODO(spice-boundary): the executor set is keyed on tracking at the first
+    /// spice epoch; a shard tracked only at the activation parent is bootstrapped
+    /// by nobody.
+    fn bootstrap_boundary_source_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let block = self.chain_store.get_block(block_hash)?;
+        self.reconcile_tracked_shards(block_hash)?;
+        for executor in self.per_shard_executors.values() {
+            executor.bootstrap_boundary_source_block(&block)?;
         }
         Ok(())
     }
