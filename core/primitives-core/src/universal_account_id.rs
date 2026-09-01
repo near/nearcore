@@ -164,14 +164,20 @@ mod tests {
                 continue;
             };
             match account_type(&edited) {
-                Some(AccountType::UniversalAccount) => {
-                    assert!(CROCKFORD.contains(&byte), "byte {byte} must not be universal")
-                }
+                Some(AccountType::UniversalAccount) => assert!(
+                    CROCKFORD.contains(&byte),
+                    "byte {byte} is not a symbol, so it must not classify universal"
+                ),
                 Some(other) => {
-                    assert!(!CROCKFORD.contains(&byte), "byte {byte} must stay universal");
+                    assert!(
+                        !CROCKFORD.contains(&byte),
+                        "byte {byte} is a symbol, so it must classify universal"
+                    );
                     assert_eq!(other, AccountType::NamedAccount, "byte {byte}");
                 }
-                None => assert!(!CROCKFORD.contains(&byte), "byte {byte} must parse"),
+                None => {
+                    assert!(!CROCKFORD.contains(&byte), "byte {byte} is a symbol, so it must parse")
+                }
             }
         }
 
