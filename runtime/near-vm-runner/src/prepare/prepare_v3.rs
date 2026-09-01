@@ -628,7 +628,7 @@ mod test {
         if config.limit_config.max_locals_per_contract.is_some()
             || config.limit_config.min_contract_size_per_local.is_some()
         {
-            if local_count.ok_or(PrepareError::TooManyLocals)? > local_limit(code, config) {
+            if local_count.ok_or(PrepareError::TooManyLocals)? > super::local_limit(code, config) {
                 return Err(PrepareError::TooManyLocals);
             }
         }
