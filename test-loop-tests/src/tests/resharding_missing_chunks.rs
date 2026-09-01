@@ -260,9 +260,10 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
                 .iter()
                 .filter(|r| r.chunk_mask.get(shard_index).copied().unwrap_or(false))
                 .count();
-            // Integer form of 70%. Healthy runs sit at or near 100% for every non-silenced
-            // shard; the regression this guards against leaves exactly one produced block per
-            // epoch, so the threshold has wide margin on both sides.
+            // Integer form of 70%. The margin against the regression is wide: it leaves exactly
+            // one produced block per epoch, while healthy runs sit at or near 100% for every
+            // non-silenced shard. The legitimate side is tighter than the percentage suggests —
+            // at this epoch length the check quantizes to 4-of-5, one missed chunk per epoch.
             assert!(
                 produced * 10 >= total * 7,
                 "shard index {shard_index} produced {produced} of {total} chunks in epoch \
@@ -325,6 +326,10 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
         // `ChunkProducerNotInDB`, but it also costs the chain almost all of its chunks, so the
         // 70% floor above fires first and no block down here even qualifies. The zero-rows
         // assert is the one with a live mutation behind it (an ungated writer).
+        //
+        // The run ends in epoch E+3 and `DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, so the split-epoch
+        // blocks read here outlive GC by about one epoch. If the runway grows or retention
+        // shrinks, the `ok()?`s below skip every candidate and the expect blames the chunks.
         let resolved = split_blocks
             .iter()
             // `+ 2` so the grandparent anchor can be in this epoch at all; the epoch check

@@ -2262,10 +2262,13 @@ const EPOCH_SYNC_FIRST_BLOCK_HEIGHT: u64 = 42;
 /// the header instead of the epoch would flip both tests below rather than pass either. It is also
 /// passed as `BlockInfo::new`'s variant selector, which is inert here only because 86 and 87 both
 /// select V4.
+///
+/// Returns the manager and the hash the seeder wrote under, so the writer and both readers share
+/// one definition of it.
 fn seed_epoch_sync_first_block(
     epoch_protocol_version: ProtocolVersion,
     header_protocol_version: ProtocolVersion,
-) -> EpochManager {
+) -> (EpochManager, CryptoHash) {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let em = setup_default_epoch_manager_at_version(
         validators,
@@ -2305,23 +2308,17 @@ fn seed_epoch_sync_first_block(
     let mut store_update = em.store.store_update();
     em.seed_chunk_producers_for_first_block(&mut store_update, &block_info).unwrap();
     store_update.commit();
-    em
-}
-
-/// The block hash `seed_epoch_sync_first_block` seeds under.
-fn epoch_sync_first_block_hash() -> CryptoHash {
-    hash(b"epoch sync first block")
+    (em, block_hash)
 }
 
 // The reader gates on the chunk epoch before querying `DBCol::ChunkProducers`. Keep the
 // epoch-sync writer on the same activation boundary.
 #[test]
 fn epoch_sync_seeder_writes_no_rows_below_activation() {
-    let em = seed_epoch_sync_first_block(
+    let (em, block_hash) = seed_epoch_sync_first_block(
         PV_BEFORE_EARLY_KICKOUT,
         ProtocolFeature::EarlyKickout.protocol_version(),
     );
-    let block_hash = epoch_sync_first_block_hash();
     let rows = em.store.store_ref().iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()).count();
     assert_eq!(
         rows, 0,
@@ -2335,11 +2332,10 @@ fn epoch_sync_seeder_writes_no_rows_below_activation() {
 // must be the canonical (empty-blacklist) sample.
 #[test]
 fn epoch_sync_seeder_seeds_canonical_rows_at_activation() {
-    let em = seed_epoch_sync_first_block(
+    let (em, block_hash) = seed_epoch_sync_first_block(
         ProtocolFeature::EarlyKickout.protocol_version(),
         PV_BEFORE_EARLY_KICKOUT,
     );
-    let block_hash = epoch_sync_first_block_hash();
     let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
     let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
 
@@ -2361,8 +2357,8 @@ fn epoch_sync_seeder_seeds_canonical_rows_at_activation() {
             )
             .unwrap();
         assert_eq!(
-            seeded.account_id(),
-            epoch_info.get_validator(canonical).account_id(),
+            seeded,
+            epoch_info.get_validator(canonical),
             "shard {shard_id} must be seeded with the canonical sample",
         );
         checked += 1;
