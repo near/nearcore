@@ -257,6 +257,7 @@ snapshot_kind: text
       "max_receipt_total_input_size": 4194944,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "min_contract_size_per_local": 2,
       "max_params_per_contract": 50000,
       "max_params_per_function": 64,
       "max_operand_stack_bytes_per_function": 8192,
