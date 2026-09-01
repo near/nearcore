@@ -15,6 +15,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
+use near_chain::spice::boundary::seed_execution_heads_at_activation;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -42,9 +43,15 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::test_utils::{
+    TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
+};
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+};
+use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
@@ -1248,4 +1255,158 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     spice_head_update.commit();
 
     assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
+}
+
+fn build_saved_block(
+    chain: &mut Chain,
+    prev_block: &Block,
+    height: u64,
+    protocol_version: ProtocolVersion,
+    signer: &Arc<ValidatorSigner>,
+) -> Arc<Block> {
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer.clone())
+        .height(height)
+        .protocol_version(protocol_version)
+        .build();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_block(block.clone());
+    store_update.save_block_header(block.header().clone()).unwrap();
+    store_update.commit().unwrap();
+    block
+}
+
+fn seed_execution_heads(chain: &Chain, parent: &Block, block: &Block) {
+    let mut store_update = chain.chain_store.store().store_update();
+    seed_execution_heads_at_activation(&mut store_update, block, parent.header()).unwrap();
+    store_update.commit();
+}
+
+/// A pre-spice chain genesis..height 3 at consecutive heights, so `Block::produce`
+/// resolves real last-final blocks: a first spice block built on the block at
+/// height 3 finalizes the block at height 2.
+fn pre_spice_boundary_chain() -> (Chain, Arc<ValidatorSigner>, Vec<Arc<Block>>) {
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut chain = {
+        let genesis = TestGenesisBuilder::new()
+            .protocol_version(pre_spice_protocol_version())
+            .validators_spec(ValidatorsSpec::desired_roles(&[signer.validator_id().as_str()], &[]))
+            .build();
+        get_chain_with_genesis(Clock::real(), genesis)
+    };
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=3u64 {
+        let block = build_saved_block(
+            &mut chain,
+            blocks[height as usize - 1].clone().as_ref(),
+            height,
+            pre_spice_protocol_version(),
+            &signer,
+        );
+        blocks.push(block);
+    }
+    (chain, signer, blocks)
+}
+
+/// Re-seeding the execution heads from sibling boundary forks changes nothing:
+/// both setters are forward-only, and every first spice block on a same-height
+/// fork resolves the same last final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let parent = blocks[3].clone();
+    let first_spice =
+        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
+    assert_eq!(first_spice.header().last_final_block(), blocks[2].hash());
+
+    seed_execution_heads(&chain, parent.as_ref(), first_spice.as_ref());
+    let chain_store = chain.chain_store.store().chain_store();
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+
+    // A sibling first spice block on the same parent re-seeds to the same heads.
+    let sibling_first_spice =
+        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, parent.as_ref(), sibling_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+
+    // A same-height sibling activation parent on a fork re-seeds without moving
+    // the heads either: the forward-only execution head setter skips equal heights.
+    let sibling_parent = build_saved_block(
+        &mut chain,
+        blocks[2].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let fork_first_spice =
+        build_saved_block(&mut chain, sibling_parent.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, sibling_parent.as_ref(), fork_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+}
+
+/// At the boundary the final execution head is seeded to the first spice block's
+/// last final block. `is_descendant_of_final_execution_head` gates execution on it
+/// by walking a block's ancestry down to the head's height and comparing heights
+/// only, never hashes. This pins both consequences for boundary forks:
+/// - a fork whose blocks sit at the same heights as the canonical chain passes,
+///   even though its ancestor at the head's height is a different block;
+/// - a fork that branched below the seeded head and skipped its height has no
+///   ancestor at that height, fails the check, and so never executes — only a
+///   losing fork can have that shape, since the seeded head is a final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let parent = blocks[3].clone();
+    let first_spice =
+        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, parent.as_ref(), first_spice.as_ref());
+
+    // The canonical first spice block descends through the seeded head's height.
+    assert!(is_descendant_of_final_execution_head(&chain.chain_store, first_spice.header()));
+
+    // A same-height sibling boundary fork passes either way.
+    let sibling_parent = build_saved_block(
+        &mut chain,
+        blocks[2].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let sibling_first_spice =
+        build_saved_block(&mut chain, sibling_parent.as_ref(), 4, spice_protocol_version, &signer);
+    assert!(is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        sibling_first_spice.header()
+    ));
+
+    // A boundary fork branching below the seeded head and skipping its height
+    // has no ancestor at that height and is rejected.
+    let skipping_parent = build_saved_block(
+        &mut chain,
+        blocks[1].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let skipping_first_spice =
+        build_saved_block(&mut chain, skipping_parent.as_ref(), 4, spice_protocol_version, &signer);
+    assert!(!is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        skipping_first_spice.header()
+    ));
 }

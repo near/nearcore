@@ -3,6 +3,7 @@ use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::spice::boundary::seed_execution_heads_at_activation;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
@@ -30,8 +31,8 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId, SpiceChunkId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreUpdateAdapter;
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use node_runtime::SignedValidPeriodTransactions;
 use std::mem;
 use std::sync::Arc;
@@ -296,15 +297,10 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if ProtocolFeature::Spice.enabled(protocol_version) {
-            // Seed execution head when activating spice
             let prev_header = self.chain_store_update.get_previous_header(block.header())?;
-            if !prev_header.is_spice() {
-                let mut spice_update = self.chain_store_update.store().store_update();
-                let mut adapter = spice_update.chain_store_update();
-                adapter.set_spice_execution_head(&Tip::from_header(&prev_header))?;
-                adapter.update_spice_final_execution_head(&block)?;
-                self.chain_store_update.merge(spice_update);
-            }
+            let mut spice_update = self.chain_store_update.store().store_update();
+            seed_execution_heads_at_activation(&mut spice_update, &block, &prev_header)?;
+            self.chain_store_update.merge(spice_update);
             record_uncertified_chunks_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
