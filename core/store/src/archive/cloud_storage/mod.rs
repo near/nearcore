@@ -87,6 +87,15 @@ impl CloudStorage {
         Ok(batch)
     }
 
+    /// Highest height whose data for `shard_id` is in the bucket, if the writer has
+    /// published a head for that shard at all.
+    pub async fn get_cloud_shard_head(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<BlockHeight>, CloudRetrievalError> {
+        self.retrieve_cloud_shard_head_if_exists(shard_id).await
+    }
+
     /// Fetches `shard_id`'s batch for the window `block_height` falls in. What the batch
     /// carries can open above or end below that height, which is what a shard added or
     /// retired by a resharding looks like.
