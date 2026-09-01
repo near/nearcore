@@ -482,6 +482,9 @@ pub fn account_is_implicit(
     if account_type == AccountType::UniversalAccount {
         return universal_accounts_enabled;
     }
+    if account_type == AccountType::EthImplicitAccount {
+        return eth_implicit_accounts_enabled;
+    }
     if eth_implicit_accounts_enabled {
         account_type.is_implicit()
     } else {

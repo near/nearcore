@@ -953,9 +953,9 @@ fn meta_tx_create_and_use_eth_implicit_account() {
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
 ///
-/// Using the account should only work for NEAR-implicit accounts,
-/// as ETH-implicit accounts do not have access keys
-/// and they can only be used by calling associated smart contract.
+/// Using the account should only work for NEAR-implicit accounts. The other implicit
+/// kinds get no access key from the transfer, so they are reachable only through the
+/// contract or state init behind them.
 fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();

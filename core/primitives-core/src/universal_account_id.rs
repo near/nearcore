@@ -129,7 +129,7 @@ mod tests {
     /// the prefix, the alphabet or the padding rule stops it being one. An edit that keeps
     /// all four is the address of a different hash, so it stays universal.
     #[test]
-    fn an_edited_encoder_output_is_not_universal() {
+    fn only_canonical_encodings_classify_as_universal() {
         let account_type = |id: &str| id.parse::<AccountId>().ok().map(|id| id.get_account_type());
         let valid = encode_universal_account_id(&[0x11; 32]).as_str().to_owned();
         assert_eq!(account_type(&valid), Some(AccountType::UniversalAccount));
