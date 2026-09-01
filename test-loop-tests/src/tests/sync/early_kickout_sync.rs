@@ -442,9 +442,9 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
         run_timeout,
     );
     // `far_horizon_height` is this suite's conservative setup floor, not the production phase
-    // decision, so a shorter chain is not necessarily unsyncable — it is just outside what this
-    // fixture is set up for. `assert_far_horizon_sync_sequence` below is the exact statement about
-    // which path actually ran.
+    // decision, so a shorter chain is not necessarily impossible to sync — it is just outside what
+    // this fixture is set up for. `assert_far_horizon_sync_sequence` below is the exact statement
+    // about which path actually ran.
     let head_height = env.node(0).head().height;
     assert!(
         head_height >= far_horizon_height(epoch_length),
