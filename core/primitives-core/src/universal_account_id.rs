@@ -125,6 +125,77 @@ mod tests {
         }
     }
 
+    /// What the encoder emits is a universal account, and an edit that breaks the length,
+    /// the prefix, the alphabet or the padding rule stops it being one. An edit that keeps
+    /// all four is the address of a different hash, so it stays universal.
+    #[test]
+    fn an_edited_encoder_output_is_not_universal() {
+        let account_type = |id: &str| id.parse::<AccountId>().ok().map(|id| id.get_account_type());
+        let valid = encode_universal_account_id(&[0x11; 32]).as_str().to_owned();
+        assert_eq!(account_type(&valid), Some(AccountType::UniversalAccount));
+
+        // One symbol short, and one symbol too many.
+        assert_eq!(account_type(&valid[..UAID_LEN - 1]), Some(AccountType::NamedAccount));
+        assert_eq!(account_type(&format!("{valid}0")), Some(AccountType::NamedAccount));
+
+        // Right length, wrong prefix. The all-hex bodies are the ones the other two
+        // prefixed account types would take if their own length rule ever went.
+        let mut wrong_prefix = valid.clone();
+        wrong_prefix.replace_range(0..UAID_PREFIX.len(), "0s");
+        assert_eq!(account_type(&wrong_prefix), Some(AccountType::NamedAccount));
+        for prefix in ["0s", "0x"] {
+            let hex_body = format!("{prefix}{}", "0".repeat(UAID_DATA_SYMBOLS));
+            assert_eq!(hex_body.len(), UAID_LEN);
+            assert_eq!(account_type(&hex_body), Some(AccountType::NamedAccount));
+        }
+
+        // A universal id inside a longer name is a named account.
+        assert_eq!(account_type(&format!("{valid}.near")), Some(AccountType::NamedAccount));
+        assert_eq!(account_type(&format!("sub.{valid}")), Some(AccountType::NamedAccount));
+
+        // Every byte in a body position, so the alphabet rule is pinned whole rather than
+        // at a few sampled characters. A symbol addresses another hash; anything else
+        // either stops being an account id or becomes a named one.
+        let middle = UAID_LEN / 2;
+        for byte in 0..=u8::MAX {
+            let mut bytes = valid.clone().into_bytes();
+            bytes[middle] = byte;
+            let Ok(edited) = String::from_utf8(bytes) else {
+                continue;
+            };
+            match account_type(&edited) {
+                Some(AccountType::UniversalAccount) => {
+                    assert!(CROCKFORD.contains(&byte), "byte {byte} must not be universal")
+                }
+                Some(other) => {
+                    assert!(!CROCKFORD.contains(&byte), "byte {byte} must stay universal");
+                    assert_eq!(other, AccountType::NamedAccount, "byte {byte}");
+                }
+                None => assert!(!CROCKFORD.contains(&byte), "byte {byte} must parse"),
+            }
+        }
+
+        // Every symbol in the final position. It carries one hash bit and four padding
+        // bits, so only the two spellings that leave the padding clear are universal.
+        let mut accepted = 0;
+        for &symbol in CROCKFORD {
+            let mut bytes = valid.clone().into_bytes();
+            *bytes.last_mut().unwrap() = symbol;
+            let edited = String::from_utf8(bytes).unwrap();
+            if account_type(&edited) == Some(AccountType::UniversalAccount) {
+                accepted += 1;
+                assert!(
+                    matches!(symbol, b'0' | b'g'),
+                    "symbol {} left padding set",
+                    symbol as char
+                );
+            } else {
+                assert_eq!(account_type(&edited), Some(AccountType::NamedAccount));
+            }
+        }
+        assert_eq!(accepted, 2);
+    }
+
     /// What this encoder emits is what `AccountType` calls a universal account, so
     /// the two cannot drift apart.
     #[test]
