@@ -925,8 +925,9 @@ pub enum ActionErrorKind {
     /// Action validation rejects such an action before it runs, so this only fires
     /// if that check was bypassed.
     MalformedUniversalStateInit = 29,
-    /// The action needs an account that is set up, but the receiver is a `0u`
-    /// universal account which only holds a balance so far.
+    /// The action needs a set-up account, but the receiver is an uninitialized
+    /// universal account. Distinct from `AccountDoesNotExist`: the account is
+    /// there, it just has no access keys, code or data yet.
     AccountNotInitialized {
         account_id: AccountId,
     } = 30,
@@ -1287,7 +1288,7 @@ impl Display for ActionErrorKind {
             }
             ActionErrorKind::AccountNotInitialized { account_id } => write!(
                 f,
-                "Can't complete the action because account {:?} has no state installed yet",
+                "Can't complete the action because account {:?} is uninitialized",
                 account_id
             ),
         }

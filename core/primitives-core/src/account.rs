@@ -212,21 +212,30 @@ pub struct AccountV2 {
 
 /// A universal account funded before its state init was installed.
 ///
-/// It carries nothing but balance: no contract, no access keys and no data.
-/// Installing the state init is the only thing that can add any of those, and
-/// doing so moves the account out of this state, so everything else that writes
-/// to an account is unreachable while it stays uninitialized.
+/// It carries a balance and a [`UninitializedAccountV1::bootstrap_nonce`], and
+/// no contract, access keys or data. Installing the state init is the only thing
+/// that can add any of those, and doing so moves the account out of this state,
+/// so everything else that writes to an account is unreachable while it stays
+/// uninitialized.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct UninitializedAccountV1 {
     /// The total not locked tokens.
     amount: Balance,
     /// Storage used by the account record itself.
     storage_usage: StorageUsage,
-    /// Nonce for the account's own transactions while it has no access keys,
-    /// used by the self-signed state init. Prevents replaying a self-signed
-    /// state init transaction on a deleted and re-created account.
+    /// Nonce for the account's own transactions while it is uninitialized, used
+    /// by the self-signed state init, and what makes that transaction one-shot.
     ///
-    /// Seeded to`(creation_block_height - 1) * 1e6`.
+    /// It closes two different replays. Consuming it closes the first: a failed
+    /// init leaves the account uninitialized, so without it the same signed
+    /// bytes would stay admissible and anyone could resubmit them, burning the
+    /// conversion fee each time for as long as the transaction stayed inside its
+    /// validity window. Seeding it from the creation height closes the second: a
+    /// re-created account starts above every nonce its previous incarnation
+    /// could have signed for, so the old bytes cannot bootstrap it either.
+    ///
+    /// Seeded exactly as a newly created access key is:
+    /// `(creation_block_height - 1) * ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
     ///
     /// Dropped by [`Account::initialize`]: once the state init has installed
     /// the access keys, each of them carries its own nonce.
@@ -265,8 +274,9 @@ impl Account {
         Self::Initialized(account)
     }
 
-    /// A universal account funded before its state init was installed. Holds
-    /// nothing but balance until [`Self::initialize`] is called.
+    /// A universal account funded before its state init was installed. It stays
+    /// uninitialized, with no access keys, code or data, until
+    /// [`Self::initialize`] is called.
     ///
     /// `bootstrap_nonce` should be `initial_nonce_value(block_height)` of the
     /// block creating the account; see [`UninitializedAccountV1::bootstrap_nonce`].
@@ -288,6 +298,11 @@ impl Account {
     }
 
     /// Record that a self-signed transaction consumed `nonce`.
+    ///
+    /// Only reached for an already authorized transaction, and `nonce` is not
+    /// the caller's to choose: `verify_and_charge_bootstrap_tx_ephemeral` admits
+    /// nothing but the account's own state init, at exactly the successor of the
+    /// current nonce.
     pub fn set_bootstrap_nonce(&mut self, nonce: Nonce) -> Result<(), InvalidAccountState> {
         let Self::Uninitialized(account) = self else {
             return Err(InvalidAccountState::AlreadyInitialized);
@@ -325,10 +340,10 @@ impl Account {
         Ok(())
     }
 
-    /// Whether this account's state has been installed. Exposed so views can
-    /// report it: an uninitialized account is otherwise indistinguishable from
-    /// an ordinary one, and a client has to tell them apart to know which
-    /// transaction shape to send.
+    /// Initialized or uninitialized, as an [`AccountState`] rather than the bool
+    /// [`Self::is_initialized`] returns. Exposed so views can report it: a
+    /// client cannot otherwise tell an uninitialized account from an ordinary
+    /// one, and has to, to know which transaction shape to send.
     #[inline]
     pub fn state(&self) -> AccountState {
         match self {

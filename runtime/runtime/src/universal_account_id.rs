@@ -30,9 +30,9 @@ pub(crate) fn action_universal_state_init(
     let storage_usage_config = &fees.storage_usage_config;
 
     // The account may already exist without its state: a transfer to a `0u` id
-    // creates an uninitialized account holding nothing but balance. Install on
-    // the first state init and skip straight to the deposit handling on a
-    // repeat, without touching the state already there.
+    // creates an uninitialized account. Install on the first state init and skip
+    // straight to the deposit handling on a repeat, without touching the state
+    // already there.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),

@@ -158,7 +158,9 @@ impl TxAuthorization {
     }
 }
 
-/// Resolve the signer's account and access key.
+/// Resolve the signer's account and what authorizes the transaction against it:
+/// an access key, a gas key, or the account id itself for a self-signed state
+/// init.
 pub fn get_signer_and_authorization(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,

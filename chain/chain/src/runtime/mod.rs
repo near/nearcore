@@ -1674,15 +1674,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-/// The nonce a strict gap check must compare this transaction against, or
+/// The current nonce for a transaction that requires strict nonce ordering, or
 /// `Ok(None)` when no such check applies to it.
 ///
-/// Holding a transaction whose nonce is not the immediate successor of the
-/// stored one keeps a sequential sender from being popped out of the pool and
-/// discarded. That applies to a transaction declaring `NonceMode::Strict`, and
-/// to a self-signed state init, which is charged with strict semantics whatever
-/// it declared (see `verify_and_charge_bootstrap_tx_ephemeral`) and so takes
-/// part even as a V0 transaction, which cannot declare a mode at all.
+/// Against that nonce the caller sorts the transaction into one of three
+/// outcomes: `tx_nonce <= current` is left to full validation to reject,
+/// `tx_nonce == current + 1` is accepted, and `tx_nonce > current + 1` is kept
+/// in the pool for a later chunk rather than popped and discarded, so that a
+/// sequential sender does not lose the rest of its queue.
+///
+/// Strict ordering is required by a transaction declaring `NonceMode::Strict`,
+/// and by a self-signed state init, which is charged with strict semantics
+/// whatever it declared (see `verify_and_charge_bootstrap_tx_ephemeral`) and so
+/// takes part even as a V0 transaction, which cannot declare a mode at all.
 ///
 /// Prefers the overlay, which already carries this chunk's updates; otherwise
 /// reads through a throwaway trie recorder, so a transaction that will not be

@@ -353,8 +353,8 @@ fn test_universal_state_init_repeated() {
 }
 
 /// A `0u` id can be funded before its state init exists: the transfer creates an
-/// uninitialized account holding nothing but balance, and a later state init
-/// installs the state on top of it without losing the funds.
+/// uninitialized account, and a later state init installs the state on top of it
+/// without losing the funds.
 #[test]
 fn test_universal_state_init_after_transfer() {
     init_test_logger();
@@ -712,7 +712,7 @@ fn test_universal_state_init_then_function_call() {
     );
 }
 
-/// An uninitialized account holds a balance and nothing else, so every action
+/// An uninitialized account has no access keys, code or data, so every action
 /// that needs a set-up account is refused with `AccountNotInitialized`, as an
 /// action error rather than anything harsher. Without this an `AddKey` would
 /// silently install a key the account id does not commit to, and a `Stake` or

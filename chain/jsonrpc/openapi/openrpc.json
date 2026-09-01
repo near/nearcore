@@ -1297,7 +1297,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The action needs an account that is set up, but the receiver is a `0u`\nuniversal account which only holds a balance so far.",
+            "description": "The action needs a set-up account, but the receiver is an uninitialized\nuniversal account. Distinct from `AccountDoesNotExist`: the account is\nthere, it just has no access keys, code or data yet.",
             "properties": {
               "AccountNotInitialized": {
                 "properties": {
@@ -10837,7 +10837,7 @@
             "type": "integer"
           },
           "bootstrap_nonce": {
-            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it has no access keys. A self-signed state init is the one\ntransaction that can be sent before any key exists, and this is the only\nway for a client to learn the nonce it must carry: there is no access key\nto query.",
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -10889,7 +10889,7 @@
                 "$ref": "#/components/schemas/AccountState"
               }
             ],
-            "description": "Whether the account's state has been installed. Only a universal account\ncan be uninitialized: it holds a balance and nothing else until a\n`UniversalStateInit` arrives. Omitted for initialized accounts, which is\nevery account that existed before universal accounts."
+            "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -12029,7 +12029,7 @@
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "bootstrap_nonce": {
-                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it has no access keys. A self-signed state init is the one\ntransaction that can be sent before any key exists, and this is the only\nway for a client to learn the nonce it must carry: there is no access key\nto query.",
+                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": [
@@ -12081,7 +12081,7 @@
                         "$ref": "#/components/schemas/AccountState"
                       }
                     ],
-                    "description": "Whether the account's state has been installed. Only a universal account\ncan be uninitialized: it holds a balance and nothing else until a\n`UniversalStateInit` arrives. Omitted for initialized accounts, which is\nevery account that existed before universal accounts."
+                    "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
                   },
                   "storage_paid_at": {
                     "default": 0,

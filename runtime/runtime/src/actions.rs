@@ -872,7 +872,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             };
-            // An uninitialized `0u` account holds a balance and nothing else, so
+            // An uninitialized `0u` account has no access keys, code or data, so
             // for everything but its own state init and a transfer it is as good
             // as absent.
             if !account.is_initialized() {
@@ -947,7 +947,7 @@ mod tests {
     const TEST_GAS_KEY_NUM_NONCES: u16 = 1;
     /// Seed for an uninitialized account's pre-key nonce; its value is
     /// irrelevant to these tests, which never check a nonce.
-    const BOOTSTRAP_NONCE: Nonce = 1_000_000;
+    const TEST_BOOTSTRAP_NONCE: Nonce = 1_000_000;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -2347,14 +2347,14 @@ mod tests {
         ]
     }
 
-    /// An uninitialized account holds a balance and nothing else, so for anything
-    /// but its own state init and a transfer it is as good as absent.
+    /// An uninitialized account has no access keys, code or data, so for
+    /// anything but its own state init and a transfer it is as good as absent.
     #[test]
     fn uninitialized_account_rejects_actions_needing_state() {
         let account_id = account_id();
         let config = RuntimeConfig::test();
         let uninitialized =
-            Some(Account::new_uninitialized(Balance::from_near(1), 100, BOOTSTRAP_NONCE));
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
         let expected: Result<(), ActionError> =
             Err(ActionErrorKind::AccountNotInitialized { account_id: account_id.clone() }.into());
 
@@ -2408,7 +2408,7 @@ mod tests {
         let account_id = account_id();
         let config = RuntimeConfig::test();
         let uninitialized =
-            Some(Account::new_uninitialized(Balance::from_near(1), 100, BOOTSTRAP_NONCE));
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
 
         let state_init = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
             state_init: RawStateInit(vec![]),

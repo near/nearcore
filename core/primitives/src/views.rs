@@ -94,17 +94,15 @@ pub struct AccountView {
     /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
-    /// Whether the account's state has been installed. Only a universal account
-    /// can be uninitialized: it holds a balance and nothing else until a
-    /// `UniversalStateInit` arrives. Omitted for initialized accounts, which is
-    /// every account that existed before universal accounts.
+    /// Whether the account is initialized. Only a universal account can be
+    /// uninitialized: it has no access keys, code or data until a
+    /// `UniversalStateInit` arrives. Omitted for initialized accounts.
     #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
     pub state: AccountState,
     /// The nonce an uninitialized account's own transactions must use, present
-    /// only while it has no access keys. A self-signed state init is the one
-    /// transaction that can be sent before any key exists, and this is the only
-    /// way for a client to learn the nonce it must carry: there is no access key
-    /// to query.
+    /// only while it is uninitialized. A self-signed state init is the one
+    /// transaction such an account can send, and this is the only way for a
+    /// client to learn the nonce it must carry: there is no access key to query.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_nonce: Option<Nonce>,
 }
