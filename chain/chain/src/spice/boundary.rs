@@ -1,6 +1,6 @@
-use crate::Chain;
 use crate::spice::core::save_uncertified_chunks;
 use crate::store::ChainStore;
+use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -135,9 +135,40 @@ pub fn synthesize_execution_result(
     Ok(ChunkExecutionResult { chunk_extra: chunk_extra.as_ref().clone(), outgoing_receipts_root })
 }
 
+/// Tripwire against the two sources of truth at the boundary: a certified execution
+/// result of a pre-spice chunk must match what this node synthesizes from its own
+/// pre-spice apply.
+pub fn check_pre_spice_execution_result(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    chunk_id: &SpiceChunkId,
+    execution_result: &ChunkExecutionResult,
+) -> Result<(), Error> {
+    let block = chain_store.get_block(&chunk_id.block_hash)?;
+    if block.is_spice_block() {
+        return Ok(());
+    }
+    let synthesized =
+        match synthesize_execution_result(chain_store, epoch_manager, &block, chunk_id.shard_id) {
+            Ok(result) => result,
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+    if &synthesized != execution_result {
+        byzantine_assert!(false);
+        return Err(Error::Other(format!(
+            "certified execution result for pre-spice chunk {:?} does not match local synthesis",
+            chunk_id
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{boundary_uncertified_chunks, synthesize_execution_result};
+    use super::{
+        boundary_uncertified_chunks, check_pre_spice_execution_result, synthesize_execution_result,
+    };
     use crate::spice::core::{SpiceCoreReader, save_uncertified_chunks};
     use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
     use crate::{Block, Chain};
@@ -151,6 +182,7 @@ mod tests {
         TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
     };
     use near_primitives::types::Balance;
+    use near_primitives::types::SpiceChunkId;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
@@ -296,5 +328,87 @@ mod tests {
         store_update.commit();
 
         assert_eq!(core_reader.get_uncertified_chunks(block.hash()).unwrap(), uncertified_chunks);
+    }
+
+    /// The tripwire accepts a certified pre-spice result equal to the local synthesis,
+    /// rejects one that differs, and skips a shard this node cannot synthesize.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_pre_spice_execution_result_tripwire() {
+        let signer = Arc::new(create_test_signer("test1"));
+        let mut genesis =
+            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
+        genesis.config.protocol_version = pre_spice_protocol_version();
+        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let epoch_manager = chain.epoch_manager.clone();
+        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+        let block = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            genesis_block.as_ref(),
+            signer.clone(),
+        )
+        .chunks(get_fake_next_block_chunk_headers(&genesis_block, epoch_manager.as_ref()))
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+        // Applied by this node: chunk extra and receipts on disk, synthesis possible.
+        let applied_block = block;
+        // Never applied by this node: no chunk extra, synthesis impossible.
+        let unapplied_block = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            applied_block.as_ref(),
+            signer.clone(),
+        )
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+        save_and_record_block(&mut chain, &applied_block);
+        save_and_record_block(&mut chain, &unapplied_block);
+
+        let shard_layout =
+            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let mut store_update = chain.chain_store.store_update();
+        store_update.save_outgoing_receipt(applied_block.hash(), shard_id, vec![]);
+        store_update.save_chunk_extra(
+            applied_block.hash(),
+            &shard_uid,
+            ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a")).into(),
+        );
+        store_update.commit().unwrap();
+
+        let chain_store = chain.chain_store.store().chain_store();
+        let chunk_id = SpiceChunkId { block_hash: *applied_block.hash(), shard_id };
+        let synthesized = synthesize_execution_result(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &applied_block,
+            shard_id,
+        )
+        .unwrap();
+
+        check_pre_spice_execution_result(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &chunk_id,
+            &synthesized,
+        )
+        .unwrap();
+
+        let mut forged = synthesized.clone();
+        forged.outgoing_receipts_root = CryptoHash::hash_bytes(b"forged root");
+        check_pre_spice_execution_result(&chain_store, epoch_manager.as_ref(), &chunk_id, &forged)
+            .unwrap_err();
+
+        // A forged result for the unapplied block passes: nothing local to check
+        // against, and learning untracked results from certification is the point.
+        let unapplied_chunk_id = SpiceChunkId { block_hash: *unapplied_block.hash(), shard_id };
+        check_pre_spice_execution_result(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &unapplied_chunk_id,
+            &forged,
+        )
+        .unwrap();
     }
 }

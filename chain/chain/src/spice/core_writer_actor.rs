@@ -1,5 +1,6 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
+use crate::spice::boundary::check_pre_spice_execution_result;
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -129,11 +130,17 @@ impl SpiceCoreWriterActor {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
-    ) -> StoreUpdate {
+    ) -> Result<StoreUpdate, Error> {
+        check_pre_spice_execution_result(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &SpiceChunkId { block_hash: *block_hash, shard_id },
+            execution_result,
+        )?;
         let key = get_execution_results_key(block_hash, shard_id);
         let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
-        store_update
+        Ok(store_update)
     }
 
     fn save_uncertified_execution_result(
@@ -255,7 +262,7 @@ impl SpiceCoreWriterActor {
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
                 execution_result,
-            ));
+            )?);
         }
 
         for execution_result in execution_results.values() {
@@ -534,7 +541,7 @@ impl SpiceCoreWriterActor {
                         &chunk_id.block_hash,
                         chunk_id.shard_id,
                         execution_result,
-                    ));
+                    )?);
                     in_block_execution_results.insert(chunk_id);
                 }
             };
@@ -566,7 +573,7 @@ impl SpiceCoreWriterActor {
                     &chunk_id.block_hash,
                     chunk_id.shard_id,
                     &execution_result,
-                ));
+                )?);
             }
         }
 
