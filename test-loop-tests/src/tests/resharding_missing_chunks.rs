@@ -318,8 +318,13 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
         );
 
         // ...and with the column empty, producer resolution still succeeds, through the
-        // canonical sampler. Gate-sensitive in the other direction: an ungated reader takes the
-        // same-epoch anchor arm here and fails with `ChunkProducerNotInDB`.
+        // canonical sampler.
+        //
+        // A statement of the contract, not a guard: no mutation makes this fail on a chain that
+        // still runs. An ungated reader would take the same-epoch anchor arm and error with
+        // `ChunkProducerNotInDB`, but it also costs the chain almost all of its chunks, so the
+        // 70% floor above fires first and no block down here even qualifies. The zero-rows
+        // assert is the one with a live mutation behind it (an ungated writer).
         let resolved = split_blocks
             .iter()
             // `+ 2` so the grandparent anchor can be in this epoch at all; the epoch check
