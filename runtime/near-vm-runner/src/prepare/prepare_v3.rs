@@ -10,7 +10,7 @@ pub(super) fn local_limit(code: &[u8], config: &Config) -> u64 {
     let size_dependent_limit = limits
         .min_contract_size_per_local
         .map(|min_size| {
-            u64::try_from(code.len()).unwrap_or(u64::MAX).checked_div(min_size).unwrap_or(0)
+            u64::try_from(code.len()).unwrap_or(u64::MAX).checked_div(min_size).unwrap_or(u64::MAX)
         })
         .unwrap_or(u64::MAX);
     limits.max_locals_per_contract.unwrap_or(u64::MAX).min(size_dependent_limit)
