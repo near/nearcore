@@ -29,7 +29,7 @@ class TestReleaseCandidate(TestSetup):
     def __init__(self, args):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=10, num_chunk_validator_seats=12)
+            num_chunk_producer_seats=9, num_chunk_validator_seats=11)
         self.epoch_len = 14500  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
         self.has_archival = True
