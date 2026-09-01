@@ -465,30 +465,22 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
-/// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-///
-/// A universal account counts as implicit only once the protocol enables them,
-/// which the account type on its own cannot express.
+/// Whether a transfer to this account id creates it implicitly. `AccountType::is_implicit`
+/// cannot answer on its own, since a recently introduced kind may still sit behind a
+/// protocol flag. The match is exhaustive so a kind added later has to say which flag
+/// guards it, if any.
 pub fn account_is_implicit(
     account_id: &AccountId,
     eth_implicit_accounts_enabled: bool,
     universal_accounts_enabled: bool,
 ) -> bool {
-    let account_type = account_id.get_account_type();
-    // The flag decides for a universal account, since `is_implicit()` below carries
-    // no protocol version.
-    if account_type == AccountType::UniversalAccount {
-        return universal_accounts_enabled;
-    }
-    if account_type == AccountType::EthImplicitAccount {
-        return eth_implicit_accounts_enabled;
-    }
-    if eth_implicit_accounts_enabled {
-        account_type.is_implicit()
-    } else {
-        account_type == AccountType::NearImplicitAccount
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => false,
+        AccountType::NearImplicitAccount => true,
+        // A deterministic account has no flag of its own and rides the eth-implicit one.
+        AccountType::NearDeterministicAccount => eth_implicit_accounts_enabled,
+        AccountType::EthImplicitAccount => eth_implicit_accounts_enabled,
+        AccountType::UniversalAccount => universal_accounts_enabled,
     }
 }
 
