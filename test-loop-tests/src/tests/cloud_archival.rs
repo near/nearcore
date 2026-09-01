@@ -89,6 +89,8 @@ struct CloudArchiveHarnessBuilder {
     /// Delay between catch-up batches. Zero by default, so a small batch size
     /// cannot hold catch-up below block production.
     catch_up_throttle: Duration,
+    /// Height of the genesis block, left to the test-loop default when unset.
+    genesis_height: Option<BlockHeight>,
 }
 
 impl CloudArchiveHarnessBuilder {
@@ -109,6 +111,11 @@ impl CloudArchiveHarnessBuilder {
 
     fn snapshot_every_n_epochs(mut self, cadence: u64) -> Self {
         self.writer.snapshot_every_n_epochs = cadence;
+        self
+    }
+
+    fn genesis_height(mut self, height: BlockHeight) -> Self {
+        self.genesis_height = Some(height);
         self
     }
 
@@ -227,6 +234,9 @@ impl CloudArchiveHarnessBuilder {
         if let Some(count) = self.num_validators {
             builder = builder.validators(count, 0);
         }
+        if let Some(height) = self.genesis_height {
+            builder = builder.genesis_height(height);
+        }
         let recent_reader_id: AccountId =
             CloudArchiveHarness::RECENT_READER_ACCOUNT.parse().unwrap();
         builder = builder.add_non_validator_client(&recent_reader_id);
@@ -299,6 +309,7 @@ impl CloudArchiveHarness {
             delay_recent_reader: false,
             batch_size: Self::TEST_BATCH_SIZE,
             catch_up_throttle: Duration::ZERO,
+            genesis_height: None,
         }
     }
 
@@ -720,6 +731,23 @@ fn test_cloud_archival_batching_blob_per_batch() {
         assert!(h.block_batch_exists_at(batch_end), "batch ending at {batch_end} should exist");
     }
     assert!(!h.block_batch_exists_at(min_head + 1));
+    h.shutdown();
+}
+
+/// Verifies parity with genesis at height 0, where no height sits below genesis.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_genesis_at_height_zero() {
+    let mut h = CloudArchiveHarness::builder().genesis_height(0).disable_gc().build();
+    h.run_until_epoch(2);
+    // TODO(cloud_archival): start the range at 0, once the bootstrap can anchor on genesis
+    // itself instead of the block below the range.
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    h.bootstrap_historical_reader(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
+    h.kill_historical_reader();
+
     h.shutdown();
 }
 
@@ -1468,12 +1496,10 @@ fn test_cloud_archival_outcomes_and_receipts() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in
-/// the per-block cold columns the reader reconstructs from cloud data:
-/// `BlockPerHeight`, `ChunkHashesByHeight`, and `NextBlockHashes`.
+/// Verifies that after reader bootstrap, the local store has entries in the per-block
+/// cold columns the reader reconstructs from cloud data.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-block cold columns.
-#[ignore]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -1494,6 +1520,18 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
         assert!(
             store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(height)),
             "ChunkHashesByHeight missing at h={height}"
+        );
+        let block_ordinal = store
+            .chain_store()
+            .get_block_merkle_tree(&block_hash)
+            .expect("BlockMerkleTree missing")
+            .size();
+        let ordinal_block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))
+            .unwrap_or_else(|| panic!("BlockOrdinal missing at h={height}"));
+        assert_eq!(
+            ordinal_block_hash, block_hash,
+            "BlockOrdinal at h={height} names another block"
         );
         if height < target {
             assert!(
