@@ -5,6 +5,17 @@ use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
 
+pub(super) fn local_limit(code: &[u8], config: &Config) -> u64 {
+    let limits = &config.limit_config;
+    let size_dependent_limit = limits
+        .min_contract_size_per_local
+        .map(|min_size| {
+            u64::try_from(code.len()).unwrap_or(u64::MAX).checked_div(min_size).unwrap_or(0)
+        })
+        .unwrap_or(u64::MAX);
+    limits.max_locals_per_contract.unwrap_or(u64::MAX).min(size_dependent_limit)
+}
+
 struct PrepareContext<'a> {
     code: &'a [u8],
     config: &'a Config,
@@ -40,7 +51,7 @@ impl<'a> PrepareContext<'a> {
             // Practically reaching u64::MAX locals or functions is infeasible, so when the limit is not
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
-            local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            local_limit: local_limit(code, config),
             function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
@@ -614,8 +625,10 @@ mod test {
             }
         }
         // Similarly, do the same for the number of locals.
-        if let Some(max_locals) = config.limit_config.max_locals_per_contract {
-            if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
+        if config.limit_config.max_locals_per_contract.is_some()
+            || config.limit_config.min_contract_size_per_local.is_some()
+        {
+            if local_count.ok_or(PrepareError::TooManyLocals)? > local_limit(code, config) {
                 return Err(PrepareError::TooManyLocals);
             }
         }
