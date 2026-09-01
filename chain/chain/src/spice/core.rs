@@ -1,6 +1,6 @@
 use crate::metrics;
 use crate::spice::all_stake_fallback::{
-    all_stake_fallback_assignment, fallback_eligible, fallback_endorsers,
+    endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
@@ -156,6 +156,18 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
+    /// `chunk_id`'s record as of `carrying_prev_hash`, absent once the chunk is certified there.
+    pub fn uncertified_chunk_info(
+        &self,
+        carrying_prev_hash: &CryptoHash,
+        chunk_id: &SpiceChunkId,
+    ) -> Result<Option<SpiceUncertifiedChunkInfo>, Error> {
+        Ok(self
+            .get_uncertified_chunks(carrying_prev_hash)?
+            .into_iter()
+            .find(|chunk_info| &chunk_info.chunk_id == chunk_id))
+    }
+
     /// Whether `chunk_id` may certify via the all-stake fallback in a block at `carrying_height`
     /// built on `carrying_prev_hash`. False once the chunk is certified there.
     pub fn fallback_eligible_in_carrying_block(
@@ -164,11 +176,16 @@ impl SpiceCoreReader {
         carrying_prev_hash: &CryptoHash,
         chunk_id: &SpiceChunkId,
     ) -> Result<bool, Error> {
-        let uncertified_chunks = self.get_uncertified_chunks(carrying_prev_hash)?;
-        Ok(uncertified_chunks
-            .iter()
-            .find(|chunk_info| &chunk_info.chunk_id == chunk_id)
-            .is_some_and(|chunk_info| fallback_eligible(carrying_height, chunk_info)))
+        let Some(chunk_info) = self.uncertified_chunk_info(carrying_prev_hash, chunk_id)? else {
+            return Ok(false);
+        };
+        let chunk_block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        fallback_eligible(
+            self.epoch_manager.as_ref(),
+            &chunk_block_header,
+            &chunk_info,
+            carrying_height,
+        )
     }
 
     /// Returns ChunkExtra for a given chunk, trying the ChunkExtra column first
@@ -377,10 +394,10 @@ impl SpiceCoreReader {
     /// certifying block.
     fn fallback_endorsements(
         &self,
+        chunk_block_header: &BlockHeader,
         chunk_info: &SpiceUncertifiedChunkInfo,
     ) -> Result<Vec<SpiceCoreStatement>, Error> {
         let chunk_id = &chunk_info.chunk_id;
-        let chunk_block_header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block_header.epoch_id();
         let endorsers = fallback_endorsers(
             self.epoch_manager.as_ref(),
@@ -454,8 +471,15 @@ impl SpiceCoreReader {
         // Once uncertified past the fallback window, also include the non-designated endorsements.
         // height() + 1 underestimates the next block's height, but eligibility is monotone in it
         // so anything eligible here stays eligible at the height validation checks against.
-        if fallback_eligible(block_header.height() + 1, &chunk_info) {
-            statements.extend(self.fallback_endorsements(&chunk_info)?);
+        let chunk_block_header =
+            self.chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?;
+        if fallback_eligible(
+            self.epoch_manager.as_ref(),
+            &chunk_block_header,
+            &chunk_info,
+            block_header.height() + 1,
+        )? {
+            statements.extend(self.fallback_endorsements(&chunk_block_header, &chunk_info)?);
         }
 
         if let Some(execution_result) = get_execution_result_from_store(
@@ -653,6 +677,8 @@ impl SpiceCoreReader {
         let mut endorsed_chunk_accounts: HashSet<(&SpiceChunkId, &AccountId)> = HashSet::new();
         let mut block_execution_results = HashMap::new();
         let mut max_endorsed_height_created = HashMap::new();
+        // Eligibility is per chunk, while a block may carry one endorsement per validator for it.
+        let mut fallback_eligible_by_chunk: HashMap<&SpiceChunkId, bool> = HashMap::new();
 
         for (index, core_statement) in block.spice_core_statements().iter().enumerate() {
             match core_statement {
@@ -666,21 +692,34 @@ impl SpiceCoreReader {
                             reason: "endorsement is irrelevant",
                         });
                     }
-                    // Non-designated endorsements are admissible only once the chunk is
-                    // fallback-eligible and still uncertified.
-                    if !ancestry_endorsements.is_pending_designated(chunk_id, account_id) {
-                        if !ancestry_endorsements
-                            .is_fallback_eligible(chunk_id, block.header().height())
-                        {
-                            return Err(InvalidCoreStatement {
-                                index,
-                                reason: "endorsement is irrelevant",
-                            });
-                        }
-                    }
-
+                    let Some(chunk_info) = ancestry_endorsements.uncertified_chunk_info(chunk_id)
+                    else {
+                        return Err(InvalidCoreStatement {
+                            index,
+                            reason: "endorsement is irrelevant",
+                        });
+                    };
                     let endorsement_block =
                         get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
+                    // Non-designated endorsements are admissible only once the chunk is
+                    // fallback-eligible.
+                    if !ancestry_endorsements.is_pending_designated(chunk_id, account_id)
+                        && !*fallback_eligible_by_chunk.entry(chunk_id).or_insert_with(|| {
+                            fallback_eligible(
+                                self.epoch_manager.as_ref(),
+                                endorsement_block.header(),
+                                chunk_info,
+                                block.header().height(),
+                            )
+                            .expect("epoch of an uncertified chunk's block is known")
+                        })
+                    {
+                        return Err(InvalidCoreStatement {
+                            index,
+                            reason: "endorsement is irrelevant",
+                        });
+                    }
+
                     let (signed_data, signature) = self
                         .verify_endorsement_signature(
                             endorsement_block.header().epoch_id(),
@@ -725,7 +764,7 @@ impl SpiceCoreReader {
 
         // TODO(spice): Add validation that endorsements for blocks are included only when previous
         // block is fully endorsed (as part of block we are validating or it's ancestry).
-        for chunk_id in ancestry_endorsements.pending_designated_chunks() {
+        for chunk_id in ancestry_endorsements.uncertified_chunk_ids() {
             if block_execution_results.contains_key(chunk_id) {
                 continue;
             }
@@ -737,51 +776,39 @@ impl SpiceCoreReader {
             let block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
             let height = block.header().height();
             if height < *max_endorsed_height_created {
-                // We cannot be waiting on an endorsement for chunk created at height that is less
-                // than maximum endorsed height for the chunk as that would mean that child is
-                // endorsed before parent.
+                // A chunk below the maximum endorsed height for its shard cannot still be
+                // uncertified, or a child would be endorsed before its parent. Keyed off
+                // uncertified, not off a missing designated endorsement: a fallback-only chunk
+                // can hold every designated one and stay uncertified.
                 return Err(SkippedExecutionResult { chunk_id: chunk_id.clone() });
             }
         }
 
         for (chunk_id, mut on_chain_endorsements) in in_block_endorsements {
             let chunk_block = get_block(self.chain_store.store_ref(), &chunk_id.block_hash)?;
-            let chunk_validator_assignments = self
-                .epoch_manager
-                .get_chunk_validator_assignments(
-                    &chunk_block.header().epoch_id(),
-                    chunk_id.shard_id,
-                    chunk_block.header().height(),
-                )
-                .expect(
-                    "since we are waiting for endorsement we should know it's validator assignments",
-                );
             // Add the on-chain ancestry endorsements (designated and non-designated) to the in-block
-            // ones, grouped by attested result; the designated tally ignores non-designated accounts.
+            // ones, grouped by attested result.
             for (account_id, endorsement) in ancestry_endorsements.on_chain_for(chunk_id) {
                 on_chain_endorsements
                     .entry(endorsement.execution_result_hash.clone())
                     .or_default()
                     .insert(account_id, endorsement.signature.clone());
             }
-            // Once fallback-eligible, the chunk may also certify via 2/3 of total epoch stake.
-            let fallback_assignment = ancestry_endorsements
-                .is_fallback_eligible(chunk_id, block.header().height())
-                .then(|| {
-                    all_stake_fallback_assignment(
-                        self.epoch_manager.as_ref(),
-                        chunk_block.header().epoch_id(),
-                    )
-                    .expect("epoch of an uncertified chunk's block is known")
-                });
+            let Some(chunk_info) = ancestry_endorsements.uncertified_chunk_info(chunk_id) else {
+                continue;
+            };
             for (execution_result_hash, validator_signatures) in on_chain_endorsements {
-                let endorsed = chunk_validator_assignments
-                    .compute_endorsement_state(validator_signatures.clone())
-                    .is_endorsed
-                    || fallback_assignment.as_ref().is_some_and(|all| {
-                        all.compute_endorsement_state(validator_signatures).is_endorsed
-                    });
-                if !endorsed {
+                let endorsers =
+                    validator_signatures.keys().map(|account_id| (*account_id).clone()).collect();
+                if !endorsers_certify_chunk(
+                    self.epoch_manager.as_ref(),
+                    chunk_block.header(),
+                    chunk_info,
+                    block.header().height(),
+                    &endorsers,
+                )
+                .expect("epoch of an uncertified chunk's block is known")
+                {
                     continue;
                 }
 
@@ -985,9 +1012,19 @@ pub fn record_uncertified_chunks_for_block(
         chunk_info
             .missing_endorsements
             .retain(|account_id| !chunk_endorsements.is_some_and(|e| e.contains_key(account_id)));
+        // A fallback-only chunk never certifies by its designated assignment, so it may hold every
+        // designated endorsement and stay uncertified.
         assert!(
-            !chunk_info.missing_endorsements.is_empty(),
-            "when there are no missing endorsements execution result should be present"
+            !chunk_info.missing_endorsements.is_empty()
+                || is_fallback_only_chunk(
+                    epoch_manager,
+                    chain_store_update
+                        .chain_store()
+                        .get_block_header(&chunk_info.chunk_id.block_hash)?
+                        .as_ref(),
+                    chunk_info.chunk_id.shard_id
+                )?,
+            "chunk holding every designated endorsement should have been certified"
         );
 
         // Record non-designated endorsements (not in the designated assignment, so not tracked

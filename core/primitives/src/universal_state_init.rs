@@ -24,7 +24,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKeyHandle;
 use near_primitives_core::global_contract::GlobalContractIdentifier;
-pub use near_primitives_core::universal_state_init::RawStateInit;
+pub use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -116,6 +116,33 @@ impl UniversalStateInit {
     pub fn from_raw(raw: &RawStateInit) -> Result<Self, io::Error> {
         Self::try_from_slice(&raw.0)
     }
+}
+
+/// The counts a `UniversalStateInit` action is priced on.
+///
+/// The byte count is the payload's own length, not that of the state it decodes
+/// to: borsh drops duplicate storage keys on decode, so pricing the decoded form
+/// would let a large payload that collapses to nothing ride along for free.
+///
+/// The entry and key counts do come from decoding, and bytes that do not decode
+/// describe no entries and no keys. That arm is reachable and priced: a contract
+/// can hand `promise_batch_action_universal_state_init` anything at all, and it
+/// pays for the bytes it made the host read before new-receipt validation turns
+/// them into `MalformedUniversalStateInit`. Base and per-byte is what that work
+/// amounts to.
+///
+/// Gas therefore depends on what decodes, so a new [`UniversalStateInit`] variant
+/// has to arrive behind a protocol feature: two nodes on one protocol version
+/// that disagree about whether a payload decodes would charge different gas for
+/// it. Validity already carried that requirement, since
+/// `validate_universal_state_init` rejects what does not decode; gas now shares
+/// it.
+pub fn state_init_counts(raw: &RawStateInit) -> UniversalStateInitCounts {
+    let (num_entries, num_keys) = match UniversalStateInit::from_raw(raw) {
+        Ok(state_init) => (state_init.data().len() as u64, state_init.access_keys().len() as u64),
+        Err(_) => (0, 0),
+    };
+    UniversalStateInitCounts { num_bytes: raw.0.len() as u64, num_entries, num_keys }
 }
 
 #[cfg(test)]

@@ -138,6 +138,8 @@ pub enum Parameter {
     WasmP256VerifyByte,
     WasmMlDsaVerifyBase,
     WasmMlDsaVerifyByte,
+    WasmUniversalStateInitToAccountIdBase,
+    WasmUniversalStateInitToAccountIdByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,

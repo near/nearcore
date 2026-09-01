@@ -145,35 +145,19 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock() = ShardSyncStatus::StateApplyInProgress { done: 0, total: num_parts };
     runtime.get_tries().unload_memtrie(&shard_uid);
 
-    // Clear flat storage before applying state parts.
-    //
-    // If flat storage is already loaded in memory, it means a previous state
-    // sync completed and flat state may have been modified by subsequent block
-    // processing. We must clear everything and re-apply from scratch.
-    //
-    // If flat storage is NOT in memory but some parts were already applied
-    // (i.e. we crashed mid-sync and are resuming), skip cleanup to preserve
-    // the progress made so far.
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    let flat_storage_exists = flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some();
-    let apply_parts_started = any(0..num_parts, |part_idx| {
-        let key = StatePartKey(sync_hash, shard_id, part_idx);
-        let key_bytes = borsh::to_vec(&key).unwrap();
-        store.exists(DBCol::StatePartsApplied, &key_bytes)
-    });
-    if apply_parts_started && !flat_storage_exists {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
+    if keep_applied_state_parts(&store, shard_uid, sync_hash, num_parts) {
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "resuming an unfinished apply, keeping the state parts already applied");
     } else {
-        if flat_storage_exists && apply_parts_started {
-            tracing::debug!(target: "sync", ?shard_id, ?sync_hash,
-                "clearing completed flat storage and re-applying state parts");
-        } else {
-            tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
-        }
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
         let mut store_update = store.store_update();
-        flat_storage_manager
+        // A shard being state synced is usually absent from the registry, and then this
+        // clears nothing.
+        let cleared_via_registry = flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        // Also clear StatePartsApplied markers so the parts are re-applied.
+        if !cleared_via_registry {
+            store_update.flat_store_update().remove_flat_storage(shard_uid);
+        }
         for part_idx in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_idx);
             let key_bytes = borsh::to_vec(&key).unwrap();
@@ -258,6 +242,33 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock() = ShardSyncStatus::StateSyncDone;
 
     Ok(())
+}
+
+/// Whether the parts recorded in `StatePartsApplied` still describe the state on disk.
+///
+/// They do only while an apply is unfinished. `Ready` means an earlier sync already applied
+/// every part, after which finalize applies a chunk on top and refcount-deletes the base nodes
+/// the new root does not share, so the parts must be applied again.
+///
+/// The status comes from the database rather than the flat storage registry: the registry is
+/// empty after a restart, and `init_flat_storage` only fills it for the head epoch's layout,
+/// which excludes a shard being state synced while the head is still at genesis.
+fn keep_applied_state_parts(
+    store: &Store,
+    shard_uid: ShardUId,
+    sync_hash: CryptoHash,
+    num_parts: u64,
+) -> bool {
+    let previous_apply_completed = matches!(
+        store.flat_store().get_flat_storage_status(shard_uid),
+        FlatStorageStatus::Ready(_)
+    );
+    let apply_parts_started = any(0..num_parts, |part_idx| {
+        let key = StatePartKey(sync_hash, shard_uid.shard_id(), part_idx);
+        let key_bytes = borsh::to_vec(&key).unwrap();
+        store.exists(DBCol::StatePartsApplied, &key_bytes)
+    });
+    apply_parts_started && !previous_apply_completed
 }
 
 fn create_flat_storage_for_shard(
@@ -363,6 +374,7 @@ mod tests {
     use near_primitives::state::PartialState;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
+    use near_store::flat::BlockInfo;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -391,6 +403,32 @@ mod tests {
         );
 
         (runtime, store, tmp_dir)
+    }
+
+    #[test]
+    fn applied_parts_kept_only_while_apply_is_unfinished() {
+        let store = create_test_store();
+        let shard_uid = ShardUId::single_shard();
+        let sync_hash = CryptoHash::default();
+        let key_bytes = borsh::to_vec(&StatePartKey(sync_hash, shard_uid.shard_id(), 0)).unwrap();
+        let mut store_update = store.store_update();
+        store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
+        store_update.commit();
+        assert!(keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
+
+        let mut store_update = store.flat_store().store_update();
+        store_update.set_flat_storage_status(
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo {
+                    hash: CryptoHash::default(),
+                    prev_hash: CryptoHash::default(),
+                    height: 1,
+                },
+            }),
+        );
+        store_update.commit();
+        assert!(!keep_applied_state_parts(&store, shard_uid, sync_hash, 2));
     }
 
     #[tokio::test]

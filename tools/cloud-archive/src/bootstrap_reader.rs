@@ -1,6 +1,8 @@
 use anyhow::Context;
 use near_chain_configs::GenesisValidationMode;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
+use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use std::path::Path;
@@ -22,13 +24,6 @@ impl BootstrapReaderCmd {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.start_height <= self.end_height,
-            "start_height ({}) must be <= end_height ({})",
-            self.start_height,
-            self.end_height,
-        );
-
         let near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .context("failed to load config")?;
 
@@ -47,26 +42,45 @@ impl BootstrapReaderCmd {
             .cloud_storage_context()
             .context("cloud_archival not configured in config.json")?;
 
-        // Opening cloud storage and every retrieval below run on tokio, and this command
-        // is not async. Multi-threaded on purpose: the retrievals are polled by a foreign
-        // executor, so tokio's driver needs worker threads of its own to make progress.
+        // Opening cloud storage builds an HTTP client that captures a runtime handle, and
+        // this command is not async.
         let tokio_runtime = Runtime::new().expect("failed to create the tokio runtime");
-        let _runtime_guard = tokio_runtime.enter();
-
-        let storage = NodeStorage::opener(
-            home_dir,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-            Some(cloud_storage_context),
-        )
-        .open_in_mode(Mode::ReadWrite)
-        .context("failed to open storage")?;
+        let storage = {
+            let _runtime_guard = tokio_runtime.enter();
+            NodeStorage::opener(
+                home_dir,
+                &near_config.config.store,
+                near_config.config.cold_store.as_ref(),
+                Some(cloud_storage_context),
+            )
+            .open_in_mode(Mode::ReadWrite)
+            .context("failed to open storage")?
+        };
 
         let store = storage.get_hot_store();
         let cloud_storage =
             storage.get_cloud_storage().context("cloud storage not available")?.clone();
 
-        bootstrap_range(&store, &cloud_storage, self.start_height, self.end_height)?;
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config.clone(),
+            epoch_manager.clone(),
+            near_config.validator_signer,
+        );
+
+        tokio_runtime.block_on(bootstrap_range(
+            &store,
+            &cloud_storage,
+            epoch_manager.as_ref(),
+            &shard_tracker,
+            self.start_height,
+            self.end_height,
+        ))?;
 
         tracing::info!(
             start_height = self.start_height,

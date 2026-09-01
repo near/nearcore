@@ -47,12 +47,17 @@ impl VerifiedPeerHeights {
         self.by_peer.insert(peer_id.clone(), height);
     }
 
-    pub fn get(&self, peer_id: &PeerId) -> Option<BlockHeight> {
+    fn get(&self, peer_id: &PeerId) -> Option<BlockHeight> {
         self.by_peer.get(peer_id).copied()
     }
 
-    /// Entries at or below our head can't indicate a peer ahead of us; pruning
-    /// them bounds the map as the head advances and peers churn.
+    /// An entry at or below `head_height` can't show a peer ahead of us, so it
+    /// reads as absent however long it stays in the map.
+    pub fn get_above(&self, peer_id: &PeerId, head_height: BlockHeight) -> Option<BlockHeight> {
+        self.get(peer_id).filter(|height| *height > head_height)
+    }
+
+    /// Bounds the map as the head advances and peers churn.
     pub fn prune_at_or_below(&mut self, height: BlockHeight) {
         self.by_peer.retain(|_, recorded| *recorded > height);
     }
@@ -107,6 +112,16 @@ mod tests {
             panic!("must not verify below already verified height")
         });
         assert_eq!(heights.get(&p), Some(10));
+    }
+
+    #[test]
+    fn get_above_hides_entries_at_or_below_head() {
+        let mut heights = VerifiedPeerHeights::default();
+        let p = peer("a");
+        heights.record_if_verified(&p, &header_hash(b"h10"), 10, || true);
+        assert_eq!(heights.get_above(&p, 9), Some(10));
+        assert_eq!(heights.get_above(&p, 10), None);
+        assert_eq!(heights.get_above(&p, 11), None);
     }
 
     #[test]

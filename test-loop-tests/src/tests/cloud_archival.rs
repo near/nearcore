@@ -6,7 +6,7 @@ use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced,
     assert_writer_inverse_deltas, bootstrap_historical_reader, build_shard_tries,
-    check_account_balance, check_data_at_height_for_shards, epoch_id_at,
+    check_account_balance, check_data_at_height_for_shards, epoch_id_at, exec,
     gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head, get_state_header_for_epoch,
     get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
     simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
@@ -14,7 +14,7 @@ use crate::utils::cloud_archival::{
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::ChainStoreAccess;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -34,8 +34,10 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, 
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
+use near_store::archive::cloud_storage::config::create_test_cloud_storage;
 #[cfg(feature = "nightly")]
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store};
@@ -57,6 +59,8 @@ struct CloudArchiveHarness {
     snapshot_every_n_epochs: u64,
     /// Epochs garbage collection keeps, so a test can scale its run off it.
     gc_num_epochs_to_keep: u64,
+    /// Cloud archival batch size in blocks.
+    batch_size: u32,
     /// Account ID of the historical reader node, set after
     /// `bootstrap_historical_reader()`.
     historical_reader_id: Option<AccountId>,
@@ -115,6 +119,8 @@ impl CloudArchiveHarnessBuilder {
     }
 
     /// Sets the number of block-and-chunk-producer validators.
+    // TODO(cloud_archival): drop the raised counts once `block_dropper_by_height` also
+    // intercepts `BlockRequest` responses.
     fn validators(mut self, count: usize) -> Self {
         // `drop_blocks_at` / `drop_chunks` need count >= 4 to be observable on
         // the chain; see `block_dropper_by_height` in `test-loop-tests/src/utils/network.rs`.
@@ -246,6 +252,7 @@ impl CloudArchiveHarnessBuilder {
             cold_storage_enabled: self.cold_storage,
             snapshot_every_n_epochs,
             gc_num_epochs_to_keep: self.gc_num_epochs_to_keep,
+            batch_size: self.batch_size,
             historical_reader_id: None,
             new_shard_layout,
             resharding_boundary,
@@ -255,6 +262,15 @@ impl CloudArchiveHarnessBuilder {
         }
         harness
     }
+}
+
+/// Which reader a check runs against.
+#[derive(Clone, Copy)]
+enum Reader {
+    Historical,
+    // TODO(cloud_archival): construct this once the recent reader writes shard rows.
+    #[allow(dead_code)]
+    Recent,
 }
 
 impl CloudArchiveHarness {
@@ -345,17 +361,15 @@ impl CloudArchiveHarness {
     /// Kills the RPC node the recent reader takes over from and brings up the
     /// reader on the database that node leaves behind. No gc runs on it from here.
     fn start_recent_reader(&self) -> CloudArchivalRecentReader {
+        let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+        let epoch_manager = self.env.node_for_account(&reader_id).client().epoch_manager.clone();
+        let cloud_storage = self.open_cloud_storage(&reader_id);
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        // TODO(cloud_archival): consider splitting the chain store, we do not need
-        // transaction_validity_period in our use case.
-        let chain_store = ChainStore::new(
-            self.recent_reader_store(),
-            true,
-            self.env.shared_state.genesis.config.transaction_validity_period,
-        );
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
-            chain_store,
+            self.recent_reader_store(),
+            cloud_storage,
+            epoch_manager,
             Self::RECENT_READER_POLLING_INTERVAL,
         );
         let handle = reader.clone();
@@ -366,6 +380,26 @@ impl CloudArchiveHarness {
                 reader.cloud_archival_loop().await.expect("the recent reader stopped")
             });
         handle
+    }
+
+    /// Opens a handle on the archive's bucket, keyed by the chain the node it is opened
+    /// for runs.
+    fn open_cloud_storage(&self, account_id: &AccountId) -> Arc<CloudStorage> {
+        let chain_id = self.env.node_for_account(account_id).client().config.chain_id.clone();
+        create_test_cloud_storage(
+            self.env.shared_state.tempdir.path().to_path_buf(),
+            chain_id,
+            BucketConfig::with_batch_size_for_test(self.batch_size),
+        )
+    }
+
+    /// The height the recent reader has copied through.
+    fn recent_reader_height(&self) -> BlockHeight {
+        self.recent_reader_store()
+            .cloud_archival_store()
+            .reader_head()
+            .expect("the recent reader holds a head")
+            .height
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -414,13 +448,15 @@ impl CloudArchiveHarness {
         );
     }
 
-    fn assert_reader_writer_parity(&self, start: BlockHeight, end: BlockHeight) {
-        assert_reader_writer_parity(
-            &self.historical_reader_store(),
-            &self.writer_store(),
-            start,
-            end,
-        );
+    fn reader_store(&self, reader: Reader) -> Store {
+        match reader {
+            Reader::Historical => self.historical_reader_store(),
+            Reader::Recent => self.recent_reader_store(),
+        }
+    }
+
+    fn assert_reader_writer_parity(&self, reader: Reader, start: BlockHeight, end: BlockHeight) {
+        assert_reader_writer_parity(&self.reader_store(reader), &self.writer_store(), start, end);
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
@@ -458,8 +494,7 @@ impl CloudArchiveHarness {
     }
 
     fn block_batch_exists_at(&self, block_height: BlockHeight) -> bool {
-        get_cloud_storage(&self.env, &self.writer_id)
-            .get_block_batch_for_height(block_height)
+        exec(get_cloud_storage(&self.env, &self.writer_id).get_block_batch_for_height(block_height))
             .is_ok()
     }
 
@@ -656,6 +691,9 @@ fn test_cloud_archival_batching_blob_per_batch() {
 /// Verifies that a reader node can bootstrap from cloud storage using a
 /// state snapshot and per-block state deltas.
 #[test]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader carries a chain head above genesis. The query resolves against that head,
+// which is genesis here, so the balance comes out of genesis state.
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
@@ -669,7 +707,7 @@ fn test_cloud_archival_use_snapshot() {
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.assert_reader_account_balance(
         &CloudArchiveHarness::USER_ACCOUNT.parse().unwrap(),
         CloudArchiveHarness::USER_BALANCE,
@@ -852,11 +890,11 @@ fn test_cloud_archival_custom_snapshot_cadence() {
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
 
     // Epoch 4 was snapshotted: first probe hits.
-    let hit_at_45 = find_snapshot_at_or_before(&cloud_storage, 45, shard_id).unwrap();
+    let hit_at_45 = exec(find_snapshot_at_or_before(&cloud_storage, 45, shard_id)).unwrap();
     assert_eq!(hit_at_45, (4, epoch_id_at(&cloud_storage, 45)));
 
     // Epoch 3 was skipped: probe misses, walks back to epoch 2.
-    let hit_at_35 = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
+    let hit_at_35 = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
     assert_eq!(hit_at_35, (2, epoch_id_at(&cloud_storage, 25)));
 
     h.shutdown();
@@ -881,7 +919,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     h.assert_snapshots_ok();
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let batch = cloud_storage.get_block_batch_for_height(dropped_height).unwrap();
+    let batch = exec(cloud_storage.get_block_batch_for_height(dropped_height)).unwrap();
     assert!(
         batch.get_block_at_height(dropped_height).is_none(),
         "block at h={dropped_height} must be None in cloud"
@@ -891,7 +929,7 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     // Probe at height 35 (epoch 3, no snapshot). The walk-back lands on
     // `epoch_start_3 - 1 = 29` which is the dropped block; the function must
     // walk further down to a present block in epoch 2 and find its snapshot.
-    let hit = find_snapshot_at_or_before(&cloud_storage, 35, shard_id).unwrap();
+    let hit = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
     assert_eq!(hit, (2, epoch_id_at(&cloud_storage, 25)));
 
     h.shutdown();
@@ -913,7 +951,7 @@ fn test_cloud_archival_single_skipped_slot() {
     h.run_until_epoch(3);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let batch = cloud_storage.get_block_batch_for_height(dropped_height).unwrap();
+    let batch = exec(cloud_storage.get_block_batch_for_height(dropped_height)).unwrap();
     assert!(batch.get_block_at_height(dropped_height).is_none());
     assert!(h.local_min_head() > dropped_height);
     h.assert_heads_ok_before_gc();
@@ -922,7 +960,7 @@ fn test_cloud_archival_single_skipped_slot() {
     let epoch_of = |height| epoch_id_at(&cloud_storage, height);
     // start and target straddle an epoch boundary, so reconstruction crosses it.
     assert_ne!(epoch_of(start), epoch_of(target), "start and target must be in different epochs");
-    let target_epoch_data = cloud_storage.get_epoch_data(epoch_of(target)).unwrap();
+    let target_epoch_data = exec(cloud_storage.get_epoch_data(epoch_of(target))).unwrap();
     // The dropped slot is in the target epoch within the bootstrap range; it
     // pushes that epoch's sync block past the target, so the reader cannot use
     // the target epoch's own snapshot and must walk back to an earlier one.
@@ -942,7 +980,7 @@ fn test_cloud_archival_single_skipped_slot() {
     );
 
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -963,7 +1001,7 @@ fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
     let (_, snapshot_epoch_id) =
-        find_snapshot_at_or_before(&cloud_storage, start, shard_id).unwrap();
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     assert_ne!(snapshot_epoch_id, start_epoch_id, "snapshot must resolve to an earlier epoch");
 
@@ -980,8 +1018,6 @@ fn test_cloud_archival_fully_skipped_batch() {
     // Drops every height of one batch. `[12, 13, 14, 15]` assumes batch_size 4.
     assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
     let dropped_heights: Vec<BlockHeight> = vec![12, 13, 14, 15];
-    // TODO(cloud_archival): drop validator count once `block_dropper_by_height`
-    // also intercepts `BlockRequest` responses.
     let mut h = CloudArchiveHarness::builder()
         .validators(12)
         .drop_blocks_at(&dropped_heights)
@@ -990,7 +1026,7 @@ fn test_cloud_archival_fully_skipped_batch() {
     h.run_until_epoch(3);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let batch = cloud_storage.get_block_batch_for_height(12).unwrap();
+    let batch = exec(cloud_storage.get_block_batch_for_height(12)).unwrap();
     for h_drop in &dropped_heights {
         assert!(
             batch.get_block_at_height(*h_drop).is_none(),
@@ -998,12 +1034,35 @@ fn test_cloud_archival_fully_skipped_batch() {
         );
     }
     assert!(h.local_min_head() > 15, "archivization must advance past the gap");
+    // The gap starts where an epoch does, so the block below it ends the previous epoch
+    // and the epoch above it has no block until the gap is over.
+    let epoch_below = epoch_id_at(&cloud_storage, dropped_heights[0] - 1);
+    let last_dropped = *dropped_heights.last().unwrap();
+    let first_above_gap = (last_dropped + 1..=last_dropped + h.epoch_length)
+        .find(|&height| cloud_storage.get_block_data(height).unwrap().is_some())
+        .expect("a present block above the gap");
+    let epoch_above = epoch_id_at(&cloud_storage, first_above_gap);
+    assert_ne!(epoch_below, epoch_above, "the gap must straddle an epoch boundary");
+    assert_eq!(
+        exec(cloud_storage.get_epoch_data(epoch_above)).unwrap().epoch_start_height(),
+        first_above_gap,
+        "the epoch above the gap must start at its first present block"
+    );
     h.assert_heads_ok_before_gc();
 
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
+    // A range spanning the skipped batch: the reader writes nothing for those heights and
+    // must still match the writer everywhere else.
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
+    h.kill_historical_reader();
+
+    let gap_target = first_above_gap + h.epoch_length / 2;
+    // The corner case the skipped batch creates, covered here: a start height with no
+    // block of its own, above the last block of one epoch and below the first of the next.
+    h.bootstrap_historical_reader(dropped_heights[0], gap_target);
+    h.assert_reader_writer_parity(Reader::Historical, dropped_heights[0], gap_target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1014,6 +1073,9 @@ fn test_cloud_archival_fully_skipped_batch() {
 /// the missing-block handling in `bootstrap_range` and the carried-over-chunk
 /// path during state apply.
 #[test]
+// TODO(cloud_archival): assert the balance against a bootstrapped block once the
+// reader carries a chain head above genesis. The query resolves against that head,
+// which is genesis here, so the balance comes out of genesis state.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
@@ -1042,7 +1104,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     // Confirm the drops actually landed in cloud storage before bootstrap.
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     for &dropped in &[start, target] {
-        let batch = cloud_storage.get_block_batch_for_height(dropped).unwrap();
+        let batch = exec(cloud_storage.get_block_batch_for_height(dropped)).unwrap();
         assert!(
             batch.get_block_at_height(dropped).is_none(),
             "block at h={dropped} must be None in cloud"
@@ -1052,7 +1114,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     // the target's epoch is missing in cloud for the dropped shard.
     let target_epoch_id = epoch_id_at(&cloud_storage, 25);
     let target_epoch_start =
-        cloud_storage.get_epoch_data(target_epoch_id).unwrap().epoch_start_height();
+        exec(cloud_storage.get_epoch_data(target_epoch_id)).unwrap().epoch_start_height();
     let chunk_drop_height = target_epoch_start + 5;
     assert!(
         cloud_storage
@@ -1065,7 +1127,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
     );
 
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     // A correct balance proves bootstrap completed without panic, the trie
     // was reconstructed up to the last present block at or below the target,
     // and the carried-over chunk path was traversed during state apply.
@@ -1114,7 +1176,7 @@ fn test_cloud_archival_anchor_below_sync_prev() {
     // back from the archive head so the one we pick is finished and snapshotted.
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let epoch_id = epoch_id_at(&cloud_storage, h.local_min_head() - EPOCH_LENGTH);
-    let epoch_data = cloud_storage.get_epoch_data(epoch_id).unwrap();
+    let epoch_data = exec(cloud_storage.get_epoch_data(epoch_id)).unwrap();
     let epoch_start = epoch_data.epoch_start_height();
 
     // The snapshot is taken at the first height where every shard has had two new
@@ -1199,7 +1261,8 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     for epoch in [1u64, 2] {
         let probe = epoch * h.epoch_length + h.epoch_length / 2;
         let epoch_id = epoch_id_at(&cloud_storage, probe);
-        let epoch_start = cloud_storage.get_epoch_data(epoch_id).unwrap().epoch_start_height();
+        let epoch_start =
+            exec(cloud_storage.get_epoch_data(epoch_id)).unwrap().epoch_start_height();
         for offset in dropped_offsets {
             let height = epoch_start + offset;
             let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap().unwrap();
@@ -1227,7 +1290,7 @@ fn test_cloud_archival_missing_chunks_one_shard() {
     let start = h.epoch_length / 2;
     let target = 3 * h.epoch_length;
     h.bootstrap_historical_reader(start, target);
-    h.assert_reader_writer_parity(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1361,7 +1424,7 @@ fn test_cloud_archival_outcomes_and_receipts() {
     assert!(total_receipt_to_tx > 0, "no receipt_to_tx entries were compared");
 
     h.bootstrap_historical_reader(start, end);
-    h.assert_reader_writer_parity(start, end);
+    h.assert_reader_writer_parity(Reader::Historical, start, end);
     h.kill_historical_reader();
 
     h.shutdown();
@@ -1643,7 +1706,8 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
         spans_boundary(carried_batch.start_height(), carried_batch.end_height()),
         "carried-over shard batch must span the resharding boundary"
     );
-    let block_batch = cloud_storage.get_block_batch_for_height(r.resharding_block_height).unwrap();
+    let block_batch =
+        exec(cloud_storage.get_block_batch_for_height(r.resharding_block_height)).unwrap();
     assert!(
         spans_boundary(block_batch.start_height(), block_batch.end_height()),
         "block batch must span the resharding boundary"
@@ -1652,12 +1716,16 @@ fn test_cloud_archival_writer_resharding_batch_boundary() {
     let parent_local_head = h
         .writer_store()
         .cloud_archival_store()
-        .shard_head(r.parent_shard)
+        .writer_shard_head(r.parent_shard)
         .expect("removed parent shard head recorded");
     assert_eq!(
         parent_local_head, r.resharding_block_height,
         "removed parent's local shard head must stop at the resharding block"
     );
+
+    // TODO(cloud_archival): once state reconstruction crosses a resharding, bootstrap from
+    // the height below the resharding block to the height above it and compare against the
+    // writer. Both readers take the batch clamp and the two-layout shard set from there.
 
     h.shutdown();
 }
@@ -1690,6 +1758,10 @@ fn test_cloud_archival_writer_resharding_on_batch_boundary() {
         "new child shard batch must start in the next batch, after the boundary"
     );
 
+    // TODO(cloud_archival): once state reconstruction crosses a resharding, bootstrap over
+    // the resharding block and the height above it, where both readers must leave the child
+    // out of the first batch.
+
     h.shutdown();
 }
 
@@ -1704,7 +1776,8 @@ fn test_cloud_archival_writer_resharding_inverse_deltas() {
     let r = h.run_until_one_epoch_after_resharding();
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let gap_batch = cloud_storage.get_block_batch_for_height(r.new_epoch_first_height).unwrap();
+    let gap_batch =
+        exec(cloud_storage.get_block_batch_for_height(r.new_epoch_first_height)).unwrap();
     assert!(
         gap_batch.start_height() <= r.resharding_block_height,
         "the gap block must share the batch that straddles the resharding boundary"
@@ -1725,7 +1798,8 @@ fn test_cloud_archival_writer_resharding_inverse_deltas_batch_size_1() {
     let r = h.run_until_one_epoch_after_resharding();
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let gap_batch = cloud_storage.get_block_batch_for_height(r.new_epoch_first_height).unwrap();
+    let gap_batch =
+        exec(cloud_storage.get_block_batch_for_height(r.new_epoch_first_height)).unwrap();
     assert!(
         gap_batch.start_height() > r.resharding_block_height,
         "the resharding boundary and the first gap block must fall in separate batches"
@@ -1952,8 +2026,8 @@ fn test_cloud_archival_resharding_gap_inverse_walk() {
 /// bucket from there. What gc took before the switch stays gone, and what the
 /// reader holds afterwards is kept, because no gc runs once it has switched.
 #[test]
-// TODO(cloud_archival): un-ignore once the recent reader follows the bucket.
-#[ignore]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader() {
     let mut h = CloudArchiveHarness::builder().delay_recent_reader().build();
     let gced = h.epoch_length / 2;
@@ -1982,15 +2056,127 @@ fn test_cloud_archival_recent_reader() {
     );
 
     // The reader takes whole batches, so its head may trail the bucket by one.
-    let head = reader_store.head().unwrap().height;
-    let bucket_head = get_cloud_storage(&h.env, &h.writer_id)
-        .get_cloud_block_head()
+    let head = h.recent_reader_height();
+    let bucket_head = exec(get_cloud_storage(&h.env, &h.writer_id).get_cloud_block_head())
         .expect("reading the bucket's block head")
         .expect("the writer published a block head");
     assert!(head <= bucket_head, "the reader passed the bucket: {head} over {bucket_head}");
     assert!(
         head + u64::from(CloudArchiveHarness::TEST_BATCH_SIZE) >= bucket_head,
         "the reader did not catch up: head {head}, bucket head {bucket_head}"
+    );
+    // TODO(cloud_archival): assert reader-writer parity here once the recent reader
+    // writes shard rows.
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A run of dropped heights straddles a batch edge, so one batch loses its tail and the
+/// next loses its head, and the recent reader walks both.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_skipped_run_across_batch_edge() {
+    assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
+    // Straddles the edge of batch [48, 51], so one batch loses its tail and the next its
+    // head, and the reader has to walk over both.
+    let dropped_heights: Vec<BlockHeight> = vec![50, 51, 52];
+    let mut h = CloudArchiveHarness::builder()
+        .validators(12)
+        .drop_blocks_at(&dropped_heights)
+        .delay_recent_reader()
+        .disable_gc()
+        .build();
+    let first_dropped = dropped_heights[0];
+    let last_dropped = *dropped_heights.last().unwrap();
+    // One epoch short of the dropped run, so the reader takes over below it.
+    h.run_until_epoch(first_dropped / h.epoch_length - 1);
+    let reader = h.start_recent_reader();
+    // Two epochs past the run, so both readers are clear of it when the chain stops.
+    h.run_until_epoch(last_dropped / h.epoch_length + 2);
+
+    let head = h.recent_reader_height();
+    let reader_store = h.recent_reader_store().chain_store();
+    assert!(last_dropped <= head, "the reader stopped at {head}, below the dropped run");
+    for height in &dropped_heights {
+        assert!(
+            reader_store.get_block_hash_by_height(*height).is_err(),
+            "the reader holds a block at the dropped height {height}"
+        );
+    }
+    // The batch that lost its tail and the one that lost its head both landed whole.
+    assert!(
+        reader_store.get_block_hash_by_height(first_dropped - 1).is_ok(),
+        "the reader is missing the block below the dropped run"
+    );
+    assert!(
+        reader_store.get_block_hash_by_height(last_dropped + 1).is_ok(),
+        "the reader is missing the block above the dropped run"
+    );
+
+    // A range spanning the dropped run, so the bootstrap walks both clipped batches.
+    let start = first_dropped - h.epoch_length / 2;
+    let target = last_dropped + h.epoch_length / 2;
+    h.bootstrap_historical_reader(start, target);
+    // TODO(cloud_archival): run this for `Reader::Recent` too, once it writes shard rows.
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
+    h.kill_historical_reader();
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A height the archive reports empty is cleared from the reader's index, so a row a
+/// fork left in the handed-over store cannot answer a query for that height.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_reader_clears_forked_height() {
+    let forked_height: BlockHeight = 20;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .drop_blocks_at(&[forked_height])
+        .delay_recent_reader()
+        .disable_gc()
+        .build();
+    // Just past the dropped height, so it lands above the handed-over final head, the
+    // range where a node's index names its own branch.
+    h.run_until(forked_height + 1);
+    let reader = h.start_recent_reader();
+
+    // Stands for what a fork leaves behind: the node handed its store over holding a
+    // block at a height the finalized chain then skipped. The reader loop has not run
+    // yet, so this lands before the first batch.
+    let store = h.recent_reader_store();
+    let final_head = store.chain_store().final_head().expect("the store must carry a final head");
+    let header_head =
+        store.chain_store().header_head().expect("the store must carry a header head");
+    assert!(
+        final_head.height < forked_height && forked_height <= header_head.height,
+        "h={forked_height} must sit above the final head {} and at or below the header head {}",
+        final_head.height,
+        header_head.height
+    );
+    let mut update = store.store_update();
+    update.chain_store_update().set_block_height(&final_head.last_block_hash, forked_height);
+    update.commit();
+
+    // Two epochs past the dropped height, so the reader is clear of it when the chain stops.
+    h.run_until_epoch(forked_height / h.epoch_length + 2);
+
+    let head = h.recent_reader_height();
+    assert!(forked_height <= head, "the reader stopped at {head}, below the forked height");
+    let batch =
+        exec(get_cloud_storage(&h.env, &h.writer_id).get_block_batch_for_height(forked_height))
+            .unwrap();
+    assert!(
+        batch.get_block_at_height(forked_height).is_none(),
+        "the archive must report h={forked_height} empty"
+    );
+    assert!(
+        store.chain_store().get_block_hash_by_height(forked_height).is_err(),
+        "the reader kept a block at the forked height {forked_height}"
     );
 
     reader.stop();

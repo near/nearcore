@@ -101,7 +101,7 @@ fn should_keep_sync_hash(
 
 /// Returns the epoch height of the latest fully-archived epoch, if cloud archival is active.
 fn cloud_head_epoch_height(store: &Store) -> Option<EpochHeight> {
-    let prev_epoch_end = store.cloud_archival_store().prev_epoch_end()?;
+    let prev_epoch_end = store.cloud_archival_store().writer_prev_epoch_end()?;
     let block_info = store.epoch_store().get_block_info(&prev_epoch_end).ok()?;
     let epoch_info = store.epoch_store().get_epoch_info(block_info.epoch_id()).ok()?;
     Some(epoch_info.epoch_height())
