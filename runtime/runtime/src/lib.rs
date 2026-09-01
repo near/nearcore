@@ -254,7 +254,9 @@ pub struct PendingConstraints {
     /// targeting this key.
     pub paid_from_gas_key: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
-    /// nonce_index) combination.
+    /// nonce_index) combination. A self-signed universal state init is counted
+    /// against the account instead, since its nonce lives there rather than on
+    /// a key, so for such an account this can exceed what the key alone owes.
     pub max_nonce: Nonce,
 }
 
