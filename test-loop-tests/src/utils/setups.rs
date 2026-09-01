@@ -23,18 +23,22 @@ pub fn derive_new_epoch_config_from_boundary(
 /// The upgrade edge `(old, new)` that sits directly below `EarlyKickout` activation.
 ///
 /// Once `EarlyKickout` is the stable protocol version, the default `PROTOCOL_VERSION - 1 ->
-/// PROTOCOL_VERSION` edge crosses activation, so a fixture using it no longer runs on both sides
-/// of the upgrade under the legacy chunk-producer resolution. Pinning here keeps that path
-/// covered, and is worth doing only for fixtures that actually exercise that resolution. The
-/// activation edge itself is owned by `tests::protocol_upgrade` and
-/// `tests::sync::early_kickout_sync`.
+/// PROTOCOL_VERSION` edge crosses activation, so a fixture using it no longer runs entirely
+/// below the feature. This helper says nothing about *which* pre-activation behaviour a caller
+/// is after — that differs per caller, so each one states its own claim. The activation edge
+/// itself is owned by `tests::protocol_upgrade` and `tests::sync::early_kickout_sync`.
+///
+/// The assert below is a removal trigger, not a repair request: when it fires, the pinned edge
+/// has dropped out of the supported window, so **delete** the callers that pin to it rather than
+/// shifting them to some other version. Do not turn it into a skip either — that keeps the tests
+/// in the tree while silently covering nothing.
 pub fn pre_early_kickout_upgrade_edge() -> (ProtocolVersion, ProtocolVersion) {
     let new_protocol = ProtocolFeature::EarlyKickout.protocol_version() - 1;
     let old_protocol = new_protocol - 1;
     assert!(
         old_protocol >= MIN_SUPPORTED_PROTOCOL_VERSION,
         "pre-activation edge {old_protocol} -> {new_protocol} is below the minimum supported \
-         version {MIN_SUPPORTED_PROTOCOL_VERSION}"
+         version {MIN_SUPPORTED_PROTOCOL_VERSION}; delete the tests that pin to it"
     );
     (old_protocol, new_protocol)
 }

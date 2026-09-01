@@ -54,6 +54,11 @@ use near_store::DBCol;
 /// Not an invariant to lean on beyond this fixture: the derivation reuses an existing proof that
 /// already reaches the epoch, writes nothing at the first boundaries, and also runs on fork blocks.
 /// Case D's straddle assertion, not this arithmetic, is what catches the target drifting.
+///
+/// With activation measured at height 32 and an epoch of 10, this puts the target's epoch start at
+/// 52, and the source heights that both clear epoch sync's "too recent" gate and still sit inside
+/// that epoch are 53..=61. Case D stops mid-epoch, at 57, to sit in the middle of that window
+/// rather than on either edge.
 const TARGET_LAG_EPOCHS: u64 = 2;
 
 /// Epoch-start height of `node`'s head epoch, from its own `DBCol::EpochStart` rows.
@@ -71,6 +76,80 @@ fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
         "{label}: rows written under an active blacklist, but every anchor here is inside \
          the start-of-epoch grace window ({walk:?})"
     );
+}
+
+/// Probe H — the header-only region a sync leaves behind: from `tail + 2` down to the synced
+/// epoch's start, reachable only by a header walk and exactly where the epoch-sync seeder's rows
+/// live. Returns the walk and the synced epoch's id, so a caller can say more about that epoch.
+///
+/// Starting at `tail + 2` keeps the anchors covered here contiguous with `probe_block_region`'s
+/// floor of `tail + 3`. Callers run it before any further block production: the rows survive a few
+/// more epochs today (`DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, margin about one epoch), but that is a
+/// tuning accident.
+fn probe_header_region(
+    node: &TestLoopNode,
+    source: &TestLoopNode,
+    epoch_length: u64,
+) -> (AnchorWalk, EpochId) {
+    let tail = node.tail();
+    let start = node.client().chain.get_block_hash_by_height(tail + 2).unwrap();
+    // Floor of the walk: the synced epoch's start, from the follower's own `DBCol::EpochStart`
+    // rows — independent of the header traversal under test. A fresh node has no row before epoch
+    // sync, `apply_validated_proof` writes exactly one, and header sync only adds rows for later
+    // epochs, so the min non-genesis row is the synced epoch's. Cross-checked against the source
+    // so a wrong row cannot silently move the floor.
+    let (low_epoch_id, low) = node
+        .store()
+        .iter(DBCol::EpochStart)
+        .map(|(key, value)| {
+            let epoch_id = EpochId(CryptoHash::try_from(&key[..]).unwrap());
+            let height = BlockHeight::try_from_slice(&value).unwrap();
+            (epoch_id, height)
+        })
+        .filter(|(_, height)| *height > 0)
+        .min_by_key(|(_, height)| *height)
+        .expect("epoch sync wrote no EpochStart row");
+    let source_low: Option<BlockHeight> =
+        source.store().get_ser(DBCol::EpochStart, low_epoch_id.as_ref());
+    assert_eq!(
+        source_low,
+        Some(low),
+        "seeded EpochStart height disagrees with the source for epoch {low_epoch_id:?}"
+    );
+    let walk = walk_anchor_rows(node, start, low).unwrap_or_else(|err| {
+        panic!("header-only probe failed before reaching the floor {low}: {err:?}")
+    });
+    // The walk's own postcondition, re-asserted so a walker regression that returns `Ok` early
+    // cannot silently narrow the probe.
+    assert_eq!(
+        walk.lowest_height, low,
+        "header-only probe stopped above the synced epoch start ({walk:?})"
+    );
+    assert_walk_window(&walk, epoch_length / 2, "header-only probe");
+    assert!(
+        walk.lowest_height < tail,
+        "header-only probe never reached below the tail {tail} ({walk:?}); \
+         epoch sync did not leave a header-only region"
+    );
+    assert!(walk.same_epoch_rows > 0, "header-only probe checked no anchor row ({walk:?})");
+    // Reaching the synced epoch's opening heights is what exercises the sampler fallthrough on an
+    // epoch this node never processed blocks for.
+    assert!(
+        walk.cross_epoch_heights > 0,
+        "header-only probe never reached the synced epoch's opening heights ({walk:?})"
+    );
+    assert_inside_grace_window(&walk, "header-only probe");
+    // The one region where the accessor cannot always run: the headers around the epoch-sync point
+    // arrive without a `BlockInfo` (`apply_validated_proof` writes one for its own boundary blocks
+    // only). Measured: 2. Bounded by the proof's boundary-header count rather than pinned to that,
+    // so losing `BlockInfo` for header-synced heights trips it while proof-shape drift does not.
+    assert!(
+        walk.blacklist_unavailable <= 3,
+        "header-only probe: blacklist unreadable for {} anchors, more than the epoch-sync \
+         proof's boundary headers can explain ({walk:?})",
+        walk.blacklist_unavailable
+    );
+    (walk, low_epoch_id)
 }
 
 // Case A — far horizon (epoch → header → state → block sync), observer node.
@@ -118,77 +197,10 @@ fn slow_test_early_kickout_far_horizon_observer() {
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
-    // Probe H — header-only region, above the state-sync tail down to the synced epoch
-    // start. Reachable only by a header walk, and where the epoch-sync-seeded rows live.
-    //
-    // Runs before the extra epochs below: the rows survive them today
-    // (`DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, margin about one epoch), but that is a
-    // tuning accident. Starting at `tail + 2` keeps the anchors covered here contiguous
-    // with the block probe's floor of `tail + 3`.
-    let probe_h = {
-        let node = env.node(new_node_idx);
-        let tail = node.tail();
-        let start = node.client().chain.get_block_hash_by_height(tail + 2).unwrap();
-        // Floor of the walk: the synced epoch's start, from the follower's own
-        // `DBCol::EpochStart` rows — independent of the header traversal under test. A
-        // fresh node has no row before epoch sync, `apply_validated_proof` writes exactly
-        // one, and header sync only adds rows for later epochs, so the min non-genesis row
-        // is the synced epoch's. Cross-checked against the source so a wrong row cannot
-        // silently move the floor.
-        let (low_epoch_id, low) = node
-            .store()
-            .iter(DBCol::EpochStart)
-            .map(|(key, value)| {
-                let epoch_id = EpochId(CryptoHash::try_from(&key[..]).unwrap());
-                let height = BlockHeight::try_from_slice(&value).unwrap();
-                (epoch_id, height)
-            })
-            .filter(|(_, height)| *height > 0)
-            .min_by_key(|(_, height)| *height)
-            .expect("epoch sync wrote no EpochStart row");
-        let source_low: Option<BlockHeight> =
-            env.node(0).store().get_ser(DBCol::EpochStart, low_epoch_id.as_ref());
-        assert_eq!(
-            source_low,
-            Some(low),
-            "seeded EpochStart height disagrees with the source for epoch {low_epoch_id:?}"
-        );
-        let walk = walk_anchor_rows(&node, start, low).unwrap_or_else(|err| {
-            panic!("header-only probe failed before reaching the floor {low}: {err:?}")
-        });
-        // The walk's own postcondition, re-asserted so a walker regression that returns
-        // `Ok` early cannot silently narrow the probe.
-        assert_eq!(
-            walk.lowest_height, low,
-            "header-only probe stopped above the synced epoch start ({walk:?})"
-        );
-        assert_walk_window(&walk, epoch_length / 2, "header-only probe");
-        assert!(
-            walk.lowest_height < tail,
-            "header-only probe never reached below the tail {tail} ({walk:?}); \
-             epoch sync did not leave a header-only region"
-        );
-        assert!(walk.same_epoch_rows > 0, "header-only probe checked no anchor row ({walk:?})");
-        // Reaching the synced epoch's opening heights is what exercises the sampler
-        // fallthrough on an epoch this node never processed blocks for.
-        assert!(
-            walk.cross_epoch_heights > 0,
-            "header-only probe never reached the synced epoch's opening heights ({walk:?})"
-        );
-        assert_inside_grace_window(&walk, "header-only probe");
-        // The one region where the accessor cannot always run: the headers around the
-        // epoch-sync point arrive without a `BlockInfo` (`apply_validated_proof` writes one
-        // for its own boundary blocks only). Measured: 2. Bounded by the proof's
-        // boundary-header count rather than pinned to that, so losing `BlockInfo` for
-        // header-synced heights trips it while proof-shape drift does not.
-        assert!(
-            walk.blacklist_unavailable <= 3,
-            "header-only probe: blacklist unreadable for {} anchors, more than the epoch-sync \
-             proof's boundary headers can explain ({walk:?})",
-            walk.blacklist_unavailable
-        );
-        walk
-    };
+    // Probe H — the header-only region epoch sync left behind. Runs before the extra epochs
+    // below; see `probe_header_region` for why.
+    let (probe_h, _synced_epoch_id) =
+        probe_header_region(&env.node(new_node_idx), &env.node(0), epoch_length);
 
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
 
@@ -244,8 +256,8 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 
     // Reaching 40 blocks already implies state sync worked; these make it explicit.
     assert_shard_shuffling_happened(&env, &clients);
-    let state_synced = assert_state_synced_for_reassigned_shard(&env, &clients);
-    tracing::info!(target: "test", ?state_synced, "validators that state-synced a reassigned shard");
+    let acquisitions = assert_state_synced_for_reassigned_shard(&env, &clients);
+    tracing::info!(target: "test", ?acquisitions, "state acquisitions for reassigned shards");
 
     for idx in 0..clients.len() {
         let label = format!("block-region probe on node {idx}");
@@ -261,11 +273,12 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 // genesis: the early epochs resolve through the canonical sampler with no rows at all,
 // then the vote lands the client version and rows become mandatory.
 //
-// Near-horizon rather than far-horizon on purpose. The vote jumps straight to the
-// client version, so activation lands around height 21, while far-horizon sync needs a
-// head of at least `far_horizon_height` and a block-probe floor near 20 — the boundary
-// would sit one height inside the window and drift out on any timing change, leaving
-// the pre-activation assertions vacuous.
+// Near-horizon rather than far-horizon on purpose. The vote jumps straight to the client
+// version, so activation lands at height 32 (measured, both profiles), while far-horizon sync
+// needs a head of at least `far_horizon_height` — 50 at this epoch length — and floors its
+// block probe at `tail + 3`. That tail tracks the state-sync point a couple of epochs below
+// such a head, so the boundary would sit at or under the floor and the pre-activation
+// assertions would go vacuous.
 #[test]
 // TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -436,10 +449,22 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
 
     // Stop `TARGET_LAG_EPOCHS` epochs past activation, so the target is the activation epoch.
     // Running further slides it forward and the probes below degrade into a re-run of Case A.
+    //
+    // Stopping mid-epoch rather than on the boundary: the boundary is where both margins are
+    // thinnest at once — the far-horizon floor below, and epoch sync's own "source too recent"
+    // gate (`chain/client/src/sync/epoch.rs`), which needs the source a few blocks past the
+    // target's epoch start. Half an epoch of extra head buys both without moving the target.
     let stop_at_epoch_start = activation_start + TARGET_LAG_EPOCHS * epoch_length;
-    env.node_runner(0).run_until(
-        |node| source_epoch_start(node).is_some_and(|start| start >= stop_at_epoch_start),
-        run_timeout,
+    let stop_at_height = stop_at_epoch_start + epoch_length / 2;
+    env.node_runner(0).run_until(|node| node.head().height >= stop_at_height, run_timeout);
+    // Waiting on an absolute height, so re-assert what the wait used to imply: the source is still
+    // inside the intended epoch, which is what keeps the stored epoch-sync proof pointed at the
+    // activation epoch.
+    assert_eq!(
+        source_epoch_start(&env.node(0)),
+        Some(stop_at_epoch_start),
+        "source left epoch {stop_at_epoch_start} before height {stop_at_height}; the stored \
+         proof no longer targets the activation epoch"
     );
     // `far_horizon_height` is this suite's conservative setup floor, not the production phase
     // decision, so a shorter chain is not necessarily impossible to sync — it is just outside what
@@ -474,107 +499,56 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
     // Asserted before the probes: they are only about epoch sync if epoch sync actually ran.
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
-    // Probe H — the header-only region above the state-sync tail down to the synced epoch
-    // start, which is exactly where `apply_validated_proof` left its rows. Same shape as Case
-    // A's probe H; see there for why the floor comes from `DBCol::EpochStart`.
-    let probe_h = {
+    // Probe H — the header-only region above the state-sync tail down to the synced epoch start,
+    // which is exactly where `apply_validated_proof` left its rows.
+    let (probe_h, synced_epoch_id) =
+        probe_header_region(&env.node(new_node_idx), &env.node(0), epoch_length);
+
+    // The whole point of this case: the synced epoch is the FIRST EarlyKickout epoch, so its
+    // predecessor is still pre-activation and the proof straddles the edge. Asserting only the
+    // enabled side would let the target slide forward and leave the probe above re-running Case A
+    // on a single-version proof.
+    //
+    // Read from the joiner and cross-checked against the source. The joiner's copy is the one that
+    // matters: `init_after_epoch_sync` installs the predecessor's `EpochInfo` from the proof, and
+    // that pre-activation entry is the state this case has and Case A does not.
+    {
+        let source = env.node(0);
+        let source_epoch_manager = &source.client().epoch_manager;
+        let epoch_ids = collect_distinct_epoch_ids(source.client());
+        let position = epoch_ids
+            .iter()
+            .position(|id| id == &synced_epoch_id)
+            .expect("synced epoch is not on the source's canonical chain");
+        let prev_epoch_id = position
+            .checked_sub(1)
+            .map(|index| epoch_ids[index])
+            .expect("synced epoch is the source's first epoch, so nothing precedes it");
+
         let node = env.node(new_node_idx);
-        let tail = node.tail();
-        let start = node.client().chain.get_block_hash_by_height(tail + 2).unwrap();
-        let (low_epoch_id, low) = node
-            .store()
-            .iter(DBCol::EpochStart)
-            .map(|(key, value)| {
-                let epoch_id = EpochId(CryptoHash::try_from(&key[..]).unwrap());
-                let height = BlockHeight::try_from_slice(&value).unwrap();
-                (epoch_id, height)
-            })
-            .filter(|(_, height)| *height > 0)
-            .min_by_key(|(_, height)| *height)
-            .expect("epoch sync wrote no EpochStart row");
-        let source_low: Option<BlockHeight> =
-            env.node(0).store().get_ser(DBCol::EpochStart, low_epoch_id.as_ref());
+        let joiner_epoch_manager = &node.client().epoch_manager;
+        let synced_version =
+            joiner_epoch_manager.get_epoch_protocol_version(&synced_epoch_id).unwrap();
+        let prev_version = joiner_epoch_manager.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         assert_eq!(
-            source_low,
-            Some(low),
-            "seeded EpochStart height disagrees with the source for epoch {low_epoch_id:?}"
+            (synced_version, prev_version),
+            (
+                source_epoch_manager.get_epoch_protocol_version(&synced_epoch_id).unwrap(),
+                source_epoch_manager.get_epoch_protocol_version(&prev_epoch_id).unwrap(),
+            ),
+            "joiner disagrees with the source about the versions either side of the boundary"
         );
-
-        // The whole point of this case: the synced epoch is the FIRST EarlyKickout epoch, so its
-        // predecessor is still pre-activation and the proof straddles the edge. Asserting only the
-        // enabled side would let the target slide forward and leave the probes below re-running
-        // Case A on a single-version proof.
-        //
-        // Read from the joiner and cross-checked against the source. The joiner's copy is the one
-        // that matters: `init_after_epoch_sync` installs the predecessor's `EpochInfo` from the
-        // proof, and that pre-activation entry is the state this case has and Case A does not.
-        {
-            let source = env.node(0);
-            let source_epoch_manager = &source.client().epoch_manager;
-            let epoch_ids = collect_distinct_epoch_ids(source.client());
-            let position = epoch_ids
-                .iter()
-                .position(|id| id == &low_epoch_id)
-                .expect("synced epoch is not on the source's canonical chain");
-            let prev_epoch_id = position
-                .checked_sub(1)
-                .map(|index| epoch_ids[index])
-                .expect("synced epoch is the source's first epoch, so nothing precedes it");
-
-            let joiner_epoch_manager = &node.client().epoch_manager;
-            let synced_version =
-                joiner_epoch_manager.get_epoch_protocol_version(&low_epoch_id).unwrap();
-            let prev_version =
-                joiner_epoch_manager.get_epoch_protocol_version(&prev_epoch_id).unwrap();
-            assert_eq!(
-                (synced_version, prev_version),
-                (
-                    source_epoch_manager.get_epoch_protocol_version(&low_epoch_id).unwrap(),
-                    source_epoch_manager.get_epoch_protocol_version(&prev_epoch_id).unwrap(),
-                ),
-                "joiner disagrees with the source about the versions either side of the boundary"
-            );
-            assert!(
-                ProtocolFeature::EarlyKickout.enabled(synced_version),
-                "synced epoch is at version {synced_version}, below activation; the seeder \
-                 writes nothing there and every row assertion below would be vacuous"
-            );
-            assert!(
-                !ProtocolFeature::EarlyKickout.enabled(prev_version),
-                "the epoch before the synced one is already at version {prev_version}; the \
-                 target slid past activation and the proof no longer straddles the edge"
-            );
-        }
-
-        let walk = walk_anchor_rows(&node, start, low).unwrap_or_else(|err| {
-            panic!("header-only probe failed before reaching the floor {low}: {err:?}")
-        });
-        assert_eq!(
-            walk.lowest_height, low,
-            "header-only probe stopped above the synced epoch start ({walk:?})"
-        );
-        assert_walk_window(&walk, epoch_length / 2, "header-only probe");
         assert!(
-            walk.lowest_height < tail,
-            "header-only probe never reached below the tail {tail} ({walk:?}); \
-             epoch sync did not leave a header-only region"
+            ProtocolFeature::EarlyKickout.enabled(synced_version),
+            "synced epoch is at version {synced_version}, below activation; the seeder \
+             writes nothing there and every row assertion above would be vacuous"
         );
-        assert!(walk.same_epoch_rows > 0, "header-only probe checked no anchor row ({walk:?})");
         assert!(
-            walk.cross_epoch_heights > 0,
-            "header-only probe never reached the synced epoch's opening heights ({walk:?})"
+            !ProtocolFeature::EarlyKickout.enabled(prev_version),
+            "the epoch before the synced one is already at version {prev_version}; the \
+             target slid past activation and the proof no longer straddles the edge"
         );
-        assert_inside_grace_window(&walk, "header-only probe");
-        // Same bound and reasoning as Case A: only the proof's own boundary headers arrive
-        // without a `BlockInfo` for the accessor to read.
-        assert!(
-            walk.blacklist_unavailable <= 3,
-            "header-only probe: blacklist unreadable for {} anchors, more than the epoch-sync \
-             proof's boundary headers can explain ({walk:?})",
-            walk.blacklist_unavailable
-        );
-        walk
-    };
+    }
 
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
 

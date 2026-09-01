@@ -40,7 +40,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, ProtocolVersion, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, ProtocolVersion, ShardId,
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -139,7 +139,21 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
     );
 }
 
-/// Validators that provably *acquired state* for a newly assigned shard, by index.
+/// One proven state acquisition: validator `validator_index` gained `shard_id` in `epoch_id`,
+/// which ran at `protocol_version`.
+#[derive(Debug)]
+pub(crate) struct StateSyncAcquisition {
+    pub validator_index: usize,
+    // Carried for the `Debug` output that every caller's assertion message prints; dead-code
+    // analysis deliberately ignores a derived `Debug`.
+    #[allow(dead_code)]
+    pub shard_id: ShardId,
+    #[allow(dead_code)]
+    pub epoch_id: EpochId,
+    pub protocol_version: ProtocolVersion,
+}
+
+/// Every state acquisition for a newly assigned shard, across all validators.
 ///
 /// `assert_shard_shuffling_happened` only proves an assignment changed; holding
 /// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
@@ -148,13 +162,17 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
 /// resumes applying chunks from disk, no sync, and still writes the `ChunkExtra` read as
 /// proof here.
 ///
+/// Every acquisition is reported, not just each validator's earliest one, so a caller can
+/// ask which protocol version the sync ran under. A validator can therefore appear more
+/// than once; dedup by `validator_index` before driving per-node work.
+///
 /// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
 /// resharding caller must map a shard to its prior parent instead.
 pub(crate) fn assert_state_synced_for_reassigned_shard(
     env: &TestLoopEnv,
     validators: &[AccountId],
-) -> Vec<usize> {
-    let mut synced_validators = Vec::new();
+) -> Vec<StateSyncAcquisition> {
+    let mut acquisitions = Vec::new();
     for (idx, validator) in validators.iter().enumerate() {
         let node = env.node(idx);
         let client = node.client();
@@ -164,7 +182,7 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let genesis_height = chain.genesis().height();
         let epoch_ids = collect_distinct_epoch_ids(client);
 
-        'validator: for w in 1..epoch_ids.len() {
+        for w in 1..epoch_ids.len() {
             let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
             let prev_layout = epoch_manager.get_shard_layout(prev_epoch).unwrap();
             let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
@@ -202,24 +220,34 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                         continue;
                     }
                     if chain.get_chunk_extra(&hash, &shard_uid).is_ok() {
+                        let protocol_version =
+                            epoch_manager.get_epoch_protocol_version(new_epoch).unwrap();
                         tracing::info!(
                             target: "test",
                             node = idx,
                             ?shard_id,
+                            protocol_version,
                             "verified state synced for reassigned shard"
                         );
-                        synced_validators.push(idx);
-                        break 'validator;
+                        acquisitions.push(StateSyncAcquisition {
+                            validator_index: idx,
+                            shard_id,
+                            epoch_id: *new_epoch,
+                            protocol_version,
+                        });
+                        // One record per (validator, shard, epoch); later heights in the same
+                        // epoch would only repeat it.
+                        break;
                     }
                 }
             }
         }
     }
     assert!(
-        !synced_validators.is_empty(),
+        !acquisitions.is_empty(),
         "no validator held state for a newly reassigned shard; state sync not exercised"
     );
-    synced_validators
+    acquisitions
 }
 
 /// Verify all nodes advanced their head past the given minimum height.
@@ -933,15 +961,21 @@ fn state_sync_protocol_upgrade(old_protocol: ProtocolVersion, new_protocol: Prot
     // Shuffling alone only proves an assignment changed; a validator can serve a reassigned shard
     // from state it kept two epochs ago. Holding the new epoch's `ChunkExtra` is only reachable
     // through a real sync, so this is what makes the test about state sync.
-    let state_synced = assert_state_synced_for_reassigned_shard(&env, &clients);
+    let acquisitions = assert_state_synced_for_reassigned_shard(&env, &clients);
+    // Pin which side of the upgrade the sync happened on. Without this the test proves only
+    // that *some* sync ran, which the pre-upgrade epochs alone would satisfy, and the two
+    // callers would cover the same protocol version despite naming different ones.
     assert!(
-        !state_synced.is_empty(),
-        "no validator acquired state for a newly assigned shard, so no state sync ran"
+        acquisitions.iter().any(|acquisition| acquisition.protocol_version == new_protocol),
+        "no state acquisition happened in a {new_protocol} epoch, so state sync was only \
+         exercised below the upgrade: {acquisitions:?}"
     );
 }
 
 // The upgrade edge the client actually votes for. On a stable build where EarlyKickout is the
-// newest feature this also crosses its activation, so state sync runs on both sides of it.
+// newest feature this also crosses its activation, so the post-upgrade acquisition asserted below
+// happens with the feature on: witnesses are V2 and their producer is resolved through
+// `resolve_and_verify_anchored_producer` (`stateless_validation/validate.rs`).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -949,9 +983,12 @@ fn test_state_sync_protocol_upgrade() {
     state_sync_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION);
 }
 
-// Sibling of the above pinned below EarlyKickout activation, so state sync across an upgrade
-// keeps being covered with the legacy chunk-producer resolution on both sides. Once EarlyKickout
-// is stable it is the only state-sync fixture that runs entirely with the feature off.
+// Sibling of the above pinned below EarlyKickout activation, so an upgrade-crossing state sync
+// keeps being covered on the V1 witness path. `PartialEncodedStateWitness::new`
+// (`core/primitives/src/stateless_validation/partial_witness.rs`) picks V2 iff the feature is on,
+// and V1 witnesses resolve their producer through `get_chunk_producer_info` — a different arm of
+// `validate.rs` with its own signature differentiator. Once EarlyKickout is stable this is the
+// only state-sync fixture whose post-upgrade sync runs entirely on that arm.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

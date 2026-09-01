@@ -83,6 +83,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 #[cfg(feature = "nightly")]
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -994,10 +995,13 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
     );
 
     assert_shard_shuffling_happened(&env, &clients);
-    let state_synced = assert_state_synced_for_reassigned_shard(&env, &clients);
-    tracing::info!(target: "test", ?state_synced, "validators that state-synced a reassigned shard");
+    let acquisitions = assert_state_synced_for_reassigned_shard(&env, &clients);
+    tracing::info!(target: "test", ?acquisitions, "state acquisitions for reassigned shards");
+    // A validator can acquire more than once; probing a node twice would add nothing.
+    let synced_nodes: BTreeSet<usize> =
+        acquisitions.iter().map(|acquisition| acquisition.validator_index).collect();
 
-    for idx in state_synced {
+    for idx in synced_nodes {
         let label = format!("active-kickout probe on node {idx}");
         let walk = probe_block_region(&env.node(idx), epoch_length);
         assert_walk_window(&walk, epoch_length / 2, &label);
