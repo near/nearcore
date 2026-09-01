@@ -649,6 +649,7 @@ impl Runtime {
                     &state_update,
                     &epoch_info_provider.chain_id(),
                     AccessOptions::DEFAULT,
+                    apply_state.current_protocol_version,
                 )?;
                 let contract = preparation_pipeline.get_contract(
                     receipt,
@@ -2966,6 +2967,7 @@ fn action_transfer_or_implicit_account_creation(
             deposit,
             apply_state.block_height,
             epoch_info_provider,
+            apply_state.current_protocol_version,
         );
     })
 }
@@ -3212,6 +3214,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
             self.apply_state.shard_id,
+            self.apply_state.current_protocol_version,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3433,6 +3436,7 @@ pub mod estimator {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            apply_state.current_protocol_version,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(
