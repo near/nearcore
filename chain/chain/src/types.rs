@@ -25,7 +25,7 @@ use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt, R
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -655,7 +655,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
     ) -> Result<StatePart, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
@@ -665,7 +665,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
     ) -> StatePartValidationResult;
 
@@ -674,7 +674,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: PartId,
+        part_id: StatePartId,
         part: &StatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;

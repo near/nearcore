@@ -411,9 +411,7 @@ impl IntoVMError for wasmtime::Error {
                     }
                 }));
             };
-            return Err(VMRunnerError::WasmUnknownError {
-                debug_message: format!("nondeterministic trap: {}", nondeterministic_message),
-            });
+            return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
         let description = if cause.is::<wasmtime::UnknownImportError>() {
             "unknown or invalid import".to_string()
@@ -964,15 +962,11 @@ enum PreparationResult {
     Ready(ReadyContract),
 }
 
-/// This enum allows us to replicate the various [`VMOutcome`] states without moving [`VMLogic`]
+/// How running the contract's entry point ended, before it is turned into a [`VMOutcome`].
 ///
-/// If function like [`call`] where to rely on [`VMOutcome::ok`], for example, it would require
-/// ownership of [`VMLogic`], to acquire the inner [`ExecutionResultState`].
-/// `run`, however, owns [`VMLogic`] and creates a mutable borrow,
-/// which is then stored in a thread-local static as a raw pointer.
-/// This means that we need to be very careful to ensure that the reference created is only dropped
-/// after the module method call has returned.
-/// Moving the [`VMLogic`] would break this assertion.
+/// Building a [`VMOutcome`] consumes the [`ExecutionResultState`], which lives inside the [`Ctx`]
+/// owned by the wasmtime `Store` for as long as the module is running. [`call`] therefore only
+/// reports how the run ended; the outcome is built once the store has been consumed.
 enum RunOutcome {
     Ok,
     AbortNop(FunctionCallError),
@@ -1203,7 +1197,6 @@ mod tests {
         assert_eq!(concurrency.release_tables(1), 2);
         assert_eq!(concurrency.release_tables(1), 1);
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] = array::from_fn(|_| {
                 scope.spawn(|| concurrency.try_acquire(MAX_TABLES / MAX_CONCURRENCY))
@@ -1234,7 +1227,6 @@ mod tests {
             assert!(acquired);
         });
 
-        #[expect(clippy::large_stack_frames)]
         scope(|scope| {
             let permits: [_; MAX_CONCURRENCY as _] =
                 array::from_fn(|_| scope.spawn(|| concurrency.try_acquire(0)));

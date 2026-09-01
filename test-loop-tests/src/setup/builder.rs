@@ -554,6 +554,7 @@ impl TestLoopBuilder {
             bucket_config: self.bucket_config.clone(),
             task_delay_fn: self.task_delay_fn.clone(),
             spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
+            spice_partial_data_faults: Default::default(),
         };
         (self.test_loop, shared_state)
     }
@@ -671,7 +672,7 @@ impl<'a> NodeStateBuilder<'a> {
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay.update(Duration::seconds(6));
-        client_config.state_sync_external_timeout = Duration::milliseconds(100);
+        client_config.block_request_timeout = Duration::milliseconds(100);
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
 

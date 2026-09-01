@@ -187,7 +187,7 @@ impl Config {
 
         let spice_partial_data_config = basic_config(1_000);
         config.rate_limits.insert(SpicePartialData, spice_partial_data_config.clone());
-        config.rate_limits.insert(SpicePartialDataRequest, spice_partial_data_config);
+        config.rate_limits.insert(SpiceDataRequest, spice_partial_data_config);
 
         let net_config = basic_config(10);
         config.rate_limits.insert(PeersRequest, net_config.clone());
@@ -264,7 +264,7 @@ pub enum RateLimitedPeerMessageKey {
     OptimisticBlock,
     SpicePartialData,
     SpiceChunkEndorsement,
-    SpicePartialDataRequest,
+    SpiceDataRequest,
     SpiceChunkContractAccesses,
     SpiceContractCodeRequest,
     SpiceContractCodeResponse,
@@ -314,7 +314,9 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T1MessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
                 T1MessageBody::SpicePartialData(_) => Some((SpicePartialData, 1)),
                 T1MessageBody::SpiceChunkEndorsement(_) => Some((SpiceChunkEndorsement, 1)),
-                T1MessageBody::SpicePartialDataRequest(_) => Some((SpicePartialDataRequest, 1)),
+                T1MessageBody::SpiceDataRequest(request) => {
+                    Some((SpiceDataRequest, request.token_cost()))
+                }
                 T1MessageBody::SpiceChunkContractAccesses(_) => {
                     Some((SpiceChunkContractAccesses, 1))
                 }

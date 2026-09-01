@@ -21,10 +21,12 @@ pub use near_client_primitives::debug::DebugStatus;
 pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetChunkExtraExists, GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx,
-    GetReceiptToTxResponse, GetShardChunk, GetSplitStorageInfo, GetStateChanges,
-    GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetLightClientChunkExecutionProof,
+    GetLightClientExecutionOutcomeProof, GetLightClientExecutionOutcomeProofResponse,
+    GetLightClientProofError, GetLightClientStateProof, GetLightClientStateProofResponse,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProcessedReceiptIds,
+    GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse, GetShardChunk,
+    GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError, TxStatusOutcome,
 };

@@ -108,6 +108,9 @@ fn check_meta_tx_execution(
         AccountType::NearDeterministicAccount => {
             panic!("NEAR deterministic accounts usually have no access key");
         }
+        AccountType::UniversalAccount => {
+            panic!("universal accounts take their keys from the state init");
+        }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pub_key).unwrap().nonce;
@@ -950,9 +953,9 @@ fn meta_tx_create_and_use_eth_implicit_account() {
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
 ///
-/// Using the account should only work for NEAR-implicit accounts,
-/// as ETH-implicit accounts do not have access keys
-/// and they can only be used by calling associated smart contract.
+/// Using the account should only work for NEAR-implicit accounts. The other implicit
+/// kinds get no access key from the transfer, so they are reachable only through the
+/// contract or state init behind them.
 fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
@@ -968,6 +971,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         AccountType::NearDeterministicAccount => Balance::ZERO,
         // ETH-implicit accounts fit within zero-balance account limit.
         AccountType::EthImplicitAccount => Balance::ZERO,
+        // Universal accounts fit within zero-balance account limit.
+        AccountType::UniversalAccount => Balance::ZERO,
         AccountType::NamedAccount => panic!("must be implicit"),
     };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
@@ -976,6 +981,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
         AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::UniversalAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => panic!("must be implicit"),
     };
     check_meta_tx_no_fn_call(
@@ -995,8 +1001,9 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     if new_account.get_account_type() == AccountType::EthImplicitAccount
         || new_account.get_account_type() == AccountType::NearDeterministicAccount
+        || new_account.get_account_type() == AccountType::UniversalAccount
     {
-        // ETH-implicit account must not have access key added.
+        // The transfer must not add an access key to such an account.
         assert!(node.user().is_locked(&new_account).unwrap());
         // We will not attempt to make a transfer from this account.
         return;

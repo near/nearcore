@@ -214,12 +214,15 @@ returns an `ApplyResult`, which includes state changes, execution outcomes, etc.
 **Architecture Invariant:** The state update is only finalized at the end of
 `apply`. During all intermediate steps state changes can be reverted.
 
-### `runtime/near-vm-logic`
+### `runtime/near-vm-runner/src/logic`
 
-`VMLogic` contains all the implementations of host functions and is the
-interface between runtime and wasm. `VMLogic` is constructed when runtime
-applies function call actions. In `VMLogic`, interaction with NEAR blockchain
-happens in the following two ways:
+This module holds the VM-independent half of the host side of the contract
+boundary: the `VMContext` and `External` interfaces described below, gas
+counting, registers, the promise DAG and the `ExecutionResultState` that is
+turned into a `VMOutcome` when a function call finishes. The host functions
+themselves live in `runtime/near-vm-runner/src/wasmtime_runner/logic.rs`
+and operate directly on the wasmtime `Ctx` and guest memory. Interaction
+with the NEAR blockchain happens in the following two ways:
 
 * `VMContext`, which contains lightweight information such as current block
   hash, current block height, epoch id, etc.
@@ -231,7 +234,7 @@ happens in the following two ways:
 
 `run` function in `runner.rs` is the entry point to the vm runner. This function essentially spins
 up the vm and executes some function in a contract. Contracts are compiled and run with wasmtime.
-The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. In other
+The `imports` module exposes the host functions defined in `wasmtime_runner/logic.rs` to WASM code. In other
 words, it defines the ABI of the contracts on NEAR.
 
 ### `neard`

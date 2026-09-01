@@ -185,6 +185,14 @@ export interface DebugChunkStatus {
     endorsement_ratio?: number;
 }
 
+export interface ShardSizeAndParts {
+    shard_id: number;
+    shard_index: number;
+    shard_size: number;
+    state_parts_count: number;
+    state_header_exists: boolean;
+}
+
 export interface EpochInfoView {
     epoch_height: number;
     epoch_id: string;
@@ -195,7 +203,47 @@ export interface EpochInfoView {
     chunk_validators: string[];
     validator_info: EpochValidatorInfo;
     protocol_version: number;
-    shards_size_and_parts: [number, number, boolean][];
+    // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
+    // index, which does not identify the shards after a resharding.
+    // TODO(#16236): get rid of the tuples variant once all nodes are updated and return the entries
+    // in the new format.
+    shards_size_and_parts: ShardSizeAndParts[] | [number, number, boolean][];
+}
+
+export type NormalizedShardSizes = {
+    entries: ShardSizeAndParts[];
+    keyedByShardId: boolean;
+};
+
+// Both payload shapes are arrays, so they are told apart by their elements: the legacy one
+// holds tuples. An empty array is identical either way, so it can take either branch.
+function isLegacyShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): value is [number, number, boolean][] {
+    return Array.isArray(value[0]);
+}
+
+// Accepts either payload shape, reporting which one it got so callers can label shards
+// accurately instead of silently presenting a shard index as a shard id. Legacy entries get
+// `shard_id: -1`; when `keyedByShardId` is false, callers should use `shard_index` instead.
+export function normalizeShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): NormalizedShardSizes {
+    if (isLegacyShardsSizeAndParts(value)) {
+        return {
+            entries: value.map(
+                ([shardSize, statePartsCount, stateHeaderExists], shardIndex) => ({
+                    shard_id: -1,
+                    shard_index: shardIndex,
+                    shard_size: shardSize,
+                    state_parts_count: statePartsCount,
+                    state_header_exists: stateHeaderExists,
+                })
+            ),
+            keyedByShardId: false,
+        };
+    }
+    return { entries: value, keyedByShardId: true };
 }
 
 export interface EpochValidatorInfo {
@@ -601,4 +649,3 @@ export interface MessageStatsForType {
     c: number;
     t: number;
 }
-

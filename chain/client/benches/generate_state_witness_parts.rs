@@ -30,7 +30,7 @@ fn generate_validators(count: usize) -> Vec<AccountId> {
 }
 
 fn generate_chunk_header() -> ShardChunkHeader {
-    ShardChunkHeader::new_dummy(100, ShardId::new(0), CryptoHash::default())
+    ShardChunkHeader::new_dummy(100, ShardId::new(0), CryptoHash::default(), PROTOCOL_VERSION)
 }
 
 fn generate_signer() -> ValidatorSigner {

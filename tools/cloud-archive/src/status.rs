@@ -1,5 +1,4 @@
 use anyhow::Context;
-use borsh::BorshDeserialize;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -9,13 +8,11 @@ use near_store::DBCol;
 use near_store::Mode;
 use near_store::NodeStorage;
 use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::ListableCloudDir;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::opener::CloudStorageOpener;
-use near_store::db::CLOUD_BLOCK_HEAD_KEY;
-use near_store::db::CLOUD_PREV_EPOCH_END_KEY;
-use near_store::db::CLOUD_SHARD_HEAD_PREFIX;
 use near_store::db::FINAL_HEAD_KEY;
 use near_store::db::HEAD_KEY;
 use std::path::Path;
@@ -64,10 +61,9 @@ fn collect_external(cloud_storage: &Arc<CloudStorage>) -> anyhow::Result<Externa
 }
 
 fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
-    let last_archived_epoch_last_block =
-        store.get_ser::<CryptoHash>(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY);
-    let cloud_block_head = store.get_ser(DBCol::BlockMisc, CLOUD_BLOCK_HEAD_KEY);
-    let cloud_shard_heads = read_local_shard_heads(store);
+    let last_archived_epoch_last_block = store.cloud_archival_store().writer_prev_epoch_end();
+    let cloud_block_head = store.cloud_archival_store().writer_block_head();
+    let cloud_shard_heads = store.cloud_archival_store().all_writer_shard_heads();
     let chain_head =
         store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).context("HEAD not found in DB")?.height;
     let chain_final_head = store
@@ -81,22 +77,6 @@ fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
         chain_head,
         chain_final_head,
     })
-}
-
-fn read_local_shard_heads(store: &Store) -> Vec<(ShardId, BlockHeight)> {
-    let mut shard_heads = Vec::new();
-    for (key, value) in store.iter_prefix(DBCol::BlockMisc, CLOUD_SHARD_HEAD_PREFIX) {
-        let shard_id_bytes = &key[CLOUD_SHARD_HEAD_PREFIX.len()..];
-        let Ok(shard_id) = ShardId::try_from_slice(shard_id_bytes) else {
-            continue;
-        };
-        let Ok(height) = BlockHeight::try_from_slice(&value) else {
-            continue;
-        };
-        shard_heads.push((shard_id, height));
-    }
-    shard_heads.sort_by_key(|(shard_id, _)| *shard_id);
-    shard_heads
 }
 
 fn print_external(external: &ExternalStatus) {

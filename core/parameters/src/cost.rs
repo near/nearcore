@@ -6,6 +6,7 @@ use near_primitives_core::account::{AccessKey, GasKeyInfo};
 use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::trie_key::access_key_key_len;
 use near_primitives_core::types::{Balance, Compute, Gas, NonceIndex};
+use near_primitives_core::universal_state_init::UniversalStateInitCounts;
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -109,6 +110,10 @@ impl ParameterCost {
         let compute = self.compute.checked_mul(rhs)?;
         Some(Self { gas, compute })
     }
+
+    pub fn checked_mul_result(self, rhs: u64) -> Result<Self, IntegerOverflowError> {
+        self.checked_mul(rhs).ok_or(IntegerOverflowError)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -174,6 +179,11 @@ impl ExtCostsConfig {
             // based on relative measurements compared to ed25519
             ExtCosts::ml_dsa_verify_base => SAFETY_MULTIPLIER * 180_000_000_000,
             ExtCosts::ml_dsa_verify_byte => SAFETY_MULTIPLIER * 3_666_666,
+            // Same hash as sha3_256 over the same bytes, so the per-byte cost is
+            // sha3_256's; the base is scaled up for the base32 encoding. See the
+            // calibration note in `parameters.yaml`.
+            ExtCosts::universal_state_init_to_account_id_base => SAFETY_MULTIPLIER * 2840000000,
+            ExtCosts::universal_state_init_to_account_id_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
@@ -364,6 +374,8 @@ pub enum ExtCosts {
     sha3_512_byte = 93,
     ml_dsa_verify_base = 94,
     ml_dsa_verify_byte = 95,
+    universal_state_init_to_account_id_base = 96,
+    universal_state_init_to_account_id_byte = 97,
 }
 
 // Type of an action, used in fees logic.
@@ -409,6 +421,9 @@ pub enum ActionCosts {
     gas_key_transfer_base = 23,
     gas_key_byte = 24,
     gas_key_nonce_write_base = 25,
+    universal_state_init_base = 26,
+    universal_state_init_byte = 27,
+    universal_state_init_entry = 28,
 }
 
 impl ExtCosts {
@@ -443,6 +458,12 @@ impl ExtCosts {
             ExtCosts::keccak256_byte => Parameter::WasmKeccak256Byte,
             ExtCosts::keccak512_base => Parameter::WasmKeccak512Base,
             ExtCosts::keccak512_byte => Parameter::WasmKeccak512Byte,
+            ExtCosts::universal_state_init_to_account_id_base => {
+                Parameter::WasmUniversalStateInitToAccountIdBase
+            }
+            ExtCosts::universal_state_init_to_account_id_byte => {
+                Parameter::WasmUniversalStateInitToAccountIdByte
+            }
             ExtCosts::sha3_256_base => Parameter::WasmSha3256Base,
             ExtCosts::sha3_256_byte => Parameter::WasmSha3256Byte,
             ExtCosts::sha3_384_base => Parameter::WasmSha3384Base,
@@ -666,6 +687,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::gas_key_transfer_base => Fee::new(115_123_062_500, 115_123_062_500, 235_676_644_250),
                 ActionCosts::gas_key_byte => Fee::new(59_357_464, 59_357_464, 101_435_400),
                 ActionCosts::gas_key_nonce_write_base => Fee::new(0, 0, 64_196_736_000),
+                ActionCosts::universal_state_init_base => Fee::new(500_000_000_000, 500_000_000_000, 7_430_000_000_000),
+                ActionCosts::universal_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
+                ActionCosts::universal_state_init_entry => Fee::new(0, 0, 200_000_000_000),
             },
             deploy_global_contract_execution_base: 0,
             deploy_global_contract_execution_per_byte: 0,
@@ -751,27 +775,36 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     eth_implicit_accounts_enabled: bool,
+    universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
-    match (eth_implicit_accounts_enabled, receiver_account_type) {
+    let create_account_fee = cfg.fee(ActionCosts::create_account).exec_fee();
+    match receiver_account_type {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
-        // No account will be created, just a regular transfer.
-        (false, AccountType::EthImplicitAccount) => transfer_fee,
-        // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        AccountType::NamedAccount => transfer_fee,
+        // Like a deterministic account, the transfer creates it; its keys arrive
+        // later with the state init.
+        AccountType::UniversalAccount if universal_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
         }
+        // No account will be created, just a regular transfer.
+        AccountType::UniversalAccount => transfer_fee,
+        // Extra fee for the CreateAccount.
+        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
+        // No account will be created, just a regular transfer.
+        AccountType::EthImplicitAccount => transfer_fee,
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (_, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
+        AccountType::NearImplicitAccount => transfer_fee
+            .checked_add(create_account_fee)
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
             .unwrap(),
         // Extra fees for the implied CreateAccount action.
-        (_, AccountType::NearDeterministicAccount) => {
-            transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
+        AccountType::NearDeterministicAccount => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
         }
     }
 }
@@ -780,28 +813,37 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     eth_implicit_accounts_enabled: bool,
+    universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    match (eth_implicit_accounts_enabled, receiver_account_type) {
+    let create_account_fee = cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
+    match receiver_account_type {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
+        AccountType::NamedAccount => transfer_fee,
+        // Like a deterministic account, the transfer creates it; its keys arrive
+        // later with the state init.
+        AccountType::UniversalAccount if universal_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
         // No account will be created, just a regular transfer.
-        (false, AccountType::EthImplicitAccount) => transfer_fee,
+        AccountType::UniversalAccount => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap(),
+        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
+        // No account will be created, just a regular transfer.
+        AccountType::EthImplicitAccount => transfer_fee,
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (_, AccountType::NearImplicitAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
+        AccountType::NearImplicitAccount => transfer_fee
+            .checked_add(create_account_fee)
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
             .unwrap(),
         // Extra fees for the implied  CreateAccount action.
-        (_, AccountType::NearDeterministicAccount) => transfer_fee
-            .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
-            .unwrap(),
+        AccountType::NearDeterministicAccount => {
+            transfer_fee.checked_add(create_account_fee).unwrap()
+        }
     }
 }
 
@@ -902,4 +944,63 @@ pub fn gas_key_add_key_exec_fee(
         .checked_mul(num_nonces)
         .unwrap();
     GasKeyAddFee { base, per_byte }
+}
+
+/// What the length of a `UniversalStateInit` payload prices: the action's base
+/// cost, and its per-byte cost. Known without looking inside the payload.
+///
+/// Together with [`universal_state_init_content_terms`] this is the action's whole
+/// fee, as `(cost, units)` pairs. Both sides of the protocol walk these two lists:
+/// `node_runtime::config` sums them into the send and exec fee, and the VM charges
+/// the size terms before it hands a contract's bytes to the host and the content
+/// terms once the counts come back. A term added here is picked up by both, so what
+/// a contract prepays cannot drift from what the action is charged when it runs.
+pub fn universal_state_init_size_terms(num_bytes: u64) -> [(ActionCosts, u64); 2] {
+    [
+        (ActionCosts::universal_state_init_base, 1),
+        (ActionCosts::universal_state_init_byte, num_bytes),
+    ]
+}
+
+/// What the contents of a `UniversalStateInit` payload price, known only once it
+/// has been decoded. See [`universal_state_init_size_terms`].
+pub fn universal_state_init_content_terms(
+    counts: UniversalStateInitCounts,
+) -> [(ActionCosts, u64); 2] {
+    [
+        (ActionCosts::universal_state_init_entry, counts.num_entries),
+        // Each installed key is a full-access key write, priced the same as `AddKey`.
+        (ActionCosts::add_full_access_key, counts.num_keys),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RuntimeFeesConfig;
+
+    /// The account type is the same on every protocol version, so a `0u` receiver
+    /// reaches these before the feature activates and must cost a plain transfer.
+    #[test]
+    fn universal_receiver_pays_plain_transfer_until_enabled() {
+        let cfg = RuntimeFeesConfig::test();
+        let transfer_exec = cfg.fee(ActionCosts::transfer).exec_fee();
+        let create_exec = cfg.fee(ActionCosts::create_account).exec_fee();
+
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, false, AccountType::UniversalAccount),
+            transfer_exec,
+            "a 0u receiver costs a plain transfer before the feature is on"
+        );
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, true, AccountType::UniversalAccount),
+            transfer_exec.checked_add(create_exec).unwrap(),
+            "and one create_account once it is"
+        );
+        assert_eq!(
+            transfer_exec_fee(&cfg, true, true, AccountType::NamedAccount),
+            transfer_exec,
+            "the flag on its own does not price another receiver as a creation"
+        );
+    }
 }

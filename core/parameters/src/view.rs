@@ -272,6 +272,8 @@ pub struct VMConfigView {
     pub implicit_account_creation: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
+    /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
+    pub universal_accounts: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -295,6 +297,7 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
+            universal_accounts: config.universal_accounts,
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             gas_key_host_fns: config.gas_key_host_fns,
@@ -536,6 +539,14 @@ pub struct ExtCostsConfigView {
     pub bls12381_p1_decompress_element: Gas,
     pub bls12381_p2_decompress_base: Gas,
     pub bls12381_p2_decompress_element: Gas,
+
+    // ######################
+    // # Universal accounts #
+    // ######################
+    /// Base cost of deriving a `0u` account id from a raw state init.
+    pub universal_state_init_to_account_id_base: Gas,
+    /// Per byte of the raw state init.
+    pub universal_state_init_to_account_id_byte: Gas,
 }
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
@@ -577,6 +588,10 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             p256_verify_byte: config.gas_cost(ExtCosts::p256_verify_byte),
             ml_dsa_verify_base: config.gas_cost(ExtCosts::ml_dsa_verify_base),
             ml_dsa_verify_byte: config.gas_cost(ExtCosts::ml_dsa_verify_byte),
+            universal_state_init_to_account_id_base: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_base),
+            universal_state_init_to_account_id_byte: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_byte),
             log_base: config.gas_cost(ExtCosts::log_base),
             log_byte: config.gas_cost(ExtCosts::log_byte),
             storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
@@ -692,6 +707,12 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::p256_verify_byte => view.p256_verify_byte,
                 ExtCosts::ml_dsa_verify_base => view.ml_dsa_verify_base,
                 ExtCosts::ml_dsa_verify_byte => view.ml_dsa_verify_byte,
+                ExtCosts::universal_state_init_to_account_id_base => {
+                    view.universal_state_init_to_account_id_base
+                }
+                ExtCosts::universal_state_init_to_account_id_byte => {
+                    view.universal_state_init_to_account_id_byte
+                }
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
                 ExtCosts::storage_write_base => view.storage_write_base,

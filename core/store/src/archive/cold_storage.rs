@@ -140,8 +140,7 @@ pub fn update_cold_db(
 }
 
 // Copy ChunkProducers by prefix-scan on the block hash. Returns Some(result) if it
-// handled `col`, else None. The nightly-only DBCol variant is confined to this fn.
-#[cfg(feature = "nightly")]
+// handled `col`, else None.
 fn maybe_copy_chunk_producers(
     col: DBCol,
     cold_db: &ColdDB,
@@ -165,16 +164,6 @@ fn maybe_copy_chunk_producers(
     }
     cold_db.write(transaction);
     Some(Ok(()))
-}
-
-#[cfg(not(feature = "nightly"))]
-fn maybe_copy_chunk_producers(
-    _col: DBCol,
-    _cold_db: &ColdDB,
-    _hot_store: &Store,
-    _block_hash_key: &[u8],
-) -> Option<io::Result<()>> {
-    None
 }
 
 // Correctly set the key and value on DBTransaction, taking reference counting

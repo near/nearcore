@@ -203,10 +203,15 @@ pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
 
+// TODO(cloud_archival): the reader has no settings of its own yet.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalReaderConfig {}
+
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
     /// Determines whether block-related data should be written to cloud storage.
@@ -498,7 +503,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_external_timeout() -> Duration {
+pub fn default_block_request_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -694,7 +699,7 @@ pub struct ClientConfig {
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,

@@ -35,7 +35,6 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 bencher.workspace = true
 itoa.workspace = true
-smartstring.workspace = true
 
 [features]
 nightly = [

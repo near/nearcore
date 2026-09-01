@@ -7,7 +7,6 @@ pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 pub use crate::archive::cloud_storage::shards::{InverseStateChanges, ShardBatch, ShardData};
 use near_external_storage::ExternalConnection;
-use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
 pub mod config;
@@ -17,6 +16,8 @@ pub mod archive;
 pub mod bucket_config;
 pub mod metrics;
 pub mod retrieve;
+#[cfg(feature = "test_features")]
+pub mod test_utils;
 
 pub(super) mod batch;
 pub(super) mod blocks;
@@ -24,7 +25,7 @@ pub(super) mod epoch_data;
 pub(super) mod file_id;
 pub(super) mod shards;
 
-pub use file_id::ListableCloudDir;
+pub use file_id::{CloudStorageFileID, ListableCloudDir};
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
@@ -43,51 +44,42 @@ impl CloudStorage {
         Self { external, chain_id, bucket_config }
     }
 
-    pub fn connection(&self) -> &ExternalConnection {
-        &self.external
-    }
-
-    pub fn chain_id(&self) -> &str {
-        &self.chain_id
-    }
-
     pub fn batch_size(&self) -> u32 {
         self.bucket_config.batch_size()
     }
 
-    pub fn get_state_header(
-        &self,
-        epoch_height: EpochHeight,
-        epoch_id: EpochId,
-        shard_id: ShardId,
-    ) -> Result<ShardStateSyncResponseHeader, CloudRetrievalError> {
-        let fut = self.retrieve_state_header(epoch_height, epoch_id, shard_id);
-        block_on_future(fut)
-    }
-
-    pub fn is_state_header_stored(
+    pub async fn is_state_header_stored(
         &self,
         epoch_height: EpochHeight,
         epoch_id: EpochId,
         shard_id: ShardId,
     ) -> Result<bool, CloudRetrievalError> {
         let dir = ListableCloudDir::StateHeader { epoch_height, epoch_id, shard_id };
-        block_on_future(self.dir_contains(&dir, "header"))
+        self.dir_contains(&dir, "header").await
     }
 
-    pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData, CloudRetrievalError> {
-        block_on_future(self.retrieve_epoch_data(epoch_id))
+    pub async fn get_epoch_data(
+        &self,
+        epoch_id: EpochId,
+    ) -> Result<EpochData, CloudRetrievalError> {
+        self.retrieve_epoch_data(epoch_id).await
+    }
+
+    /// Highest height whose block data is in the bucket, if the writer has
+    /// published a block head at all.
+    pub async fn get_cloud_block_head(&self) -> Result<Option<BlockHeight>, CloudRetrievalError> {
+        self.retrieve_cloud_block_head_if_exists().await
     }
 
     /// Fetches the full block batch containing `block_height`. There is no
     /// single-block fetch on purpose, so callers cannot accidentally call one
     /// in a loop over consecutive heights.
-    pub fn get_block_batch_for_height(
+    pub async fn get_block_batch_for_height(
         &self,
         block_height: BlockHeight,
     ) -> Result<BlockBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        let batch = block_on_future(self.retrieve_block_batch(batch_id))?;
+        let batch = self.retrieve_block_batch(batch_id).await?;
         if block_height < batch.start_height() || block_height > batch.end_height() {
             // Batch is partial and doesn't cover the requested height (e.g. pre-writer-init).
             return Err(CloudRetrievalError::NoBlockData { height: block_height });
@@ -95,67 +87,29 @@ impl CloudStorage {
         Ok(batch)
     }
 
-    /// Fetches the full shard batch containing `block_height`. See
-    /// `get_block_batch_for_height`.
-    pub fn get_shard_batch_for_height(
+    /// Fetches `shard_id`'s batch for the window `block_height` falls in. What the batch
+    /// carries can open above or end below that height, which is what a shard added or
+    /// retired by a resharding looks like.
+    pub async fn get_shard_batch(
         &self,
         block_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<ShardBatch, CloudRetrievalError> {
         let batch_id = compute_batch_id(block_height, self.batch_size());
-        let batch = block_on_future(self.retrieve_shard_batch(shard_id, batch_id))?;
-        if block_height < batch.start_height() || block_height > batch.end_height() {
-            // Batch is partial and doesn't cover the requested height (e.g. pre-resharding child).
-            return Err(CloudRetrievalError::NoShardData { height: block_height, shard_id });
-        }
-        Ok(batch)
+        self.retrieve_shard_batch(shard_id, batch_id).await
     }
-
-    /// Test-only: fetch a single block's data. Production callers must go
-    /// through `get_block_batch_for_height` so consecutive-height loops
-    /// reuse the batch. Tests don't care about that cost. Returns `Ok(None)`
-    /// when the height has no block (skipped slot).
-    #[cfg(feature = "test_features")]
-    pub fn get_block_data(
-        &self,
-        block_height: BlockHeight,
-    ) -> Result<Option<BlockData>, CloudRetrievalError> {
-        let batch = self.get_block_batch_for_height(block_height)?;
-        Ok(batch.get_block_at_height(block_height).cloned())
-    }
-
-    /// Test-only: fetch a single shard's data. See `get_block_data`. Returns
-    /// `Ok(None)` when the height has no block.
-    #[cfg(feature = "test_features")]
-    pub fn get_shard_data(
-        &self,
-        block_height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<Option<ShardData>, CloudRetrievalError> {
-        let batch = self.get_shard_batch_for_height(block_height, shard_id)?;
-        Ok(batch.get_data_at_height(block_height).cloned())
-    }
-}
-
-// TODO(cloud_archival): This is a temporary solution for development.
-// Ensure the final implementation does not negatively impact or crash the application.
-fn block_on_future<F: Future>(fut: F) -> F::Output {
-    futures::executor::block_on(fut)
 }
 
 /// Columns the cloud-archive reader reproduces from cloud data.
 pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
-    // From BlockData.
-    #[cfg(feature = "nightly")]
-    if col == DBCol::ChunkProducers {
-        return true;
-    }
     matches!(
         col,
         // From BlockData.
         DBCol::Block
             | DBCol::BlockInfo
             | DBCol::NextBlockHashes
+            | DBCol::BlockMerkleTree
+            | DBCol::ChunkProducers
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight
@@ -181,7 +135,6 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // From EpochData.
             | DBCol::EpochInfo
             | DBCol::EpochStart
-            | DBCol::BlockMerkleTree
 
             // From a state snapshot.
             | DBCol::State
@@ -193,7 +146,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
     // TODO(spice): decide how the reader handles spice columns.
     #[cfg(feature = "protocol_feature_spice")]
-    if col == DBCol::ReceiptProofs {
+    if col == DBCol::ReceiptProofs || col == DBCol::SpiceInvalidChunks {
         return true;
     }
     matches!(

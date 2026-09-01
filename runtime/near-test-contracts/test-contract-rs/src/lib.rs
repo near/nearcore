@@ -131,6 +131,15 @@ extern "C" {
         account_id_ptr: u64,
         amount_ptr: u64,
     ) -> u64;
+    #[cfg(feature = "nightly")]
+    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
+    #[cfg(feature = "nightly")]
+    fn promise_batch_action_universal_state_init(
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64,
+    );
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -375,6 +384,37 @@ pub unsafe fn ext_used_gas() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
+/// Creates the `0u` universal account described by the raw state init passed as
+/// input, funding it with the attached deposit.
+///
+/// A contract cannot derive a universal account id on its own, so it asks the
+/// host for it and points the promise at what comes back.
+#[cfg(feature = "nightly")]
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init() {
+    input(0);
+    let mut state_init = vec![0u8; register_len(0) as usize];
+    read_register(0, state_init.as_mut_ptr());
+    let state_init_len = state_init.len() as u64;
+    let state_init_ptr = state_init.as_ptr() as *const u64 as u64;
+
+    // Register 1 receives the account id this state init derives to.
+    universal_state_init_to_account_id(state_init_len, state_init_ptr, 1);
+    // `u64::MAX` as the length reads the account id from register 1.
+    let promise_idx = promise_batch_create(u64::MAX, 1);
+
+    let mut amount = [0u8; size_of::<u128>()];
+    attached_deposit(amount.as_mut_ptr());
+    promise_batch_action_universal_state_init(
+        promise_idx,
+        state_init_len,
+        state_init_ptr,
+        amount.as_ptr() as *const u64 as u64,
+    );
+    // Return the promise so the caller's outcome reflects whether the init ran.
+    promise_return(promise_idx);
+}
+
 #[unsafe(no_mangle)]
 pub unsafe fn ext_validator_stake() {
     input(0);
@@ -449,6 +489,47 @@ pub unsafe fn write_one_megabyte() {
         value.as_ptr() as u64,
         0,
     );
+}
+
+/// Write a value of the given size under the given key.
+/// Key is of type u8. Value is made up of the key repeated `size` times.
+/// The input is a u8 key followed by the size as a little-endian u32.
+#[unsafe(no_mangle)]
+pub unsafe fn write_value_of_size() {
+    const INPUT_SIZE: usize = size_of::<u8>() + size_of::<u32>();
+    input(0);
+    if register_len(0) != INPUT_SIZE as u64 {
+        panic();
+    }
+    let mut input_data = [0u8; INPUT_SIZE];
+    read_register(0, input_data.as_mut_ptr());
+
+    let mut key = input_data[0];
+    let size = u32::from_le_bytes(input_data[size_of::<u8>()..].try_into().unwrap()) as usize;
+
+    let value = vec![key; size];
+    storage_write(
+        size_of::<u8>() as u64,
+        &mut key as *mut u8 as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+/// Read the values stored under the keys between from..to, whatever their size.
+/// The input is a pair of u8 values `from` and `to`.
+#[unsafe(no_mangle)]
+pub unsafe fn read_values_in_key_range() {
+    input(0);
+    assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
+    let mut input_data = [0u8; 2 * size_of::<u8>()];
+    read_register(0, input_data.as_mut_ptr());
+
+    for key in input_data[0]..input_data[1] {
+        let result = storage_read(size_of::<u8>() as u64, &key as *const u8 as u64, 0);
+        assert_eq!(result, 1);
+    }
 }
 
 /// Read n megabytes of data between from..to
@@ -884,10 +965,7 @@ fn call_promise() {
             } else if let Some(and) = arg.get("and") {
                 let promise_indices: Vec<u64> =
                     and.as_array().unwrap().iter().map(|id| id.as_i64().unwrap() as u64).collect();
-                promise_and(
-                    promise_indices.as_ptr() as u64,
-                    promise_indices.len() as u64,
-                )
+                promise_and(promise_indices.as_ptr() as u64, promise_indices.len() as u64)
             } else if let Some(batch_create) = arg.get("batch_create") {
                 let account_id = batch_create["account_id"].as_str().unwrap().as_bytes();
                 promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64)

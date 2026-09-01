@@ -5,19 +5,18 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_reader::{
-    bootstrap_range, find_present_block_at_or_below, find_snapshot_at_or_before,
+use near_client::archive::cloud_archival_utils::{
+    find_present_block_below, find_snapshot_at_or_before,
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::sync::external::{
-    StateFileType, StateSyncConnection, external_storage_location, list_state_parts,
-};
+use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::StatePartId;
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
@@ -25,7 +24,6 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
-use near_store::db::{CLOUD_MIN_HEAD_KEY, CLOUD_PREV_EPOCH_END_KEY};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -72,21 +70,21 @@ pub struct ReshardingInfo {
 /// Runs the chain one epoch past the resharding to `new_layout`.
 pub fn run_until_one_epoch_after_resharding(
     env: &mut TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     base_layout: &ShardLayout,
     new_layout: &ShardLayout,
     boundary: &AccountId,
     epoch_length: BlockHeightDelta,
 ) -> ReshardingInfo {
     let timeout = Duration::seconds((5 * epoch_length) as i64);
-    env.runner_for_account(archival_id).run_until(
+    env.runner_for_account(writer_id).run_until(
         |node| {
             let epoch_id = node.head().epoch_id;
             node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
         },
         timeout,
     );
-    let node = env.node_for_account(archival_id);
+    let node = env.node_for_account(writer_id);
     let resharding_epoch_id = node.head().epoch_id;
     let epoch_manager = &node.client().epoch_manager;
     let head = node.head().last_block_hash;
@@ -99,9 +97,9 @@ pub fn run_until_one_epoch_after_resharding(
 
     // Advance one epoch from the resharding epoch's first produced block so the
     // resharding epoch fully elapses and its sync_hash gets recorded.
-    run_node_until(env, archival_id, new_epoch_first_height + epoch_length);
+    run_node_until(env, writer_id, new_epoch_first_height + epoch_length);
 
-    let node = env.node_for_account(archival_id);
+    let node = env.node_for_account(writer_id);
     let chain_store = node.client().chain.chain_store().store().chain_store();
     let sync_hash = chain_store
         .get_current_epoch_sync_hash(&resharding_epoch_id)
@@ -128,7 +126,7 @@ pub fn run_until_one_epoch_after_resharding(
     }
 }
 
-fn execute_future<F: Future>(fut: F) -> F::Output {
+pub(crate) fn exec<F: Future>(fut: F) -> F::Output {
     // If this causes issues, use the testloop future spawner and wait for 0 blocks so the
     // event loop can run it.
     futures::executor::block_on(fut)
@@ -142,16 +140,16 @@ pub fn gc_and_heads_sanity_checks(
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
 ) {
-    let cloud_head = get_cloud_head(env, writer_id);
+    let min_head = get_local_min_head(env, writer_id);
     let node = env.node_for_account(writer_id);
     let client = node.client();
     let chain_store = client.chain.chain_store();
     let epoch_store = chain_store.epoch_store();
 
-    // Check if the first block of the epoch containing `cloud_head` is not gc-ed.
-    let cloud_head_hash = chain_store.get_block_hash_by_height(cloud_head).unwrap();
-    let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
-    epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
+    // Check if the first block of the epoch containing `min_head` is not gc-ed.
+    let min_head_hash = chain_store.get_block_hash_by_height(min_head).unwrap();
+    let min_head_block_info = epoch_store.get_block_info(&min_head_hash).unwrap();
+    epoch_store.get_block_info(min_head_block_info.epoch_first_block()).unwrap();
 
     let gc_tail = chain_store.tail();
     if split_store_enabled {
@@ -159,7 +157,7 @@ pub fn gc_and_heads_sanity_checks(
         let cold_head_height = cold_head.unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
-    assert!(cloud_head > gc_tail);
+    assert!(min_head > gc_tail);
     if let Some(min_gc_tail) = num_gced_blocks {
         assert!(gc_tail >= min_gc_tail);
     } else {
@@ -171,8 +169,7 @@ pub fn gc_and_heads_sanity_checks(
     let head = chain_store.head().unwrap();
     let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
     for shard_id in shard_layout.shard_ids() {
-        let ext_shard_head =
-            execute_future(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
+        let ext_shard_head = exec(cloud_storage.retrieve_cloud_shard_head_if_exists(shard_id));
         match ext_shard_head {
             Ok(Some(shard_head)) => {
                 assert!(
@@ -198,7 +195,7 @@ pub(crate) fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str
     env.restart_node(&new_identifier, node_state);
 }
 
-/// Returns the cloud archival writer handle for `archival_id`.
+/// Returns the cloud archival writer handle for `writer_id`.
 pub(crate) fn get_writer_handle<'a>(
     env: &'a TestLoopEnv,
     writer_id: &AccountId,
@@ -214,19 +211,36 @@ fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
     client.chain.chain_store().store()
 }
 
-pub(crate) fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
-    let node_data = env.get_node_data_by_account_id(archival_id);
+pub(crate) fn get_cloud_storage(env: &TestLoopEnv, account_id: &AccountId) -> Arc<CloudStorage> {
+    let node_data = env.get_node_data_by_account_id(account_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
 }
 
-/// Writer's stored min head: highest height up to which all components are
-/// known archived (by us or another writer).
-pub(crate) fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
+/// The epoch a height belongs to, taken from the archived block in the bucket.
+pub(crate) fn epoch_id_at(cloud_storage: &CloudStorage, height: BlockHeight) -> EpochId {
+    let block_data = cloud_storage
+        .get_block_data(height)
+        .unwrap_or_else(|error| panic!("reading the block at {height} from the bucket: {error}"))
+        .unwrap_or_else(|| panic!("no block archived at {height}"));
+    *block_data.block().header().epoch_id()
+}
+
+/// One shard's state header, with the epoch height it is stored under looked up
+/// from the epoch's own data.
+pub(crate) fn get_state_header_for_epoch(
+    cloud_storage: &CloudStorage,
+    epoch_id: EpochId,
+    shard_id: ShardId,
+) -> ShardStateSyncResponseHeader {
+    let epoch_height =
+        exec(cloud_storage.get_epoch_data(epoch_id)).unwrap().epoch_info().epoch_height();
+    cloud_storage.get_state_header(epoch_height, epoch_id, shard_id).unwrap()
+}
+
+pub(crate) fn get_local_min_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store
-        .get_ser::<BlockHeight>(DBCol::BlockMisc, CLOUD_MIN_HEAD_KEY)
-        .expect("CLOUD_MIN_HEAD should exist")
+    hot_store.cloud_archival_store().writer_min_head().expect("the writer min head should exist")
 }
 
 /// Configures a client as a cloud archival writer with specific tracked shards.
@@ -261,7 +275,7 @@ pub(crate) fn simulate_lagging_shard(
     let node_data = env.get_node_data_by_account_id(writer_id);
     let identifier = node_data.identifier.clone();
     let node_state = env.kill_node(&identifier);
-    execute_future(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
+    exec(cloud_storage.update_cloud_shard_head(shard_id, target_height)).unwrap();
     let new_identifier = format!("{}-restart", identifier);
     env.restart_node(&new_identifier, node_state);
 }
@@ -292,12 +306,12 @@ pub(crate) fn add_writer_node(env: &mut TestLoopEnv, config: &WriterConfig) {
 /// Also checks that block data exists if any shards are expected.
 pub(crate) fn check_data_at_height_for_shards(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     height: BlockHeight,
     expected_shards: &[ShardId],
     all_shard_ids: &[ShardId],
 ) {
-    let cloud_storage = get_cloud_storage(env, archival_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
     if !expected_shards.is_empty() {
         assert!(
             matches!(cloud_storage.get_block_data(height), Ok(Some(_))),
@@ -340,13 +354,13 @@ pub fn check_account_balance(
 /// that are multiples of the cadence are expected to carry snapshots.
 pub fn snapshots_sanity_check(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     final_epoch_height: EpochHeight,
     snapshot_every_n_epochs: u64,
 ) {
-    let store = get_hot_store(env, archival_id);
-    let cloud_storage = get_cloud_storage(env, archival_id);
-    let node = env.node_for_account(archival_id);
+    let store = get_hot_store(env, writer_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let node = env.node_for_account(writer_id);
     let client = node.client();
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
     let mut epoch_heights_with_epoch_data = HashSet::<EpochHeight>::new();
@@ -362,7 +376,7 @@ pub fn snapshots_sanity_check(
         let mut num_shards_with_snapshot = 0;
         for shard_id in &shards {
             let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, *shard_id);
-            let state_header = execute_future(fut);
+            let state_header = exec(fut);
             if state_header.is_ok() {
                 num_shards_with_snapshot += 1;
             }
@@ -377,7 +391,7 @@ pub fn snapshots_sanity_check(
                 shards.len(),
             )
         }
-        if cloud_storage.get_epoch_data(epoch_id).is_ok() {
+        if exec(cloud_storage.get_epoch_data(epoch_id)).is_ok() {
             epoch_heights_with_epoch_data.insert(epoch_height);
         }
     }
@@ -387,17 +401,17 @@ pub fn snapshots_sanity_check(
         (1..final_epoch_height).filter(|h| h % snapshot_every_n_epochs == 0).collect();
     assert_eq!(epoch_heights_with_snapshot, expected_snapshots);
 
-    // Epoch data is uploaded by the cloud archival writer at the last block of each
-    // epoch, so it covers all epochs fully passed by the cloud head.
-    let last_archived_epoch_last_block: CryptoHash =
-        store.get_ser(DBCol::BlockMisc, CLOUD_PREV_EPOCH_END_KEY).unwrap();
+    // Every epoch through the last one the writer finished archiving. A batch that
+    // ended exactly at an epoch's last block published the next epoch's data too.
+    let last_archived_epoch_last_block =
+        store.cloud_archival_store().writer_prev_epoch_end().unwrap();
     let last_archived_epoch_id =
         client.epoch_manager.get_epoch_id(&last_archived_epoch_last_block).unwrap();
     let last_archived_epoch_info = EpochInfo::try_from_slice(
         &store.get(DBCol::EpochInfo, last_archived_epoch_id.as_ref()).unwrap(),
     )
     .unwrap();
-    let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height());
+    let expected_epoch_data = HashSet::from_iter(1..=last_archived_epoch_info.epoch_height() + 1);
     assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
 
@@ -491,13 +505,13 @@ pub fn assert_writer_inverse_deltas(
 /// even though its epoch height is off the snapshot cadence.
 pub fn assert_resharding_epoch_snapshot_forced(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     info: &ReshardingInfo,
     snapshot_every_n_epochs: u64,
 ) {
-    let cloud_storage = get_cloud_storage(env, archival_id);
-    let store = get_hot_store(env, archival_id);
-    let node = env.node_for_account(archival_id);
+    let cloud_storage = get_cloud_storage(env, writer_id);
+    let store = get_hot_store(env, writer_id);
+    let node = env.node_for_account(writer_id);
     let epoch_manager = &node.client().epoch_manager;
 
     let gap_block_hash =
@@ -511,7 +525,7 @@ pub fn assert_resharding_epoch_snapshot_forced(
         "test needs the resharding epoch off the snapshot cadence"
     );
     for &shard_uid in &info.new_shard_uids {
-        let state_header = execute_future(cloud_storage.retrieve_state_header(
+        let state_header = exec(cloud_storage.retrieve_state_header(
             resharding_epoch_height,
             resharding_epoch_id,
             shard_uid.shard_id(),
@@ -520,33 +534,58 @@ pub fn assert_resharding_epoch_snapshot_forced(
     }
 }
 
+/// Brings up a reader node tracking every shard, and returns its store.
+pub(crate) fn add_reader_node(env: &mut TestLoopEnv, reader_id: &AccountId) -> Store {
+    let node_state = env
+        .node_state_builder()
+        .account_id(reader_id)
+        .cloud_storage(true)
+        // TODO(cloud_archival): cover with test a reader on `TrackedShardsConfig::Shards`,
+        // where `shards_tracked_in_batch` returns a subset of the layout.
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+        })
+        .build();
+    env.add_node(reader_id.as_ref(), node_state);
+    env.node_for_account(reader_id).client().chain.chain_store().store()
+}
+
 /// Bootstraps a reader node by downloading blocks from cloud and applying
 /// state sync to reconstruct the state at `target_block_height`.
-pub fn bootstrap_reader(
+pub fn bootstrap_historical_reader(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
     start_height: BlockHeight,
     target_block_height: BlockHeight,
 ) {
-    let node_state = env.node_state_builder().account_id(reader_id).cloud_storage(true).build();
-    env.add_node(reader_id.as_ref(), node_state);
+    add_reader_node(env, reader_id);
 
     let cloud_storage = get_cloud_storage(env, reader_id);
 
     // Download all blocks in the range into the reader's store.
     {
-        let store = env.node_for_account(reader_id).client().chain.chain_store.store();
-        bootstrap_range(&store, &cloud_storage, start_height, target_block_height)
-            .expect("bootstrap_range should succeed");
+        let client = env.node_for_account(reader_id).client();
+        let store = client.chain.chain_store.store();
+        let epoch_manager = client.epoch_manager.clone();
+        let shard_tracker = client.shard_tracker.clone();
+        exec(bootstrap_range(
+            &store,
+            &cloud_storage,
+            epoch_manager.as_ref(),
+            &shard_tracker,
+            start_height,
+            target_block_height,
+        ))
+        .expect("bootstrap_range should succeed");
     }
 
     // Resolve the target's epoch for the shard layout. A skipped-slot target
     // carries no data, so snap it down to the nearest present block at or below
     // it (no state changes between them).
     let (target_block_height, target_block_data) =
-        find_present_block_at_or_below(&cloud_storage, target_block_height).unwrap();
+        exec(find_present_block_below(&cloud_storage, target_block_height + 1)).unwrap();
     let target_epoch_id = *target_block_data.block().header().epoch_id();
-    let target_epoch_data = cloud_storage.get_epoch_data(target_epoch_id).unwrap();
+    let target_epoch_data = exec(cloud_storage.get_epoch_data(target_epoch_id)).unwrap();
 
     let chain = &env.node_for_account(reader_id).client().chain;
     let store = chain.chain_store.store();
@@ -561,24 +600,23 @@ pub fn bootstrap_reader(
         // Reconstruct from the nearest snapshot at or below the bootstrap start,
         // loaded from cloud state parts, then apply deltas forward to the target.
         let (snapshot_epoch_height, snapshot_epoch_id) =
-            find_snapshot_at_or_before(&cloud_storage, start_height, shard_id).unwrap();
-        let snapshot_epoch_data = cloud_storage.get_epoch_data(snapshot_epoch_id).unwrap();
-        let sync_block =
-            cloud_storage.get_block_data(snapshot_epoch_data.sync_block_height()).unwrap().unwrap();
-        let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
-        let state_sync_state_root = cloud_storage
+            exec(find_snapshot_at_or_before(&cloud_storage, start_height, shard_id)).unwrap();
+        // Both values come off the header's single chunk, so the state root and
+        // the height it applies at cannot disagree.
+        let state_header = cloud_storage
             .get_state_header(snapshot_epoch_height, snapshot_epoch_id, shard_id)
-            .unwrap()
-            .chunk_prev_state_root();
+            .unwrap();
+        let state_sync_state_root = state_header.chunk_prev_state_root();
+        let reconstruction_start_height = state_header.chunk_height_included();
 
         assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        execute_future(download_and_apply_state_snapshot(
+        exec(download_and_apply_state_snapshot(
             &tries,
             &cloud_storage,
             &snapshot_epoch_id,
             snapshot_epoch_height,
             shard_uid,
-            state_sync_state_root,
+            &state_header,
         ));
         assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
 
@@ -594,7 +632,7 @@ pub fn bootstrap_reader(
             &store,
             &tries,
             state_sync_state_root,
-            sync_prev_block_height,
+            reconstruction_start_height,
             target_block_height,
             shard_uid,
         );
@@ -635,21 +673,19 @@ async fn download_and_apply_state_snapshot(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     shard_uid: ShardUId,
-    state_root: CryptoHash,
+    state_header: &ShardStateSyncResponseHeader,
 ) {
     let shard_id = shard_uid.shard_id();
-    let connection = StateSyncConnection::from_cloud_storage(cloud_storage);
-    let chain_id = cloud_storage.chain_id();
-    let num_parts =
-        list_state_parts(&connection, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
-    for part_id in 0..num_parts {
-        let file_type = StateFileType::StatePart { part_id, num_parts };
-        let location =
-            external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
-        let bytes = connection.get_file(shard_id, &location, &file_type).await.unwrap();
-        let partial_state = StatePart::from_bytes(bytes).unwrap().to_partial_state().unwrap();
-        let apply_result =
-            Trie::apply_state_part(&state_root, PartId::new(part_id, num_parts), partial_state);
+    let state_root = state_header.chunk_prev_state_root();
+    let num_parts = state_header.num_state_parts();
+    for part_index in 0..num_parts {
+        let part_id = StatePartId::new(part_index, num_parts);
+        let state_part = cloud_storage
+            .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
+            .await
+            .unwrap();
+        let partial_state = state_part.to_partial_state().unwrap();
+        let apply_result = Trie::apply_state_part(&state_root, part_id, partial_state);
         let mut store_update = tries.store_update();
         tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         store_update.commit();
@@ -705,15 +741,6 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// How the reader is checked against a set of writer rows.
-enum Parity {
-    /// Reader must equal the given writer rows exactly, holding no extra rows.
-    Equality,
-    /// Reader must contain every given writer row, but may hold extra rows
-    /// (e.g. blocks backfilled below `start` to complete the merkle tree chain).
-    Containment,
-}
-
 /// Asserts the reader reproduces the writer's rows over `[start, end]` for every
 /// column the cloud-bootstrapped reader reconstructs today. Caller must
 /// `.disable_gc()` so the writer retains the bootstrap range.
@@ -733,7 +760,6 @@ pub(crate) fn assert_reader_writer_parity(
                     DBCol::NextBlockHashes
                         | DBCol::BlockPerHeight
                         | DBCol::ChunkHashesByHeight
-                        | DBCol::ChunkExtra
                         | DBCol::IncomingReceipts
                         | DBCol::OutcomeIds
                         | DBCol::TransactionResultForBlock
@@ -755,42 +781,21 @@ pub(crate) fn assert_reader_writer_parity(
     let writer_kvs = writer_kvs(writer, &cols, start, end);
 
     for &col in &cols {
-        let parity = match col {
-            // The reader backfills these columns below `start` to complete the merkle
-            // tree chain, so it holds extra rows: check containment, not equality.
-            DBCol::BlockHeight | DBCol::Block | DBCol::BlockHeader | DBCol::BlockMerkleTree => {
-                Parity::Containment
-            }
-            #[cfg(feature = "nightly")]
-            DBCol::ChunkProducers => Parity::Containment,
-            _ => Parity::Equality,
-        };
-        assert_keyed_parity(reader, col, &writer_kvs[&col], parity);
+        assert_keyed_parity(reader, col, &writer_kvs[&col]);
     }
 }
 
 /// Compares the writer's rows in `col` against the full reader.
-fn assert_keyed_parity(
-    reader: &Store,
-    col: DBCol,
-    writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>,
-    parity: Parity,
-) {
+/// Every in-scope writer row is present in the reader with the same value. Extra
+/// reader rows are allowed, e.g. because of a batch being written whole.
+fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
     let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
-    match parity {
-        Parity::Equality => {
-            assert_eq!(&reader_all_kvs, writer_kvs, "{col} parity mismatch")
-        }
-        Parity::Containment => {
-            for (key, writer_value) in writer_kvs {
-                assert_eq!(
-                    reader_all_kvs.get(key),
-                    Some(writer_value),
-                    "{col}: writer key {key:?} missing or different at reader"
-                );
-            }
-        }
+    for (key, writer_value) in writer_kvs {
+        let reader_value = reader_all_kvs
+            .get(key)
+            .unwrap_or_else(|| panic!("{col} row missing from the reader: {key:?}"));
+        assert_eq!(reader_value, writer_value, "{col} value mismatch for {key:?}");
     }
 }
 
@@ -853,13 +858,16 @@ fn writer_kvs(
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
             }
         }
-        // ChunkProducers rows are keyed by block hash across all shards of the
-        // next epoch, so one prefix scan captures every row for this block.
-        #[cfg(feature = "nightly")]
-        for (key, value) in writer.iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()) {
-            kvs.get_mut(&DBCol::ChunkProducers).unwrap().insert(key.into_vec(), value.into_vec());
+        // Each of these is keyed by block hash followed by a per-shard suffix, so a
+        // prefix scan on the hash finds every shard's row without asking which shards
+        // this block's epoch had.
+        for col in [DBCol::ChunkProducers, DBCol::ChunkExtra] {
+            for (key, value) in writer.iter_prefix(col, block_hash.as_ref()) {
+                kvs.get_mut(&col).unwrap().insert(key.into_vec(), value.into_vec());
+            }
         }
-        let block = writer_store.get_block(&block_hash).expect("block exists, checked above");
+        let block =
+            writer_store.get_block(&block_hash).expect("the caller disabled garbage collection");
         for chunk_header in block.chunks().iter_raw() {
             collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }

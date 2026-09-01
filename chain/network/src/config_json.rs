@@ -211,6 +211,16 @@ pub struct Config {
     #[serde(default = "default_trusted_stun_servers")]
     pub trusted_stun_servers: Vec<stun::ServerAddr>,
 
+    /// Size of the semaphore which limits the total size of the messages queued for sending
+    /// across all the connections. Once exhausted, new outgoing messages are dropped.
+    /// If unset, defaults to `DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outgoing_queue_limiter_capacity_bytes: Option<usize>,
+    /// Maximum capacity of the write buffer of a single connection. Exceeding it closes the
+    /// connection. If unset, defaults to `DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_write_buffer_capacity_bytes: Option<usize>,
+
     /// Configuration for Tier1 network.
     /// Tier1 network is a special network between validator nodes that provides faster
     /// consensus-related message delivery.
@@ -370,6 +380,8 @@ impl Default for Config {
             public_addrs: vec![],
             allow_private_ip_in_public_addrs: false,
             trusted_stun_servers: default_trusted_stun_servers(),
+            outgoing_queue_limiter_capacity_bytes: None,
+            max_write_buffer_capacity_bytes: None,
             tier1: Tier1Config::default(),
             experimental: ExperimentalConfig::default(),
         }

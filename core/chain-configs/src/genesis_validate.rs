@@ -58,6 +58,14 @@ impl<'a> GenesisValidator<'a> {
                         format!("Duplicate account id {} in genesis records", account_id);
                     self.validation_errors.push_genesis_semantics_error(error_message)
                 }
+                if !account.is_initialized() {
+                    // An account only becomes uninitialized by being funded
+                    // before its state init is applied, which cannot have
+                    // happened before the chain exists.
+                    let error_message =
+                        format!("account {} in genesis records is uninitialized", account_id);
+                    self.validation_errors.push_genesis_semantics_error(error_message)
+                }
                 self.total_supply = self
                     .total_supply
                     .checked_add(account.amount().checked_add(account.locked()).unwrap())
@@ -325,6 +333,45 @@ mod test {
                 code: [1, 2, 3, 4].to_vec(),
             },
         ]);
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "is uninitialized")]
+    fn test_uninitialized_account() {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
+            amount: Balance::from_yoctonear(10),
+        }];
+        config.total_supply = Balance::from_yoctonear(160);
+        let records = GenesisRecords(vec![
+            StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
+            StateRecord::Account {
+                account_id: "uninitialized".parse().unwrap(),
+                account: Account::new_uninitialized(Balance::from_yoctonear(50), 0),
+            },
+        ]);
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
+    }
+
+    #[test]
+    fn test_initialized_account_is_accepted() {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
+            amount: Balance::from_yoctonear(10),
+        }];
+        config.total_supply = Balance::from_yoctonear(110);
+        config.epoch_length = 1;
+        let records = GenesisRecords(vec![StateRecord::Account {
+            account_id: "test".parse().unwrap(),
+            account: create_account(),
+        }]);
         let genesis = &Genesis::new(config, records).unwrap();
         validate_genesis(genesis).unwrap();
     }

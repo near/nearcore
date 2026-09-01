@@ -17,10 +17,12 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
     ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
+use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -53,6 +55,9 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
@@ -107,7 +112,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Returns true, if the block the `BlockInfo` describes is the last block in its
+    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo` from the store.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError>;
 
     /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
     /// It is `Some` only for the first block of an epoch. Used by the block producer,
@@ -990,9 +1002,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_shard_layout(epoch_id)
     }
 
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(block_hash)
+        epoch_manager.is_next_block_in_next_epoch(block_info)
     }
 
     fn is_produced_block_last_in_epoch(
@@ -1090,40 +1102,30 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // routes to the canonical sampler — no DB entry is needed there.
         // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
         // One option is a large RocksDB memtable for this column.
-        #[cfg(feature = "nightly")]
-        {
-            use near_primitives::utils::get_block_shard_id;
-            use near_primitives::version::ProtocolFeature;
-            use near_store::DBCol;
-            use near_store::adapter::StoreAdapter;
-
-            let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
-            if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
-                // `CryptoHash::default()` means no grandparent (chunk at genesis
-                // or genesis + 1).
-                if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
-                    // Errors with MissingBlock when the anchor is unprocessed.
-                    let anchor_epoch_id = self.get_epoch_id(anchor)?;
-                    if &anchor_epoch_id == chunk_epoch_id {
-                        let epoch_manager = self.read();
-                        let key = get_block_shard_id(anchor, shard_id);
-                        return match epoch_manager
-                            .store
-                            .store_ref()
-                            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                        {
-                            Some(validator) => Ok(validator),
-                            None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
-                        };
-                    }
-                    // Anchor in a previous epoch: the chunk is within the first
-                    // <=2 blocks of its epoch, where the kickout blacklist is
-                    // provably empty — the canonical sampler is exact.
+        let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
+            // `CryptoHash::default()` means no grandparent (chunk at genesis
+            // or genesis + 1).
+            if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
+                // Errors with MissingBlock when the anchor is unprocessed.
+                let anchor_epoch_id = self.get_epoch_id(anchor)?;
+                if &anchor_epoch_id == chunk_epoch_id {
+                    let epoch_manager = self.read();
+                    let key = get_block_shard_id(anchor, shard_id);
+                    return match epoch_manager
+                        .store
+                        .store_ref()
+                        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    {
+                        Some(validator) => Ok(validator),
+                        None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
+                    };
                 }
+                // Anchor in a previous epoch: the chunk is within the first
+                // <=2 blocks of its epoch, where the kickout blacklist is
+                // provably empty — the canonical sampler is exact.
             }
         }
-        #[cfg(not(feature = "nightly"))]
-        let _ = anchor;
         // Feature off, no anchor, or cross-epoch anchor — canonical sampling
         // from the chunk's own epoch.
         let cpk = ChunkProductionKey { epoch_id: *chunk_epoch_id, height_created, shard_id };

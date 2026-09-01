@@ -434,7 +434,7 @@ async fn account_balance(
         };
 
     let account_balances =
-        crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
+        crate::utils::RosettaAccountBalances::from_account(&account_info, &runtime_config);
 
     let balance = if let Some(sub_account) = &account_identifier.sub_account {
         match sub_account.address {

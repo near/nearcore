@@ -859,3 +859,62 @@ fn test_far_horizon_stale_sync_hash_detection() {
         "validator height {validator_height} should exceed threshold {expected_threshold}",
     );
 }
+
+// Scenario: a far-behind node finishes state sync while it has not verified any peer at a
+// height above its own. State sync moves the head forward in one step, so every peer's
+// verified height is at or below the new head and `min(advertised, verified)` clamps to it.
+// The node then reads as caught up while block sync still has bodies to fetch, and drops
+// out of sync. Only the stale-head path restarts it, so it idles a full epoch each time.
+//
+// Once sync is disabled the node sends no block requests, so the requested blocks that
+// would raise a verified height stop as well. An unrequested broadcast is the only input
+// left that can break out. Suppressing broadcasts over the sync window removes it, which
+// turns a race against the next relayed block into a deterministic stall. Peer height
+// announcements still flow, so the node keeps peers to sync from.
+//
+// The node must still reach the tip through a single uninterrupted BlockSync.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_block_sync_without_verified_peer_above_head() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    // The chain is already well past `far_horizon_height` by now, so take the window from
+    // where it actually is: the node syncs and catches up within the next couple of epochs.
+    let source_handle = env.node_datas[0].client_sender.actor_handle();
+    let tip = env.test_loop.data.get(&source_handle).client.chain.head().unwrap().height;
+    env.shared_state
+        .network_shared_state
+        .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);
+
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
+    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
+
+    let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
+    assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);
+    assert_far_horizon_sync_sequence(&sync_history.borrow());
+}
