@@ -5,10 +5,12 @@ use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderFo
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
 use near_async::time::Clock;
-use near_chain::test_utils::setup;
+use near_chain::Chain;
+use near_chain::test_utils::{setup, setup_with_tx_validity_period_at_version};
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::EpochManagerHandle;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
@@ -36,6 +38,16 @@ fn post_kickout_version() -> ProtocolVersion {
 
 fn pre_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+}
+
+/// A chain whose genesis epoch sits one version below `EarlyKickout`, so the receiver
+/// version gate expects V1. Only the genesis epoch is exercised, so no vote lifts the
+/// chain past the pinned version.
+fn setup_before_early_kickout()
+-> (Chain, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>, Arc<ValidatorSigner>) {
+    let (chain, epoch_manager, runtime, signer) =
+        setup_with_tx_validity_period_at_version(Clock::real(), 100, 1000, pre_kickout_version());
+    (chain, epoch_manager, runtime, signer)
 }
 
 fn make_witness(
@@ -201,25 +213,11 @@ fn build_test_actor(
 }
 
 /// A forwarded witness with the wrong version for its epoch is dropped before we spawn
-/// any work. The fixture is wrong under both builds: V2 before kickout on stable, V1
-/// after kickout on nightly.
+/// any work. The genesis epoch has EarlyKickout enabled, so the wrong version is V1.
 #[test]
 fn forward_drops_kicked_witness_before_spawn() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
     let genesis_hash = *chain.genesis().hash();
-    #[cfg(not(feature = "nightly"))]
-    let witness = {
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
-        build_v2_witness(
-            signer.as_ref(),
-            epoch_id,
-            genesis_hash,
-            CryptoHash::default(),
-            1,
-            ShardId::new(0),
-        )
-    };
-    #[cfg(feature = "nightly")]
     let witness = make_witness(signer.as_ref(), genesis_hash, pre_kickout_version());
 
     let spawn_count = Arc::new(AtomicUsize::new(0));
@@ -265,7 +263,6 @@ fn forward_drops_v2_on_unknown_epoch_unsynced_prev() {
 
 /// A V2 part whose anchor is not processed yet (this node is two or more blocks behind)
 /// is dropped quietly, with no work spawned.
-#[cfg(feature = "nightly")]
 #[test]
 fn init_emit_drops_v2_on_unprocessed_anchor_without_spawn() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -318,10 +315,9 @@ fn build_accesses(
 /// active, before it reaches validation. We sign it with a non-producer key so that
 /// without the gate the bad signature would come back as `Err`; with the gate it is a
 /// quiet `Ok` drop instead.
-#[cfg(not(feature = "nightly"))]
 #[test]
 fn accesses_receiver_gate_drops_v2_pre_kickout() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let (chain, epoch_manager, runtime, signer) = setup_before_early_kickout();
     let genesis_hash = *chain.genesis().hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
     let wrong = create_test_signer("not_the_producer");
@@ -343,7 +339,6 @@ fn accesses_receiver_gate_drops_v2_pre_kickout() {
 /// The version gate drops a V1 accesses message that arrives at or after EarlyKickout is
 /// active, before it reaches validation. This is the mirror of the V2-before-activation
 /// case above.
-#[cfg(feature = "nightly")]
 #[test]
 fn accesses_receiver_gate_drops_v1_post_kickout() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -368,7 +363,6 @@ fn accesses_receiver_gate_drops_v1_post_kickout() {
 /// A V2 accesses message whose anchor is not processed yet (this node is two or more
 /// blocks behind) is dropped quietly. The `DBNotFoundErr` from the anchored lookup
 /// becomes a quiet `Ok`, not an error out of the handler.
-#[cfg(feature = "nightly")]
 #[test]
 fn accesses_v2_unprocessed_anchor_soft_drops() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -416,10 +410,9 @@ fn build_deploys(
 /// Receiver gate: a V2 deploys message before EarlyKickout activation is dropped
 /// before validation. Signed by a non-producer so that, without the gate, the
 /// invalid signature would surface as `Err` instead of the quiet `Ok` drop.
-#[cfg(not(feature = "nightly"))]
 #[test]
 fn deploys_receiver_gate_drops_v2_pre_kickout() {
-    let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let (chain, epoch_manager, runtime, signer) = setup_before_early_kickout();
     let genesis_hash = *chain.genesis().hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
     let wrong = create_test_signer("not_the_producer");
@@ -440,7 +433,6 @@ fn deploys_receiver_gate_drops_v2_pre_kickout() {
 
 /// Receiver gate: a V1 deploys message at/after EarlyKickout activation is dropped
 /// before validation (symmetric to the V2-pre-activation case).
-#[cfg(feature = "nightly")]
 #[test]
 fn deploys_receiver_gate_drops_v1_post_kickout() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());
@@ -465,7 +457,6 @@ fn deploys_receiver_gate_drops_v1_post_kickout() {
 /// A V2 deploys message whose grandparent anchor is unprocessed (node 2+ blocks
 /// behind) is soft-dropped: the `DBNotFoundErr` from the anchored lookup maps to a
 /// quiet `Ok`, not an error out of the handler.
-#[cfg(feature = "nightly")]
 #[test]
 fn deploys_v2_unprocessed_anchor_soft_drops() {
     let (chain, epoch_manager, runtime, signer) = setup(Clock::real());

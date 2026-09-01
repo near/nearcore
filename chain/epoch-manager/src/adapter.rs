@@ -17,10 +17,12 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
     ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
+use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -1100,40 +1102,30 @@ impl EpochManagerAdapter for EpochManagerHandle {
         // routes to the canonical sampler — no DB entry is needed there.
         // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
         // One option is a large RocksDB memtable for this column.
-        #[cfg(feature = "nightly")]
-        {
-            use near_primitives::utils::get_block_shard_id;
-            use near_primitives::version::ProtocolFeature;
-            use near_store::DBCol;
-            use near_store::adapter::StoreAdapter;
-
-            let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
-            if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
-                // `CryptoHash::default()` means no grandparent (chunk at genesis
-                // or genesis + 1).
-                if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
-                    // Errors with MissingBlock when the anchor is unprocessed.
-                    let anchor_epoch_id = self.get_epoch_id(anchor)?;
-                    if &anchor_epoch_id == chunk_epoch_id {
-                        let epoch_manager = self.read();
-                        let key = get_block_shard_id(anchor, shard_id);
-                        return match epoch_manager
-                            .store
-                            .store_ref()
-                            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
-                        {
-                            Some(validator) => Ok(validator),
-                            None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
-                        };
-                    }
-                    // Anchor in a previous epoch: the chunk is within the first
-                    // <=2 blocks of its epoch, where the kickout blacklist is
-                    // provably empty — the canonical sampler is exact.
+        let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
+            // `CryptoHash::default()` means no grandparent (chunk at genesis
+            // or genesis + 1).
+            if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
+                // Errors with MissingBlock when the anchor is unprocessed.
+                let anchor_epoch_id = self.get_epoch_id(anchor)?;
+                if &anchor_epoch_id == chunk_epoch_id {
+                    let epoch_manager = self.read();
+                    let key = get_block_shard_id(anchor, shard_id);
+                    return match epoch_manager
+                        .store
+                        .store_ref()
+                        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    {
+                        Some(validator) => Ok(validator),
+                        None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
+                    };
                 }
+                // Anchor in a previous epoch: the chunk is within the first
+                // <=2 blocks of its epoch, where the kickout blacklist is
+                // provably empty — the canonical sampler is exact.
             }
         }
-        #[cfg(not(feature = "nightly"))]
-        let _ = anchor;
         // Feature off, no anchor, or cross-epoch anchor — canonical sampling
         // from the chunk's own epoch.
         let cpk = ChunkProductionKey { epoch_id: *chunk_epoch_id, height_created, shard_id };
