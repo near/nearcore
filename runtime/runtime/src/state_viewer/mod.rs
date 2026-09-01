@@ -142,6 +142,7 @@ impl TrieViewer {
             state_update,
             chain_id,
             AccessOptions::DEFAULT,
+            current_protocol_version,
         )?;
         let maybe_code = match contract_id {
             RuntimeContractIdentifier::None => None,
@@ -477,6 +478,7 @@ impl TrieViewer {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            apply_state.current_protocol_version,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
@@ -486,6 +488,7 @@ impl TrieViewer {
             &state_update,
             &epoch_info_provider.chain_id(),
             AccessOptions::DEFAULT,
+            apply_state.current_protocol_version,
         )?;
         let contract_code_hash = contract_id_resolved.hash();
         let contract =
