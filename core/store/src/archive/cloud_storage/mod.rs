@@ -1,7 +1,7 @@
 use crate::DBCol;
 use crate::archive::cloud_storage::batch::compute_batch_id;
 pub use crate::archive::cloud_storage::batch::{BatchId, BatchRange, compute_next_batch};
-pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData};
+pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData, read_chunk_hashes};
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;

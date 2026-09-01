@@ -1,3 +1,4 @@
+use crate::DBCol;
 use crate::Store;
 use crate::adapter::StoreAdapter;
 use crate::adapter::chain_store::ChainStoreAdapter;
@@ -11,6 +12,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::get_block_shard_id_rev;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::HashSet;
 
@@ -65,7 +67,7 @@ pub fn build_block_data(
     // `read_chunk_producers` needs the base `Store`, not the chain-store adapter
     // that shadows `store` above.
     let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash)?;
-    let chunk_hashes = read_chunk_hashes(&store, &block, block_height)?;
+    let chunk_hashes = read_chunk_hashes(&store, &block)?;
     let block_data = BlockDataV1 {
         block,
         block_info,
@@ -82,20 +84,20 @@ pub fn build_block_data(
 ///
 /// A chunk created at a height that produced no block reaches the chain in the next block
 /// that does, so those rows belong to this one.
-fn read_chunk_hashes(
+pub fn read_chunk_hashes(
     store: &ChainStoreAdapter,
     block: &Block,
-    block_height: BlockHeight,
 ) -> Result<Vec<(BlockHeight, HashSet<ChunkHash>)>, Error> {
+    let block_height = block.header().height();
     // Genesis has no previous block, and owns its own height alone.
-    let previous_height = if block.header().is_genesis() {
-        block_height.saturating_sub(1)
+    let first_height = if block.header().is_genesis() {
+        block_height
     } else {
-        store.get_block_header(block.header().prev_hash())?.height()
+        store.get_block_header(block.header().prev_hash())?.height() + 1
     };
     let chunk_store = store.store_ref().chunk_store();
     let mut rows = Vec::new();
-    for height in previous_height + 1..=block_height {
+    for height in first_height..=block_height {
         let chunk_hashes = chunk_store.get_all_chunk_hashes_by_height(height);
         if chunk_hashes.is_empty() {
             continue;
@@ -109,8 +111,6 @@ fn read_chunk_producers(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Vec<(ShardId, ValidatorStake)>, Error> {
-    use crate::DBCol;
-    use near_primitives::utils::get_block_shard_id_rev;
     store
         .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
         .map(|(key, value)| {

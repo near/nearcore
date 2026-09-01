@@ -25,7 +25,9 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
+use near_store::archive::cloud_storage::{
+    CloudStorage, is_cloud_archive_reader_bootstrapped, read_chunk_hashes,
+};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -804,8 +806,6 @@ fn collect_block_ordinal_kv(
     kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
     block: &Block,
 ) {
-    // The block's own merkle tree holds every block below it, so its size is the ordinal
-    // that names the row.
     let block_ordinal = writer_store.get_block_merkle_tree(block.hash()).unwrap().size();
     let key = index_to_bytes(block_ordinal).to_vec();
     let height = block.header().height();
@@ -816,25 +816,16 @@ fn collect_block_ordinal_kv(
     kvs.get_mut(&DBCol::BlockOrdinal).unwrap().insert(key, value.to_vec());
 }
 
-/// Collects the writer's `ChunkHashesByHeight` rows this block carries into `kvs`: its own
-/// height, and every height below it back to the previous block, which produced none.
+/// Collects the writer's `ChunkHashesByHeight` rows this block carries into `kvs`.
 fn collect_chunk_hashes_kvs(
     writer_store: &ChainStoreAdapter,
     kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
     block: &Block,
 ) {
-    let height = block.header().height();
-    // Genesis has no previous block, and owns its own height alone.
-    let previous_height = if block.header().is_genesis() {
-        height.saturating_sub(1)
-    } else {
-        writer_store.get_block_header(block.header().prev_hash()).unwrap().height()
-    };
-    for created_height in previous_height + 1..=height {
+    for (created_height, chunk_hashes) in read_chunk_hashes(writer_store, block).unwrap() {
         let key = index_to_bytes(created_height).to_vec();
-        if let Some(value) = writer_store.store_ref().get(DBCol::ChunkHashesByHeight, &key) {
-            kvs.get_mut(&DBCol::ChunkHashesByHeight).unwrap().insert(key, value.to_vec());
-        }
+        let value = borsh::to_vec(&chunk_hashes).unwrap();
+        kvs.get_mut(&DBCol::ChunkHashesByHeight).unwrap().insert(key, value);
     }
 }
 

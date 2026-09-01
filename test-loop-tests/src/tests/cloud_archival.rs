@@ -1493,8 +1493,6 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
             store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(height)),
             "ChunkHashesByHeight missing at h={height}"
         );
-        // The ordinal keying the row is how many blocks sit below this one, which the
-        // block's own merkle tree counts, so the row has to name the block back.
         let block_ordinal = store
             .chain_store()
             .get_block_merkle_tree(&block_hash)
