@@ -137,7 +137,8 @@ pub fn synthesize_execution_result(
 
 #[cfg(test)]
 mod tests {
-    use super::synthesize_execution_result;
+    use super::{boundary_uncertified_chunks, synthesize_execution_result};
+    use crate::spice::core::{SpiceCoreReader, save_uncertified_chunks};
     use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
     use crate::{Block, Chain};
     use near_async::time::Clock;
@@ -256,5 +257,44 @@ mod tests {
         .unwrap();
         assert_eq!(result.chunk_extra, extra_missing_chunk);
         assert_eq!(result.outgoing_receipts_root, expected_root);
+    }
+
+    /// A row seeded for a pre-spice block is read back by the core reader, while a
+    /// pre-spice block without one keeps reading as "nothing to certify".
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_core_reader_returns_seeded_uncertified_chunks_of_pre_spice_block() {
+        let signer = Arc::new(create_test_signer("test1"));
+        let mut genesis =
+            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
+        genesis.config.protocol_version = pre_spice_protocol_version();
+        let genesis_gas_limit = genesis.config.gas_limit;
+        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let epoch_manager = chain.epoch_manager.clone();
+        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let block = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            genesis_block.as_ref(),
+            signer.clone(),
+        )
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+        save_and_record_block(&mut chain, &block);
+
+        let core_reader = SpiceCoreReader::new(
+            chain.chain_store.store().chain_store(),
+            epoch_manager.clone(),
+            genesis_gas_limit,
+        );
+        assert_eq!(core_reader.get_uncertified_chunks(block.hash()).unwrap(), vec![]);
+
+        let uncertified_chunks =
+            boundary_uncertified_chunks(epoch_manager.as_ref(), &block).unwrap();
+        assert!(!uncertified_chunks.is_empty());
+        let mut store_update = chain.chain_store.store().store_update();
+        save_uncertified_chunks(&mut store_update, block.hash(), &uncertified_chunks);
+        store_update.commit();
+
+        assert_eq!(core_reader.get_uncertified_chunks(block.hash()).unwrap(), uncertified_chunks);
     }
 }

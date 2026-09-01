@@ -147,7 +147,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than a spice
+    /// activation parent, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -358,6 +359,10 @@ impl SpiceCoreReader {
         while current_hash != *stop_header.hash() {
             let block = self.chain_store.get_block(&current_hash)?;
             if block.header().height() <= stop_header.height() {
+                break;
+            }
+            // No core statements exist at or below the activation boundary.
+            if !block.is_spice_block() {
                 break;
             }
             for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
@@ -957,8 +962,16 @@ fn get_uncertified_chunks(
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block = chain_store.get_block(block_hash)?;
 
-    if block.header().is_genesis() || !block.is_spice_block() {
+    if block.header().is_genesis() {
         Ok(vec![])
+    } else if !block.is_spice_block() {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return Ok(vec![]);
+        }
+        Ok(chain_store
+            .store_ref()
+            .get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
+            .unwrap_or_default())
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
