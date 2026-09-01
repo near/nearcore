@@ -8,17 +8,25 @@
 
 use super::util::{TEST_EPOCH_SYNC_HORIZON, run_until_synced, track_sync_status};
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::ClientSenderForTestLoopNetwork;
 use crate::setup::peer_manager_actor::TestLoopNetworkBlockInfo;
+use crate::setup::state::NodeExecutionData;
 use crate::tests::sync::util::far_horizon_height;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Sender;
+use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_crypto::{KeyType, SecretKey};
+use near_network::client::BlockResponse;
 use near_network::types::PeerInfo;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Block;
 use near_primitives::network::PeerId;
 use near_primitives::types::Balance;
+use near_primitives::types::BlockHeight;
+use std::sync::Arc;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -186,4 +194,136 @@ fn test_stale_node_syncs() {
         env.test_loop.is_denylisted(restart_id),
         "stale node should reach epoch sync and trigger the data reset"
     );
+}
+
+/// One `PeerMessage::Block` from `peer`, as `NetworkState::handle_peer_message`
+/// models it: the network records the advertised height before any validation,
+/// and the block reaches the client.
+fn relay_block_from_peer(node: &NodeExecutionData, peer: &PeerInfo, block: Arc<Block>) {
+    Sender::<TestLoopNetworkBlockInfo>::from(node).send(TestLoopNetworkBlockInfo {
+        peer: peer.clone(),
+        block_header: block.header().clone(),
+    });
+    let client_sender: ClientSenderForTestLoopNetwork = node.into();
+    drop(client_sender.block.send_async(
+        BlockResponse { block, peer_id: peer.id.clone(), was_requested: false }.span_wrap(),
+    ));
+}
+
+/// A block claiming `height` that no validator signed.
+fn block_with_raised_height(block: &Block, height: BlockHeight) -> Arc<Block> {
+    let mut raised = block.clone();
+    raised.mut_header().set_height(height);
+    // Without this the forged header keeps the real block's hash.
+    raised.mut_header().init();
+    Arc::new(raised)
+}
+
+// Scenario: a node in state sync is fed a fabricated far-ahead peer height while
+// the real chain has not moved past its sync hash. The stale sync hash check must
+// not act on that claim: acting on it sends the node through an EpochSyncDataReset.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards
+//   - Add a fresh node and drop its state part requests so it stays in StateSync
+//   - Advertise a height many epochs ahead, from a peer id nobody vouches for
+//   - Keep the honest chain below the stale threshold, so the claim is the only
+//     thing that could trigger a reset
+//
+// Requires test_features because STALE_SYNC_HASH_THRESHOLD is lowered from 100 to
+// 5 under that feature, making the threshold reachable with epoch_length=10.
+#[test]
+#[cfg(feature = "test_features")]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
+    use crate::setup::peer_manager_actor::HandlerResult;
+    use near_client::SyncStatus;
+    use near_client::sync::state::sync_hash_stale_above_height;
+    use near_network::types::{NetworkRequests, NetworkResponses};
+
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let victim_account = create_account_id("victim");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&victim_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("victim", node_state);
+    let victim_idx = env.node_datas.len() - 1;
+
+    // Drop state part requests so state sync stays in progress.
+    env.node_datas[victim_idx].register_override_handler(
+        &mut env.test_loop.data,
+        Box::new(|request| match &request {
+            NetworkRequests::StateRequestPart { .. } => {
+                HandlerResult::Handled(NetworkResponses::NoResponse)
+            }
+            _ => HandlerResult::Unhandled(request),
+        }),
+    );
+
+    let victim_handle = env.node_datas[victim_idx].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
+            matches!(
+                data.get(&victim_handle).client.sync_handler.sync_status,
+                SyncStatus::StateSync(_)
+            )
+        },
+        Duration::seconds(20),
+    );
+    let SyncStatus::StateSync(state_sync_status) =
+        &env.test_loop.data.get(&victim_handle).client.sync_handler.sync_status
+    else {
+        unreachable!("run_until returned only once in state sync")
+    };
+    let victim_sync_hash = state_sync_status.sync_hash;
+    let sync_hash_height =
+        env.node(0).client().chain.get_block_header(&victim_sync_hash).unwrap().height();
+
+    let head = env.node(0).head();
+    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let fake_block = block_with_raised_height(&head_block, sync_hash_height + 10 * epoch_length);
+    let attacker = PeerInfo {
+        id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, "attacker").public_key()),
+        addr: None,
+        account_id: None,
+    };
+    env.shared_state.network_shared_state.mark_unresponsive(&attacker.id);
+    relay_block_from_peer(&env.node_datas[victim_idx], &attacker, fake_block);
+
+    env.node_runner(0).run_for_number_of_blocks(3);
+
+    // The honest chain must stay below the threshold, or it would be the one asking
+    // for the reset and the assertion below would prove nothing.
+    let validator_height = env.node(0).head().height;
+    let stale_threshold = sync_hash_stale_above_height(sync_hash_height, epoch_length);
+    assert!(
+        validator_height <= stale_threshold,
+        "honest height {validator_height} must stay at or below {stale_threshold}",
+    );
+    let SyncStatus::StateSync(state_sync_status) =
+        &env.test_loop.data.get(&victim_handle).client.sync_handler.sync_status
+    else {
+        panic!("the claim pushed the victim out of state sync")
+    };
+    assert_eq!(state_sync_status.sync_hash, victim_sync_hash);
+    assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
 }

@@ -1973,6 +1973,7 @@ impl ClientActor {
     fn handle_sync_needed(&mut self, highest_height: u64) {
         let peers = SyncPeers {
             highest_height,
+            verified_highest_height: self.client.verified_peer_heights.max_height_across_peers(),
             highest_height_peers: &self.network_info.highest_height_peers,
         };
         let sync_step_result = match self.client.sync_handler.handle_sync_needed(
@@ -1998,11 +1999,6 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
-            }
-            SyncHandlerRequest::EpochSyncDataReset => {
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-                }
             }
         }
     }
