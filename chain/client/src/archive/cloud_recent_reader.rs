@@ -23,7 +23,10 @@ enum PullOutcome {
     /// The bucket holds no block past the reader's head.
     WaitingForBlocks,
     /// This shard's data for the next window is not in the bucket.
-    WaitingForShard { shard_uid: ShardUId },
+    WaitingForShard {
+        #[allow(dead_code)] // Read through the derived Debug in the pull trace.
+        shard_uid: ShardUId,
+    },
 }
 
 /// The height range the reader is taking, held until the bucket carries every component
@@ -127,10 +130,7 @@ impl CloudArchivalRecentReader {
                             Duration::ZERO
                         }
                         PullOutcome::WaitingForBlocks => self.polling_interval,
-                        PullOutcome::WaitingForShard { shard_uid } => {
-                            tracing::trace!(target: "cloud_archival", %shard_uid, "waiting on a shard");
-                            self.polling_interval
-                        }
+                        PullOutcome::WaitingForShard { .. } => self.polling_interval,
                     }
                 }
                 Err(error) => {
@@ -217,6 +217,9 @@ impl CloudArchivalRecentReader {
         window: &mut PendingWindow,
     ) -> Result<Option<Vec<ShardUId>>, CloudArchivalReaderError> {
         while let Some(shard_uid) = window.waiting_shard() {
+            // TODO(cloud_archival): each head read lists the shard heads, a couple of
+            // files. Solve it properly with a get that tells a missing blob from a
+            // failed one.
             let cloud_shard_head =
                 self.cloud_storage.get_cloud_shard_head(shard_uid.shard_id()).await?;
             if !cloud_shard_head.is_some_and(|cloud_head| cloud_head > reader_head.height) {
