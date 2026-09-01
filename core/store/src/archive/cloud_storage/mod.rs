@@ -122,9 +122,8 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // Reconstructed from BlockData.
             | DBCol::BlockHeader
             | DBCol::BlockHeight
-            // TODO(cloud_archival): reconstruct from BlockHeight in the reader.
+            | DBCol::BlockOrdinal
             | DBCol::BlockPerHeight
-            // TODO(cloud_archival): reconstruct from Block in the reader.
             | DBCol::ChunkHashesByHeight
 
             // From ShardData.
@@ -169,11 +168,25 @@ fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
             | DBCol::StateChangesForSplitStates
             | DBCol::StateShardUIdMapping
 
-            // TODO(cloud_archival): the reader may need the following for validator /
-            // light-client / block-ordinal / epoch-sync queries; confirm, and reproduce if so.
-            | DBCol::BlockOrdinal
-            | DBCol::EpochLightClientBlocks
+            // Block-keyed, and every one of them is read by something a reader's store
+            // never runs: garbage collection, which a reader refuses, block processing,
+            // which a reader does not do, state sync, and one debug-UI view. Listed so
+            // the block-level set is settled rather than left to be re-derived.
+            | DBCol::BlockRefCount
+            | DBCol::BlocksToCatchup
+            | DBCol::ChallengedBlocks
+            | DBCol::HeaderHashesByHeight
+            | DBCol::ProcessedBlockHeights
+            | DBCol::StateDlInfos
+            | DBCol::StateSyncNewChunks
+
+            // Read only by epoch sync and one migration, and a reader is refused by a
+            // running node, so nothing that reads this column runs against its store.
             | DBCol::EpochSyncProof
+
+            // TODO(cloud_archival): `next_light_client_block` and `validators` read these
+            // two, so reproduce them; the second needs a field on `EpochData`.
+            | DBCol::EpochLightClientBlocks
             | DBCol::EpochValidatorInfo
     )
 }

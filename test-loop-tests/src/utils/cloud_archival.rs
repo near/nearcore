@@ -10,6 +10,7 @@ use near_client::archive::cloud_archival_utils::{
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
+use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
@@ -23,6 +24,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::archive::cloud_storage::{CloudStorage, is_cloud_archive_reader_bootstrapped};
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
@@ -757,10 +759,7 @@ pub(crate) fn assert_reader_writer_parity(
                 && !matches!(
                     c,
                     // Not reconstructed yet.
-                    DBCol::NextBlockHashes
-                        | DBCol::BlockPerHeight
-                        | DBCol::ChunkHashesByHeight
-                        | DBCol::IncomingReceipts
+                    DBCol::IncomingReceipts
                         | DBCol::OutcomeIds
                         | DBCol::TransactionResultForBlock
                         | DBCol::StateChanges
@@ -799,6 +798,46 @@ fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>
     }
 }
 
+/// Collects the writer's `BlockOrdinal` row for one block into `kvs`.
+fn collect_block_ordinal_kv(
+    writer_store: &ChainStoreAdapter,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    block: &Block,
+) {
+    // The block's own merkle tree holds every block below it, so its size is the ordinal
+    // that names the row.
+    let block_ordinal = writer_store.get_block_merkle_tree(block.hash()).unwrap().size();
+    let key = index_to_bytes(block_ordinal).to_vec();
+    let height = block.header().height();
+    let value = writer_store
+        .store_ref()
+        .get(DBCol::BlockOrdinal, &key)
+        .unwrap_or_else(|| panic!("BlockOrdinal row missing at h={height}"));
+    kvs.get_mut(&DBCol::BlockOrdinal).unwrap().insert(key, value.to_vec());
+}
+
+/// Collects the writer's `ChunkHashesByHeight` rows this block carries into `kvs`: its own
+/// height, and every height below it back to the previous block, which produced none.
+fn collect_chunk_hashes_kvs(
+    writer_store: &ChainStoreAdapter,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    block: &Block,
+) {
+    let height = block.header().height();
+    // Genesis has no previous block, and owns its own height alone.
+    let previous_height = if block.header().is_genesis() {
+        height.saturating_sub(1)
+    } else {
+        writer_store.get_block_header(block.header().prev_hash()).unwrap().height()
+    };
+    for created_height in previous_height + 1..=height {
+        let key = index_to_bytes(created_height).to_vec();
+        if let Some(value) = writer_store.store_ref().get(DBCol::ChunkHashesByHeight, &key) {
+            kvs.get_mut(&DBCol::ChunkHashesByHeight).unwrap().insert(key, value.to_vec());
+        }
+    }
+}
+
 /// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.
 fn collect_chunk_kvs(
     writer: &Store,
@@ -823,8 +862,8 @@ fn collect_chunk_kvs(
     }
 }
 
-/// Returns the writer rows the reader is expected to hold over `[start, end]`,
-/// plus the genesis block, one map per column in `cols`.
+/// Returns the writer rows the reader is expected to hold over `[start, end]`, one map
+/// per column in `cols`.
 fn writer_kvs(
     writer: &Store,
     cols: &[DBCol],
@@ -833,7 +872,6 @@ fn writer_kvs(
 ) -> HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> {
     let writer_store = writer.chain_store();
     let chain_head = writer_store.head().unwrap().height;
-    let genesis_height = writer_store.get_genesis_height();
 
     let mut in_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
@@ -841,16 +879,19 @@ fn writer_kvs(
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
 
     // Walk the chain, reading each column's row at height `h` into the in-scope
-    // or the out-of-scope map. Genesis is in scope wherever it sits.
+    // or the out-of-scope map.
     for h in 0..=chain_head {
         let Ok(block_hash) = writer_store.get_block_hash_by_height(h) else {
             continue;
         };
-        let is_in_scope = (start..=end).contains(&h) || h == genesis_height;
+        let is_in_scope = (start..=end).contains(&h);
         let kvs = if is_in_scope { &mut in_scope } else { &mut out_of_scope };
         let height_key = index_to_bytes(h).to_vec();
-        if let Some(value) = writer.get(DBCol::BlockHeight, &height_key) {
-            kvs.get_mut(&DBCol::BlockHeight).unwrap().insert(height_key, value.to_vec());
+        for col in [DBCol::BlockHeight, DBCol::BlockPerHeight] {
+            let value = writer
+                .get(col, &height_key)
+                .unwrap_or_else(|| panic!("{col} row missing at h={h}"));
+            kvs.get_mut(&col).unwrap().insert(height_key.clone(), value.to_vec());
         }
         for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree] {
             let key = block_hash.as_ref().to_vec();
@@ -868,10 +909,25 @@ fn writer_kvs(
         }
         let block =
             writer_store.get_block(&block_hash).expect("the caller disabled garbage collection");
+        collect_block_ordinal_kv(&writer_store, kvs, &block);
+        collect_chunk_hashes_kvs(&writer_store, kvs, &block);
         for chunk_header in block.chunks().iter_raw() {
             collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }
+        if let Some(value) = writer.get(DBCol::NextBlockHashes, block_hash.as_ref()) {
+            kvs.get_mut(&DBCol::NextBlockHashes)
+                .unwrap()
+                .insert(block_hash.as_ref().to_vec(), value.to_vec());
+        }
     }
+
+    // The row keyed by genesis's prev hash, which no block hashes to, so the loop above
+    // cannot reach it. Node init writes it on both sides and no blob carries it.
+    let genesis_prev_key = CryptoHash::default().as_ref().to_vec();
+    let value = writer
+        .get(DBCol::NextBlockHashes, &genesis_prev_key)
+        .expect("node init writes the row genesis's prev hash keys");
+    in_scope.get_mut(&DBCol::NextBlockHashes).unwrap().insert(genesis_prev_key, value.to_vec());
 
     // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
     // reader row and confirms these checks catch it.

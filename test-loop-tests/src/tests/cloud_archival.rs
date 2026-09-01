@@ -1468,12 +1468,10 @@ fn test_cloud_archival_outcomes_and_receipts() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in
-/// the per-block cold columns the reader reconstructs from cloud data:
-/// `BlockPerHeight`, `ChunkHashesByHeight`, and `NextBlockHashes`.
+/// Verifies that after reader bootstrap, the local store has entries in the per-block
+/// cold columns the reader reconstructs from cloud data.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-block cold columns.
-#[ignore]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -1494,6 +1492,20 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
         assert!(
             store.exists(DBCol::ChunkHashesByHeight, &index_to_bytes(height)),
             "ChunkHashesByHeight missing at h={height}"
+        );
+        // The ordinal keying the row is how many blocks sit below this one, which the
+        // block's own merkle tree counts, so the row has to name the block back.
+        let block_ordinal = store
+            .chain_store()
+            .get_block_merkle_tree(&block_hash)
+            .expect("BlockMerkleTree missing")
+            .size();
+        let ordinal_block_hash: CryptoHash = store
+            .get_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))
+            .unwrap_or_else(|| panic!("BlockOrdinal missing at h={height}"));
+        assert_eq!(
+            ordinal_block_hash, block_hash,
+            "BlockOrdinal at h={height} names another block"
         );
         if height < target {
             assert!(
