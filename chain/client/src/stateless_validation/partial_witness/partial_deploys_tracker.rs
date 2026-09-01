@@ -133,7 +133,6 @@ impl PartialEncodedContractDeploysTracker {
                 .with_label_values(&[key.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
             self.parts_cache.pop(&key);
-            self.processed_deploys.push(key.clone(), ());
             let deploys = match decode_result {
                 Ok(deploys) => deploys,
                 Err(err) => {
@@ -146,6 +145,7 @@ impl PartialEncodedContractDeploysTracker {
                     return Ok(None);
                 }
             };
+            self.processed_deploys.push(key, ());
             return Ok(Some(deploys));
         }
         Ok(None)

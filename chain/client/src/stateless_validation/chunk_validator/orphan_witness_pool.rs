@@ -2,6 +2,7 @@ use lru::LruCache;
 use metrics_tracker::OrphanWitnessMetricsTracker;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
@@ -12,7 +13,22 @@ use std::num::NonZeroUsize;
 /// shows up before the block is available. In such cases the witness is put in `OrphanStateWitnessPool` until the
 /// required block arrives and the witness can be processed.
 pub struct OrphanStateWitnessPool {
-    witness_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    witness_cache: LruCache<OrphanWitnessKey, CacheEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct OrphanWitnessKey {
+    chunk: ChunkProductionKey,
+    chunk_hash: ChunkHash,
+}
+
+impl OrphanWitnessKey {
+    fn new(witness: &ChunkStateWitness) -> Self {
+        Self {
+            chunk: witness.chunk_production_key(),
+            chunk_hash: witness.chunk_header().chunk_hash().clone(),
+        }
+    }
 }
 
 struct CacheEntry {
@@ -45,7 +61,7 @@ impl OrphanStateWitnessPool {
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
         // Insert the new ChunkStateWitness into the cache
-        let cache_key = witness.chunk_production_key();
+        let cache_key = OrphanWitnessKey::new(&witness);
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
@@ -68,7 +84,7 @@ impl OrphanStateWitnessPool {
         &mut self,
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
-        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
+        let mut to_remove: Vec<OrphanWitnessKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
             if cache_entry.witness.chunk_header().prev_block_hash() == prev_block {
                 to_remove.push(cache_key.clone());
@@ -89,9 +105,9 @@ impl OrphanStateWitnessPool {
     /// Orphan witnesses below the final height of the chain won't be needed anymore,
     /// so they can be removed from the pool to free up memory.
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
-        let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
+        let mut to_remove: Vec<OrphanWitnessKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
-            let witness_height = cache_key.height_created;
+            let witness_height = cache_key.chunk.height_created;
             if witness_height <= final_height {
                 to_remove.push(cache_key.clone());
                 let header = &cache_entry.witness.chunk_header();
@@ -99,7 +115,7 @@ impl OrphanStateWitnessPool {
                     target: "client",
                     final_height,
                     ejected_witness_height = witness_height,
-                    ejected_witness_shard = ?cache_key.shard_id,
+                    ejected_witness_shard = ?cache_key.chunk.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
                     "ejecting an orphaned chunk state witness from the cache because it's below the final height of the chain, it will not be processed"
@@ -256,36 +272,19 @@ mod tests {
         assert_empty(&pool);
     }
 
-    /// When a new witness is inserted with the same (shard_id, height) as an existing witness, the new witness
-    /// should replace the old one. The old one should be ejected from the pool.
+    /// A witness for a chunk already in the pool replaces the entry rather than adding a second
+    /// one, so a resend costs no capacity.
     #[test]
     fn replacing() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        // The old witness is replaced when the awaited block is the same
-        {
-            let witness1 = make_witness(100, ShardId::new(1), block(99));
-            let witness2 = make_witness(100, ShardId::new(1), block(99));
-            pool.add_orphan_state_witness(witness1, 0);
-            pool.add_orphan_state_witness(witness2.clone(), 0);
+        let witness1 = make_witness(100, ShardId::new(1), block(99));
+        let witness2 = make_witness(100, ShardId::new(1), block(99));
+        pool.add_orphan_state_witness(witness1, 0);
+        pool.add_orphan_state_witness(witness2.clone(), 0);
 
-            let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
-            assert_contents(waiting_for_99, vec![witness2]);
-        }
-
-        // The old witness is replaced when the awaited block is different, waiting_for_block is cleaned as expected
-        {
-            let witness3 = make_witness(102, ShardId::new(1), block(100));
-            let witness4 = make_witness(102, ShardId::new(1), block(101));
-            pool.add_orphan_state_witness(witness3, 0);
-            pool.add_orphan_state_witness(witness4.clone(), 0);
-
-            let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
-            assert_contents(waiting_for_101, vec![witness4]);
-
-            let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-            assert_contents(waiting_for_100, vec![]);
-        }
+        let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_contents(waiting_for_99, vec![witness2]);
 
         assert_empty(&pool);
     }
@@ -398,7 +397,7 @@ mod tests {
         let witness8 = make_witness(101, ShardId::new(2), block(100));
         let witness9 = make_witness(101, ShardId::new(3), block(100));
         pool.add_orphan_state_witness(witness6, 0);
-        pool.add_orphan_state_witness(witness7.clone(), 0);
+        pool.add_orphan_state_witness(witness7, 0);
         pool.add_orphan_state_witness(witness8.clone(), 0);
         pool.add_orphan_state_witness(witness9.clone(), 0);
 
@@ -407,21 +406,22 @@ mod tests {
         let looking_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
         assert_contents(looking_for_99, vec![witness5]);
 
-        // Let's add a few more witnesses
+        // Let's add a few more witnesses. witness12 shares a chunk key with witness10 but
+        // describes a different chunk, so it does not replace it - both are kept, and the
+        // insertion evicts the least recently used entry instead, which is witness7.
         let witness10 = make_witness(102, ShardId::new(1), block(101));
         let witness11 = make_witness(102, ShardId::new(4), block(100));
         let witness12 = make_witness(102, ShardId::new(1), block(77));
-        pool.add_orphan_state_witness(witness10, 0);
+        pool.add_orphan_state_witness(witness10.clone(), 0);
         pool.add_orphan_state_witness(witness11.clone(), 0);
         pool.add_orphan_state_witness(witness12.clone(), 0);
 
         // Check that witnesses waiting for block 100 are correct
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_contents(waiting_for_100, vec![witness7, witness8, witness9, witness11]);
+        assert_contents(waiting_for_100, vec![witness8, witness9, witness11]);
 
-        // At this point the pool contains only witness12, no one should be waiting for block 101.
         let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
-        assert_contents(waiting_for_101, vec![]);
+        assert_contents(waiting_for_101, vec![witness10]);
 
         let waiting_for_77 = pool.take_state_witnesses_waiting_for_block(&block(77));
         assert_contents(waiting_for_77, vec![witness12]);
