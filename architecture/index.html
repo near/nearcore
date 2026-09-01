@@ -326,11 +326,14 @@ chain to runtime, a list of <code>SignedTransaction</code> and a list of <code>R
 returns an <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
 <p><strong>Architecture Invariant:</strong> The state update is only finalized at the end of
 <code>apply</code>. During all intermediate steps state changes can be reverted.</p>
-<h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
-<p><code>VMLogic</code> contains all the implementations of host functions and is the
-interface between runtime and wasm. <code>VMLogic</code> is constructed when runtime
-applies function call actions. In <code>VMLogic</code>, interaction with NEAR blockchain
-happens in the following two ways:</p>
+<h3 id="runtimenear-vm-runnersrclogic"><a class="header" href="#runtimenear-vm-runnersrclogic"><code>runtime/near-vm-runner/src/logic</code></a></h3>
+<p>This module holds the VM-independent half of the host side of the contract
+boundary: the <code>VMContext</code> and <code>External</code> interfaces described below, gas
+counting, registers, the promise DAG and the <code>ExecutionResultState</code> that is
+turned into a <code>VMOutcome</code> when a function call finishes. The host functions
+themselves live in <code>runtime/near-vm-runner/src/wasmtime_runner/logic.rs</code>
+and operate directly on the wasmtime <code>Ctx</code> and guest memory. Interaction
+with the NEAR blockchain happens in the following two ways:</p>
 <ul>
 <li><code>VMContext</code>, which contains lightweight information such as current block
 hash, current block height, epoch id, etc.</li>
@@ -341,7 +344,7 @@ blockchain.</li>
 <h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
 <p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function essentially spins
 up the vm and executes some function in a contract. Contracts are compiled and run with wasmtime.
-The <code>imports</code> module exposes host functions defined in <code>near-vm-logic</code> to WASM code. In other
+The <code>imports</code> module exposes the host functions defined in <code>wasmtime_runner/logic.rs</code> to WASM code. In other
 words, it defines the ABI of the contracts on NEAR.</p>
 <h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
