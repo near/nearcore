@@ -8,6 +8,8 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
+use std::collections::HashMap;
 use tracing::instrument;
 
 /// Expect to receive the requested block in this time.
@@ -21,6 +23,19 @@ pub struct BlockSyncRequest {
     when: Utc,
 }
 
+/// Sizes `outstanding_requests` from `max_block_requests`, so one batch always
+/// fits. `block_sync` walks forward from the first block we do not have, so it
+/// waits on one window of blocks at a time.
+const OUTSTANDING_REQUEST_BATCHES: usize = 4;
+
+/// A fork can take a block off the canonical chain. We stopped wanting it, so the
+/// peer we asked owes us nothing.
+fn on_canonical_chain(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    let Ok(header) = chain.get_block_header(block_hash) else { return false };
+    let Ok(canonical) = chain.get_block_header_by_height(header.height()) else { return false };
+    canonical.hash() == block_hash
+}
+
 /// Helper to track block syncing.
 pub struct BlockSync {
     clock: Clock,
@@ -29,6 +44,13 @@ pub struct BlockSync {
 
     // When the last block requests were made.
     last_request: Option<BlockSyncRequest>,
+
+    /// Which peer was asked for which block and when, for blocks we have not seen
+    /// yet. Outlives the batch, so a head advance does not clear the record.
+    outstanding_requests: HashMap<CryptoHash, (PeerId, Utc)>,
+
+    /// Caps `outstanding_requests`, so a peer cycling block hashes cannot grow it.
+    outstanding_requests_limit: usize,
 
     /// Archival nodes are not allowed to do State Sync, as they need all state from all blocks.
     archive: bool,
@@ -44,7 +66,16 @@ impl BlockSync {
         archive: bool,
         max_block_requests: usize,
     ) -> Self {
-        BlockSync { clock, network_adapter, last_request: None, archive, max_block_requests }
+        BlockSync {
+            clock,
+            network_adapter,
+            last_request: None,
+            outstanding_requests: HashMap::new(),
+            outstanding_requests_limit: max_block_requests
+                .saturating_mul(OUTSTANDING_REQUEST_BATCHES),
+            archive,
+            max_block_requests,
+        }
     }
 
     // Finds the last block on the canonical chain that is in store (processed).
@@ -182,6 +213,7 @@ impl BlockSync {
                     },
                 ));
                 num_requests += 1;
+                self.record_outstanding_request(next_hash, peer.peer_info.id.clone(), now);
             } else {
                 tracing::warn!(
                     target: "sync",
@@ -207,7 +239,57 @@ impl BlockSync {
         if !self.block_request_due(&head) {
             return Ok(());
         }
+        self.demote_peers_that_did_not_deliver(chain, peer_selector);
         self.block_sync(chain, peers_ahead, peer_selector)
+    }
+
+    /// Whether the peer we asked for this block still has time to answer.
+    fn waiting_on_request(&self, block_hash: &CryptoHash, now: Utc) -> bool {
+        let Some((_, asked_at)) = self.outstanding_requests.get(block_hash) else { return false };
+        now - *asked_at <= Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS)
+    }
+
+    fn record_outstanding_request(&mut self, block_hash: CryptoHash, peer_id: PeerId, now: Utc) {
+        // The peer asked first owns the block until its time runs out. Asking a
+        // second peer as well is fine, but it must not move the blame off the peer
+        // that has not delivered.
+        if self.waiting_on_request(&block_hash, now) {
+            return;
+        }
+        let tracked = self.outstanding_requests.contains_key(&block_hash);
+        if !tracked && self.outstanding_requests.len() >= self.outstanding_requests_limit {
+            return;
+        }
+        self.outstanding_requests.insert(block_hash, (peer_id, now));
+    }
+
+    /// Blocks arrive out of order, so the head standing still does not mean every
+    /// peer failed: one may have sent the later blocks while another withheld the
+    /// one that would move the head. Each request is judged on its own clock, so a
+    /// head advance does not clear the record of a block that never came.
+    fn demote_peers_that_did_not_deliver(
+        &mut self,
+        chain: &Chain,
+        peer_selector: &mut PeerSelector,
+    ) {
+        let now = self.clock.now_utc();
+        let timeout = Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
+        self.outstanding_requests.retain(|block_hash, (asked_peer_id, asked_at)| {
+            if !matches!(chain.check_block_known(block_hash), BlockKnowledge::Unknown) {
+                return false;
+            }
+            if now - *asked_at <= timeout {
+                return true;
+            }
+            if on_canonical_chain(chain, block_hash) {
+                peer_selector.record_failed_to_serve(asked_peer_id, now);
+            }
+            false
+        });
+    }
+
+    fn request_timed_out(&self, request: &BlockSyncRequest, now: Utc) -> bool {
+        now - request.when > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS)
     }
 
     /// Returns whether a new block request is due based on head freshness
@@ -221,8 +303,6 @@ impl BlockSync {
         // TODO: This doesn't work nicely with a node requesting config.max_blocks_requests blocks at a time.
         // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
         let head_got_updated = head.last_block_hash != request.head;
-        let timeout =
-            self.clock.now_utc() - request.when > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
-        head_got_updated || timeout
+        head_got_updated || self.request_timed_out(request, self.clock.now_utc())
     }
 }
