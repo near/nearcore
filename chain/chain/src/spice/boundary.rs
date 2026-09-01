@@ -1,4 +1,5 @@
 use crate::Chain;
+use crate::spice::core::save_uncertified_chunks;
 use crate::store::ChainStore;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -6,7 +7,9 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ChunkExecutionResult, ShardId};
+use near_primitives::types::{
+    ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+};
 use near_primitives::version::ProtocolFeature;
 use near_store::StoreUpdate;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -46,6 +49,56 @@ pub fn seed_execution_heads_at_activation(
     let mut adapter = store_update.chain_store_update();
     adapter.set_spice_execution_head(&Tip::from_header(parent_header))?;
     adapter.update_spice_final_execution_head(block)?;
+    Ok(())
+}
+
+/// The uncertified-chunks row for the activation parent `block`, one entry per shard
+/// of its layout, with every designated endorsement missing.
+pub fn boundary_uncertified_chunks(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
+    let epoch_id = block.header().epoch_id();
+    let height = block.header().height();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+    let mut uncertified_chunks = Vec::with_capacity(shard_layout.num_shards() as usize);
+    for shard_id in shard_layout.shard_ids() {
+        let chunk_validator_assignments =
+            epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)?;
+        let missing_endorsements = chunk_validator_assignments
+            .assignments()
+            .iter()
+            .map(|(account_id, _)| account_id)
+            .cloned()
+            .collect();
+        uncertified_chunks.push(SpiceUncertifiedChunkInfo {
+            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id },
+            missing_endorsements,
+            present_endorsements: Vec::new(),
+            present_fallback_endorsements: Vec::new(),
+            // The parent of the activation parent is pre-spice, certified by
+            // definition, so the designated validators can act right away.
+            certifiable_since_height: Some(height),
+        });
+    }
+    Ok(uncertified_chunks)
+}
+
+/// Seeds `DBCol::uncertified_chunks` for `block` when it is an activation parent; a
+/// no-op otherwise.
+pub fn seed_boundary_uncertified_chunks(
+    store_update: &mut StoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<(), Error> {
+    if !cfg!(feature = "protocol_feature_spice") {
+        return Ok(());
+    }
+    if !is_spice_activation_parent(epoch_manager, block.hash())? {
+        return Ok(());
+    }
+    let uncertified_chunks = boundary_uncertified_chunks(epoch_manager, block)?;
+    save_uncertified_chunks(store_update, block.hash(), &uncertified_chunks);
     Ok(())
 }
 

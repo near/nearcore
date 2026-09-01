@@ -3,7 +3,9 @@ use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice::boundary::seed_execution_heads_at_activation;
+use crate::spice::boundary::{
+    seed_boundary_uncertified_chunks, seed_execution_heads_at_activation,
+};
 use crate::spice::chunk_application::apply_chunk_postprocessing;
 use crate::spice::core::{
     record_spice_endorsement_stats_for_block, record_uncertified_chunks_for_block,
@@ -293,6 +295,14 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
+
+        let mut boundary_update = self.chain_store_update.store().store_update();
+        seed_boundary_uncertified_chunks(
+            &mut boundary_update,
+            self.epoch_manager.as_ref(),
+            &block,
+        )?;
+        self.chain_store_update.merge(boundary_update);
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;

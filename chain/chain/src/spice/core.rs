@@ -31,7 +31,7 @@ use near_primitives::utils::{
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::{DBCol, Store};
+use near_store::{DBCol, Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -974,6 +974,15 @@ fn get_uncertified_chunks(
     }
 }
 
+/// The only writer of `DBCol::uncertified_chunks`, so the encoding has one owner.
+pub(crate) fn save_uncertified_chunks(
+    store_update: &mut StoreUpdate,
+    block_hash: &CryptoHash,
+    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+) {
+    store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
+}
+
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
@@ -1091,11 +1100,7 @@ pub fn record_uncertified_chunks_for_block(
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
     let mut store_update = chain_store_update.chain_store().store_ref().store_update();
-    store_update.insert_ser(
-        DBCol::uncertified_chunks(),
-        block.header().hash().as_ref(),
-        &uncertified_chunks,
-    );
+    save_uncertified_chunks(&mut store_update, block.header().hash(), &uncertified_chunks);
     chain_store_update.merge(store_update);
     Ok(())
 }
