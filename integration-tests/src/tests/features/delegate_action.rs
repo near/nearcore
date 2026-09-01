@@ -1001,8 +1001,9 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     if new_account.get_account_type() == AccountType::EthImplicitAccount
         || new_account.get_account_type() == AccountType::NearDeterministicAccount
+        || new_account.get_account_type() == AccountType::UniversalAccount
     {
-        // ETH-implicit account must not have access key added.
+        // The transfer must not add an access key to such an account.
         assert!(node.user().is_locked(&new_account).unwrap());
         // We will not attempt to make a transfer from this account.
         return;
