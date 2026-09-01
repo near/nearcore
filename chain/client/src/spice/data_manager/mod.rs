@@ -8,8 +8,8 @@ pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
 pub use item::DataId;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
-use item::{FetchItem, Item, PartInsertResult};
-use near_async::time::Clock;
+use item::{FetchItem, FetchState, InFlightRequest, Item, PartInsertResult};
+use near_async::time::{Clock, Instant};
 use near_chain::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
@@ -17,8 +17,11 @@ use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use rand::rngs::StdRng;
+use scheduler::{DeadlineScheduler, TimingConfig};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
+use time::ext::InstantExt as _;
 
 /// Scheduling class of an item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +29,8 @@ pub(crate) enum Lane {
     /// Consensus-critical: this node is an assigned validator or producer for it.
     Priority,
     /// RPC, state-sync or catch-up traffic; never starves `Priority`.
+    // TODO(spice-data-distribution): constructed once lanes are classified per item (#16275).
+    #[allow(dead_code)]
     Background,
 }
 
@@ -125,25 +130,52 @@ impl DataPolicy for Policies {
 // on the old actor path (#16275).
 pub(crate) struct SpiceDataManager {
     clock: Clock,
+    /// Jitters the retry intervals; injected so tests are deterministic.
+    rng: StdRng,
+    timing: TimingConfig,
     encoders: ReedSolomonEncoderCache,
     policies: Policies,
     /// All tracked items, in any state.
     items: HashMap<DataId, Item>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
+    /// Pull wake-ups for the items. Entries cannot be removed, so a completed or
+    /// re-scheduled item leaves stale ones behind; [`Self::due_items`] filters them.
+    scheduler: DeadlineScheduler<DataId>,
     /// Highest final execution head reported; `None` until the first report. Items at
     /// or below it can never be applied.
     final_execution_head: Option<BlockHeight>,
 }
 
+/// Marks `at` as the item's pull wake-up.
+// TODO(spice-data-distribution): classify the scheduling lane per item; everything is
+// priority until a lower-priority consumer exists (#16275).
+fn schedule_pull_wake(
+    scheduler: &mut DeadlineScheduler<DataId>,
+    item: &mut FetchItem,
+    id: &DataId,
+    at: Instant,
+) {
+    item.pull.next_deadline = Some(at);
+    scheduler.schedule(id.clone(), at, Lane::Priority);
+}
+
 impl SpiceDataManager {
-    pub(crate) fn new(clock: Clock, data_parts_ratio: f64, policies: Policies) -> Self {
+    pub(crate) fn new(
+        clock: Clock,
+        rng: StdRng,
+        data_parts_ratio: f64,
+        policies: Policies,
+    ) -> Self {
         Self {
             clock,
+            rng,
+            timing: TimingConfig::default(),
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
+            scheduler: DeadlineScheduler::default(),
             final_execution_head: None,
         }
     }
@@ -189,6 +221,8 @@ impl SpiceDataManager {
         let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
             return Ok(ReceivedParts::NotWanted);
         };
+        item.pull.clear_in_flight_from(sender);
+        let had_units = item.first_unit_at.is_some();
         let encoder = self.encoders.entry(total_parts);
         // TODO(spice-data-distribution): verify every part before inserting any; today
         // the first bad part aborts the loop without undoing earlier inserts (#16275).
@@ -205,6 +239,12 @@ impl SpiceDataManager {
                 Err(DataManagerError::NotCollecting) => return Ok(ReceivedParts::NotWanted),
                 Err(err) => return Err(err),
             }
+        }
+        // The first unit proves the data exists; give the other producers' pushes a
+        // moment to land, then pull whatever is still missing.
+        if !had_units && item.first_unit_at.is_some() {
+            let at = self.clock.now().add_signed(self.timing.pull_delay_after_first_unit);
+            schedule_pull_wake(&mut self.scheduler, item, id, at);
         }
         Ok(ReceivedParts::Collecting)
     }
@@ -229,7 +269,100 @@ impl SpiceDataManager {
         // TODO(spice-data-distribution): feed the contributors into reputation (#16275).
         let contributors = item.mark_failed()?;
         tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "delivered data failed consumer validation");
+        // The residual is incomplete, so the pull for the gaps is due immediately.
+        schedule_pull_wake(&mut self.scheduler, item, id, self.clock.now());
         Ok(())
+    }
+
+    /// The consumer needed `id` and its data has not arrived — the pull trigger. A
+    /// still-waiting item starts collecting, with its first pull scheduled after
+    /// `pull_delay_after_gate` to let a straggler push land. No effect on an unknown
+    /// item or one already past waiting. `total_parts` is the count the item's data is
+    /// encoded into: its producer count.
+    pub(crate) fn start_pulling(&mut self, id: &DataId, total_parts: usize) {
+        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
+            return;
+        };
+        let encoder = self.encoders.entry(total_parts);
+        if !item.start_pulling(encoder) {
+            return;
+        }
+        let at = self.clock.now().add_signed(self.timing.pull_delay_after_gate);
+        schedule_pull_wake(&mut self.scheduler, item, id, at);
+    }
+
+    /// The earliest queued pull wake-up, stale entries included. The caller arranges to
+    /// call [`Self::due_items`] no later than this.
+    pub(crate) fn next_wake(&self) -> Option<Instant> {
+        self.scheduler.peek_next()
+    }
+
+    /// Pops the due pull wake-ups and keeps the ones that are still real: the item
+    /// exists, is still collecting, and the popped instant is its current deadline.
+    /// Without the last check every completion or re-schedule would fire a spurious
+    /// pull off the entry it left behind.
+    pub(crate) fn due_items(&mut self, now: Instant) -> Vec<DataId> {
+        self.scheduler
+            .pop_due(now)
+            .into_iter()
+            .filter(|(id, at)| {
+                let Some(Item::Fetch(item)) = self.items.get(id) else {
+                    return false;
+                };
+                matches!(item.state, FetchState::Collecting(_))
+                    && item.pull.next_deadline == Some(*at)
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Handles one due wake-up (an id from [`Self::due_items`]): drops the timed-out
+    /// requests, asks `select_source` for a producer to send the still-missing,
+    /// not-in-flight ordinals to (passing the item's past request count, for rotation),
+    /// records the request, and reschedules the item either way. Returns the request
+    /// for the caller to send. A wake caused by a request timeout re-requests without
+    /// advancing the backoff ladder: timing out is the peer's failure, not a retry.
+    pub(crate) fn on_deadline(
+        &mut self,
+        id: &DataId,
+        select_source: impl FnOnce(&[u64], u64) -> Option<AccountId>,
+    ) -> Option<(AccountId, Vec<u64>)> {
+        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
+            return None;
+        };
+        let now = self.clock.now();
+        // TODO(spice-data-distribution): feed the timed-out sources into reputation (#16275).
+        let timed_out = item.pull.take_timed_out_requests(&self.timing, now);
+        let request = {
+            let FetchState::Collecting(assembly) = &item.state else {
+                return None;
+            };
+            debug_assert!(!assembly.is_complete(), "a collecting item cannot be complete");
+            let missing: Vec<u64> = assembly
+                .missing_ordinals()
+                .into_iter()
+                .filter(|ordinal| !item.pull.has_in_flight_request_for(*ordinal))
+                .collect();
+            if missing.is_empty() {
+                None
+            } else {
+                select_source(&missing, item.pull.requests_sent).map(|source| (source, missing))
+            }
+        };
+        if let Some((source, ordinals)) = &request {
+            item.pull.in_flight.push(InFlightRequest {
+                source: source.clone(),
+                sent_at: now,
+                ordinals: ordinals.clone(),
+            });
+            item.pull.requests_sent += 1;
+            if timed_out.is_empty() {
+                item.pull.backoff.note_retry();
+            }
+        }
+        let at = item.pull.reschedule(&self.timing, now, &mut self.rng);
+        schedule_pull_wake(&mut self.scheduler, item, id, at);
+        request
     }
 
     /// The final execution head advanced: the chain is past every item at or below it,

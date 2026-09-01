@@ -1,4 +1,6 @@
-use super::item::{Assembly, FetchItem, FetchState, InFlightRequest, PartInsertResult, PullTiming};
+use super::item::{
+    Assembly, FetchItem, FetchState, InFlightRequest, Item, PartInsertResult, PullTiming,
+};
 use super::scheduler::{Backoff, DeadlineScheduler, TimingConfig};
 use super::*;
 use assert_matches::assert_matches;
@@ -13,7 +15,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::collections::HashSet;
 use std::sync::Arc;
-use time::ext::InstantExt as _;
 
 /// Data parts of the encoder every test here uses: `max((5 * 0.6) as usize, 1)`.
 const DATA_PARTS: usize = 3;
@@ -668,6 +669,10 @@ mod manager {
     /// Manager whose policy tracks shard 1 only: an id is needed iff it is `(0 -> 1)`
     /// and its proof is not on disk.
     fn manager(chain: &Chain) -> SpiceDataManager {
+        manager_with_clock(chain, FakeClock::default().clock())
+    }
+
+    fn manager_with_clock(chain: &Chain, clock: Clock) -> SpiceDataManager {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(1), &shard_layout);
         let shard_tracker = ShardTracker::new(
@@ -676,7 +681,8 @@ mod manager {
             MutableConfigValue::new(None, "validator_signer"),
         );
         SpiceDataManager::new(
-            FakeClock::default().clock(),
+            clock,
+            StdRng::seed_from_u64(0),
             0.6,
             Policies::new(chain.chain_store.store().chain_store(), shard_tracker),
         )
@@ -903,6 +909,333 @@ mod manager {
             TOTAL_PARTS,
         );
         assert_matches!(result, Err(DataManagerError::BannedCommitment));
+    }
+
+    fn fetch_item<'a>(manager: &'a SpiceDataManager, id: &DataId) -> &'a FetchItem {
+        let Some(Item::Fetch(item)) = manager.items.get(id) else {
+            panic!("no fetch item for {id:?}");
+        };
+        item
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn tracking_schedules_no_pull() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let mut manager = manager(&chain);
+
+        manager.track_if_needed(receipt_id(&blocks[0], 0, 1), blocks[0].header()).unwrap();
+
+        assert_eq!(manager.next_wake(), None);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn start_pulling_flips_a_waiting_item_and_schedules_after_the_gate_delay() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+
+        manager.start_pulling(&id, TOTAL_PARTS);
+
+        let expected = clock.now().add_signed(TimingConfig::default().pull_delay_after_gate);
+        let item = fetch_item(&manager, &id);
+        assert!(matches!(item.state, FetchState::Collecting(_)));
+        assert_eq!(item.pull.next_deadline, Some(expected));
+        assert_eq!(manager.next_wake(), Some(expected));
+
+        // A repeated trigger is a no-op: the item is already pulling.
+        manager.start_pulling(&id, TOTAL_PARTS);
+        clock.advance(TimingConfig::default().pull_delay_after_gate);
+        assert_eq!(manager.due_items(clock.now()), vec![id]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn start_pulling_ignores_unknown_items() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let mut manager = manager(&chain);
+
+        manager.start_pulling(&receipt_id(&blocks[0], 0, 1), TOTAL_PARTS);
+
+        assert_eq!(manager.next_wake(), None);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn the_first_unit_schedules_the_pull_after_its_delay() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        let second_part = parts.split_off(1).remove(0);
+        let first_part = parts;
+
+        assert_matches!(
+            manager
+                .on_parts_received(
+                    &account("alice.near"),
+                    &id,
+                    &commitment,
+                    first_part,
+                    TOTAL_PARTS
+                )
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+
+        let expected = clock.now().add_signed(TimingConfig::default().pull_delay_after_first_unit);
+        assert_eq!(fetch_item(&manager, &id).pull.next_deadline, Some(expected));
+
+        // Later units do not push the deadline back.
+        clock.advance(Duration::milliseconds(50));
+        assert_matches!(
+            manager
+                .on_parts_received(
+                    &account("bob.near"),
+                    &id,
+                    &commitment,
+                    vec![second_part],
+                    TOTAL_PARTS,
+                )
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+        assert_eq!(fetch_item(&manager, &id).pull.next_deadline, Some(expected));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_failed_verification_result_makes_the_pull_due_immediately() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        parts.truncate(DATA_PARTS);
+        let delivered = manager
+            .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
+            .unwrap();
+        assert_matches!(delivered, ReceivedParts::Complete(_));
+
+        manager.on_failed(&id).unwrap();
+
+        assert_eq!(fetch_item(&manager, &id).pull.next_deadline, Some(clock.now()));
+        assert_eq!(manager.due_items(clock.now()), vec![id]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn due_items_discards_a_pop_for_an_expired_item() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.start_pulling(&id, TOTAL_PARTS);
+
+        manager.on_final_execution_head(block.header().height());
+
+        clock.advance(TimingConfig::default().pull_delay_after_gate);
+        assert_eq!(manager.due_items(clock.now()), vec![]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn due_items_discards_a_pop_for_an_item_no_longer_collecting() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        parts.truncate(DATA_PARTS);
+        let rest = parts.split_off(1);
+        // The first part schedules a pull; the remaining parts deliver the item before
+        // the deadline fires.
+        assert_matches!(
+            manager
+                .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+        assert!(fetch_item(&manager, &id).pull.next_deadline.is_some());
+        let delivered = manager
+            .on_parts_received(&account("bob.near"), &id, &commitment, rest, TOTAL_PARTS)
+            .unwrap();
+        assert_matches!(delivered, ReceivedParts::Complete(_));
+
+        clock.advance(TimingConfig::default().pull_delay_after_first_unit);
+        assert_eq!(manager.due_items(clock.now()), vec![]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn due_items_discards_a_superseded_pop_and_keeps_the_current_one() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        parts.truncate(DATA_PARTS);
+        let rest = parts.split_off(1);
+        // The first part leaves its wake-up in the heap; the failed verification result after
+        // delivery schedules a second, immediate one and makes it the item's deadline.
+        assert_matches!(
+            manager
+                .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+        let delivered = manager
+            .on_parts_received(&account("bob.near"), &id, &commitment, rest, TOTAL_PARTS)
+            .unwrap();
+        assert_matches!(delivered, ReceivedParts::Complete(_));
+        clock.advance(Duration::milliseconds(50));
+        manager.on_failed(&id).unwrap();
+
+        clock.advance(TimingConfig::default().pull_delay_after_first_unit);
+        // Both wake-ups are due; only the one matching the item's deadline survives.
+        assert_eq!(manager.due_items(clock.now()), vec![id]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn on_deadline_requests_missing_ordinals_not_in_flight_and_reschedules() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        parts.truncate(1);
+        assert_matches!(
+            manager
+                .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+        clock.advance(TimingConfig::default().pull_delay_after_first_unit);
+        assert_eq!(manager.due_items(clock.now()), vec![id.clone()]);
+
+        let request = manager.on_deadline(&id, |missing, requests_sent| {
+            assert_eq!(requests_sent, 0);
+            assert_eq!(missing, [1, 2, 3, 4]);
+            Some(account("bob.near"))
+        });
+
+        // The held ordinal 0 is not re-requested.
+        assert_eq!(request, Some((account("bob.near"), vec![1, 2, 3, 4])));
+        let item = fetch_item(&manager, &id);
+        assert_eq!(item.pull.backoff.retries(), 1);
+        assert!(item.pull.has_in_flight_request_for(1));
+        let deadline = item.pull.next_deadline.unwrap();
+        assert!(deadline > clock.now());
+        assert_eq!(manager.due_items(clock.now()), vec![]);
+
+        // With everything missing already in flight there is nothing to request, the
+        // ladder does not advance, and the item is still rescheduled.
+        let request = manager.on_deadline(&id, |_missing, _requests_sent| {
+            panic!("nothing should be requested");
+        });
+        assert_eq!(request, None);
+        let item = fetch_item(&manager, &id);
+        assert_eq!(item.pull.backoff.retries(), 1);
+        assert!(item.pull.next_deadline.is_some());
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_timeout_wake_rotates_the_source_without_advancing_the_backoff() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.start_pulling(&id, TOTAL_PARTS);
+        clock.advance(TimingConfig::default().pull_delay_after_gate);
+        assert_eq!(manager.due_items(clock.now()), vec![id.clone()]);
+        let request =
+            manager.on_deadline(&id, |_missing, _requests_sent| Some(account("bob.near")));
+        assert_eq!(request, Some((account("bob.near"), vec![0, 1, 2, 3, 4])));
+
+        // Ride the backoff wakes (nothing to request: everything is in flight) until
+        // bob's request times out.
+        let request_timeout = TimingConfig::default().request_timeout;
+        let sent_at = clock.now();
+        loop {
+            let deadline = fetch_item(&manager, &id).pull.next_deadline.unwrap();
+            clock.advance(deadline.signed_duration_since(clock.now()));
+            assert_eq!(manager.due_items(clock.now()), vec![id.clone()]);
+            if clock.now().signed_duration_since(sent_at) >= request_timeout {
+                break;
+            }
+            let request = manager.on_deadline(&id, |_missing, _requests_sent| {
+                panic!("everything missing is in flight");
+            });
+            assert_eq!(request, None);
+        }
+
+        let retries_before = fetch_item(&manager, &id).pull.backoff.retries();
+        let request = manager.on_deadline(&id, |missing, requests_sent| {
+            // The rotation round advanced with the first request, so the retry moves on
+            // from bob even though the ladder does not.
+            assert_eq!(requests_sent, 1);
+            assert_eq!(missing, [0, 1, 2, 3, 4]);
+            Some(account("carol.near"))
+        });
+        assert_eq!(request, Some((account("carol.near"), vec![0, 1, 2, 3, 4])));
+        let item = fetch_item(&manager, &id);
+        assert_eq!(item.pull.backoff.retries(), retries_before);
+        assert_eq!(item.pull.in_flight.len(), 1);
+        assert_eq!(item.pull.in_flight[0].source, account("carol.near"));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_unit_from_a_source_clears_its_in_flight_request() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let block = &blocks[0];
+        let id = receipt_id(block, 0, 1);
+        let clock = FakeClock::default();
+        let mut manager = manager_with_clock(&chain, clock.clock());
+        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.start_pulling(&id, TOTAL_PARTS);
+        clock.advance(TimingConfig::default().pull_delay_after_gate);
+        assert_eq!(manager.due_items(clock.now()), vec![id.clone()]);
+        manager.on_deadline(&id, |_missing, _requests_sent| Some(account("bob.near"))).unwrap();
+        assert!(fetch_item(&manager, &id).pull.has_in_flight_request_for(0));
+
+        let encoder = encoder();
+        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+        parts.truncate(1);
+        assert_matches!(
+            manager
+                .on_parts_received(&account("bob.near"), &id, &commitment, parts, TOTAL_PARTS)
+                .unwrap(),
+            ReceivedParts::Collecting
+        );
+
+        assert!(fetch_item(&manager, &id).pull.in_flight.is_empty());
     }
 }
 

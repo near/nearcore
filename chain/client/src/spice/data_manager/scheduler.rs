@@ -17,6 +17,12 @@ pub(crate) struct TimingConfig {
     pub(crate) backoff_cap: Duration,
     /// Every interval is jittered by up to this fraction in either direction.
     pub(crate) jitter_frac: f64,
+    /// After a pull trigger opens for an item, how long to wait for a straggler push
+    /// before the first pull.
+    pub(crate) pull_delay_after_gate: Duration,
+    /// After an item's first unit arrives, how long to wait for the other producers'
+    /// pushes before pulling the still-missing ordinals.
+    pub(crate) pull_delay_after_first_unit: Duration,
 }
 
 impl Default for TimingConfig {
@@ -27,6 +33,8 @@ impl Default for TimingConfig {
             backoff_multiplier: 2,
             backoff_cap: Duration::seconds(2),
             jitter_frac: 0.25,
+            pull_delay_after_gate: Duration::milliseconds(200),
+            pull_delay_after_first_unit: Duration::milliseconds(200),
         }
     }
 }
@@ -103,6 +111,11 @@ impl<K> Default for DeadlineScheduler<K> {
 impl<K> DeadlineScheduler<K> {
     pub(crate) fn schedule(&mut self, key: K, at: Instant, lane: Lane) {
         self.heap.push(Deadline { at, lane, key });
+    }
+
+    /// The earliest queued wake-up, stale entries included.
+    pub(crate) fn peek_next(&self) -> Option<Instant> {
+        self.heap.peek().map(|deadline| deadline.at)
     }
 
     /// Pops every entry due at or before `now`, paired with the instant it was scheduled for.

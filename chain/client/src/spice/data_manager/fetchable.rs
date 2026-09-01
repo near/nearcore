@@ -11,10 +11,10 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 /// doneness. Implementations carry the engine's only chain dependencies.
 /// Everything else about fetching is generic.
 pub(crate) trait DataPolicy {
-    /// Whether this node needs the item. Consulted once, when the item is first tracked.
-    /// `block` is the id's block header.
-    // TODO(spice-data-distribution): becomes a tri-state `Interest` (with a name to match)
-    // when the first pull starter lands (#16275).
+    /// Whether this node needs the item. Consulted once, when the item is first tracked;
+    /// afterwards the lifecycle advances by events. `block` is the id's block header.
+    // TODO(spice-data-distribution): becomes tri-state (`Interest`) when witnesses need
+    // a seed-time wait-vs-fetch split; receipt-proof pulls start on events instead (#16275).
     fn should_fetch(&self, id: &DataId, block: &BlockHeader) -> Result<bool, Error>;
 
     /// Whether the durable artifact this item exists to obtain is already in the store.

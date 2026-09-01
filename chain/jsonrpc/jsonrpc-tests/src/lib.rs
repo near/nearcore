@@ -32,6 +32,8 @@ use near_store::test_utils::create_test_store;
 use near_time::Clock;
 use nearcore::NightshadeRuntime;
 use parking_lot::RwLock;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use std::sync::Arc;
 
 pub const TEST_SEED: RngSeed = [3; 32];
@@ -215,6 +217,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
         let spice_data_distributor_actor = SpiceDataDistributorActor::new(
             Clock::real(),
+            StdRng::seed_from_u64(42),
             epoch_manager.clone(),
             runtime.store().chain_store(),
             signer.clone(),
