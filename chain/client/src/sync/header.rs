@@ -129,7 +129,7 @@ impl HeaderSync {
 
             let batch_complete = header_head.height
                 >= min(header_head_height + MAX_BLOCK_HEADERS - 4, peer_advertised_height);
-            let stalling = header_head.height <= expected_height && now > timeout;
+            let stalling = header_head.height < expected_height && now > timeout;
 
             if batch_complete {
                 self.stalling_ts = None;
