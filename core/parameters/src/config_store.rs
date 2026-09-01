@@ -61,8 +61,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // before its state init is applied.
     (154, include_config!("154.yaml")),
     (155, include_config!("155.yaml")),
-    // Enable the sha3_256, sha3_384 and sha3_512 host functions.
-    (156, include_config!("156.yaml")),
     // Cap the number of defined globals per contract.
     (157, include_config!("157.yaml")),
 ];

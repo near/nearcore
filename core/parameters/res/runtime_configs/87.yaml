@@ -29,3 +29,6 @@ fix_contract_loading_error: { old: false, new: true }
 # - meta transactions: meter the inner delegate signature verification compute on
 #   the receiver shard instead of the signer shard.
 fix_ml_dsa_cost_charging: { old: false, new: true }
+
+# Enable the sha3_256, sha3_384 and sha3_512 (FIPS-202) host functions.
+sha3_host_fns: { old: false, new: true }

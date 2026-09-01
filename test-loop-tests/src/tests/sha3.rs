@@ -46,9 +46,9 @@ const SHA3_512_ABC: [u8; 64] = [
 ];
 
 /// `sha3_host_fns` has no `ProtocolFeature` variant; it is turned on purely by
-/// a runtime-config diff (156.yaml). Check the flag for the current protocol
-/// version so the test skips on stable, runs on nightly, and re-enables itself
-/// automatically once the feature stabilizes.
+/// a runtime-config diff (87.yaml). Check the flag for the current protocol
+/// version so the test skips on protocol versions that predate the feature and
+/// runs everywhere else.
 fn sha3_enabled() -> bool {
     RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
 }
@@ -148,9 +148,9 @@ fn test_sha3_pre_activation_call_fails() {
         return;
     }
 
-    // sha3_host_fns is turned on at protocol version 156 (see 156.yaml), so 155
+    // sha3_host_fns is turned on at protocol version 87 (see 87.yaml), so 86
     // is the last version without it.
-    let pre_activation_pv = 155;
+    let pre_activation_pv = 86;
     let fns = ["sha3_256", "sha3_384", "sha3_512"];
 
     // Give each function its own account so the baked-in contracts don't clobber
