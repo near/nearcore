@@ -145,7 +145,9 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 
             // From EpochData.
             | DBCol::EpochInfo
+            | DBCol::EpochLightClientBlocks
             | DBCol::EpochStart
+            | DBCol::EpochValidatorInfo
 
             // From a state snapshot.
             | DBCol::State
@@ -186,11 +188,6 @@ fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
             // Read only by epoch sync and one migration, and a reader is refused by a
             // running node, so nothing that reads this column runs against its store.
             | DBCol::EpochSyncProof
-
-            // TODO(cloud_archival): `next_light_client_block` and `validators` read these
-            // two, so reproduce them; the second needs a field on `EpochData`.
-            | DBCol::EpochLightClientBlocks
-            | DBCol::EpochValidatorInfo
     )
 }
 

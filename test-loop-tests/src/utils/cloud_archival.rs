@@ -797,22 +797,9 @@ pub(crate) fn assert_reader_writer_parity(
     start: BlockHeight,
     end: BlockHeight,
 ) {
-    // TODO(cloud_archival): compare the skipped columns too.
+    // TODO(cloud_archival): compare `DBCol::State` too, once the reader reconstructs it.
     let cols: Vec<DBCol> = DBCol::iter()
-        .filter(|&c| {
-            is_cloud_archive_reader_bootstrapped(c)
-                && !matches!(
-                    c,
-                    // Not reconstructed yet.
-                    DBCol::State
-                        // Reconstructed, but keyed off-height (genesis BlockInfo under
-                        // CryptoHash::default(), EpochInfo under AGGREGATOR_KEY), so the
-                        // height walk can't reproduce their key sets.
-                        | DBCol::BlockInfo
-                        | DBCol::EpochInfo
-                        | DBCol::EpochStart
-                )
-        })
+        .filter(|&c| is_cloud_archive_reader_bootstrapped(c) && c != DBCol::State)
         .collect();
 
     let writer_kvs = writer_kvs(writer, &cols, start, end);
@@ -931,6 +918,62 @@ fn collect_receipt_kvs(
     }
 }
 
+/// Collects into `kvs` the writer's epoch-keyed rows, split by whether the reader holds
+/// them over `[start, end]`.
+fn collect_epoch_kvs(
+    writer: &Store,
+    in_scope: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    out_of_scope: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    epoch_first_heights: &[(EpochId, BlockHeight)],
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let in_range = |height: &BlockHeight| (start..=end).contains(height);
+    let mut take = |in_scope_now: bool, col, key: &[u8]| {
+        let kvs = if in_scope_now { &mut *in_scope } else { &mut *out_of_scope };
+        if let Some(value) = writer.get(col, key) {
+            kvs.get_mut(&col).unwrap().insert(key.to_vec(), value.to_vec());
+        }
+    };
+    for (index, (epoch_id, first_height)) in epoch_first_heights.iter().enumerate() {
+        let key = epoch_id.as_ref();
+        // An epoch's own info and start travel in its own blob, while its closing rows
+        // travel in the blob of the epoch above it.
+        let starts_in_scope = in_range(first_height);
+        let closes_in_scope =
+            epoch_first_heights.get(index + 1).is_some_and(|(_, next)| in_range(next));
+        take(starts_in_scope, DBCol::EpochInfo, key);
+        take(starts_in_scope, DBCol::EpochStart, key);
+        take(closes_in_scope, DBCol::EpochValidatorInfo, key);
+        take(closes_in_scope, DBCol::EpochLightClientBlocks, key);
+    }
+
+    // The writer computes an epoch's info before that epoch has a block, so it holds
+    // rows no walked epoch names. They are outside any range the reader took.
+    let named: HashSet<Vec<u8>> =
+        epoch_first_heights.iter().map(|(id, _)| id.as_ref().to_vec()).collect();
+    for (key, value) in writer.iter(DBCol::EpochInfo) {
+        let key = key.into_vec();
+        if !named.contains(&key) {
+            out_of_scope.get_mut(&DBCol::EpochInfo).unwrap().insert(key, value.into_vec());
+        }
+    }
+}
+
+/// Collects into `kvs` the rows keyed by genesis's prev hash.
+fn collect_genesis_prev_hash_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+) {
+    // No block hashes to it, so the height walk cannot reach these. Node init writes
+    // them on both sides and no blob carries them.
+    let key = CryptoHash::default().as_ref().to_vec();
+    for col in [DBCol::BlockInfo, DBCol::NextBlockHashes] {
+        let value = writer.get(col, &key).unwrap_or_else(|| panic!("node init writes {col}"));
+        kvs.get_mut(&col).unwrap().insert(key.clone(), value.to_vec());
+    }
+}
+
 /// Returns the writer rows the reader is expected to hold over `[start, end]`, one map
 /// per column in `cols`.
 fn writer_kvs(
@@ -947,6 +990,9 @@ fn writer_kvs(
     let mut out_of_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
 
+    // Every epoch the walk sees, in chain order, with the height it starts at.
+    let mut epoch_first_heights: Vec<(EpochId, BlockHeight)> = Vec::new();
+
     // Walk the chain, reading each column's row at height `h` into the in-scope
     // or the out-of-scope map.
     for h in 0..=chain_head {
@@ -962,7 +1008,7 @@ fn writer_kvs(
                 .unwrap_or_else(|| panic!("{col} row missing at h={h}"));
             kvs.get_mut(&col).unwrap().insert(height_key.clone(), value.to_vec());
         }
-        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree] {
+        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree, DBCol::BlockInfo] {
             let key = block_hash.as_ref().to_vec();
             if let Some(value) = writer.get(col, &key) {
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
@@ -985,6 +1031,10 @@ fn writer_kvs(
         }
         let block =
             writer_store.get_block(&block_hash).expect("the caller disabled garbage collection");
+        let epoch_id = *block.header().epoch_id();
+        if epoch_first_heights.last().map(|(id, _)| *id) != Some(epoch_id) {
+            epoch_first_heights.push((epoch_id, h));
+        }
         collect_block_ordinal_kv(&writer_store, kvs, &block);
         collect_chunk_hashes_kvs(&writer_store, kvs, &block);
         for chunk_header in block.chunks().iter_raw() {
@@ -997,13 +1047,9 @@ fn writer_kvs(
         }
     }
 
-    // The row keyed by genesis's prev hash, which no block hashes to, so the loop above
-    // cannot reach it. Node init writes it on both sides and no blob carries it.
-    let genesis_prev_key = CryptoHash::default().as_ref().to_vec();
-    let value = writer
-        .get(DBCol::NextBlockHashes, &genesis_prev_key)
-        .expect("node init writes the row genesis's prev hash keys");
-    in_scope.get_mut(&DBCol::NextBlockHashes).unwrap().insert(genesis_prev_key, value.to_vec());
+    collect_epoch_kvs(writer, &mut in_scope, &mut out_of_scope, &epoch_first_heights, start, end);
+
+    collect_genesis_prev_hash_kvs(writer, &mut in_scope);
 
     // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
     // reader row and confirms these checks catch it.

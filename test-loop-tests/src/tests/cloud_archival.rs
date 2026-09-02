@@ -1602,6 +1602,49 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     h.shutdown();
 }
 
+/// Verifies that the reader's store holds the epoch-keyed columns that close an epoch.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_reader_reconstructs_epoch_columns() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(6);
+    // Past the epochs a node writes info for while initializing from genesis, so the
+    // parity walk compares rows only the blob could have supplied.
+    let start = 3 * h.epoch_length + h.epoch_length / 2;
+    let target = 5 * h.epoch_length;
+    h.bootstrap_historical_reader(start, target);
+    h.assert_reader_writer_parity(Reader::Historical, start, target);
+
+    let reader = h.historical_reader_store();
+    let writer = h.writer_store();
+
+    for col in [DBCol::EpochInfo, DBCol::EpochValidatorInfo, DBCol::EpochLightClientBlocks] {
+        let mut compared = 0;
+        for (key, value) in reader.iter(col) {
+            let expected = writer
+                .get(col, key.as_ref())
+                .unwrap_or_else(|| panic!("{col} row {key:?} is not the writer's"));
+            assert_eq!(value.as_ref(), expected.as_ref(), "{col} value differs for {key:?}");
+            compared += 1;
+        }
+        assert!(compared > 0, "reader holds no {col} row");
+    }
+
+    // Each blob also writes the epoch above its own, which a node needs to resolve the
+    // epoch of the block a head names, so the newest epoch pulled adds one more.
+    const GENESIS_INIT_EPOCH_INFOS: usize = 2;
+    let epochs_pulled = reader.iter(DBCol::EpochStart).count();
+    let epoch_infos = reader.iter(DBCol::EpochInfo).count();
+    assert_eq!(
+        epoch_infos,
+        epochs_pulled + 1 + GENESIS_INIT_EPOCH_INFOS,
+        "reader holds {epoch_infos} EpochInfo rows for {epochs_pulled} epochs pulled",
+    );
+
+    h.kill_historical_reader();
+    h.shutdown();
+}
+
 /// Verifies that the reader's store has a row per shard in the per-shard cold columns, at
 /// every height in the range.
 #[test]
