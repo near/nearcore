@@ -176,7 +176,7 @@ fn test_rpc_query_unknown_access_key_error_format() {
             let error_msg = value["error"].as_str().unwrap();
             assert_eq!(
                 error_msg,
-                format!("Access key for public key {bogus_key} does not exist while viewing"),
+                format!("access key {bogus_key} does not exist while viewing"),
                 "an existing account must report the key, not the account: {error_msg}"
             );
         }
