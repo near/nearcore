@@ -3,14 +3,19 @@
 mod fetchable;
 mod item;
 
-pub(crate) use fetchable::{AssembledDataError, DataPolicy, ReceiptProofPolicy};
+pub(crate) use fetchable::DataPolicy;
+use fetchable::ReceiptProofPolicy;
 pub use item::DataId;
-pub(crate) use item::{AssemblyError, SpiceData, VerifiedCodedPart};
+pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, Item, PartInsertResult};
 use near_async::time::Clock;
+use near_chain::Error;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{BTreeMap, HashMap};
 
 #[cfg(test)]
@@ -20,41 +25,62 @@ mod tests;
 pub(crate) enum DataManagerError {
     #[error("no item tracks this data")]
     UnknownItem,
-    #[error("commitment decoded to garbage")]
-    GarbageCommitment,
-    #[error(transparent)]
-    Assembly(#[from] AssemblyError),
-    #[error("assembled data doesn't match its id: {0}")]
-    AssembledData(#[from] AssembledDataError),
+    #[error("commitment decoded to garbage: {0}")]
+    GarbageCommitment(AssembledDataError),
+    #[error("item is not collecting")]
+    NotCollecting,
+    #[error("item is not waiting for a verification result")]
+    NotDelivered,
+    #[error("part merkle proof does not verify against the commitment root")]
+    InvalidMerkleProof,
+    #[error("part ordinal is out of range")]
+    InvalidOrdinal,
+    #[error("part was verified against a different total parts count")]
+    WrongTotalParts,
+    #[error("part length does not match the commitment's encoded length")]
+    WrongPartLength,
+    #[error("sender already backed another commitment")]
+    ConflictingCommitment,
+    #[error("commitment was rejected after validation")]
+    BannedCommitment,
+}
+
+/// Outcome of accepting parts for an item.
+#[must_use]
+#[derive(Debug)]
+pub(crate) enum ReceivedParts {
+    /// Parts accepted; the item is still collecting.
+    Collecting,
+    /// The parts completed the item; the data is handed to the consumer.
+    Complete(SpiceData),
+    /// No item tracks the id, or the item is past collecting (delivered or processed).
+    NotWanted,
 }
 
 /// The per-data-type policies, one per [`DataId`] variant.
 pub(crate) struct Policies {
-    pub(crate) receipt_proofs: ReceiptProofPolicy,
+    receipt_proofs: ReceiptProofPolicy,
 }
 
-/// Each method dispatches to the policy of `id`'s data type; see [`DataPolicy`] for
-/// the contracts.
 impl Policies {
+    pub(crate) fn new(chain_store: ChainStoreAdapter, shard_tracker: ShardTracker) -> Self {
+        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, shard_tracker) }
+    }
+
     fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
         match id {
             DataId::ReceiptProof { .. } => &self.receipt_proofs,
         }
     }
+}
 
-    fn classify_at_seed(
-        &self,
-        id: &DataId,
-        block: &near_chain::Block,
-    ) -> Result<bool, near_chain::Error> {
-        self.for_id(id).classify_at_seed(id, block)
+/// Dispatches each call to the policy of `id`'s data type.
+impl DataPolicy for Policies {
+    fn should_fetch(&self, id: &DataId, block: &BlockHeader) -> Result<bool, Error> {
+        self.for_id(id).should_fetch(id, block)
     }
 
-    fn verify_assembled(&self, id: &DataId, data: &SpiceData) -> Result<(), AssembledDataError> {
-        self.for_id(id).verify_assembled(id, data)
-    }
-
-    fn is_done(&self, id: &DataId) -> Result<bool, near_chain::Error> {
+    fn is_done(&self, id: &DataId) -> Result<bool, Error> {
         self.for_id(id).is_done(id)
     }
 }
@@ -70,7 +96,7 @@ pub(crate) struct SpiceDataManager {
     policies: Policies,
     /// All tracked items, in any state.
     items: HashMap<DataId, Item>,
-    /// Ids of tracked items, indexed by their block's height as captured at seed time
+    /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
     /// Highest final execution head reported; `None` until the first report. Items at
     /// or below it can never be applied.
@@ -96,21 +122,17 @@ impl SpiceDataManager {
     }
 
     /// Starts tracking `id` if this node needs it and doesn't already have or track it.
-    /// Idempotent. `block` is the id's block.
-    pub(crate) fn seed(
-        &mut self,
-        id: DataId,
-        block: &near_chain::Block,
-    ) -> Result<(), near_chain::Error> {
+    /// Idempotent. `block` is the id's block header.
+    pub(crate) fn track_if_needed(&mut self, id: DataId, block: &BlockHeader) -> Result<(), Error> {
         if self.items.contains_key(&id) {
             return Ok(());
         }
-        let height = block.header().height();
+        let height = block.height();
         // The chain is past the block, so the data can never be applied.
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
-        if !self.policies.classify_at_seed(&id, block)? || self.policies.is_done(&id)? {
+        if !self.policies.should_fetch(&id, block)? || self.policies.is_done(&id)? {
             return Ok(());
         }
         self.items_by_height.entry(height).or_default().push(id.clone());
@@ -119,89 +141,67 @@ impl SpiceDataManager {
     }
 
     /// The only insert path for received units. Verifies each part against the
-    /// commitment, inserts, and on a completing insert checks the assembled data
-    /// against its id: a mismatch bans the commitment on the spot, a match returns the
+    /// commitment and inserts it. A completing insert checks the decoded data against
+    /// the committed hash and the id: a failure bans the commitment, a match returns the
     /// data for handoff to the consumer, leaving the item parked until the consumer's
-    /// (local) verification result arrives.
-    pub(crate) fn on_data_received(
+    /// (local) verification result arrives. Errors are attributable to the sender.
+    pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
         id: &DataId,
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
         total_parts: usize,
-    ) -> Result<Option<SpiceData>, DataManagerError> {
+    ) -> Result<ReceivedParts, DataManagerError> {
         let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
-            return Err(DataManagerError::UnknownItem);
+            return Ok(ReceivedParts::NotWanted);
         };
         let encoder = self.encoders.entry(total_parts);
-        let mut decoded = None;
         // TODO(spice-data-distribution): verify every part before inserting any; today
         // the first bad part aborts the loop without undoing earlier inserts (#16275).
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
             let verified =
                 VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)?;
-            match item.insert_part(&self.clock, &encoder, sender, verified)? {
-                PartInsertResult::Complete(data) => {
-                    decoded = Some(data);
-                    break;
-                }
-                PartInsertResult::Garbage { contributors } => {
+            match item.insert_part(&self.clock, &encoder, id, sender, verified) {
+                Ok(PartInsertResult::Complete(data)) => return Ok(ReceivedParts::Complete(data)),
+                Ok(PartInsertResult::Garbage { contributors, error }) => {
                     tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "commitment decoded to garbage");
-                    return Err(DataManagerError::GarbageCommitment);
+                    return Err(DataManagerError::GarbageCommitment(error));
                 }
-                PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
+                Ok(PartInsertResult::Accepted | PartInsertResult::Duplicate) => {}
+                Err(DataManagerError::NotCollecting) => return Ok(ReceivedParts::NotWanted),
+                Err(err) => return Err(err),
             }
         }
-        let Some(data) = decoded else {
-            return Ok(None);
-        };
-
-        if let Err(err) = self.policies.verify_assembled(id, &data) {
-            let contributors = item
-                .mark_failed(commitment)
-                .expect("a completing insert leaves the item delivered");
-            tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "assembled data doesn't match its id");
-            return Err(err.into());
-        }
-        Ok(Some(data))
+        Ok(ReceivedParts::Collecting)
     }
 
-    /// Consumer validated and persisted the delivered data. A verification result for an expired
-    /// item or a commitment other than the delivered one is rejected without effect.
-    pub(crate) fn on_verified(
-        &mut self,
-        id: &DataId,
-        commitment: &SpiceDataCommitment,
-    ) -> Result<(), DataManagerError> {
+    /// Consumer validated and persisted the delivered data (so `is_done` holds for it from now on).
+    /// A verification result for an expired item is rejected without effect.
+    pub(crate) fn on_verified(&mut self, id: &DataId) -> Result<(), DataManagerError> {
         let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
             return Err(DataManagerError::UnknownItem);
         };
-        item.mark_verified(commitment)?;
+        item.mark_verified()?;
         Ok(())
     }
 
-    /// Consumer rejected the delivered data: the decoded commitment is banned and
-    /// collecting resumes from the remaining trackers. A verification result for an expired item or
-    /// a commitment other than the delivered one is rejected without effect.
-    pub(crate) fn on_failed(
-        &mut self,
-        id: &DataId,
-        commitment: &SpiceDataCommitment,
-    ) -> Result<(), DataManagerError> {
+    /// Consumer rejected the delivered data: the delivered commitment is banned and
+    /// collecting resumes from the remaining trackers. A verification result for an
+    /// expired item is rejected without effect.
+    pub(crate) fn on_failed(&mut self, id: &DataId) -> Result<(), DataManagerError> {
         let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
             return Err(DataManagerError::UnknownItem);
         };
         // TODO(spice-data-distribution): feed the contributors into reputation (#16275).
-        let contributors = item.mark_failed(commitment)?;
+        let contributors = item.mark_failed()?;
         tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "delivered data failed consumer validation");
         Ok(())
     }
 
     /// The final execution head advanced: the chain is past every item at or below it,
-    /// so their data can no longer be applied. Removes them, and [`Self::seed`] refuses
-    /// them from now on. Index entries whose item is gone or lives at another height
-    /// are stale and skipped.
+    /// so their data can no longer be applied. Removes them, and [`Self::track_if_needed`] refuses
+    /// them from now on.
     pub(crate) fn on_final_execution_head(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));
         let Some(next_height) = height.checked_add(1) else {
@@ -211,15 +211,9 @@ impl SpiceDataManager {
         let expired = std::mem::replace(&mut self.items_by_height, live);
         for (bucket_height, ids) in expired {
             for id in ids {
-                // TODO(spice-data-distribution): expire produce items here too once they
-                // exist — skipping them while their index bucket is discarded would leak
-                // them (#16275).
-                let Some(Item::Fetch(item)) = self.items.get(&id) else {
-                    continue;
-                };
-                if item.height != bucket_height {
-                    continue;
-                }
+                let Item::Fetch(item) =
+                    self.items.get(&id).expect("index entry names a tracked item");
+                assert_eq!(item.height, bucket_height, "index entry height matches its item");
                 self.items.remove(&id);
             }
         }

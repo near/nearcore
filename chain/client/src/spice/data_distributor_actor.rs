@@ -8,8 +8,7 @@ use crate::spice::chunk_validator_actor::{
 };
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
-    AssemblyError, DataManagerError, Policies, ReceiptProofPolicy, SpiceData, SpiceDataManager,
-    VerifiedCodedPart,
+    DataManagerError, Policies, ReceivedParts, SpiceData, SpiceDataManager, VerifiedCodedPart,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -329,32 +328,31 @@ pub struct SpiceDistributorStateWitness {
     pub contract_accesses: HashSet<CodeHash>,
 }
 
-/// Consumer's semantic verification result on data the engine delivered, reported back so the item
-/// can settle. `commitment` is the one the delivered data decoded from.
+/// Consumer's verification result on data the engine delivered.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DataVerification {
-    pub data_id: DataId,
-    pub commitment: SpiceDataCommitment,
-    pub verification_result: Result<(), VerificationFailure>,
+pub enum DataVerification {
+    /// Consumer verified and persisted the delivered data.
+    Ok(DataId),
+    /// Consumer verified the delivered data and found it invalid. Reporting it bans
+    /// the decoded commitment, so it must never mean the check could not run.
+    Failed(DataId),
 }
 
-/// Consumer verified the delivered data and found it invalid. Reporting it bans
-/// the decoded commitment, so it must never mean the check could not run.
-#[derive(Debug, Clone, PartialEq)]
-pub struct VerificationFailure;
-
 impl Handler<DataVerification> for SpiceDataDistributorActor {
-    fn handle(
-        &mut self,
-        DataVerification { data_id, commitment, verification_result }: DataVerification,
-    ) {
-        let result = match verification_result {
-            Ok(()) => self.data_manager.on_verified(&data_id, &commitment),
-            Err(VerificationFailure) => self.data_manager.on_failed(&data_id, &commitment),
+    fn handle(&mut self, verification: DataVerification) {
+        let (data_id, result) = match verification {
+            DataVerification::Ok(data_id) => {
+                let result = self.data_manager.on_verified(&data_id);
+                (data_id, result)
+            }
+            DataVerification::Failed(data_id) => {
+                let result = self.data_manager.on_failed(&data_id);
+                (data_id, result)
+            }
         };
         if let Err(err) = result {
             // A verification result can race item expiry, so failing to apply one is not an error.
-            tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring data verification result");
+            tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring expired data verification result");
         }
     }
 }
@@ -533,9 +531,7 @@ impl SpiceDataDistributorActor {
         let data_manager = SpiceDataManager::new(
             clock,
             DATA_PARTS_RATIO,
-            Policies {
-                receipt_proofs: ReceiptProofPolicy::new(chain_store.clone(), shard_tracker.clone()),
-            },
+            Policies::new(chain_store.clone(), shard_tracker.clone()),
         );
         Self {
             data_manager,
@@ -780,42 +776,30 @@ impl SpiceDataDistributorActor {
             return Err(Error::SenderIsNotProducer);
         }
 
-        // It's possible that items weren't seeded yet if we received data after block
+        // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
         self.start_waiting_on_data(block.hash())?;
 
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
-                let data_id = DataId::ReceiptProof {
-                    source: SpiceChunkId { block_hash: *block_hash, shard_id: *from_shard_id },
-                    to_shard: *to_shard_id,
-                };
-                match self.data_manager.on_data_received(
+                let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
+                match self.data_manager.on_parts_received(
                     &sender,
                     &data_id,
                     &commitment,
                     parts,
                     producers.len(),
                 ) {
-                    Ok(Some(SpiceData::ReceiptProof(receipt_proof))) => {
-                        self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
-                            data_id,
-                            receipt_proof,
-                            commitment,
-                        });
+                    Ok(ReceivedParts::Complete(SpiceData::ReceiptProof(receipt_proof))) => {
+                        self.executor_sender
+                            .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
                         Ok(())
                     }
-                    Ok(Some(SpiceData::StateWitness(_))) => {
-                        unreachable!("verify_assembled matched the data against a receipt-proof id")
+                    Ok(ReceivedParts::Complete(SpiceData::StateWitness(_))) => {
+                        unreachable!("decode checked the data against its receipt-proof id")
                     }
-                    Ok(None) => Ok(()),
-                    // No item: not needed, already done, or expired. Parked
-                    // (`NotCollecting`): delivered and awaiting verification. Both mean
-                    // this data is not wanted now, which is not the sender's fault.
-                    Err(
-                        DataManagerError::UnknownItem
-                        | DataManagerError::Assembly(AssemblyError::NotCollecting),
-                    ) => Err(Error::DataIsIrrelevant(id)),
+                    Ok(ReceivedParts::Collecting) => Ok(()),
+                    Ok(ReceivedParts::NotWanted) => Err(Error::DataIsIrrelevant(id)),
                     Err(err) => Err(err.into()),
                 }
             }
@@ -1462,14 +1446,11 @@ impl SpiceDataDistributorActor {
 
         // TODO(spice-resharding): Handle resharding
         // TODO(perf): this is O(shards²) and runs on every incoming partial-data message;
-        // consider memoizing the per-block seed pass if shards count grow.
+        // consider memoizing the per-block tracking pass if shards count grow.
         for from_shard_id in shard_layout.shard_ids() {
             for to_shard_id in shard_layout.shard_ids() {
-                let id = DataId::ReceiptProof {
-                    source: SpiceChunkId { block_hash: *block_hash, shard_id: from_shard_id },
-                    to_shard: to_shard_id,
-                };
-                self.data_manager.seed(id, &block)?;
+                let id = DataId::receipt_proof(*block_hash, from_shard_id, to_shard_id);
+                self.data_manager.track_if_needed(id, block.header())?;
             }
         }
         Ok(())

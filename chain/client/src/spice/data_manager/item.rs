@@ -1,6 +1,7 @@
+use super::DataManagerError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Clock, Instant};
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderDeserialize,
@@ -23,6 +24,34 @@ pub enum DataId {
     /// destination. Produced by `source`'s producers, needed by next-block producers of
     /// `to_shard`.
     ReceiptProof { source: SpiceChunkId, to_shard: ShardId },
+}
+
+impl DataId {
+    pub fn receipt_proof(
+        block_hash: CryptoHash,
+        from_shard_id: ShardId,
+        to_shard_id: ShardId,
+    ) -> Self {
+        Self::ReceiptProof {
+            source: SpiceChunkId { block_hash, shard_id: from_shard_id },
+            to_shard: to_shard_id,
+        }
+    }
+
+    /// Checks that decoded data is the data this id names.
+    pub(crate) fn verify_data(&self, data: &SpiceData) -> Result<(), AssembledDataError> {
+        let DataId::ReceiptProof { source, to_shard } = self;
+        let SpiceData::ReceiptProof(proof) = data else {
+            return Err(AssembledDataError::IdAndDataMismatch);
+        };
+        if &proof.1.to_shard_id != to_shard {
+            return Err(AssembledDataError::InvalidToShardId);
+        }
+        if proof.1.from_shard_id != source.shard_id {
+            return Err(AssembledDataError::InvalidFromShardId);
+        }
+        Ok(())
+    }
 }
 
 /// One tracked piece of data.
@@ -49,8 +78,8 @@ pub(crate) enum FetchState {
     WaitingForPush,
     /// At least one unit arrived, or speculative pulling started.
     Collecting(Assembly),
-    /// Assembled data handed to the consumer; parked until its verdict, so a re-pushed
-    /// part cannot deliver twice. `residual` keeps the incomplete trackers.
+    /// Assembled data handed to the consumer; parked until its verification result, so a
+    /// re-pushed part cannot deliver twice. `residual` keeps the incomplete trackers.
     Delivered { attribution: DataAttribution, residual: Assembly },
     /// Consumer verified and persisted the artifact; terminal until expiry. The
     /// attribution stays because a fault can be discovered after local verification (for example the
@@ -108,29 +137,30 @@ impl FetchItem {
 
     /// Opens a waiting item on its first part; a completing part parks the item in
     /// `Delivered` in the same call. `NotCollecting` means the item is parked awaiting
-    /// a verdict or already processed.
+    /// a verification result or already processed.
     // TODO(spice-data-distribution): consider accepting parts into the residual while
     // parked in `Delivered`, rejecting only a would-be-completing part; today all parts
-    // are rejected and a failed verdict recovers via an immediate pull.
+    // are rejected and a failed verification recovers via an immediate pull.
     pub(crate) fn insert_part(
         &mut self,
         clock: &Clock,
         encoder: &Arc<ReedSolomonEncoder>,
+        id: &DataId,
         sender: &AccountId,
         verified: VerifiedCodedPart,
-    ) -> Result<PartInsertResult, AssemblyError> {
+    ) -> Result<PartInsertResult, DataManagerError> {
         let commitment = verified.commitment.clone();
         let result = match &mut self.state {
             FetchState::WaitingForPush => {
                 // a rejected part must leave a waiting item waiting, so promote
                 // only after the insert succeeds
                 let mut assembly = Assembly::new(encoder.clone());
-                let result = assembly.insert_part(sender, verified)?;
+                let result = assembly.insert_part(id, sender, verified)?;
                 self.state = FetchState::Collecting(assembly);
                 result
             }
-            FetchState::Collecting(assembly) => assembly.insert_part(sender, verified)?,
-            _ => return Err(AssemblyError::NotCollecting),
+            FetchState::Collecting(assembly) => assembly.insert_part(id, sender, verified)?,
+            _ => return Err(DataManagerError::NotCollecting),
         };
         let FetchState::Collecting(assembly) = &self.state else {
             unreachable!("an accepted insert leaves the item collecting");
@@ -160,41 +190,21 @@ impl FetchItem {
         Ok(result)
     }
 
-    /// Marks the delivered data as verified. A `commitment` other than the
-    /// delivered one is rejected as stale.
-    pub(crate) fn mark_verified(
-        &mut self,
-        commitment: &SpiceDataCommitment,
-    ) -> Result<(), AssemblyError> {
+    /// Marks the delivered data as verified.
+    pub(crate) fn mark_verified(&mut self) -> Result<(), DataManagerError> {
         transition(&mut self.state, |state| match state {
-            FetchState::Delivered { attribution, residual } => {
-                if &attribution.decoded != commitment {
-                    return (
-                        FetchState::Delivered { attribution, residual },
-                        Err(AssemblyError::CommitmentMismatch),
-                    );
-                }
+            FetchState::Delivered { attribution, .. } => {
                 (FetchState::ProcessedLocally { attribution }, Ok(()))
             }
-            state => (state, Err(AssemblyError::NotDelivered)),
+            state => (state, Err(DataManagerError::NotDelivered)),
         })
     }
 
     /// Marks the delivered data as failed: bans the decoded commitment and resumes
-    /// collecting from the residual. A `commitment` other than the delivered one is
-    /// rejected as stale.
-    pub(crate) fn mark_failed(
-        &mut self,
-        commitment: &SpiceDataCommitment,
-    ) -> Result<HashSet<AccountId>, AssemblyError> {
+    /// collecting from the residual.
+    pub(crate) fn mark_failed(&mut self) -> Result<HashSet<AccountId>, DataManagerError> {
         transition(&mut self.state, |state| match state {
             FetchState::Delivered { attribution, mut residual } => {
-                if &attribution.decoded != commitment {
-                    return (
-                        FetchState::Delivered { attribution, residual },
-                        Err(AssemblyError::CommitmentMismatch),
-                    );
-                }
                 let contributors = attribution.contributors();
                 residual.ban(attribution.decoded);
                 // an empty residual means the only evidence was the banned commitment's
@@ -204,7 +214,7 @@ impl FetchItem {
                 }
                 (FetchState::Collecting(residual), Ok(contributors))
             }
-            state => (state, Err(AssemblyError::NotDelivered)),
+            state => (state, Err(DataManagerError::NotDelivered)),
         })
     }
 }
@@ -227,7 +237,7 @@ impl VerifiedCodedPart {
         ordinal: u64,
         part: Box<[u8]>,
         merkle_proof: &MerklePath,
-    ) -> Result<Self, AssemblyError> {
+    ) -> Result<Self, DataManagerError> {
         if !verify_path_with_index(
             commitment.root,
             merkle_proof,
@@ -235,9 +245,9 @@ impl VerifiedCodedPart {
             ordinal,
             total_parts as u64,
         ) {
-            return Err(AssemblyError::InvalidMerkleProof);
+            return Err(DataManagerError::InvalidMerkleProof);
         }
-        let ordinal = usize::try_from(ordinal).map_err(|_| AssemblyError::InvalidOrdinal)?;
+        let ordinal = usize::try_from(ordinal).map_err(|_| DataManagerError::InvalidOrdinal)?;
         Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
@@ -256,7 +266,7 @@ pub(crate) struct Assembly {
     encoder: Arc<ReedSolomonEncoder>,
     /// One tracker per commitment; a sender may back only one, which bounds the trackers.
     trackers: HashMap<SpiceDataCommitment, CodedTracker>,
-    /// Commitments rejected for this item — a failed consumer verdict or a garbage
+    /// Commitments rejected for this item — a failed consumer verification or a garbage
     /// decode. Parts under them are rejected on arrival.
     banned: HashSet<SpiceDataCommitment>,
     /// The one commitment each sender provided parts for. Outlives the trackers, so a
@@ -288,12 +298,13 @@ impl Assembly {
     /// insert; a completed tracker never survives the call that completed it.
     pub(crate) fn insert_part(
         &mut self,
+        id: &DataId,
         sender: &AccountId,
         verified: VerifiedCodedPart,
-    ) -> Result<PartInsertResult, AssemblyError> {
+    ) -> Result<PartInsertResult, DataManagerError> {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
         if self.banned.contains(&commitment) {
-            return Err(AssemblyError::BannedCommitment);
+            return Err(DataManagerError::BannedCommitment);
         }
         debug_assert!(
             !self.trackers.values().any(CodedTracker::is_complete),
@@ -301,23 +312,23 @@ impl Assembly {
         );
         // equal widths plus a verified proof imply the ordinal is in range
         if total_parts != self.encoder.total_parts() {
-            return Err(AssemblyError::WrongTotalParts);
+            return Err(DataManagerError::WrongTotalParts);
         }
         if self.commitment_by_sender.get(sender).is_some_and(|provided| provided != &commitment) {
-            return Err(AssemblyError::ConflictingCommitment);
+            return Err(DataManagerError::ConflictingCommitment);
         }
         // TODO(spice-data-distribution): cap encoded_length against the max payload size;
         // the only cap today is MAX_ENCODED_LENGTH inside the decode.
         let encoded_length =
             usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
         if part.len() != reed_solomon_part_length(encoded_length, self.encoder.data_parts()) {
-            return Err(AssemblyError::WrongPartLength);
+            return Err(DataManagerError::WrongPartLength);
         }
         let tracker = self
             .trackers
             .entry(commitment.clone())
             .or_insert_with(|| CodedTracker::new(self.encoder.clone(), commitment.clone()));
-        let result = tracker.insert_part(ordinal, part, sender)?;
+        let result = tracker.insert_part(id, ordinal, part, sender)?;
         self.commitment_by_sender.insert(sender.clone(), commitment.clone());
         if matches!(result, PartInsertResult::Garbage { .. }) {
             self.trackers.remove(&commitment);
@@ -386,30 +397,33 @@ impl CodedTracker {
 
     fn insert_part(
         &mut self,
+        id: &DataId,
         ordinal: usize,
         part: Box<[u8]>,
         sender: &AccountId,
-    ) -> Result<PartInsertResult, AssemblyError> {
+    ) -> Result<PartInsertResult, DataManagerError> {
         match self.parts.insert_part(ordinal, part, None) {
             InsertPartResult::Accepted => {
                 self.senders[ordinal] = Some(sender.clone());
                 Ok(PartInsertResult::Accepted)
             }
             InsertPartResult::PartAlreadyAvailable => Ok(PartInsertResult::Duplicate),
-            InsertPartResult::InvalidPartOrd => Err(AssemblyError::InvalidOrdinal),
+            InsertPartResult::InvalidPartOrd => Err(DataManagerError::InvalidOrdinal),
             InsertPartResult::Decoded(result) => {
                 self.senders[ordinal] = Some(sender.clone());
-                Ok(match result {
-                    Ok(data) if hash(&borsh::to_vec(&data).unwrap()) == self.commitment.hash => {
-                        PartInsertResult::Complete(data)
-                    }
-                    Ok(_) => {
-                        tracing::warn!(target: "spice_data_distribution", "decoded data does not match the committed hash");
-                        PartInsertResult::Garbage { contributors: self.contributors() }
-                    }
+                let checked =
+                    result.map_err(|_| AssembledDataError::Undecodable).and_then(|data| {
+                        if hash(&borsh::to_vec(&data).unwrap()) != self.commitment.hash {
+                            return Err(AssembledDataError::HashMismatch);
+                        }
+                        id.verify_data(&data)?;
+                        Ok(data)
+                    });
+                Ok(match checked {
+                    Ok(data) => PartInsertResult::Complete(data),
                     Err(error) => {
-                        tracing::warn!(target: "spice_data_distribution", ?error, "decoding assembled data failed");
-                        PartInsertResult::Garbage { contributors: self.contributors() }
+                        tracing::debug!(target: "spice_data_distribution", ?error, "commitment decoded to garbage");
+                        PartInsertResult::Garbage { contributors: self.contributors(), error }
                     }
                 })
             }
@@ -438,35 +452,29 @@ impl CodedTracker {
 pub(crate) enum PartInsertResult {
     Accepted,
     Duplicate,
-    /// The commitment decoded to this data and it matches the committed hash.
+    /// The commitment decoded to this data, which matches the committed hash and the id.
     Complete(SpiceData),
-    /// The commitment reached K parts but yielded no data matching its hash — a failed
-    /// decode or a hash mismatch. Carries the list of accounts provided parts for it.
+    /// The commitment reached K parts but yielded no data matching its hash and id;
+    /// `error` is the check that failed. Carries the accounts that provided parts for it.
     Garbage {
         contributors: HashSet<AccountId>,
+        error: AssembledDataError,
     },
 }
 
+/// Why decoded data was rejected.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AssemblyError {
-    #[error("item is not collecting")]
-    NotCollecting,
-    #[error("item is not waiting for a verdict")]
-    NotDelivered,
-    #[error("verification is about a commitment other than the delivered one")]
-    CommitmentMismatch,
-    #[error("part merkle proof does not verify against the commitment root")]
-    InvalidMerkleProof,
-    #[error("part ordinal is out of range")]
-    InvalidOrdinal,
-    #[error("part was verified against a different total parts count")]
-    WrongTotalParts,
-    #[error("part length does not match the commitment's encoded length")]
-    WrongPartLength,
-    #[error("sender already backed another commitment")]
-    ConflictingCommitment,
-    #[error("commitment was rejected after validation")]
-    BannedCommitment,
+pub(crate) enum AssembledDataError {
+    #[error("decoding assembled data failed")]
+    Undecodable,
+    #[error("decoded data does not match the committed hash")]
+    HashMismatch,
+    #[error("decoded data doesn't match id")]
+    IdAndDataMismatch,
+    #[error("decoded receipt proof to_shard_id is invalid")]
+    InvalidToShardId,
+    #[error("decoded receipt proof from_shard_id is invalid")]
+    InvalidFromShardId,
 }
 
 /// Decoded commitment bundled with accounts which provided its parts.

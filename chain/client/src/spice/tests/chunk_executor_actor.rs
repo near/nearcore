@@ -3,10 +3,10 @@ use crate::spice::chunk_executor_actor::{
     ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
+use crate::spice::data_distributor_actor::DataVerification;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
-use crate::spice::data_distributor_actor::{DataVerification, VerificationFailure};
 use crate::spice::data_manager::DataId;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
@@ -39,13 +39,12 @@ use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
@@ -356,24 +355,14 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
             for receipt_proof in receipt_proofs {
                 actors.iter_mut().for_each(|actor| {
                     if actor.actor.validator_signer.get().is_some() {
-                        // These tests bypass real distribution, so there is no real commitment
-                        // The verification result it would attribute goes to a noop sender anyway.
-                        let commitment = SpiceDataCommitment {
-                            hash: CryptoHash::default(),
-                            root: CryptoHash::default(),
-                            encoded_length: 0,
-                        };
-                        let data_id = DataId::ReceiptProof {
-                            source: SpiceChunkId {
-                                block_hash: *block_hash,
-                                shard_id: receipt_proof.1.from_shard_id,
-                            },
-                            to_shard: receipt_proof.1.to_shard_id,
-                        };
+                        let data_id = DataId::receipt_proof(
+                            *block_hash,
+                            receipt_proof.1.from_shard_id,
+                            receipt_proof.1.to_shard_id,
+                        );
                         actor.handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
                             data_id,
                             receipt_proof: receipt_proof.clone(),
-                            commitment,
                         });
                     }
                 });
@@ -922,39 +911,29 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_verifying_a_network_receipt_reports_verified_with_its_commitment() {
+fn test_verifying_a_network_receipt_reports_verified() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
-    let blocks = produce_n_blocks(&mut actors, 1);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
-        assert!(block_executed(&actor, &blocks[0]));
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        assert!(block_executed(&actor, &block));
     }
-    record_endorsements(&mut actors, &blocks[0]);
+    record_endorsements(&mut actors, &block);
     let receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
-    let commitment = SpiceDataCommitment {
-        hash: hash(b"receipt proof commitment"),
-        root: CryptoHash::default(),
-        encoded_length: 42,
-    };
-    let data_id = DataId::ReceiptProof {
-        source: SpiceChunkId {
-            block_hash: *blocks[0].hash(),
-            shard_id: receipt_proof.1.from_shard_id,
-        },
-        to_shard: receipt_proof.1.to_shard_id,
-    };
+    let data_id = DataId::receipt_proof(
+        *block.hash(),
+        receipt_proof.1.from_shard_id,
+        receipt_proof.1.to_shard_id,
+    );
 
     actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
         data_id: data_id.clone(),
         receipt_proof,
-        commitment: commitment.clone(),
     });
 
-    assert_eq!(
-        drain_verifications(&mut outgoing_rc),
-        vec![DataVerification { data_id, commitment, verification_result: Ok(()) }]
-    );
+    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Ok(data_id)]);
 }
 
 #[test]
@@ -962,44 +941,30 @@ fn test_verifying_a_network_receipt_reports_verified_with_its_commitment() {
 fn test_verifying_an_invalid_network_receipt_reports_failed() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
-    let blocks = produce_n_blocks(&mut actors, 1);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
-        assert!(block_executed(&actor, &blocks[0]));
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        assert!(block_executed(&actor, &block));
     }
-    record_endorsements(&mut actors, &blocks[0]);
+    record_endorsements(&mut actors, &block);
     let mut receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
     receipt_proof.0.push(Receipt::new_balance_refund(
         &AccountId::from_str("test1").unwrap(),
         Balance::from_near(1),
     ));
-    let commitment = SpiceDataCommitment {
-        hash: hash(b"receipt proof commitment"),
-        root: CryptoHash::default(),
-        encoded_length: 42,
-    };
-    let data_id = DataId::ReceiptProof {
-        source: SpiceChunkId {
-            block_hash: *blocks[0].hash(),
-            shard_id: receipt_proof.1.from_shard_id,
-        },
-        to_shard: receipt_proof.1.to_shard_id,
-    };
+    let data_id = DataId::receipt_proof(
+        *block.hash(),
+        receipt_proof.1.from_shard_id,
+        receipt_proof.1.to_shard_id,
+    );
 
     actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
         data_id: data_id.clone(),
         receipt_proof,
-        commitment: commitment.clone(),
     });
 
-    assert_eq!(
-        drain_verifications(&mut outgoing_rc),
-        vec![DataVerification {
-            data_id,
-            commitment,
-            verification_result: Err(VerificationFailure)
-        }]
-    );
+    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Failed(data_id)]);
 }
 
 /// First receipt proof the actors sent out; drops every other queued message.
