@@ -1,7 +1,6 @@
 use near_chain::types::{HasContract, PendingConstraints, PendingTxCheckResult};
 use near_crypto::PublicKeyHandle;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::id::AccountType;
 use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -68,36 +67,26 @@ impl ShardedPendingTransactionQueue {
 }
 
 /// What a pending nonce is scoped to: the account, the key carrying the nonce,
-/// and a `NonceIndex` selecting one of a gas key's nonces.
+/// and a `NonceIndex` selecting one of a gas key's nonces. The key is absent for
+/// a self-signed universal state init, which has no access key yet.
 ///
-/// The key is absent for a self-signed universal state init, which has no access
-/// key yet. Keys are stored as handles rather than full public keys: a handle is
-/// what the trie holds, and for ML-DSA-65 it is a 32-byte hash in place of a
-/// 1952-byte key.
-type NonceKey = (AccountId, Option<PublicKeyHandle>, Option<NonceIndex>);
+/// Keys are stored as handles rather than full public keys: a handle is what the
+/// trie holds, and for ML-DSA-65 it is a 32-byte hash in place of a 1952-byte key.
+type NonceScope = (AccountId, Option<PublicKeyHandle>, Option<NonceIndex>);
 
 /// A gas key, which unlike a nonce scope always names a key of its own.
 type GasKey = (AccountId, PublicKeyHandle);
 
-/// The scope a transaction's nonce is recorded under.
-///
-/// A self-signed universal state init is recorded against the account alone: its
-/// nonce lives on the account and is shared by every key the state init commits
-/// to, so recording it under the signing key would let a second one, signed by a
-/// sibling committed key at the same nonce, slip past the floor.
-///
-/// Decided from the transaction's shape alone, so a state-init-shaped transaction
-/// against an account that is already initialized lands in the account scope too.
-/// That one is authorized by its access key and does succeed, since a repeat state
-/// init skips the install and settles the deposit, so its nonce must not go
-/// unseen: [`PendingTransactionQueue::query_pending_state`] reads both scopes and
-/// takes the larger. The account floor then bounds the account's other keys too,
-/// which is what a real bootstrap needs and merely conservative here.
-fn nonce_key(tx: &Transaction) -> NonceKey {
-    if tx.is_state_init_bootstrap() {
-        return (tx.signer_id().clone(), None, None);
-    }
-    (tx.signer_id().clone(), Some(tx.public_key().into()), tx.nonce().nonce_index())
+/// The scope of a nonce carried by an access or gas key.
+fn key_nonce_scope(tx: &Transaction, key_handle: &PublicKeyHandle) -> NonceScope {
+    (tx.signer_id().clone(), Some(key_handle.clone()), tx.nonce().nonce_index())
+}
+
+/// The nonce scope of a bootstrap-shaped transaction (i.e. self-signed state init).
+/// It is scoped by account ID only, because the bootstrap nonce lives in the account
+/// and is shared by all potential access keys for that account.
+fn bootstrap_nonce_scope(account_id: &AccountId) -> NonceScope {
+    (account_id.clone(), None, None)
 }
 
 /// Per-shard pending transaction queue. Tracks transactions that have been
@@ -108,13 +97,13 @@ pub struct PendingTransactionQueue {
     chunks: HashMap<CryptoHash, PendingChunkData>,
     /// Per-account aggregates (P_MAX counts, balance commitments).
     pending_accounts: HashMap<AccountId, PendingAccount>,
-    /// Nonce tracking, per [`NonceKey`].
-    pending_nonces: HashMap<NonceKey, PendingNonce>,
+    /// Nonce tracking, per [`NonceScope`].
+    pending_nonces: HashMap<NonceScope, PendingNonce>,
     /// Per-gas-key cost. Includes gas_key_cost from gas key txs + WithdrawFromGasKey amounts.
     pending_gas_key_costs: HashMap<GasKey, Balance>,
 }
 
-/// Nonce tracking for a single [`NonceKey`]. Stores each
+/// Nonce tracking for a single [`NonceScope`]. Stores each
 /// contributing chunk's max nonce as a sorted multiset, so `max_nonce()`
 /// reflects only currently-uncertified chunks. In case a chunk contains an
 /// invalid transaction, this limits its impact to only that chunk.
@@ -156,8 +145,8 @@ impl PendingNonce {
 struct PendingChunkData {
     /// Per-account aggregates for this chunk.
     accounts: HashMap<AccountId, PendingAccount>,
-    /// Max nonce for this chunk, per [`NonceKey`].
-    nonces: HashMap<NonceKey, Nonce>,
+    /// Max nonce for this chunk, per [`NonceScope`].
+    nonces: HashMap<NonceScope, Nonce>,
     /// Per-gas-key costs for this chunk (gas_key_cost + WithdrawFromGasKey).
     gas_key_costs: HashMap<GasKey, Balance>,
 }
@@ -280,6 +269,7 @@ impl PendingTransactionQueue {
             let nonce_index = tx.nonce().nonce_index();
             let nonce = tx.nonce().nonce();
             let is_gas_key_tx = nonce_index.is_some();
+            let key_handle = PublicKeyHandle::from(tx.public_key());
 
             let cost = match tx_cost(config, tx, gas_price) {
                 Ok(cost) => cost,
@@ -313,7 +303,7 @@ impl PendingTransactionQueue {
             if is_gas_key_tx {
                 let gas_key_entry = chunk_data
                     .gas_key_costs
-                    .entry((signer_id.clone(), tx.public_key().into()))
+                    .entry((signer_id.clone(), key_handle.clone()))
                     .or_insert(Balance::ZERO);
                 *gas_key_entry = gas_key_entry.saturating_add(cost.gas_cost);
             }
@@ -329,8 +319,14 @@ impl PendingTransactionQueue {
                 }
             }
 
-            let max_nonce = chunk_data.nonces.entry(nonce_key(tx)).or_insert(0);
-            *max_nonce = max(*max_nonce, nonce);
+            let mut record_nonce = |scope| {
+                let max_nonce = chunk_data.nonces.entry(scope).or_insert(0);
+                *max_nonce = max(*max_nonce, nonce);
+            };
+            record_nonce(key_nonce_scope(tx, &key_handle));
+            if tx.is_state_init_bootstrap() {
+                record_nonce(bootstrap_nonce_scope(signer_id));
+            }
         }
 
         // Merge chunk data into pending transaction queue totals.
@@ -409,23 +405,29 @@ impl PendingTransactionQueue {
     /// Extract constraints for a given transaction without Skip/Admit logic.
     /// Used by the RPC handler for balance/nonce verification against certified state.
     pub fn get_pending_constraints(&self, tx: &SignedTransaction) -> PendingConstraints {
-        let snapshot = self.query_pending_state(&tx.transaction);
+        let key_handle = PublicKeyHandle::from(tx.transaction.public_key());
+        let snapshot = self.query_pending_state(&tx.transaction, &key_handle);
         PendingConstraints {
             paid_from_balance: snapshot.paid_from_balance,
             paid_from_gas_key: snapshot.pending_gas_key_cost,
             max_nonce: snapshot.max_nonce,
+            max_bootstrap_nonce: snapshot.max_bootstrap_nonce,
         }
     }
 
     /// Highest nonce any uncertified chunk holds for `scope`, 0 if none does.
-    fn max_pending_nonce(&self, scope: &NonceKey) -> Nonce {
+    fn max_pending_nonce(&self, scope: &NonceScope) -> Nonce {
         self.pending_nonces.get(scope).map(|n| n.max_nonce()).unwrap_or(0)
     }
 
     /// Query pending state for a single transaction. Extracts the counts and
     /// constraints needed by `PendingTxSession::check_pending`. This is called
     /// under the lock and should be fast.
-    fn query_pending_state(&self, tx: &Transaction) -> PendingStateSnapshot {
+    fn query_pending_state(
+        &self,
+        tx: &Transaction,
+        key_handle: &PublicKeyHandle,
+    ) -> PendingStateSnapshot {
         let signer_id = tx.signer_id();
         let pending_account = self.pending_accounts.get(signer_id);
         let access_key_tx_count = pending_account.map(|a| a.access_key_tx_count).unwrap_or(0);
@@ -433,30 +435,21 @@ impl PendingTransactionQueue {
         let paid_from_balance =
             pending_account.map(|a| a.paid_from_balance).unwrap_or(Balance::ZERO);
 
-        let gas_key = (signer_id.clone(), tx.public_key().into());
+        let gas_key = (signer_id.clone(), key_handle.clone());
         let pending_gas_key_cost =
             self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
 
-        // Both scopes the transaction can fall under, larger wins: its own key,
-        // and the account, where a self-signed state init records its nonce (see
-        // `nonce_key`). Reading both is what keeps the shape check off this path,
-        // which holds the lock and would otherwise hash and borsh-decode a state
-        // init per query, on a transaction anyone can submit to the RPC.
-        let nonce_index = tx.nonce().nonce_index();
-        let key_scope = (signer_id.clone(), Some(tx.public_key().into()), nonce_index);
-        let mut max_nonce = self.max_pending_nonce(&key_scope);
-        // A state init is never a gas-key transaction, so the account scope
-        // bounds access-key nonces only, never a gas key's own counter.
-        if nonce_index.is_none() && signer_id.get_account_type() == AccountType::UniversalAccount {
-            let account_scope = (signer_id.clone(), None, None);
-            max_nonce = max(max_nonce, self.max_pending_nonce(&account_scope));
-        }
+        let max_nonce = self.max_pending_nonce(&key_nonce_scope(tx, key_handle));
+        // Kept apart from `max_nonce` so it reaches only the reader it belongs to,
+        // which is a still uninitialized account (see `bootstrap_nonce_scope`).
+        let max_bootstrap_nonce = self.max_pending_nonce(&bootstrap_nonce_scope(signer_id));
 
         PendingStateSnapshot {
             access_key_tx_count,
             deploy_tx_count,
             paid_from_balance,
             max_nonce,
+            max_bootstrap_nonce,
             pending_gas_key_cost,
         }
     }
@@ -470,6 +463,7 @@ struct PendingStateSnapshot {
     deploy_tx_count: usize,
     paid_from_balance: Balance,
     max_nonce: Nonce,
+    max_bootstrap_nonce: Nonce,
     pending_gas_key_cost: Balance,
 }
 
@@ -521,11 +515,13 @@ impl PendingTxSession {
         let signer_id = tx.transaction.signer_id();
         let nonce_index = tx.transaction.nonce().nonce_index();
         let is_gas_key_tx = nonce_index.is_some();
+        // Derived before taking the lock: for ML-DSA-65 this hashes a 1952-byte key.
+        let key_handle = PublicKeyHandle::from(tx.transaction.public_key());
 
         let snapshot = {
             let guard = self.pending_transaction_queue.lock();
             match guard.get(&self.shard_uid) {
-                Some(ptq) => ptq.query_pending_state(&tx.transaction),
+                Some(ptq) => ptq.query_pending_state(&tx.transaction, &key_handle),
                 None => PendingStateSnapshot::default(),
             }
         };
@@ -555,7 +551,7 @@ impl PendingTxSession {
         }
 
         // Build constraints for runtime validation.
-        let gas_key = (signer_id.clone(), tx.transaction.public_key().into());
+        let gas_key = (signer_id.clone(), key_handle);
         let session_gas_key_withdrawal =
             self.session_gas_key_withdrawals.get(&gas_key).copied().unwrap_or(Balance::ZERO);
         let paid_from_gas_key =
@@ -592,6 +588,7 @@ impl PendingTxSession {
             paid_from_balance: snapshot.paid_from_balance,
             paid_from_gas_key,
             max_nonce: snapshot.max_nonce,
+            max_bootstrap_nonce: snapshot.max_bootstrap_nonce,
         })
     }
 }
@@ -712,6 +709,15 @@ mod tests {
         PendingTxSession::new(Arc::clone(sharded), TEST_SHARD_UID)
     }
 
+    /// `query_pending_state` with the key handle its callers derive for it.
+    fn query_pending(
+        ptq: &PendingTransactionQueue,
+        tx: &SignedTransaction,
+    ) -> PendingStateSnapshot {
+        let key_handle = PublicKeyHandle::from(tx.transaction.public_key());
+        ptq.query_pending_state(&tx.transaction, &key_handle)
+    }
+
     /// Two signers and one `0u` id: the state init commits to both keys, so
     /// either is authorized to bootstrap the account its hash derives to.
     /// Returns the derived id, both signers under that id, and one self-signed
@@ -763,48 +769,69 @@ mod tests {
         let (account_id, _, [first, second]) = make_self_signed_init_txs(7);
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[first], &config, TEST_GAS_PRICE);
 
-        let account_scope = (account_id, None, None);
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(
-                ptq.pending_nonces.get(&account_scope).map(|pending| pending.max_nonce()),
+                ptq.pending_nonces
+                    .get(&bootstrap_nonce_scope(&account_id))
+                    .map(|pending| pending.max_nonce()),
                 Some(7),
-                "the nonce belongs to the account, not to the key that signed"
+                "the nonce belongs to the account, not only to the key that signed"
             );
         });
 
-        let snapshot = with_shard_ptq(&sharded, |ptq| ptq.query_pending_state(&second.transaction));
-        assert_eq!(snapshot.max_nonce, 7, "the sibling committed key must see the same floor");
+        let snapshot = with_shard_ptq(&sharded, |ptq| query_pending(ptq, &second));
+        assert_eq!(
+            snapshot.max_bootstrap_nonce, 7,
+            "the sibling committed key must see the same floor"
+        );
     }
 
-    /// Same, within one chunk: the two inits merge into a single entry rather
-    /// than one per key, so neither can be counted twice.
+    /// Same, within one chunk: the two inits merge into a single account entry
+    /// rather than one per key, so neither can be counted twice.
     #[test]
     fn test_two_self_signed_inits_in_one_chunk_share_one_floor() {
         let config = RuntimeConfig::test();
         let sharded = make_sharded_ptq();
-        let (_, _, txs) = make_self_signed_init_txs(7);
+        let (account_id, _, txs) = make_self_signed_init_txs(7);
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &txs, &config, TEST_GAS_PRICE);
 
         with_shard_ptq(&sharded, |ptq| {
-            assert_eq!(ptq.pending_nonces.len(), 1, "one entry per account, not one per key");
+            let pending = ptq.pending_nonces.get(&bootstrap_nonce_scope(&account_id)).unwrap();
+            assert_eq!(pending.chunk_count(), 1, "one entry per account, not one per key");
+            assert_eq!(pending.max_nonce(), 7);
         });
     }
 
-    /// The account scope must not hide the nonce from the key that signed for it.
-    /// A state-init-shaped transaction against an initialized account succeeds by
-    /// its access key, spending that key's nonce, so an ordinary transaction from
-    /// the same key has to see the floor the init left behind.
+    /// The account scope must not be the only record of the nonce. A state-init
+    /// shaped transaction against an initialized account succeeds by its access
+    /// key, spending that key's nonce, so an ordinary transaction from the same
+    /// key has to see the floor the init left behind.
     #[test]
-    fn test_a_state_init_floor_is_visible_to_its_signing_key() {
+    fn test_state_init_floor_is_visible_to_its_signing_key() {
         let config = RuntimeConfig::test();
         let sharded = make_sharded_ptq();
         let (_, [signer, _], [init, _]) = make_self_signed_init_txs(7);
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[init], &config, TEST_GAS_PRICE);
 
         let ordinary = make_transfer_tx(&signer, "bob.near", 7, TEST_DEPOSIT);
-        let snapshot =
-            with_shard_ptq(&sharded, |ptq| ptq.query_pending_state(&ordinary.transaction));
-        assert_eq!(snapshot.max_nonce, 7, "the signing key must see the account's floor");
+        let snapshot = with_shard_ptq(&sharded, |ptq| query_pending(ptq, &ordinary));
+        assert_eq!(snapshot.max_nonce, 7, "the signing key must see the nonce it spent");
+    }
+
+    /// The other side of that: the floor an init leaves on the account is reported
+    /// on its own, so it cannot reach the keys that did not sign it. Only a still
+    /// uninitialized account reads it, and there is nothing else to sign with there.
+    #[test]
+    fn test_state_init_does_not_bound_a_sibling_key() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let (_, [_, sibling], [init, _]) = make_self_signed_init_txs(7);
+        add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[init], &config, TEST_GAS_PRICE);
+
+        let ordinary = make_transfer_tx(&sibling, "bob.near", 3, TEST_DEPOSIT);
+        let snapshot = with_shard_ptq(&sharded, |ptq| query_pending(ptq, &ordinary));
+        assert_eq!(snapshot.max_nonce, 0, "a key that spent no nonce keeps its own floor");
+        assert_eq!(snapshot.max_bootstrap_nonce, 7, "while the account's floor still stands");
     }
 
     /// The nonce scope holds a key *handle*, and for ML-DSA-65 that handle is a
@@ -826,14 +853,13 @@ mod tests {
             TEST_GAS_PRICE,
         );
 
-        let snapshot = with_shard_ptq(&sharded, |ptq| ptq.query_pending_state(&tx.transaction));
+        let snapshot = with_shard_ptq(&sharded, |ptq| query_pending(ptq, &tx));
         assert_eq!(snapshot.max_nonce, 9, "an ML-DSA-65 nonce must be found by its handle");
 
-        let key_scope =
-            (signer.get_account_id(), Some(PublicKeyHandle::from(signer.public_key())), None);
+        let key_handle = PublicKeyHandle::from(signer.public_key());
         with_shard_ptq(&sharded, |ptq| {
             assert!(
-                ptq.pending_nonces.contains_key(&key_scope),
+                ptq.pending_nonces.contains_key(&key_nonce_scope(&tx.transaction, &key_handle)),
                 "the entry must be keyed by the handle, not the full key"
             );
         });
@@ -852,8 +878,7 @@ mod tests {
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[tx], &config, TEST_GAS_PRICE);
 
         let other_tx = make_transfer_tx(&other, "bob.near", 5, TEST_DEPOSIT);
-        let snapshot =
-            with_shard_ptq(&sharded, |ptq| ptq.query_pending_state(&other_tx.transaction));
+        let snapshot = with_shard_ptq(&sharded, |ptq| query_pending(ptq, &other_tx));
         assert_eq!(snapshot.max_nonce, 0, "a different key must not inherit the floor");
     }
 
@@ -1100,6 +1125,7 @@ mod tests {
                 paid_from_balance: expected_cost,
                 paid_from_gas_key: Balance::ZERO,
                 max_nonce: 1,
+                max_bootstrap_nonce: 0,
             }),
         );
     }
@@ -1127,6 +1153,7 @@ mod tests {
                     paid_from_balance: expected_cost.saturating_add(expected_cost2),
                     paid_from_gas_key: Balance::ZERO,
                     max_nonce: 2,
+                    max_bootstrap_nonce: 0,
                 },
             );
         });

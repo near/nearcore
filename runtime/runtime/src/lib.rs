@@ -254,15 +254,23 @@ pub struct PendingConstraints {
     /// targeting this key.
     pub paid_from_gas_key: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
-    /// nonce_index) combination. A self-signed universal state init is counted
-    /// against the account instead, since its nonce lives there rather than on
-    /// a key, so for such an account this can exceed what the key alone owes.
+    /// nonce_index) combination.
     pub max_nonce: Nonce,
+    /// Maximum nonce seen among pending self-signed universal state inits from
+    /// this account. Their nonce lives on the account rather than on a key, so
+    /// it is tracked apart from `max_nonce` and read only while the account is
+    /// still uninitialized, where it is the only nonce there is.
+    pub max_bootstrap_nonce: Nonce,
 }
 
 impl Default for PendingConstraints {
     fn default() -> Self {
-        Self { paid_from_balance: Balance::ZERO, paid_from_gas_key: Balance::ZERO, max_nonce: 0 }
+        Self {
+            paid_from_balance: Balance::ZERO,
+            paid_from_gas_key: Balance::ZERO,
+            max_nonce: 0,
+            max_bootstrap_nonce: 0,
+        }
     }
 }
 

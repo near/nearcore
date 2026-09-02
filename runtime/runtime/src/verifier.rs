@@ -468,7 +468,9 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     // once the account is initialized. Forcing Strict also lets a V0
     // transaction bootstrap, since V0 cannot express a nonce mode at all.
     let tx_nonce = tx.nonce().nonce();
-    let effective_nonce = std::cmp::max(current_nonce, pending.max_nonce);
+    // The bootstrap nonce is the account's, so the floor is too: `max_nonce` is
+    // scoped to the signing key, and the state init commits to several.
+    let effective_nonce = std::cmp::max(current_nonce, pending.max_bootstrap_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, NonceMode::Strict) {
         return TxVerdict::Failed(e);
     }
@@ -790,11 +792,11 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, Signer};
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
-    use near_primitives::action::TransferToGasKeyAction;
+    use near_primitives::action::{TransferToGasKeyAction, UniversalStateInitAction};
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -809,10 +811,13 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NonceIndex, StateChangeCause,
     };
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::derive_universal_account_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::collections::BTreeSet;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -2519,6 +2524,75 @@ mod tests {
                 public_key: Box::new(signer.public_key()),
             })
         );
+    }
+
+    /// The floor a bootstrap is held to is the account's, not the signing key's.
+    /// Both are pending values, and the queue records a bootstrap under both
+    /// scopes, so for an uninitialized account the account scope is never behind
+    /// the key's: ignoring `max_nonce` here loses nothing. Reading it *instead*
+    /// would, since the state init commits to several keys and a second init
+    /// signed by a sibling one would find that key's scope empty.
+    #[test]
+    fn test_bootstrap_nonce_floor_is_account_scoped() {
+        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+            return;
+        }
+        let config = RuntimeConfig::test();
+        let gas_price = Balance::from_yoctonear(5000);
+        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // to the transaction nonce matters, since no block height is passed.
+        const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+        // The account id is the hash of the state init, so the key comes first,
+        // under a placeholder that the seeded key does not depend on.
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: Default::default(),
+            access_keys: BTreeSet::from([PublicKeyHandle::from(signer.public_key())]),
+        });
+        let raw_state_init = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw_state_init);
+        let account = Account::new_uninitialized(TESTING_INIT_BALANCE, 100, BOOTSTRAP_NONCE);
+        let signed_tx = SignedTransaction::from_actions(
+            BOOTSTRAP_NONCE + 1,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw_state_init,
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let tx = &signed_tx.transaction;
+        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let verify = |pending| {
+            verify_and_charge_bootstrap_tx_ephemeral(&config, &account, tx, &cost, None, &pending)
+        };
+
+        // A pending bootstrap at the same nonce, whoever signed it, is the floor.
+        let account_floor = PendingConstraints {
+            max_bootstrap_nonce: BOOTSTRAP_NONCE + 1,
+            ..PendingConstraints::default()
+        };
+        let TxVerdict::Failed(err) = verify(account_floor) else {
+            panic!("a pending bootstrap at the same nonce must be the floor")
+        };
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce {
+                tx_nonce: BOOTSTRAP_NONCE + 1,
+                ak_nonce: BOOTSTRAP_NONCE + 1,
+            }
+        );
+
+        // The key-scoped floor belongs to a nonce this transaction does not carry.
+        let key_floor =
+            PendingConstraints { max_nonce: BOOTSTRAP_NONCE + 1, ..PendingConstraints::default() };
+        assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
     }
 
     #[test]
