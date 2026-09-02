@@ -4,10 +4,12 @@ use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
@@ -152,6 +154,37 @@ pub fn synthesize_execution_result_and_receipt_proofs(
     ))
 }
 
+/// The execution result of shard `shard_id`'s previous chunk, read off the chunk
+/// header the pre-spice `block` carries for that shard.
+pub fn execution_result_from_pre_spice_child(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<Option<ChunkExecutionResult>, Error> {
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
+    let chunks = block.chunks();
+    let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
+    if !chunk_header.is_new_chunk(block.header().height()) {
+        return Ok(None);
+    }
+    let chunk_extra = ChunkExtra::new(
+        &chunk_header.prev_state_root(),
+        *chunk_header.prev_outcome_root(),
+        chunk_header.prev_validator_proposals().collect(),
+        chunk_header.prev_gas_used(),
+        chunk_header.gas_limit(),
+        chunk_header.prev_balance_burnt(),
+        Some(chunk_header.congestion_info()),
+        chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        chunk_header.proposed_split().cloned(),
+    );
+    Ok(Some(ChunkExecutionResult {
+        chunk_extra,
+        outgoing_receipts_root: *chunk_header.prev_outgoing_receipts_root(),
+    }))
+}
+
 /// Tripwire against the two sources of truth at the boundary: a certified execution
 /// result of a pre-spice chunk must match what this node synthesizes from its own
 /// pre-spice apply.
@@ -184,23 +217,30 @@ pub fn check_pre_spice_execution_result(
 #[cfg(test)]
 mod tests {
     use super::{
-        boundary_uncertified_chunks, check_pre_spice_execution_result, synthesize_execution_result,
+        boundary_uncertified_chunks, check_pre_spice_execution_result,
+        execution_result_from_pre_spice_child, synthesize_execution_result,
     };
     use crate::spice::core::{SpiceCoreReader, save_uncertified_chunks};
     use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
     use crate::{Block, Chain};
     use near_async::time::Clock;
     use near_chain_configs::Genesis;
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::epoch_block_info::BlockInfo;
+    use near_primitives::gas::Gas;
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::merklize;
     use near_primitives::receipt::Receipt;
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
     };
     use near_primitives::types::Balance;
     use near_primitives::types::SpiceChunkId;
     use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
@@ -427,5 +467,96 @@ mod tests {
             &forged,
         )
         .unwrap();
+    }
+
+    /// Every field of the reconstructed result must come from the corresponding
+    /// prev_* header field, and a missing chunk (header carried over from an older
+    /// block) must yield `None` rather than the older chunk's stale fields.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_execution_result_from_pre_spice_child() {
+        let signer = Arc::new(create_test_signer("test1"));
+        let mut genesis =
+            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
+        genesis.config.protocol_version = pre_spice_protocol_version();
+        let chain = get_chain_with_genesis(Clock::real(), genesis);
+        let epoch_manager = chain.epoch_manager.clone();
+        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let shard_layout =
+            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // A header with every prev_* field distinct, so a swapped mapping cannot pass.
+        let proposals = vec![ValidatorStake::new(
+            "test1".parse().unwrap(),
+            SecretKey::from_seed(KeyType::ED25519, "test1").public_key(),
+            Balance::from_yoctonear(17),
+        )];
+        let congestion_info = CongestionInfo::default();
+        let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            *genesis_block.hash(),
+            CryptoHash::hash_bytes(b"state root"),
+            CryptoHash::hash_bytes(b"outcome root"),
+            CryptoHash::default(),
+            0,
+            1,
+            shard_id,
+            Gas::from_gas(7),
+            Gas::from_gas(1_000_000),
+            Balance::from_yoctonear(42),
+            CryptoHash::hash_bytes(b"receipts root"),
+            CryptoHash::default(),
+            proposals.clone(),
+            congestion_info,
+            BandwidthRequests::empty(),
+            None,
+            &signer,
+            pre_spice_protocol_version(),
+        ));
+        *chunk_header.height_included_mut() = 1;
+        let block_with_chunk = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            genesis_block.as_ref(),
+            signer.clone(),
+        )
+        .chunks(vec![chunk_header])
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+
+        let result = execution_result_from_pre_spice_child(
+            epoch_manager.as_ref(),
+            &block_with_chunk,
+            shard_id,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.chunk_extra.state_root(), &CryptoHash::hash_bytes(b"state root"));
+        assert_eq!(result.chunk_extra.outcome_root(), &CryptoHash::hash_bytes(b"outcome root"));
+        assert_eq!(result.chunk_extra.validator_proposals().collect::<Vec<_>>(), proposals,);
+        assert_eq!(result.chunk_extra.gas_used(), Gas::from_gas(7));
+        assert_eq!(result.chunk_extra.gas_limit(), Gas::from_gas(1_000_000));
+        assert_eq!(result.chunk_extra.balance_burnt(), Balance::from_yoctonear(42));
+        assert_eq!(result.chunk_extra.congestion_info(), congestion_info);
+        assert_eq!(result.chunk_extra.bandwidth_requests(), Some(&BandwidthRequests::empty()));
+        assert_eq!(result.chunk_extra.proposed_split(), None);
+        assert_eq!(result.outgoing_receipts_root, CryptoHash::hash_bytes(b"receipts root"));
+
+        // The next block carries the same header (chunk missing): no result.
+        let block_missing_chunk = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            block_with_chunk.as_ref(),
+            signer.clone(),
+        )
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+        assert_eq!(
+            execution_result_from_pre_spice_child(
+                epoch_manager.as_ref(),
+                &block_missing_chunk,
+                shard_id,
+            )
+            .unwrap(),
+            None,
+        );
     }
 }
