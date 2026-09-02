@@ -3,7 +3,8 @@ use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
-use crate::types::{RuntimeAdapter, StorageDataSource};
+use crate::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use crate::update_shard::{OldChunkData, OldChunkResult, apply_old_chunk};
 use crate::validate::validate_chunk_proofs;
 use crate::{Chain, ChainStore};
 use itertools::Itertools;
@@ -15,7 +16,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
 };
@@ -31,12 +32,15 @@ use tracing::Span;
 
 pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
+    /// Contexts for the old-chunk replays of a boundary witness whose chunk is
+    /// missing in its block, oldest first, derived from on-chain blocks. Empty
+    /// otherwise. See `SpiceChunkStateWitnessV1::implicit_boundary_transitions`.
+    implicit_transition_params: Vec<(ApplyChunkBlockContext, ShardUId)>,
 }
 
 pub fn spice_pre_validate_chunk_state_witness(
     state_witness: &SpiceChunkStateWitness,
     block: &Block,
-    prev_block: &Block,
     prev_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
@@ -56,17 +60,56 @@ pub fn spice_pre_validate_chunk_state_witness(
         )));
     }
 
+    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
+    // witnesses. Execution results for genesis can be calculated on each node on their own.
+    if block.header().is_genesis() {
+        return Err(Error::InvalidChunkStateWitness(
+            "State witness is for genesis block".to_string(),
+        ));
+    }
+
     let chunks = block.chunks();
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     let chunk_header = chunks.get(shard_index).unwrap();
 
+    // On a pre-spice block whose chunk is missing, the
+    // witness's main transition applies the shard's last included chunk and replays every
+    // block after the anchor's as an implicit old-chunk transition. Otherwise the
+    // anchor is the block itself and there is nothing to replay.
+    let (anchor_block, replay_blocks) =
+        if !block.is_spice_block() && !chunk_header.is_new_chunk(block.header().height()) {
+            let mut replay_blocks = Vec::new();
+            let mut anchor_block = store.get_block(block.hash())?;
+            while anchor_block.header().height() > chunk_header.height_included() {
+                replay_blocks.push(anchor_block.clone());
+                anchor_block = store.get_block(anchor_block.header().prev_hash())?;
+            }
+            replay_blocks.reverse();
+            (anchor_block, replay_blocks)
+        } else {
+            (store.get_block(block.hash())?, Vec::new())
+        };
+    let anchor_prev_block = store.get_block(anchor_block.header().prev_hash())?;
+    let anchor_epoch_id = epoch_manager.get_epoch_id(anchor_block.header().hash())?;
+    let anchor_shard_layout = epoch_manager.get_shard_layout(&anchor_epoch_id)?;
+
+    let mut implicit_transition_params = Vec::with_capacity(replay_blocks.len());
+    for replay_block in &replay_blocks {
+        let replay_prev_header = store.get_block_header(replay_block.header().prev_hash())?;
+        let block_context =
+            Chain::get_apply_chunk_block_context(replay_block, &replay_prev_header, false);
+        let replay_epoch_id = epoch_manager.get_epoch_id(replay_block.header().hash())?;
+        let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &replay_epoch_id)?;
+        implicit_transition_params.push((block_context, shard_uid));
+    }
+
     // Ensure that the chunk header version is supported in this protocol version
-    if chunk_header.is_new_chunk(block.header().height()) {
-        let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
+    if chunk_header.is_new_chunk(anchor_block.header().height()) {
+        let protocol_version = epoch_manager.get_epoch_info(&anchor_epoch_id)?.protocol_version();
         chunk_header.validate_version(protocol_version)?;
     }
 
-    let prev_block_header = prev_block.header();
+    let prev_block_header = anchor_prev_block.header();
 
     // TODO(spice-resharding): Handle resharding, same as part of implicit_transition_params in
     // non-spice validation. See
@@ -75,10 +118,10 @@ pub fn spice_pre_validate_chunk_state_witness(
     let receipts_to_apply = validate_source_receipts_proofs(
         &state_witness.source_receipt_proofs(),
         prev_execution_results,
-        &shard_layout,
+        &anchor_shard_layout,
         shard_id,
-        &prev_block,
-        &block,
+        &anchor_prev_block,
+        &anchor_block,
         epoch_manager,
     )?;
     let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
@@ -95,7 +138,7 @@ pub fn spice_pre_validate_chunk_state_witness(
                 "proof_of_invalid_chunk provided with non-empty transactions".to_string(),
             ));
         }
-        if !chunk_header.is_new_chunk(block.header().height()) {
+        if !chunk_header.is_new_chunk(anchor_block.header().height()) {
             return Err(Error::InvalidChunkStateWitness(
                 "proof_of_invalid_chunk provided for non-new chunk".to_string(),
             ));
@@ -103,7 +146,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         verify_proof_of_invalid_chunk(proof, chunk_header, epoch_manager)?;
     } else {
         let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions());
-        let chunk_tx_root = if chunk_header.is_new_chunk(block.header().height()) {
+        let chunk_tx_root = if chunk_header.is_new_chunk(anchor_block.header().height()) {
             *chunk_header.tx_root()
         } else {
             // Missing chunks are treated as empty chunks.
@@ -128,18 +171,10 @@ pub fn spice_pre_validate_chunk_state_witness(
         })
         .collect::<Vec<_>>();
 
-    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
-    // witnesses. Execution results for genesis can be calculated on each node on their own.
-    if block.header().is_genesis() {
-        return Err(Error::InvalidChunkStateWitness(
-            "State witness is for genesis block".to_string(),
-        ));
-    }
-
     let new_chunk_data = {
         let prev_chunk_chunk_extra = {
-            let (_, prev_shard_id, _prev_shard_index) =
-                epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+            let (_, prev_shard_id, _prev_shard_index) = epoch_manager
+                .get_prev_shard_id_from_prev_hash(anchor_prev_block.hash(), shard_id)?;
             let prev_execution_result = prev_execution_results
                 .0
                 .get(&prev_shard_id)
@@ -154,7 +189,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             state_patch: Default::default(),
         };
         let block_context = if !block.is_spice_block() {
-            Chain::get_apply_chunk_block_context(block, prev_block.header(), true)
+            Chain::get_apply_chunk_block_context(&anchor_block, anchor_prev_block.header(), true)
         } else {
             build_spice_apply_chunk_block_context(
                 block.header(),
@@ -166,7 +201,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
             prev_validator_proposals,
-            chunk_hash: if chunk_header.is_new_chunk(block.header().height()) {
+            chunk_hash: if chunk_header.is_new_chunk(anchor_block.header().height()) {
                 Some(chunk_header.chunk_hash().clone())
             } else {
                 None
@@ -181,7 +216,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(SpicePreValidationOutput { new_chunk_data })
+    Ok(SpicePreValidationOutput { new_chunk_data, implicit_transition_params })
 }
 
 #[tracing::instrument(
@@ -227,6 +262,51 @@ pub fn spice_validate_chunk_state_witness(
 
         (chunk_extra, outgoing_receipts)
     };
+
+    // Replay the boundary witness's implicit old-chunk transitions on top of the anchor transition
+    let implicit_transition_params = pre_validation_output.implicit_transition_params;
+    if implicit_transition_params.len() != state_witness.implicit_boundary_transitions().len() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Implicit transitions count mismatch. Expected {}, found {}",
+            implicit_transition_params.len(),
+            state_witness.implicit_boundary_transitions().len(),
+        )));
+    }
+    let mut chunk_extra = chunk_extra;
+    for ((block_context, transition_shard_uid), transition) in implicit_transition_params
+        .into_iter()
+        .zip(state_witness.implicit_boundary_transitions().iter())
+    {
+        let transition_block_hash = transition.block_hash;
+        let old_chunk_data = OldChunkData {
+            prev_chunk_extra: chunk_extra.clone(),
+            block: block_context,
+            storage_context: StorageContext {
+                storage_data_source: StorageDataSource::Recorded(PartialStorage {
+                    nodes: transition.base_state.clone(),
+                }),
+                state_patch: Default::default(),
+            },
+        };
+        let OldChunkResult { apply_result, .. } = apply_old_chunk(
+            ApplyChunkReason::ValidateChunkStateWitness,
+            &Span::current(),
+            old_chunk_data,
+            ShardContext { shard_uid: transition_shard_uid, should_apply_chunk: false },
+            runtime_adapter,
+            // Recorded-storage replay; no memtrie path.
+            MaybePinnedMemtrieRoot::no_memtries(),
+        )?;
+        chunk_extra = chunk_extra.next_for_old_chunk(apply_result.new_root);
+        if chunk_extra.state_root() != &transition.post_state_root {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Post state root {:?} for implicit transition at block {:?} does not match expected state root {:?}",
+                chunk_extra.state_root(),
+                transition_block_hash,
+                transition.post_state_root,
+            )));
+        }
+    }
 
     // TODO(spice-resharding): Handle possible resharding transitions.
 
@@ -633,7 +713,6 @@ mod tests {
         let result = spice_pre_validate_chunk_state_witness(
             &invalid_witness,
             &genesis,
-            &genesis,
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
@@ -676,7 +755,6 @@ mod tests {
         let result = spice_pre_validate_chunk_state_witness(
             &invalid_witness,
             &block,
-            &genesis,
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
@@ -1350,7 +1428,6 @@ mod tests {
             let pre_validation_output = spice_pre_validate_chunk_state_witness(
                 &state_witness,
                 &block,
-                &prev_block,
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
@@ -1382,7 +1459,6 @@ mod tests {
             spice_pre_validate_chunk_state_witness(
                 state_witness,
                 &block,
-                &prev_block,
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
