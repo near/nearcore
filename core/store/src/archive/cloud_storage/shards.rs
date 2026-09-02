@@ -65,9 +65,8 @@ pub struct NewChunkData {
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
     /// Read from `DBCol::ProcessedReceiptIds`.
     processed_receipts: Vec<ProcessedReceiptMetadata>,
-    /// Bodies of the receipts this chunk applied without sending, which no chunk
-    /// carries, so `DBCol::Receipts` cannot be rebuilt from the chunk alone.
-    unsent_receipts: Vec<Receipt>,
+    /// Bodies of the receipts `processed_receipts` names, read from `DBCol::Receipts`.
+    processed_receipt_bodies: Vec<Receipt>,
     /// Earlier value of each key in `state_changes`. `None` if not computed.
     inverse_state_changes: Option<InverseStateChanges>,
 }
@@ -93,8 +92,8 @@ impl NewChunkData {
         &self.processed_receipts
     }
 
-    pub fn unsent_receipts(&self) -> &[Receipt] {
-        &self.unsent_receipts
+    pub fn processed_receipt_bodies(&self) -> &[Receipt] {
+        &self.processed_receipt_bodies
     }
 }
 
@@ -190,7 +189,7 @@ fn build_shard_data(
         build_transaction_result_for_block(store, &block_hash, shard_id)?;
     let processed_receipts = chain_store.get_processed_receipt_ids(&block_hash, shard_id)?.to_vec();
     let receipt_to_tx = build_receipt_to_tx(store, &processed_receipts)?;
-    let unsent_receipts = build_unsent_receipts(store, &processed_receipts)?;
+    let processed_receipt_bodies = build_processed_receipt_bodies(store, &processed_receipts)?;
 
     Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
         block_hash,
@@ -203,7 +202,7 @@ fn build_shard_data(
         transaction_result_for_block,
         receipt_to_tx,
         processed_receipts,
-        unsent_receipts,
+        processed_receipt_bodies,
         inverse_state_changes,
     }))))
 }
@@ -250,31 +249,26 @@ fn build_receipt_to_tx(
     Ok(receipt_to_tx)
 }
 
-/// Bodies of the processed receipts no chunk carries, so a reader can reproduce their
-/// `DBCol::Receipts` rows.
-fn build_unsent_receipts(
+/// Bodies of the processed receipts, so a reader can reproduce their `DBCol::Receipts`
+/// rows.
+fn build_processed_receipt_bodies(
     store: &Store,
     processed_receipts: &[ProcessedReceiptMetadata],
 ) -> Result<Vec<Receipt>, Error> {
     let chain_store = store.chain_store();
-    let mut unsent = Vec::new();
+    let mut bodies = Vec::new();
     for metadata in processed_receipts {
-        match metadata.source() {
-            // Their bodies are in no chunk, so only the blob can carry them.
-            ReceiptSource::Local | ReceiptSource::Instant => {}
-            // Already carried as some chunk's outgoing receipt.
-            ReceiptSource::Delayed => continue,
-            // An index marker with no receipt of its own.
-            ReceiptSource::ReceiptToTxGc => continue,
+        if !metadata.source().has_receipt_body() {
+            continue;
         }
         let receipt_id = *metadata.receipt_id();
         let receipt = option_to_not_found(
             chain_store.get_receipt(&receipt_id),
-            format_args!("UNSENT RECEIPT: receipt_id {receipt_id}"),
+            format_args!("PROCESSED RECEIPT BODY: receipt_id {receipt_id}"),
         )?;
-        unsent.push(Receipt::clone(&receipt));
+        bodies.push(Receipt::clone(&receipt));
     }
-    Ok(unsent)
+    Ok(bodies)
 }
 
 // TODO(cloud_archival) Consider calling this function once per block height instead for each shard.

@@ -746,6 +746,48 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
+/// Receipts the writer processed over a height range, one count per source.
+#[derive(Default, Debug)]
+pub(crate) struct ProcessedReceiptCounts {
+    pub(crate) local: usize,
+    pub(crate) delayed: usize,
+    pub(crate) instant: usize,
+    pub(crate) receipt_to_tx_gc: usize,
+}
+
+/// Counts the writer's processed receipts over `[start, end]` by source.
+pub(crate) fn count_processed_receipts(
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
+) -> ProcessedReceiptCounts {
+    let chain_store = writer.chain_store();
+    let mut counts = ProcessedReceiptCounts::default();
+    for height in start..=end {
+        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+            continue;
+        };
+        // Keyed by block hash followed by the shard id, so one prefix scan on the hash
+        // finds every shard's row.
+        let rows = writer.iter_prefix_ser::<Vec<ProcessedReceiptMetadata>>(
+            DBCol::ProcessedReceiptIds,
+            block_hash.as_ref(),
+        );
+        for (_key, processed) in rows {
+            for metadata in &processed {
+                let counter = match metadata.source() {
+                    ReceiptSource::Local => &mut counts.local,
+                    ReceiptSource::Delayed => &mut counts.delayed,
+                    ReceiptSource::Instant => &mut counts.instant,
+                    ReceiptSource::ReceiptToTxGc => &mut counts.receipt_to_tx_gc,
+                };
+                *counter += 1;
+            }
+        }
+    }
+    counts
+}
+
 /// Asserts the reader reproduces the writer's rows over `[start, end]`, for the columns
 /// the filter below keeps. Caller must `.disable_gc()` so the writer retains the
 /// bootstrap range.
@@ -875,16 +917,10 @@ fn collect_receipt_kvs(
         chunk.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_ref().to_vec()).collect();
     for metadata in processed {
         let key = metadata.receipt_id().as_ref().to_vec();
-        // Every source but the marker names a receipt body.
-        match metadata.source() {
-            ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => {
-                receipt_keys.push(key);
-            }
-            ReceiptSource::ReceiptToTxGc => {
-                if let Some(value) = writer.get(DBCol::ReceiptToTx, &key) {
-                    kvs.get_mut(&DBCol::ReceiptToTx).unwrap().insert(key, value.to_vec());
-                }
-            }
+        if metadata.source().has_receipt_body() {
+            receipt_keys.push(key);
+        } else if let Some(value) = writer.get(DBCol::ReceiptToTx, &key) {
+            kvs.get_mut(&DBCol::ReceiptToTx).unwrap().insert(key, value.to_vec());
         }
     }
     for key in receipt_keys {

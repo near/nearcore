@@ -4,7 +4,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::archive::cloud_storage::{
@@ -235,7 +235,7 @@ pub(crate) fn save_shard_data(
     shard_uid: ShardUId,
     shard_data: &ShardData,
 ) {
-    // TODO(cloud_archival): apply per-block state deltas.
+    // TODO(cloud_archival): apply each block's recorded changes to the shard's state.
     let block_hash = shard_data.block_hash();
     let shard_id = shard_uid.shard_id();
     let mut chunk_store_update = update.chunk_store_update();
@@ -261,27 +261,29 @@ fn save_new_chunk_data(
     shard_id: ShardId,
     new_chunk: &NewChunkData,
 ) {
-    let block_shard_id = get_block_shard_id(block_hash, shard_id);
     let chunk = new_chunk.chunk();
     update.insert_ser(DBCol::Chunks, chunk.chunk_hash().as_ref(), chunk);
-    update.set_ser(DBCol::ProcessedReceiptIds, &block_shard_id, new_chunk.processed_receipts());
-    for (receipt_id, origin) in new_chunk.receipt_to_tx() {
-        update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), origin);
-    }
     let mut chain_store_update = update.chain_store_update();
+    chain_store_update.set_processed_receipt_ids(
+        block_hash,
+        shard_id,
+        new_chunk.processed_receipts(),
+        new_chunk.processed_receipt_bodies(),
+    );
+    chain_store_update.set_receipt_to_tx(new_chunk.receipt_to_tx());
     chain_store_update.set_outgoing_receipt(block_hash, shard_id, new_chunk.outgoing_receipts());
     chain_store_update.set_outcomes_with_proofs(
         block_hash,
         shard_id,
         new_chunk.transaction_result_for_block(),
     );
+    // TODO(cloud_archival): address the rc columns a re-pull overcounts, in case we need
+    // gc at the reader.
     for transaction in chunk.to_transactions() {
         let bytes = borsh::to_vec(transaction).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Transactions, transaction.get_hash().as_ref(), &bytes);
     }
-    // The receipts the chunk sends, and then the ones it applied without sending, which
-    // are in no chunk at all.
-    for receipt in chunk.prev_outgoing_receipts().iter().chain(new_chunk.unsent_receipts()) {
+    for receipt in chunk.prev_outgoing_receipts() {
         let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
     }
