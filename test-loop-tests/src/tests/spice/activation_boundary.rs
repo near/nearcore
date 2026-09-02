@@ -7,28 +7,30 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_spice_activation_parent;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::pre_spice_protocol_version;
+use near_primitives::types::ShardId;
 use near_primitives::types::{Balance, Gas};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const EPOCH_LENGTH: u64 = 5;
 
 /// A chain starting pre-spice that votes straight up to spice, so it crosses the
 /// activation boundary a couple of epochs in. The GC window is wide so the blocks a
 /// killed node needs to catch up on are still there.
-fn setup_upgrading_chain(num_validators: usize) -> TestLoopEnv {
+fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> TestLoopEnv {
     TestLoopBuilder::new()
-        .validators(num_validators, 0)
+        .validators(num_producers, num_chunk_validators)
+        .enable_rpc()
         .num_shards(2)
         .epoch_length(EPOCH_LENGTH)
         .protocol_version(pre_spice_protocol_version())
         .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
             ProtocolFeature::Spice.protocol_version(),
         ))
-        .track_all_shards()
         // Zero inflation, so the supply identity at the boundary is exact with no
         // minting term. A real gas price (the test genesis default is zero) so
         // transactions burn tokens and the identity subtracts a real burn.
@@ -41,16 +43,16 @@ fn setup_upgrading_chain(num_validators: usize) -> TestLoopEnv {
         .build()
 }
 
-/// The minimal upgrade test: a pre-spice chain votes itself into spice, the
-/// activation parent certifies under spice from the boundary bootstrap, execution
-/// follows across the boundary, and the chain keeps running spice epochs. Every node
-/// tracks all shards: without the apply-time witness a validator that does not track
-/// a shard cannot endorse the activation parent's chunk for it.
+/// The upgrade test: a pre-spice chain votes itself into spice, the activation
+/// parent certifies under spice, execution follows across the boundary, and the
+/// chain keeps running spice epochs with no height skipped. Validator topology is
+/// realistic: the chunk-validator-only nodes track nothing, so their endorsements
+/// of the activation parent can only come from validating the boundary witness.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice() {
     init_test_logger();
-    let mut env = setup_upgrading_chain(4);
+    let mut env = setup_upgrading_chain(2, 2);
     let user = create_account_id("user");
     let receiver = create_account_id("validator1");
 
@@ -58,10 +60,10 @@ fn test_protocol_upgrade_to_spice() {
     // the supply identity below must subtract a real burn to mean anything.
     let mut crossed = false;
     for _ in 0..10 * EPOCH_LENGTH {
-        let tx = env.node(0).tx_send_money(&user, &receiver, Balance::from_yoctonear(1));
-        env.node(0).submit_tx(tx);
-        env.node_runner(0).run_for_number_of_blocks(1);
-        if env.node(0).head_block().is_spice_block() {
+        let tx = env.rpc_node().tx_send_money(&user, &receiver, Balance::from_yoctonear(1));
+        env.rpc_node().submit_tx(tx);
+        env.rpc_runner().run_for_number_of_blocks(1);
+        if env.rpc_node().head_block().is_spice_block() {
             crossed = true;
             break;
         }
@@ -70,7 +72,7 @@ fn test_protocol_upgrade_to_spice() {
 
     // Locate the first spice block on the chain and its pre-spice parent.
     let (activation_parent, parent_supply, parent_burnt, num_shards) = {
-        let node = env.node(0);
+        let node = env.rpc_node();
         let mut first_spice = node.head_block();
         loop {
             let prev = node.client().chain.get_block(first_spice.header().prev_hash()).unwrap();
@@ -114,9 +116,9 @@ fn test_protocol_upgrade_to_spice() {
 
     // Two further spice epochs. The first spice epoch cannot end before the
     // activation parent certifies, so getting here proves certification liveness.
-    env.node_runner(0).run_until_head_height(parent_height + 3 * EPOCH_LENGTH);
+    env.rpc_runner().run_until_head_height(parent_height + 3 * EPOCH_LENGTH);
 
-    let node = env.node(0);
+    let node = env.rpc_node();
     assert!(node.head_block().is_spice_block());
     // Execution followed across the boundary.
     let final_execution_head =
@@ -139,21 +141,60 @@ fn test_protocol_upgrade_to_spice() {
     }
     chain_blocks.reverse();
 
-    let mut certified_shards = HashSet::new();
-    let mut certifying_block = None;
+    // Strict crossing: from the activation parent to the head no height is skipped
+    // and no chunk goes missing — the boundary costs nothing in liveness.
+    let mut expected_height = parent_height;
     for block in &chain_blocks {
-        for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
-            if &chunk_id.block_hash == activation_parent.hash() {
-                certified_shards.insert(chunk_id.shard_id);
+        expected_height += 1;
+        assert_eq!(
+            block.header().height(),
+            expected_height,
+            "height skipped crossing the boundary",
+        );
+        assert!(
+            block.header().chunk_mask().iter().all(|mask| *mask),
+            "chunk missing at height {} crossing the boundary",
+            block.header().height(),
+        );
+    }
+
+    // Walk the core statements forward, tracking per block when its execution
+    // results complete (all shards certified). The activation parent completes
+    // first: every later block descends from it and cannot execute — let alone
+    // certify — before the parent's results are known. Blocks executed off the
+    // parent's results may reach threshold in the very same certifying block, so
+    // the supply drop there covers every block completing in it, each counted from
+    // the burns its certified execution results carry.
+    let mut shards_by_block: HashMap<CryptoHash, HashSet<ShardId>> = HashMap::new();
+    let mut burnt_by_block: HashMap<CryptoHash, Balance> = HashMap::new();
+    let mut certifying_block = None;
+    let mut expected_drop = Balance::ZERO;
+    'outer: for block in &chain_blocks {
+        for (chunk_id, execution_result) in block.spice_core_statements().iter_execution_results() {
+            let burnt = burnt_by_block.entry(chunk_id.block_hash).or_default();
+            *burnt = burnt.checked_add(execution_result.chunk_extra.balance_burnt()).unwrap();
+            let shards = shards_by_block.entry(chunk_id.block_hash).or_default();
+            shards.insert(chunk_id.shard_id);
+            if shards.len() == num_shards && chunk_id.block_hash == *activation_parent.hash() {
+                // Everything completing does so in this block: sum the completed
+                // blocks' burns after finishing this block's statements.
+                certifying_block = Some(block);
             }
         }
-        if certified_shards.len() == num_shards {
-            certifying_block = Some(block);
-            break;
+        if certifying_block.is_some() {
+            for (block_hash, shards) in &shards_by_block {
+                if shards.len() == num_shards {
+                    expected_drop = expected_drop.checked_add(burnt_by_block[block_hash]).unwrap();
+                }
+            }
+            break 'outer;
         }
     }
     let certifying_block = certifying_block.expect("the activation parent must certify");
 
+    // The parent's certified burn is exactly what its pre-spice apply burned —
+    // entering the supply exactly once, at the certifying block.
+    assert_eq!(burnt_by_block[activation_parent.hash()], parent_burnt);
     let before_certifying =
         node.client().chain.get_block(certifying_block.header().prev_hash()).unwrap();
     assert_eq!(
@@ -163,8 +204,8 @@ fn test_protocol_upgrade_to_spice() {
     );
     assert_eq!(
         certifying_block.header().total_supply(),
-        parent_supply.checked_sub(parent_burnt).unwrap(),
-        "the certifying block must subtract exactly the activation parent's burn",
+        parent_supply.checked_sub(expected_drop).unwrap(),
+        "the certifying block must subtract exactly the newly certified blocks' burns",
     );
 }
 
@@ -179,8 +220,8 @@ fn test_protocol_upgrade_to_spice() {
 fn test_restart_mid_boundary() {
     init_test_logger();
 
-    // Four validators, so the chain keeps making progress while one is down.
-    let mut env = setup_upgrading_chain(4);
+    // Enough validators that the chain keeps making progress while one is down.
+    let mut env = setup_upgrading_chain(4, 4);
 
     let restart_identifier = env.node_datas[0].identifier.clone();
 
