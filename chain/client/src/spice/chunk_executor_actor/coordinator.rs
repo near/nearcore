@@ -22,7 +22,6 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::{NumBlocks, ShardId};
 use near_store::ShardUId;
 use near_store::Store;
@@ -60,8 +59,6 @@ pub struct ExecutorIncomingUnverifiedReceipts {
     /// Id the proof was delivered under.
     pub data_id: DataId,
     pub receipt_proof: ReceiptProof,
-    /// Commitment the proof decoded from.
-    pub commitment: SpiceDataCommitment,
 }
 
 #[derive(Debug)]
@@ -382,7 +379,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof, commitment } = receipts;
+        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
         let DataId::ReceiptProof { source, to_shard } = &data_id;
         let block_hash = source.block_hash;
         tracing::debug!(
@@ -398,11 +395,15 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // dropped here if it arrives before reconcile created the executor (startup /
         // catch-up, or around an epoch boundary). Reconcile from the source block's
         // parent and retry the lookup before treating the shard as untracked.
+        // TODO(spice-data-distribution): a dropped delivery leaves the data manager's item
+        // parked with no verification result until it expires; once pulls exist that is a
+        // proof never re-fetched. Create the executor for a shard tracked as of the source
+        // block instead of dropping (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
         };
-        if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof, commitment) {
+        if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
     }

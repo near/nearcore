@@ -1,13 +1,12 @@
 //! Per-shard buffer of network-path receipt proofs awaiting verification.
 
 use super::storage::save_receipt_proof;
-use crate::spice::data_distributor_actor::{DataVerification, VerificationFailure};
+use crate::spice::data_distributor_actor::DataVerification;
 use crate::spice::data_manager::DataId;
 use near_chain::Error;
 use near_chain::spice::core::SpiceCoreReader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::{ChunkExecutionResult, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -17,24 +16,18 @@ use std::sync::Arc;
 /// Buffer of receipt proofs mapped by their source blocks.
 #[derive(Default)]
 pub(crate) struct UnverifiedReceiptTracker {
-    /// Each proof is stored with the id and commitment it was delivered under, so
-    /// its verification result can be related to those.
-    proofs_by_source_block: HashMap<CryptoHash, Vec<(DataId, ReceiptProof, SpiceDataCommitment)>>,
+    /// Each proof is stored with the id it was delivered under, so its verification
+    /// result can be reported against it.
+    proofs_by_source_block: HashMap<CryptoHash, Vec<(DataId, ReceiptProof)>>,
 }
 
 impl UnverifiedReceiptTracker {
-    pub(crate) fn insert(
-        &mut self,
-        data_id: DataId,
-        receipt_proof: ReceiptProof,
-        commitment: SpiceDataCommitment,
-    ) {
+    pub(crate) fn insert(&mut self, data_id: DataId, receipt_proof: ReceiptProof) {
         let DataId::ReceiptProof { source, .. } = &data_id;
-        self.proofs_by_source_block.entry(source.block_hash).or_default().push((
-            data_id,
-            receipt_proof,
-            commitment,
-        ));
+        self.proofs_by_source_block
+            .entry(source.block_hash)
+            .or_default()
+            .push((data_id, receipt_proof));
     }
 
     /// Number of source blocks with buffered receipts.
@@ -67,9 +60,8 @@ impl UnverifiedReceiptTracker {
             return Ok(Vec::new());
         };
         let mut verifications = Vec::new();
-        for (data_id, receipt_proof, commitment) in receipt_proofs {
-            let verification_result = match verify_receipt_proof(&receipt_proof, &execution_results)
-            {
+        for (data_id, receipt_proof) in receipt_proofs {
+            let verification = match verify_receipt_proof(&receipt_proof, &execution_results) {
                 // Commit each proof in its own transaction: duplicate network
                 // deliveries share a key, so batching them would overwrite within
                 // one transaction. Separate commits make the writes idempotent.
@@ -77,14 +69,14 @@ impl UnverifiedReceiptTracker {
                     let mut store_update = chain_store.store().store_update();
                     save_receipt_proof(&mut store_update, source_block, &receipt_proof);
                     store_update.commit();
-                    Ok(())
+                    DataVerification::Ok(data_id)
                 }
                 Err(err) => {
                     tracing::debug!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts");
-                    Err(VerificationFailure)
+                    DataVerification::Failed(data_id)
                 }
             };
-            verifications.push(DataVerification { data_id, commitment, verification_result });
+            verifications.push(verification);
         }
         Ok(verifications)
     }

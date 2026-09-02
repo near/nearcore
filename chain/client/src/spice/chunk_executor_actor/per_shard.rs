@@ -36,7 +36,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -190,11 +189,10 @@ impl PerShardChunkExecutor {
         &mut self,
         data_id: DataId,
         receipt_proof: ReceiptProof,
-        commitment: SpiceDataCommitment,
     ) -> Result<(), Error> {
         let DataId::ReceiptProof { source, .. } = &data_id;
         let source_block = source.block_hash;
-        self.unverified_receipts.insert(data_id, receipt_proof, commitment);
+        self.unverified_receipts.insert(data_id, receipt_proof);
         self.drain_and_send_verifications(&source_block)?;
         self.try_apply_pending();
         Ok(())
