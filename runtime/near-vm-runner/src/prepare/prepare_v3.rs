@@ -40,7 +40,7 @@ impl<'a> PrepareContext<'a> {
             // Practically reaching u64::MAX locals or functions is infeasible, so when the limit is not
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
-            local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            local_limit: max_locals(code, config).unwrap_or(u64::MAX),
             function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
@@ -461,6 +461,17 @@ pub(crate) fn prepare_contract(
     Ok(res)
 }
 
+fn max_locals(code: &[u8], config: &Config) -> Option<u64> {
+    let limits = &config.limit_config;
+    let size_dependent_limit = limits.min_contract_size_per_local.map(|min_size_per_local| {
+        u64::try_from(code.len())
+            .unwrap_or(u64::MAX)
+            .checked_div(min_size_per_local)
+            .unwrap_or(u64::MAX)
+    });
+    [limits.max_locals_per_contract, size_dependent_limit].into_iter().flatten().min()
+}
+
 struct SimpleMaxStackCfg;
 
 impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
@@ -614,7 +625,7 @@ mod test {
             }
         }
         // Similarly, do the same for the number of locals.
-        if let Some(max_locals) = config.limit_config.max_locals_per_contract {
+        if let Some(max_locals) = super::max_locals(code, config) {
             if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
                 return Err(PrepareError::TooManyLocals);
             }

@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.22"
+    "version": "1.3.23"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -12321,6 +12321,13 @@
             "description": "Maximum number of bytes for payload passed over a yield resume.",
             "format": "uint64",
             "minimum": 0,
+            "type": "integer"
+          },
+          "min_contract_size_per_local": {
+            "description": "If present, requires at least this many bytes of contract code per local.",
+            "format": "uint64",
+            "minimum": 0,
+            "nullable": true,
             "type": "integer"
           },
           "per_receipt_storage_proof_size_limit": {
