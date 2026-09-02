@@ -233,7 +233,7 @@ pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) 
     if let Some(summary) = epoch_data.prev_epoch_summary() {
         epoch_store_update.set_epoch_validator_info(prev_epoch_id, summary);
     }
-    epoch_store_update.set_epoch_info(epoch_data.next_epoch_id(), epoch_data.next_epoch_info());
+    epoch_store_update.set_epoch_info(&epoch_data.next_epoch_id(), epoch_data.next_epoch_info());
     if let Some(light_client_block) = epoch_data.prev_epoch_light_client_block() {
         update.set_ser(DBCol::EpochLightClientBlocks, prev_epoch_id.as_ref(), light_client_block);
     }

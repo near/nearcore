@@ -1618,7 +1618,7 @@ fn test_cloud_archival_reader_reconstructs_epoch_columns() {
     let reader = h.historical_reader_store();
     let writer = h.writer_store();
 
-    for col in [DBCol::EpochValidatorInfo, DBCol::EpochLightClientBlocks] {
+    for col in [DBCol::EpochInfo, DBCol::EpochValidatorInfo, DBCol::EpochLightClientBlocks] {
         let mut compared = 0;
         for (key, value) in reader.iter(col) {
             let expected = writer
@@ -1631,11 +1631,13 @@ fn test_cloud_archival_reader_reconstructs_epoch_columns() {
     }
 
     // Each blob also writes the epoch above its own, which a node needs to resolve the
-    // epoch of the block a head names, so there are more of those than epochs pulled.
+    // epoch of the block a head names, so the newest epoch pulled adds one more.
+    const GENESIS_INIT_EPOCH_INFOS: usize = 2;
     let epochs_pulled = reader.iter(DBCol::EpochStart).count();
     let epoch_infos = reader.iter(DBCol::EpochInfo).count();
-    assert!(
-        epoch_infos > epochs_pulled,
+    assert_eq!(
+        epoch_infos,
+        epochs_pulled + 1 + GENESIS_INIT_EPOCH_INFOS,
         "reader holds {epoch_infos} EpochInfo rows for {epochs_pulled} epochs pulled",
     );
 

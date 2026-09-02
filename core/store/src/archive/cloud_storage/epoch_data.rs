@@ -35,8 +35,7 @@ pub struct EpochDataV1 {
     prev_epoch_summary: Option<EpochSummary>,
     /// Read from `DBCol::EpochLightClientBlocks`, under `prev_epoch_id`.
     prev_epoch_light_client_block: Option<LightClientBlockView>,
-    /// Read from `DBCol::EpochInfo`, under `next_epoch_id`.
-    next_epoch_id: EpochId,
+    /// Read from `DBCol::EpochInfo`, under `next_epoch_id()`.
     next_epoch_info: EpochInfo,
 }
 
@@ -69,9 +68,8 @@ pub fn build_epoch_data(
             Err(err) => return Err(err),
         };
 
-    // How the epoch manager derives it, in `get_next_epoch_id_from_info`.
     let next_epoch_id = EpochId(*epoch_first_block_info.prev_hash());
-    let next_epoch_info = EpochInfo::clone(&epoch_store.get_epoch_info(&next_epoch_id)?);
+    let next_epoch_info = epoch_store.get_epoch_info(&next_epoch_id)?;
 
     let epoch_data = EpochDataV1 {
         epoch_id,
@@ -81,7 +79,6 @@ pub fn build_epoch_data(
         prev_epoch_id,
         prev_epoch_summary,
         prev_epoch_light_client_block,
-        next_epoch_id,
         next_epoch_info,
     };
     Ok(EpochData::V1(epoch_data))
@@ -128,10 +125,9 @@ impl EpochData {
         }
     }
 
-    pub fn next_epoch_id(&self) -> &EpochId {
-        match self {
-            EpochData::V1(data) => &data.next_epoch_id,
-        }
+    /// The epoch above this one, derived the way `get_next_epoch_id_from_info` does.
+    pub fn next_epoch_id(&self) -> EpochId {
+        EpochId(*self.epoch_first_block_info().prev_hash())
     }
 
     pub fn next_epoch_info(&self) -> &EpochInfo {
