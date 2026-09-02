@@ -22,7 +22,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::archive::cloud_storage::{
@@ -745,9 +745,9 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Asserts the reader reproduces the writer's rows over `[start, end]` for every
-/// column the cloud-bootstrapped reader reconstructs today. Caller must
-/// `.disable_gc()` so the writer retains the bootstrap range.
+/// Asserts the reader reproduces the writer's rows over `[start, end]`, for the columns
+/// the filter below keeps. Caller must `.disable_gc()` so the writer retains the
+/// bootstrap range.
 pub(crate) fn assert_reader_writer_parity(
     reader: &Store,
     writer: &Store,
@@ -761,11 +761,7 @@ pub(crate) fn assert_reader_writer_parity(
                 && !matches!(
                     c,
                     // Not reconstructed yet.
-                    DBCol::IncomingReceipts
-                        | DBCol::OutcomeIds
-                        | DBCol::TransactionResultForBlock
-                        | DBCol::StateChanges
-                        | DBCol::Transactions
+                    DBCol::Transactions
                         | DBCol::Receipts
                         | DBCol::ReceiptToTx
                         | DBCol::State
@@ -829,7 +825,7 @@ fn collect_chunk_hashes_kvs(
     }
 }
 
-/// Collects the writer's per-(block, shard) column rows for one chunk into `kvs`.
+/// Collects the writer's rows for one chunk into `kvs`.
 fn collect_chunk_kvs(
     writer: &Store,
     kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
@@ -846,6 +842,16 @@ fn collect_chunk_kvs(
             kvs.get_mut(&DBCol::OutgoingReceipts)
                 .unwrap()
                 .insert(block_shard_id.clone(), value.to_vec());
+        }
+        // `TransactionResultForBlock` is keyed by outcome id followed by the block
+        // hash, so its rows are reached through this shard's own `OutcomeIds` row.
+        let outcome_ids = writer
+            .chain_store()
+            .get_outcomes_by_block_hash_and_shard_id(block_hash, chunk_header.shard_id());
+        for outcome_id in &outcome_ids {
+            let key = get_outcome_id_block_hash(outcome_id, block_hash).to_vec();
+            let value = writer.get(DBCol::TransactionResultForBlock, &key).unwrap();
+            kvs.get_mut(&DBCol::TransactionResultForBlock).unwrap().insert(key, value.to_vec());
         }
     }
     if let Some(value) = writer.get(DBCol::ChunkApplyStats, &block_shard_id) {
@@ -890,10 +896,15 @@ fn writer_kvs(
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
             }
         }
-        // Each of these is keyed by block hash followed by a per-shard suffix, so a
-        // prefix scan on the hash finds every shard's row without asking which shards
-        // this block's epoch had.
-        for col in [DBCol::ChunkProducers, DBCol::ChunkExtra] {
+        // Each of these is keyed by block hash followed by a suffix, so one prefix scan
+        // on the hash finds this block's rows without asking which shards its epoch had.
+        for col in [
+            DBCol::ChunkProducers,
+            DBCol::ChunkExtra,
+            DBCol::IncomingReceipts,
+            DBCol::OutcomeIds,
+            DBCol::StateChanges,
+        ] {
             for (key, value) in writer.iter_prefix(col, block_hash.as_ref()) {
                 kvs.get_mut(&col).unwrap().insert(key.into_vec(), value.into_vec());
             }
