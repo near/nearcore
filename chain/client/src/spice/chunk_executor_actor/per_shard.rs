@@ -40,6 +40,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
+use near_primitives::stateless_validation::state_witness::ChunkStateTransition;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
@@ -554,6 +555,19 @@ impl PerShardChunkExecutor {
         Ok(())
     }
 
+    /// Absent on nodes that could not produce a witness, and after GC.
+    fn read_recorded_transition(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Option<StoredChunkStateTransitionDataV1> {
+        let stored: StoredChunkStateTransitionData = self.chain_store.store().get_ser(
+            DBCol::StateTransitionData,
+            &get_block_shard_id(block_hash, self.shard_uid.shard_id()),
+        )?;
+        let StoredChunkStateTransitionData::V1(data) = stored;
+        Some(data)
+    }
+
     /// Packages and distributes the state witness of the activation parent's chunk
     /// for this shard, so its designated validators can endorse without tracking the
     /// shard.
@@ -564,37 +578,70 @@ impl PerShardChunkExecutor {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_headers = block.chunks();
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-        // TODO(spice-boundary): a chunk missing at the activation parent needs a
-        // multi-block witness anchored at its last included chunk; not produced yet.
-        let Some(chunk) = self.get_new_chunk_if_valid(chunk_header, block.header().height())?
+
+        // Walk down to the anchor, collecting the blocks whose old-chunk applications
+        // the witness replays (oldest first after the reverse).
+        let height_included = chunk_header.height_included();
+        let mut replay_blocks = Vec::new();
+        let mut anchor_block = self.chain_store.get_block(block.hash())?;
+        while anchor_block.header().height() > height_included {
+            replay_blocks.push(anchor_block.clone());
+            anchor_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
+        }
+        replay_blocks.reverse();
+
+        let Some(chunk) =
+            self.get_new_chunk_if_valid(chunk_header, anchor_block.header().height())?
         else {
+            // The anchor's chunk is invalid (malicious pre-spice producer): there is
+            // no state transition of it to attest.
             return Ok(());
         };
         let transactions = chunk.into_transactions();
 
-        let Some(stored_transition) = self
-            .chain_store
-            .store()
-            .get_ser(DBCol::StateTransitionData, &get_block_shard_id(block.hash(), shard_id))
+        let Some(StoredChunkStateTransitionDataV1 {
+            base_state,
+            receipts_hash,
+            contract_accesses,
+            contract_deploys: _,
+        }) = self.read_recorded_transition(anchor_block.hash())
         else {
             tracing::warn!(
                 target: "chunk_executor",
                 block_hash = %block.hash(),
+                anchor_block_hash = %anchor_block.hash(),
                 %shard_id,
                 "no recorded state transition to build the boundary witness from",
             );
             return Ok(());
         };
-        let StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
-            base_state,
-            receipts_hash,
-            contract_accesses,
-            contract_deploys: _,
-        }) = stored_transition;
+
+        let mut implicit_boundary_transitions = Vec::with_capacity(replay_blocks.len());
+        for replay_block in replay_blocks {
+            let Some(replay_transition) = self.read_recorded_transition(replay_block.hash()) else {
+                tracing::warn!(
+                    target: "chunk_executor",
+                    block_hash = %block.hash(),
+                    replay_block_hash = %replay_block.hash(),
+                    %shard_id,
+                    "no recorded state transition for an implicit replay of the boundary witness",
+                );
+                return Ok(());
+            };
+            let chunk_extra = self
+                .chain_store
+                .chunk_store()
+                .get_chunk_extra(replay_block.hash(), &self.shard_uid)?;
+            implicit_boundary_transitions.push(ChunkStateTransition {
+                block_hash: *replay_block.hash(),
+                base_state: replay_transition.base_state,
+                post_state_root: *chunk_extra.state_root(),
+            });
+        }
 
         let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = self
             .chain_store
-            .get_incoming_receipts(block.hash(), shard_id)?
+            .get_incoming_receipts(anchor_block.hash(), shard_id)?
             .iter()
             .map(|proof| (proof.1.from_shard_id, proof.clone()))
             .collect();
@@ -607,7 +654,7 @@ impl PerShardChunkExecutor {
             transactions,
             contract_accesses.iter().cloned().collect(),
             None,
-            vec![],
+            implicit_boundary_transitions,
         );
         let contract_accesses: HashSet<CodeHash> = contract_accesses.into_iter().collect();
         save_witness_and_contract_accesses(
