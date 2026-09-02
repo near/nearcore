@@ -12,7 +12,7 @@ use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
 };
 use near_store::{DBCol, ShardUId, Store, StoreUpdate};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
 #[derive(thiserror::Error, Debug)]
@@ -29,23 +29,35 @@ pub enum CloudArchivalReaderError {
     NoAnchorBelow { start_height: BlockHeight },
 }
 
-/// Writes block-level columns from a cloud `BlockData` into `update`.
-///
-/// Block, BlockHeader, BlockInfo (content-addressed by hash) and ChunkProducers
-/// all use `insert_ser` (insert-only columns). BlockHeight and
-/// BlockMerkleTree use `set_ser` (regular columns, keyed by height or hash, safe
-/// to overwrite).
+/// Writes one block's cloud data into the block-level columns a reader reproduces.
 pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     let block = block_data.block();
     let header = block.header();
     let block_hash = *header.hash();
     let height = header.height();
 
+    // A content-addressed row is insert-only; the rest are keyed by height, hash or
+    // ordinal, so a re-pull may overwrite them.
     update.insert_ser(DBCol::BlockHeader, block_hash.as_ref(), header);
     update.insert_ser(DBCol::Block, block_hash.as_ref(), block);
     update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), block_data.block_info());
     update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), &block_hash);
     update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_data.block_merkle_tree());
+    // The block's own tree holds every block below it, so its size is this block's
+    // ordinal, which is the key the block-merkle-proof walk looks the hash up by.
+    update.set_ser(
+        DBCol::BlockOrdinal,
+        &index_to_bytes(block_data.block_merkle_tree().size()),
+        &block_hash,
+    );
+    update.set_ser(DBCol::NextBlockHashes, block_hash.as_ref(), block_data.next_block_hash());
+    for (created_height, chunk_hashes) in block_data.chunk_hashes() {
+        update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(*created_height), chunk_hashes);
+    }
+    // The archive holds the canonical chain alone, so this block is the whole set of
+    // blocks at its height.
+    let blocks_at_height = HashMap::from([(*header.epoch_id(), HashSet::from([block_hash]))]);
+    update.set_ser(DBCol::BlockPerHeight, &index_to_bytes(height), &blocks_at_height);
 
     for (shard_id, stake) in block_data.chunk_producers() {
         update.insert_ser(
