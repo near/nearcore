@@ -8,7 +8,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_spice_activation_parent;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::pre_spice_protocol_version;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, Gas};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
@@ -34,6 +34,8 @@ fn setup_upgrading_chain(num_validators: usize) -> TestLoopEnv {
         // transactions burn tokens and the identity subtracts a real burn.
         .max_inflation_rate(Rational32::new(0, 1))
         .gas_prices(Balance::from_yoctonear(100_000_000), Balance::from_yoctonear(10_000_000_000))
+        .gas_price_adjustment_rate(Rational32::new(1, 10))
+        .gas_limit(Gas::from_gigagas(400))
         .gc_num_epochs_to_keep(20)
         .add_user_account(&create_account_id("user"), Balance::from_near(100))
         .build()
@@ -91,6 +93,15 @@ fn test_protocol_upgrade_to_spice() {
         assert!(
             parent_burnt > Balance::ZERO,
             "the activation parent must burn gas for the supply identity to be meaningful",
+        );
+        // The witness of the activation parent replays its apply with the gas price
+        // of the parent's parent (the pre-spice convention); the spice convention
+        // would take the parent's own.
+        let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
+        assert_ne!(
+            grandparent.header().next_gas_price(),
+            parent.header().next_gas_price(),
+            "gas price must move at the boundary for the era convention to matter",
         );
         (
             parent.clone(),
