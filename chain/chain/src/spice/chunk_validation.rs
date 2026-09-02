@@ -153,11 +153,15 @@ pub fn spice_pre_validate_chunk_state_witness(
             }),
             state_patch: Default::default(),
         };
-        let block_context = build_spice_apply_chunk_block_context(
-            block.header(),
-            prev_execution_results,
-            epoch_manager,
-        )?;
+        let block_context = if !block.is_spice_block() {
+            Chain::get_apply_chunk_block_context(block, prev_block.header(), true)
+        } else {
+            build_spice_apply_chunk_block_context(
+                block.header(),
+                prev_execution_results,
+                epoch_manager,
+            )?
+        };
         NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),

@@ -11,12 +11,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    BlockExecutionResults, ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::version::ProtocolFeature;
 use near_store::StoreUpdate;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Whether `block_hash` is a spice activation parent: a last block of the last
 /// pre-spice epoch, so every child of it is a first spice block.
@@ -183,6 +185,27 @@ pub fn execution_result_from_pre_spice_child(
         chunk_extra,
         outgoing_receipts_root: *chunk_header.prev_outgoing_receipts_root(),
     }))
+}
+
+/// The execution results of the pre-spice `block`'s previous chunks, one per shard,
+/// read off `block`'s own chunk headers.
+/// This is what validating a witness keyed to `block` needs in place of the previous
+/// block's certified results, which do not exist pre-spice. `None` when any shard's
+/// chunk is missing in `block` — its result is not on `block`'s headers.
+pub fn pre_spice_block_execution_results(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<Option<BlockExecutionResults>, Error> {
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    let mut results = HashMap::new();
+    for shard_id in shard_layout.shard_ids() {
+        let Some(result) = execution_result_from_pre_spice_child(epoch_manager, block, shard_id)?
+        else {
+            return Ok(None);
+        };
+        results.insert(shard_id, Arc::new(result));
+    }
+    Ok(Some(BlockExecutionResults(results)))
 }
 
 /// Tripwire against the two sources of truth at the boundary: a certified execution

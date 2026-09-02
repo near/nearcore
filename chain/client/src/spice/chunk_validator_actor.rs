@@ -4,6 +4,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use near_chain::spice::boundary::pre_spice_block_execution_results;
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -325,6 +326,18 @@ impl SpiceChunkValidatorActor {
         }
     }
 
+    fn prev_execution_results_for_witness(
+        &self,
+        block: &Block,
+        prev_block: &Block,
+    ) -> Result<Option<BlockExecutionResults>, Error> {
+        if !block.is_spice_block() {
+            pre_spice_block_execution_results(self.epoch_manager.as_ref(), block)
+        } else {
+            self.core_reader.get_block_execution_results(prev_block.header())
+        }
+    }
+
     fn witness_processing_readiness(
         &self,
         witness: &SpiceChunkStateWitness,
@@ -347,7 +360,7 @@ impl SpiceChunkValidatorActor {
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(prev_block.header())?
+            self.prev_execution_results_for_witness(&block, &prev_block)?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -357,19 +370,29 @@ impl SpiceChunkValidatorActor {
             return Ok(WitnessProcessingReadiness::NotReady);
         };
 
-        let prev_validator_proposals = match self
-            .core_reader
-            .prev_validator_proposals(prev_block.hash(), shard_id)
-        {
-            Ok(proposals) => proposals,
-            Err(err) => {
-                tracing::debug!(
+        let prev_validator_proposals = if !block.is_spice_block() {
+            // The pre-spice apply this witness replays took the previous chunk's
+            // validator proposals off the applied chunk's own header, already
+            // reconstructed as the previous execution result's chunk extra.
+            let (_, prev_shard_id, _) =
+                self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+            let prev_execution_result = prev_block_execution_results
+                .0
+                .get(&prev_shard_id)
+                .expect("reconstructed results cover every shard of the previous layout");
+            prev_execution_result.chunk_extra.validator_proposals().collect()
+        } else {
+            match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
+                Ok(proposals) => proposals,
+                Err(err) => {
+                    tracing::debug!(
                         target: "spice_chunk_validator",
                         ?chunk_id,
                         prev_block_hash = ?prev_block.hash(),
                         ?err,
                         "witness for block isn't ready for processing; missing execution results for validator proposals");
-                return Ok(WitnessProcessingReadiness::NotReady);
+                    return Ok(WitnessProcessingReadiness::NotReady);
+                }
             }
         };
 
@@ -400,7 +423,7 @@ impl SpiceChunkValidatorActor {
 
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
-        if self.core_reader.get_block_execution_results(prev_block.header())?.is_none() {
+        if self.prev_execution_results_for_witness(&block, &prev_block)?.is_none() {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
@@ -414,19 +437,21 @@ impl SpiceChunkValidatorActor {
         let mut unready_witnesses = Vec::new();
         for witness in witnesses {
             let shard_id = witness.chunk_id().shard_id;
-            match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::debug!(
-                        target: "spice_chunk_validator",
-                        ?prev_hash,
-                        chunk_id=?witness.chunk_id(),
-                        ?err,
-                        "witness not ready; missing execution results for validator proposals");
-                    unready_witnesses.push(witness);
-                    continue;
-                }
-            };
+            if block.is_spice_block() {
+                match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::debug!(
+                            target: "spice_chunk_validator",
+                            ?prev_hash,
+                            chunk_id=?witness.chunk_id(),
+                            ?err,
+                            "witness not ready; missing execution results for validator proposals");
+                        unready_witnesses.push(witness);
+                        continue;
+                    }
+                };
+            }
             let chunk_id = witness.chunk_id().clone();
             tracing::debug!(
                 target: "spice_chunk_validator",
