@@ -75,7 +75,7 @@ pub(crate) fn action_function_call(
     );
     let outcome = execute_function_call(
         contract,
-        contract_id.hash(),
+        contract_id,
         apply_state,
         &mut runtime_ext,
         receipt.predecessor_id(),
@@ -232,7 +232,7 @@ pub(crate) fn action_function_call(
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     contract: Box<dyn near_vm_runner::PreparedContract>,
-    contract_code_hash: CryptoHash,
+    contract_id: &RuntimeContractIdentifier,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
@@ -289,6 +289,18 @@ pub(crate) fn execute_function_call(
     // stored in outcome.aborted.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.as_str().into(),
+            });
+            if global_contract_is_missing(runtime_ext.trie_update, contract_id)? {
+                // The account points at a global contract that was never deployed
+                // on this chain. ETH implicit accounts get their wallet contract
+                // hash hardcoded at creation without an existence check, so this
+                // is a legitimate state rather than an inconsistency. The lookup
+                // above is recorded in the state witness, so chunk validators see
+                // the same proof of absence and reach the same outcome.
+                return Ok(VMOutcome::nop_outcome(error));
+            }
             if runtime_ext.account().contract().is_some() {
                 debug_assert!(
                     apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
@@ -301,14 +313,11 @@ pub(crate) fn execute_function_call(
                 if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
                     return Err(StorageError::MissingTrieValue(MissingTrieValue {
                         context: MissingTrieValueContext::TrieMemoryPartialStorage,
-                        hash: contract_code_hash,
+                        hash: contract_id.hash(),
                     })
                     .into());
                 }
             }
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.as_str().into(),
-            });
             return Ok(VMOutcome::nop_outcome(error));
         }
         Err(VMRunnerError::ExternalError(any_err)) => {
@@ -392,6 +401,20 @@ fn record_contract_call(
         state_update.contract_storage().record_call(code_hash);
     }
     Ok(())
+}
+
+/// Returns true if `contract_id` refers to a global contract that is not in the
+/// trie, i.e. it was never deployed on this chain. The lookup is a regular state access, so its trie nodes are
+/// recorded in the state witness and validators can verify the absence.
+fn global_contract_is_missing(
+    state_update: &TrieUpdate,
+    contract_id: &RuntimeContractIdentifier,
+) -> Result<bool, StorageError> {
+    let RuntimeContractIdentifier::Global { identifier, .. } = contract_id else {
+        return Ok(false);
+    };
+    let key = TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
+    Ok(!state_update.contains_key(&key, AccessOptions::DEFAULT)?)
 }
 
 /// See #11703 for more details

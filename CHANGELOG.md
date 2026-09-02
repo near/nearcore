@@ -4,6 +4,8 @@
 
 ### Protocol Changes
 
+* A `FunctionCall` to an account whose contract is a global contract that was never deployed on the chain now fails with `CodeDoesNotExist`, the same error as calling an account with no contract, on chunk producers and chunk validators alike. Only ETH implicit (`0x`) accounts can reach this state: they are created with a hardcoded wallet contract hash and no existence check, so on a chain whose wallet contract has not been deployed the first such call stalled the shard (the producer's apply job panicked in builds with debug assertions, and chunk validators rejected the state witness with `MissingTrieValue`). When the code is missing the runtime now looks up the global contract key, so the proof of absence is part of the state witness and validators reach the same outcome. Behaviour is unchanged whenever the contract exists.
+
 ### Non-protocol Changes
 
 * Added the opt-in `EXPERIMENTAL_indexer_block` RPC to fetch indexer messages by block hash. Enable it with `rpc.enable_indexer_rpc`; `rpc.indexer_max_concurrent_requests` controls request concurrency.
