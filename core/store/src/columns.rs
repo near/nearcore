@@ -648,7 +648,9 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
-            // Only needed to properly GC Receipts column
+            // Only needed to properly GC Receipts column.
+            // TODO(#15465): the indexer reads this column too, so a split-storage
+            // archival node loses it to gc and cannot serve it past the horizon.
             DBCol::ProcessedReceiptIds => false,
             // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
             DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),

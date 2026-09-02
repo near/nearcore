@@ -1186,7 +1186,7 @@ fn test_cloud_archival_bootstrap_with_missing_blocks_and_chunks() {
             .get_shard_data(chunk_drop_height, dropped_shard)
             .unwrap()
             .unwrap()
-            .chunk()
+            .new_chunk()
             .is_none(),
         "carried chunk at h={chunk_drop_height} must be archived with chunk=None"
     );
@@ -1261,7 +1261,7 @@ fn test_cloud_archival_anchor_below_sync_prev() {
         get_state_header_for_epoch(&cloud_storage, epoch_id, shard_id).chunk_height_included()
     };
     let has_chunk_at = |height, shard_id| {
-        cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().chunk().is_some()
+        cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap().new_chunk().is_some()
     };
     for (shard_id, reconstruction_start) in expected_starts {
         assert_eq!(
@@ -1332,8 +1332,11 @@ fn test_cloud_archival_missing_chunks_one_shard() {
             let height = epoch_start + offset;
             let dropped = cloud_storage.get_shard_data(height, dropped_shard).unwrap().unwrap();
             let other = cloud_storage.get_shard_data(height, other_shard).unwrap().unwrap();
-            assert!(dropped.chunk().is_none(), "carried chunk at h={height} must have chunk=None");
-            assert!(other.chunk().is_some(), "other shard at h={height} must have a new chunk");
+            assert!(
+                dropped.new_chunk().is_none(),
+                "carried chunk at h={height} must have chunk=None"
+            );
+            assert!(other.new_chunk().is_some(), "other shard at h={height} must have a new chunk");
             // State advances at every block (bandwidth scheduler), so the
             // carried chunk's state_root must differ from both neighbors.
             let prev = height - 1;
@@ -1411,8 +1414,9 @@ fn test_cloud_archival_outcomes_and_receipts() {
 
             // Cloud outcome_ids must equal chain's OutcomeIds; each outcome must match.
             let cloud_stored_outcomes: HashMap<CryptoHash, &ExecutionOutcomeWithProof> = shard_data
-                .transaction_result_for_block()
+                .new_chunk()
                 .unwrap()
+                .transaction_result_for_block()
                 .iter()
                 .map(|(id, outcome)| (*id, outcome))
                 .collect();
@@ -1439,8 +1443,8 @@ fn test_cloud_archival_outcomes_and_receipts() {
             total_outcomes += cloud_stored_outcomes.len();
 
             let cloud_stored_receipt_to_tx: HashMap<CryptoHash, &ReceiptToTxInfo> = shard_data
-                .receipt_to_tx()
-                .map(|r| r.iter().map(|(id, info)| (*id, info)).collect())
+                .new_chunk()
+                .map(|d| d.receipt_to_tx().iter().map(|(id, info)| (*id, info)).collect())
                 .unwrap_or_default();
             for (id, cloud_stored_info) in &cloud_stored_receipt_to_tx {
                 assert_eq!(
@@ -1604,12 +1608,11 @@ fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
     h.shutdown();
 }
 
-/// Verifies that the reader's store has entries in the per-shard data columns
-/// the reader reconstructs from chunk-apply activity. The test submits a
-/// cross-shard transfer before the bootstrap range to populate them.
+/// Verifies that the reader's store has the per-shard rows that come off chunk-apply
+/// activity, and that every outcome resolves to the transaction or receipt it came from.
+/// The test submits a cross-shard transfer before the range to populate them.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
-#[ignore]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
     let mut h = CloudArchiveHarness::builder().build();
@@ -1628,6 +1631,7 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
     let mut have_transaction_result_for_block = false;
     let mut have_receipt_to_tx = false;
     let mut have_state_changes = false;
+    let mut outcomes_resolved = 0;
 
     for height in start..=target {
         let block_hash: CryptoHash = store
@@ -1660,6 +1664,15 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
                 ) {
                     have_transaction_result_for_block = true;
                 }
+                // What an indexer walks: every outcome names either the transaction or
+                // the receipt it came from, and reads that body back.
+                assert!(
+                    store.exists(DBCol::Transactions, outcome_id.as_ref())
+                        || store.exists(DBCol::Receipts, outcome_id.as_ref()),
+                    "outcome {outcome_id} at h={height} shard={shard_id} names neither a \
+                     transaction nor a receipt the reader holds",
+                );
+                outcomes_resolved += 1;
             }
             let outgoing: Vec<Receipt> =
                 store.get_ser(DBCol::OutgoingReceipts, &block_shard_key).unwrap_or_default();
@@ -1680,6 +1693,7 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
     assert!(have_transaction_result_for_block, "no transaction_result_for_block reconstructed");
     assert!(have_receipt_to_tx, "no receipt_to_tx reconstructed");
     assert!(have_state_changes, "no state_changes reconstructed");
+    assert!(outcomes_resolved > 0, "no outcome was resolved to its transaction or receipt");
 
     h.kill_historical_reader();
     h.shutdown();
