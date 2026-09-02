@@ -879,7 +879,8 @@ fn collect_new_chunk_kvs(
     let shard_id = chunk_header.shard_id();
     let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
     let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
-    let chunk = ShardChunk::try_from_slice(&value).unwrap();
+    let chunk = ShardChunk::try_from_slice(&value)
+        .unwrap_or_else(|_| panic!("Chunks row at h={height} shard={shard_id} does not decode"));
     kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
     // Keyed by a bare hash, so a chunk's own rows are the rows in range.
     for transaction in chunk.to_transactions() {

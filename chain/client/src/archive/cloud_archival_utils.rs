@@ -277,8 +277,8 @@ fn save_new_chunk_data(
         shard_id,
         new_chunk.transaction_result_for_block(),
     );
-    // TODO(cloud_archival): address the rc columns a re-pull overcounts, in case we need
-    // gc at the reader.
+    // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
+    // need gc at the reader.
     for transaction in chunk.to_transactions() {
         let bytes = borsh::to_vec(transaction).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Transactions, transaction.get_hash().as_ref(), &bytes);
