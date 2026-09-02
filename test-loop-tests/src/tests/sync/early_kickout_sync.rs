@@ -1,22 +1,20 @@
-//! Sync × EarlyKickout integration coverage: nodes joining via the sync pipeline must
-//! hold the `DBCol::ChunkProducers` rows their block-validation reads while syncing
-//! depend on, and those rows must name the right producer.
+//! Tests EarlyKickout across sync paths. Joining nodes must have the
+//! `DBCol::ChunkProducers` rows needed by block validation, and each row must name the correct
+//! producer.
 //!
-//! The oracle lives in `tests::early_kickout_probe`. The blacklist is empty throughout all
-//! four cases — `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against an epoch of 10, so no
-//! anchor clears the grace window — which every case asserts rather than assumes. The offset
-//! half of the oracle bites only where a shard has more than one chunk producer, since the
-//! sampler ignores the height when the settlement holds a single entry; cases A, C and D run
-//! more validators than shards for that reason.
+//! The oracle is in `tests::early_kickout_probe`. All four cases use an empty blacklist because
+//! `EARLY_KICKOUT_EPOCH_GRACE_BLOCKS` is 1000 against 10-block epochs. Each case verifies that
+//! bound. The height-offset check needs multiple chunk producers per shard because a
+//! single-entry settlement ignores height. Cases A, C, and D therefore use more validators than
+//! shards.
 //!
-//! Cases C and D cross EarlyKickout activation over block sync and epoch sync.
-//! Stable isolates the adjacent 86-to-87 edge. Nightly crosses every feature from 87 through
-//! `PROTOCOL_VERSION`.
+//! Cases C and D cross activation through block sync and epoch sync. Stable tests the adjacent
+//! 86-to-87 edge. Nightly crosses versions 87 through `PROTOCOL_VERSION`.
 //!
-//! Adjacent coverage: the epoch-manager unit tests own "seeding writes rows" and
-//! the error on a miss (`chain/chain/src/tests/chunk_producers.rs`,
-//! `test_resolution_errors_on_anchor_db_miss`); `tests::early_kickout_e2e` owns sync
-//! under an *active* kickout, where rows deviate from the plain schedule.
+//! Epoch-manager unit tests cover row creation, and `chain/chain/src/tests/chunk_producers.rs`
+//! (`test_resolution_errors_on_anchor_db_miss`) covers the missing-row error.
+//! `tests::early_kickout_e2e` covers sync with an active blacklist, where rows differ from the
+//! canonical schedule.
 
 use super::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -46,19 +44,16 @@ use near_primitives::types::{Balance, BlockHeight, EpochId};
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 
-/// How far the epoch-sync target lags the head, in epochs, on Case D's chain.
+/// Number of epochs between Case D's epoch-sync target and chain head.
 ///
-/// `ContinuousEpochSync` is active on every profile, so a peer serves the *stored* proof rather
-/// than deriving one per request. On a linear chain, processing the first block of epoch T advances
-/// that stored proof to T-2 (`update_epoch_sync_proof`, called from `ChainUpdate` at each boundary).
-/// Not an invariant to lean on beyond this fixture: the derivation reuses an existing proof that
-/// already reaches the epoch, writes nothing at the first boundaries, and also runs on fork blocks.
-/// Case D's straddle assertion, not this arithmetic, is what catches the target drifting.
+/// `ContinuousEpochSync` serves a stored proof on every profile. On this linear chain, processing
+/// epoch T's first block advances the proof to T-2 through `update_epoch_sync_proof`. This is only
+/// fixture arithmetic: early boundaries may write nothing, existing proofs may be reused, and
+/// forks also update proofs. The straddle assertion detects target drift.
 ///
-/// With activation measured at height 32 and an epoch of 10, this puts the source's stop-epoch
-/// start at 52, and the source heights that both clear epoch sync's "too recent" gate and still
-/// sit inside that epoch are 53..=61. Case D stops mid-epoch, at 57, to sit in the middle of that
-/// window rather than on either edge.
+/// Activation is measured at height 32. With 10-block epochs, the source's stop epoch starts at
+/// 52. Heights 53 through 61 clear the "too recent" gate without leaving that epoch, so Case D
+/// stops at height 57.
 const TARGET_LAG_EPOCHS: u64 = 2;
 
 /// Epoch-start height of `node`'s head epoch, from its own `DBCol::EpochStart` rows.
@@ -78,14 +73,12 @@ fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
     );
 }
 
-/// Probe H — the header-only region a sync leaves behind: from `tail + 2` down to the synced
-/// epoch's start, reachable only by a header walk and exactly where the epoch-sync seeder's rows
-/// live. Returns the walk and the synced epoch's id, so a caller can say more about that epoch.
+/// Probes the header-only region from `tail + 2` to the synced epoch's start, where the
+/// epoch-sync seeder stores its rows. Returns the walk and synced epoch id.
 ///
-/// Starting at `tail + 2` keeps the anchors covered here contiguous with `probe_block_region`'s
-/// floor of `tail + 3`. Callers run it before any further block production: the rows survive a few
-/// more epochs today (`DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, margin about one epoch), but that is a
-/// tuning accident.
+/// Starting at `tail + 2` makes this probe contiguous with `probe_block_region`, whose floor is
+/// `tail + 3`. Run it before producing more blocks: `DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5 and
+/// currently leaves only about one epoch of margin.
 fn probe_header_region(
     node: &TestLoopNode,
     source: &TestLoopNode,
@@ -93,11 +86,10 @@ fn probe_header_region(
 ) -> (AnchorWalk, EpochId) {
     let tail = node.tail();
     let start = node.client().chain.get_block_hash_by_height(tail + 2).unwrap();
-    // Floor of the walk: the synced epoch's start, from the follower's own `DBCol::EpochStart`
-    // rows — independent of the header traversal under test. A fresh node has no row before epoch
-    // sync, `apply_validated_proof` writes exactly one, and header sync only adds rows for later
-    // epochs, so the min non-genesis row is the synced epoch's. Cross-checked against the source
-    // so a wrong row cannot silently move the floor.
+    // Derive the floor independently from the follower's `EpochStart` rows. A fresh node has no
+    // such row before epoch sync, `apply_validated_proof` writes one, and header sync adds only
+    // later epochs. The earliest non-genesis row is therefore the synced epoch's start. Compare
+    // it with the source so a bad row cannot move the floor.
     let (low_epoch_id, low) = node
         .store()
         .iter(DBCol::EpochStart)
@@ -119,8 +111,7 @@ fn probe_header_region(
     let walk = walk_anchor_rows(node, start, low).unwrap_or_else(|err| {
         panic!("header-only probe failed before reaching the floor {low}: {err:?}")
     });
-    // The walk's own postcondition, re-asserted so a walker regression that returns `Ok` early
-    // cannot silently narrow the probe.
+    // Pin the walk's floor so returning `Ok` early cannot narrow the probe.
     assert_eq!(
         walk.lowest_height, low,
         "header-only probe stopped above the synced epoch start ({walk:?})"
@@ -132,17 +123,16 @@ fn probe_header_region(
          epoch sync did not leave a header-only region"
     );
     assert!(walk.same_epoch_rows > 0, "header-only probe checked no anchor row ({walk:?})");
-    // Reaching the synced epoch's opening heights is what exercises the sampler fallthrough on an
-    // epoch this node never processed blocks for.
+    // Opening heights exercise the sampler fallback for an epoch whose blocks this node never
+    // processed.
     assert!(
         walk.cross_epoch_heights > 0,
         "header-only probe never reached the synced epoch's opening heights ({walk:?})"
     );
     assert_inside_grace_window(&walk, "header-only probe");
-    // The one region where the accessor cannot always run: the headers around the epoch-sync point
-    // arrive without a `BlockInfo` (`apply_validated_proof` writes one for its own boundary blocks
-    // only). Measured: 2. Bounded by the proof's boundary-header count rather than pinned to that,
-    // so losing `BlockInfo` for header-synced heights trips it while proof-shape drift does not.
+    // Headers around the epoch-sync point may lack `BlockInfo` because `apply_validated_proof`
+    // writes it only for its boundary blocks. The measured count is two. Allow at most three so
+    // missing data at header-synced heights fails without pinning the exact proof shape.
     assert!(
         walk.blacklist_unavailable <= 3,
         "header-only probe: blacklist unreadable for {} anchors, more than the epoch-sync \
@@ -197,8 +187,6 @@ fn slow_test_early_kickout_far_horizon_observer() {
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
-    // Probe H — the header-only region epoch sync left behind. Runs before the extra epochs
-    // below; see `probe_header_region` for why.
     let (probe_h, _synced_epoch_id) =
         probe_header_region(&env.node(new_node_idx), &env.node(0), epoch_length);
 
@@ -273,12 +261,10 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 // genesis: the early epochs resolve through the canonical sampler with no rows at all,
 // then the vote lands the client version and rows become mandatory.
 //
-// Near-horizon rather than far-horizon on purpose. The vote jumps straight to the client
-// version, so activation lands at height 32 (measured, both profiles), while far-horizon sync
-// needs a head of at least `far_horizon_height` — 50 at this epoch length — and floors its
-// block probe at `tail + 3`. That tail tracks the state-sync point a couple of epochs below
-// such a head, so the boundary would sit at or under the floor and the pre-activation
-// assertions would go vacuous.
+// Use near-horizon sync. Activation is measured at height 32 on both profiles, while
+// far-horizon sync requires a head of at least `far_horizon_height` (50 here) and probes from
+// `tail + 3`. Its tail stays about two epochs behind the head, placing activation at or below
+// the probe floor and making the pre-activation assertions vacuous.
 #[test]
 // TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -376,23 +362,20 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
     tracing::info!(target: "test", activation_height, ?walk, "activation edge probe complete");
 }
 
-// Case D — the EarlyKickout activation edge crossed by a node that joined through epoch sync.
+// Case D — epoch sync across the EarlyKickout activation edge.
 //
-// Epoch sync bypasses `record_block_info` for the synced epoch and seeds its first block through
-// `seed_chunk_producers_after_epoch_sync`. Case A and `early_kickout_e2e`'s epoch-sync bootstrap
-// reach that writer too, but both run chains that have been at the EarlyKickout version since
-// genesis. Here the target epoch is the *first* one at that version, so the proof's earlier
-// boundary blocks are pre-activation and carry no rows.
+// Epoch sync bypasses `record_block_info` for the synced epoch and calls
+// `seed_chunk_producers_after_epoch_sync` for its first block. Unlike Case A and the E2E bootstrap,
+// the target is the first EarlyKickout epoch, so earlier proof boundaries are pre-activation and
+// have no rows.
 //
-// What that buys over Case A, stated as the mutation it kills: gate the writer's call site on the
-// predecessor epoch's protocol version instead of the seeded epoch's, and Case A still passes while
-// this case fails on a missing same-epoch anchor row. The walk statistics do not show it —
-// `cross_epoch_heights` counts anchors in a different epoch, not a pre-activation one, and reports
-// the same value in both cases.
+// Gating the writer on the predecessor's version would still pass Case A but fail here with a
+// missing same-epoch anchor. `cross_epoch_heights` cannot detect that mutation because it counts
+// different epochs without distinguishing pre-activation ones.
 //
-// The chain is run to a computed height rather than a fixed one because extra blocks slide the
-// target forward off the activation epoch. The complementary writer arm, a synced epoch still below
-// activation, belongs to `epoch_sync_seeder_writes_no_rows_below_activation`.
+// Compute the stop height because extra blocks move the target past activation. The
+// `epoch_sync_seeder_writes_no_rows_below_activation` unit test covers a synced epoch that remains
+// below activation.
 #[test]
 // TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -409,9 +392,8 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
     );
 
     let epoch_length = 10;
-    // Four validators over two shards, so each shard has more than one chunk producer and the
-    // canonical schedule rotates with height; a single-producer shard would make the oracle's
-    // anchor-offset half blind.
+    // Use four validators over two shards so each canonical schedule rotates with height. A
+    // single producer per shard would make the anchor-offset check ineffective.
     let validators_spec = create_validators_spec(4, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(100);
@@ -431,9 +413,8 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
         .clients(clients)
         .build();
 
-    // Where activation actually landed, read off the chain rather than assumed from the vote
-    // schedule. The margin against the far-horizon threshold below is only a couple of blocks, so
-    // a vote landing an epoch earlier trips that assert rather than being absorbed here.
+    // Read the activation point from the chain. Only a few blocks separate it from the
+    // far-horizon floor, so an activation one epoch earlier must fail the assertion below.
     let run_timeout = Duration::seconds((15 * epoch_length) as i64);
     env.node_runner(0).run_until(
         |node| {
@@ -447,29 +428,25 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
     let activation_start = source_epoch_start(&env.node(0))
         .expect("no `EpochStart` row for the first EarlyKickout epoch");
 
-    // Stop `TARGET_LAG_EPOCHS` epochs past activation, so the target is the activation epoch.
-    // Running further slides it forward and the probes below degrade into a re-run of Case A.
+    // Stop `TARGET_LAG_EPOCHS` after activation so the proof targets the activation epoch.
+    // Additional epochs would turn this into Case A.
     //
-    // Stopping mid-epoch rather than on the boundary: the boundary is where both margins are
-    // thinnest at once — the far-horizon floor below, and epoch sync's own "source too recent"
-    // gate (`chain/client/src/sync/epoch.rs`), which needs the source a few blocks past the
-    // target's epoch start. Half an epoch of extra head buys both without moving the target.
+    // Stop halfway through the epoch. This clears the far-horizon floor and epoch sync's "source
+    // too recent" gate, which needs several blocks after the target epoch starts, without moving
+    // the proof to the next target.
     let stop_at_epoch_start = activation_start + TARGET_LAG_EPOCHS * epoch_length;
     let stop_at_height = stop_at_epoch_start + epoch_length / 2;
     env.node_runner(0).run_until(|node| node.head().height >= stop_at_height, run_timeout);
-    // Waiting on an absolute height, so re-assert what the wait used to imply: the source is still
-    // inside the intended epoch, which is what keeps the stored epoch-sync proof pointed at the
-    // activation epoch.
+    // Confirm the absolute-height wait did not leave the intended epoch and move the stored proof
+    // past activation.
     assert_eq!(
         source_epoch_start(&env.node(0)),
         Some(stop_at_epoch_start),
         "source left epoch {stop_at_epoch_start} before height {stop_at_height}; the stored \
          proof no longer targets the activation epoch"
     );
-    // `far_horizon_height` is this suite's conservative setup floor, not the production phase
-    // decision, so a shorter chain is not necessarily impossible to sync — it is just outside what
-    // this fixture is set up for. `assert_far_horizon_sync_sequence` below is the exact statement
-    // about which path actually ran.
+    // `far_horizon_height` is this fixture's conservative setup floor, not production's sync-phase
+    // rule. `assert_far_horizon_sync_sequence` below verifies the path that actually ran.
     let head_height = env.node(0).head().height;
     assert!(
         head_height >= far_horizon_height(epoch_length),
@@ -496,22 +473,20 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, new_node_idx, 0);
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
-    // Asserted before the probes: they are only about epoch sync if epoch sync actually ran.
+    // Confirm epoch sync ran before attributing the probes to it.
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 
-    // Probe H — the header-only region above the state-sync tail down to the synced epoch start,
-    // which is exactly where `apply_validated_proof` left its rows.
+    // Probe the header-only rows written by `apply_validated_proof`, from above the state-sync
+    // tail to the synced epoch's start.
     let (probe_h, synced_epoch_id) =
         probe_header_region(&env.node(new_node_idx), &env.node(0), epoch_length);
 
-    // The whole point of this case: the synced epoch is the FIRST EarlyKickout epoch, so its
-    // predecessor is still pre-activation and the proof straddles the edge. Asserting only the
-    // enabled side would let the target slide forward and leave the probe above re-running Case A
-    // on a single-version proof.
+    // Require the synced epoch to be the first EarlyKickout epoch and its predecessor to be
+    // pre-activation. Checking only the enabled side would allow the target to move forward and
+    // repeat Case A with a single-version proof.
     //
-    // Read from the joiner and cross-checked against the source. The joiner's copy is the one that
-    // matters: `init_after_epoch_sync` installs the predecessor's `EpochInfo` from the proof, and
-    // that pre-activation entry is the state this case has and Case A does not.
+    // Check the joiner's versions against the source. The joiner's predecessor matters because
+    // `init_after_epoch_sync` installs that pre-activation `EpochInfo` from the proof.
     {
         let source = env.node(0);
         let source_epoch_manager = &source.client().epoch_manager;
@@ -552,9 +527,8 @@ fn slow_test_early_kickout_activation_edge_epoch_sync() {
 
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
 
-    // Probe B — the block region above the tail, built by the joiner's own block processing
-    // after the sync. Getting here at all is the no-stall assertion: a missing same-epoch
-    // anchor row rejects the block with `ChunkProducerNotInDB` and the node never advances.
+    // Probe blocks the joiner processed after sync. Reaching this point proves it did not stall:
+    // a missing same-epoch anchor would reject a block with `ChunkProducerNotInDB`.
     let probe_b = probe_block_region(&env.node(new_node_idx), epoch_length);
     assert_walk_window(&probe_b, epoch_length, "block-region probe");
     assert!(probe_b.same_epoch_rows > 0, "block-region probe checked no anchor row ({probe_b:?})");

@@ -2253,18 +2253,15 @@ fn fork_seeded_rows_reflect_each_branch_blacklist() {
 /// Height of the epoch-sync first block in the activation-edge tests below.
 const EPOCH_SYNC_FIRST_BLOCK_HEIGHT: u64 = 42;
 
-/// Runs the epoch-sync first-block seeder over the genesis epoch of an `EpochManager` pinned to
-/// `epoch_protocol_version`. This is `seed_chunk_producers_for_first_block`, reached in production
-/// only through `seed_chunk_producers_after_epoch_sync` from `EpochSync::apply_validated_proof`.
+/// Seeds the first block of an epoch after epoch sync. Production reaches this seeder through
+/// `seed_chunk_producers_after_epoch_sync` from `EpochSync::apply_validated_proof`.
 ///
-/// `header_protocol_version` fills the block's own header-derived protocol-version field. Callers
-/// pass the opposite side of the activation edge from `epoch_protocol_version`, so a gate reading
-/// the header instead of the epoch would flip both tests below rather than pass either. It is also
-/// passed as `BlockInfo::new`'s variant selector, which is inert here only because 86 and 87 both
+/// Callers put `header_protocol_version` on the opposite side of activation from
+/// `epoch_protocol_version`. Gating on the header instead of the epoch would therefore fail both
+/// tests. The header version also selects the `BlockInfo` variant, but versions 86 and 87 both
 /// select V4.
 ///
-/// Returns the manager and the hash the seeder wrote under, so the writer and both readers share
-/// one definition of it.
+/// Returns the manager and the hash used to store the seeded rows.
 fn seed_epoch_sync_first_block(
     epoch_protocol_version: ProtocolVersion,
     header_protocol_version: ProtocolVersion,
@@ -2301,7 +2298,7 @@ fn seed_epoch_sync_first_block(
         ChunkEndorsementsBitmap::new(2),
         None,
     );
-    // What `apply_validated_proof` installs: the block is its own epoch's first block.
+    // Match `apply_validated_proof`: this block starts its epoch.
     *block_info.epoch_id_mut() = EpochId::default();
     *block_info.epoch_first_block_mut() = block_hash;
 
@@ -2311,8 +2308,8 @@ fn seed_epoch_sync_first_block(
     (em, block_hash)
 }
 
-// The reader gates on the chunk epoch before querying `DBCol::ChunkProducers`. Keep the
-// epoch-sync writer on the same activation boundary.
+// The reader gates `DBCol::ChunkProducers` lookups on the chunk epoch. The epoch-sync writer
+// must use the same activation boundary.
 #[test]
 fn epoch_sync_seeder_writes_no_rows_below_activation() {
     let (em, block_hash) = seed_epoch_sync_first_block(
@@ -2326,10 +2323,9 @@ fn epoch_sync_seeder_writes_no_rows_below_activation() {
     );
 }
 
-// The other side of the same edge. A node that epoch-syncs into the first EarlyKickout epoch
-// must seed every shard, because the anchored reader hard-errors with `ChunkProducerNotInDB` on
-// a missing same-epoch anchor. The first block of an epoch has no in-epoch stats, so the rows
-// must be the canonical (empty-blacklist) sample.
+// The first EarlyKickout epoch must seed every shard. A missing same-epoch anchor makes the
+// anchored reader return `ChunkProducerNotInDB`. The epoch's first block has no in-epoch stats,
+// so each row must contain the canonical sample with an empty blacklist.
 #[test]
 fn epoch_sync_seeder_seeds_canonical_rows_at_activation() {
     let (em, block_hash) = seed_epoch_sync_first_block(

@@ -20,18 +20,15 @@ pub fn derive_new_epoch_config_from_boundary(
     (epoch_config, new_shard_layout)
 }
 
-/// The upgrade edge `(old, new)` that sits directly below `EarlyKickout` activation.
+/// Returns the upgrade edge immediately below EarlyKickout activation.
 ///
-/// Once `EarlyKickout` is the stable protocol version, the default `PROTOCOL_VERSION - 1 ->
-/// PROTOCOL_VERSION` edge crosses activation, so a fixture using it no longer runs entirely
-/// below the feature. This helper says nothing about *which* pre-activation behaviour a caller
-/// is after — that differs per caller, so each one states its own claim. The activation edge
-/// itself is owned by `tests::protocol_upgrade` and `tests::sync::early_kickout_sync`.
+/// When EarlyKickout becomes stable, the default `PROTOCOL_VERSION - 1 -> PROTOCOL_VERSION` edge
+/// crosses activation. Callers use this helper to remain below it and document the behavior they
+/// cover. `tests::protocol_upgrade` and `tests::sync::early_kickout_sync` cover activation itself.
 ///
-/// The assert below is a removal trigger, not a repair request: when it fires, the pinned edge
-/// has dropped out of the supported window, so **delete** the callers that pin to it rather than
-/// shifting them to some other version. Do not turn it into a skip either — that keeps the tests
-/// in the tree while silently covering nothing.
+/// The assertion is a removal trigger. When this edge leaves the supported window, delete its
+/// callers. Do not shift the versions or skip the tests, because either would silently remove
+/// their intended coverage.
 pub fn pre_early_kickout_upgrade_edge() -> (ProtocolVersion, ProtocolVersion) {
     let new_protocol = ProtocolFeature::EarlyKickout.protocol_version() - 1;
     let old_protocol = new_protocol - 1;

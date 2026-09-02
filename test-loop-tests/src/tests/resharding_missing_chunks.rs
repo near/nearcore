@@ -221,13 +221,12 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
          not strictly before E={epoch_e}",
     );
 
-    // Chunk-production health, per shard per epoch. The assertions above are satisfied by a
-    // single good block per epoch, so without this the fixture passes on a chain that lost
-    // almost all of its chunks: only one block per epoch needs a full mask.
+    // Check each shard's chunk-production rate. The earlier assertions need only one full mask
+    // per epoch and can pass after almost all chunks are lost.
     //
-    // Complete epochs only. The first recorded one is stretched by `skip_warmup` and opens with
-    // an empty mask and an all-`false` block; the last is cut off by `stop_condition`. A short
-    // partial epoch fails a ratio on arithmetic rather than on a regression.
+    // Exclude partial epochs. `skip_warmup` stretches the first and adds an empty mask plus an
+    // all-`false` block. `stop_condition` truncates the last, which can fail the ratio without a
+    // regression.
     let epoch_heights = records.iter().map(|r| r.epoch_height).collect::<BTreeSet<_>>();
     let first_epoch = *epoch_heights.iter().next().expect("no blocks recorded");
     let last_epoch = *epoch_heights.iter().next_back().unwrap();
@@ -245,11 +244,10 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
         );
         let num_shards = epoch_blocks.iter().map(|r| r.chunk_mask.len()).max().unwrap();
         for shard_index in 0..num_shards {
-            // The parent is silenced on purpose, but only in the old layout. In the new layout
-            // the same numeric index addresses a live child (measured: old ids `[2, 1, 0]`,
-            // new `[3, 4, 1, 0]`, so index 0 moves from parent shard 2 to child shard 3), and
-            // the `DropCondition` keys on shard *id* 2, which no longer exists there — nothing
-            // is silenced, so excluding the index would blind this check to a child.
+            // Exclude the silenced parent only in the old layout. The measured shard ids change
+            // from `[2, 1, 0]` to `[3, 4, 1, 0]`, so index 0 changes from parent 2 to child 3.
+            // `DropCondition` targets shard id 2, which is absent from the new layout. Excluding
+            // index 0 there would skip a live child.
             if !is_new_layout
                 && shard_index == parent_shard_index
                 && silenced_epochs.contains(&epoch_height)
@@ -260,10 +258,9 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
                 .iter()
                 .filter(|r| r.chunk_mask.get(shard_index).copied().unwrap_or(false))
                 .count();
-            // Integer form of 70%. The margin against the regression is wide: it leaves exactly
-            // one produced block per epoch, while healthy runs sit at or near 100% for every
-            // non-silenced shard. The legitimate side is tighter than the percentage suggests —
-            // at this epoch length the check quantizes to 4-of-5, one missed chunk per epoch.
+            // Enforce a 70% floor with integer arithmetic. The regression produces exactly one
+            // chunk per epoch, while healthy non-silenced shards produce nearly 100%. With five
+            // blocks per epoch, the floor requires four chunks and permits one miss.
             assert!(
                 produced * 10 >= total * 7,
                 "shard index {shard_index} produced {produced} of {total} chunks in epoch \
@@ -289,9 +286,8 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
     let split_start =
         split_blocks.iter().map(|r| r.height).min().expect("no blocks recorded in the split epoch");
 
-    // The split epoch's runtime version, read off the chain. The fixture is supposed to couple
-    // it to `target_protocol_version` (the new layout exists only in that version's config), so
-    // assert the coupling instead of assuming it — the arm below is a no-op if it drifts.
+    // Confirm the split epoch uses `target_protocol_version`, whose config introduces the new
+    // layout. The guarded check below would do nothing if these versions diverged.
     let node = env.node(0);
     let client = node.client();
     let split_epoch_id = {
@@ -305,12 +301,10 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
          comes from"
     );
 
-    // Below activation only, so this is a no-op for the caller that splits at the activation
-    // version and retires together with the pinned sibling.
+    // Run only for the sibling pinned below activation. Remove this arm when that sibling retires.
     if !ProtocolFeature::EarlyKickout.enabled(split_version) {
-        // Nothing wrote the column, on either side of the split. Stronger than probing one
-        // absent key: that would say nothing about the column as a whole, and would still pass
-        // with an ungated writer filling every other anchor.
+        // The column must remain empty across the split. Checking one key would miss an ungated
+        // writer that populated other anchors.
         let rows = node.store().iter(DBCol::ChunkProducers).count();
         assert_eq!(
             rows, 0,
@@ -318,22 +312,20 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
              rows"
         );
 
-        // ...and with the column empty, producer resolution still succeeds, through the
-        // canonical sampler.
+        // Producer resolution must use the canonical sampler while the column is empty.
         //
-        // A statement of the contract, not a guard: no mutation makes this fail on a chain that
-        // still runs. An ungated reader would take the same-epoch anchor arm and error with
-        // `ChunkProducerNotInDB`, but it also costs the chain almost all of its chunks, so the
-        // 70% floor above fires first and no block down here even qualifies. The zero-rows
-        // assert is the one with a live mutation behind it (an ungated writer).
+        // This records the reader contract but does not pin a live mutation. An ungated reader
+        // returns `ChunkProducerNotInDB` for same-epoch anchors, but its chunk loss triggers the
+        // 70% floor before this probe. The empty-column assertion above pins the ungated-writer
+        // mutation.
         //
-        // The run ends in epoch E+3 and `DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, so the split-epoch
-        // blocks read here outlive GC by about one epoch. If the runway grows or retention
-        // shrinks, the `ok()?`s below skip every candidate and the expect blames the chunks.
+        // The run ends in epoch E+3 and `DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, leaving about one
+        // epoch of GC margin for these split-epoch blocks. If the run grows or retention shrinks,
+        // every `ok()?` skips its candidate and the final `expect` reports the missing chunks.
         let resolved = split_blocks
             .iter()
-            // `+ 2` so the grandparent anchor can be in this epoch at all; the epoch check
-            // below is what actually establishes it, since heights can be skipped.
+            // Start at `+ 2`, the first possible same-epoch grandparent anchor. The epoch check
+            // remains necessary because heights can be skipped.
             .filter(|r| r.height >= split_start + 2)
             .find_map(|record| {
                 let hash = client.chain.get_block_hash_by_height(record.height).ok()?;
@@ -344,8 +336,8 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
                 if client.epoch_manager.get_epoch_id(&anchor).ok()? != chunk_epoch_id {
                     return None;
                 }
-                // A set mask bit is a chunk created at this height, which is what makes the
-                // lookup below about a chunk that exists rather than a carried-forward one.
+                // Select a set mask bit so the lookup covers a newly created chunk, not a
+                // carried-forward one.
                 let chunks = block.chunks();
                 let index = record.chunk_mask.iter().position(|produced| *produced)?;
                 let chunk = chunks.get(index)?;
@@ -366,9 +358,8 @@ fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: Pr
     }
 }
 
-/// The split lands at the version the client votes for. On a stable build where EarlyKickout is
-/// the newest feature, that also turns the feature on in the split epoch, so this covers the
-/// resharding boundary and the activation edge at once.
+/// Splits at the client-voted version. When EarlyKickout is the newest stable feature, the split
+/// epoch also crosses its activation edge.
 #[test]
 // Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
 // that this fix and scenario don't cover; resharding under spice is not supported yet.
@@ -377,11 +368,10 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
     resharding_parent_missing_full_epoch_before_split(PROTOCOL_VERSION);
 }
 
-/// Sibling of the above with the split pinned below EarlyKickout activation, so the resharding
-/// boundary is crossed with the `DBCol::ChunkProducers` column empty and witnesses on the V1
-/// path (`PartialEncodedStateWitness::new` picks V2 iff the feature is on) on both sides of the
-/// split. Once EarlyKickout is stable, every other resharding fixture splits at or above the
-/// activation version, so this is the only one left covering that combination.
+/// Splits below EarlyKickout activation. `DBCol::ChunkProducers` remains empty, and
+/// `PartialEncodedStateWitness::new` selects V1 witnesses on both sides of the split because it
+/// selects V2 only when the feature is enabled. Once EarlyKickout is stable, this is the only
+/// resharding fixture covering that combination.
 #[test]
 // Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
 // that this fix and scenario don't cover; resharding under spice is not supported yet.
