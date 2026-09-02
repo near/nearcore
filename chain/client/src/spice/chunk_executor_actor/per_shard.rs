@@ -607,6 +607,7 @@ impl PerShardChunkExecutor {
             transactions,
             contract_accesses.iter().cloned().collect(),
             None,
+            vec![],
         );
         let contract_accesses: HashSet<CodeHash> = contract_accesses.into_iter().collect();
         save_witness_and_contract_accesses(
@@ -709,6 +710,7 @@ impl PerShardChunkExecutor {
             transactions,
             contract_accesses.iter().cloned().collect(),
             proof_of_invalid_chunk,
+            vec![],
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
     }

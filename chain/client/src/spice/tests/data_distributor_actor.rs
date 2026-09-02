@@ -153,6 +153,7 @@ fn new_test_witness_for_chunk(
         transactions,
         BTreeSet::new(),
         None,
+        vec![],
     )
 }
 

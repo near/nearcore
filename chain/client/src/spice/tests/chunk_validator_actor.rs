@@ -569,6 +569,7 @@ fn test_witness_message(
         transactions,
         contract_accesses,
         None,
+        vec![],
     );
     let witness_size = borsh::object_length(&witness).unwrap();
     SpiceChunkStateWitnessMessage { witness, raw_witness_size: witness_size }

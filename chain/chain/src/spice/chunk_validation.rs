@@ -627,6 +627,7 @@ mod tests {
             vec![],
             BTreeSet::new(),
             None,
+            vec![],
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -669,6 +670,7 @@ mod tests {
             test_chain.transactions(),
             BTreeSet::new(),
             None,
+            vec![],
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -1011,6 +1013,7 @@ mod tests {
                 self.transactions,
                 self.contract_accesses,
                 self.proof_of_invalid_chunk,
+                vec![],
             )
         }
     }
@@ -1193,6 +1196,7 @@ mod tests {
                 vec![],
                 BTreeSet::new(),
                 Some(Box::new(body)),
+                vec![],
             )
         }
 
@@ -1304,6 +1308,7 @@ mod tests {
                 transactions,
                 BTreeSet::new(),
                 None,
+                vec![],
             )
         }
 
@@ -1325,6 +1330,7 @@ mod tests {
                 transactions,
                 BTreeSet::new(),
                 None,
+                vec![],
             )
         }
 
