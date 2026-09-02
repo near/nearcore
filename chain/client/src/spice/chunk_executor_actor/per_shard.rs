@@ -40,14 +40,18 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExecutionResults, BlockHeight, ChunkExecutionResult, Gas, NumBlocks, ShardId, SpiceChunkId,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{DBCol, ShardUId};
 use node_runtime::SignedValidPeriodTransactions;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -544,8 +548,76 @@ impl PerShardChunkExecutor {
                 self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
             if epoch_producers.contains(my_signer.validator_id()) {
                 self.send_outgoing_receipts(block, receipt_proofs);
+                self.distribute_boundary_witness(block)?;
             }
         }
+        Ok(())
+    }
+
+    /// Packages and distributes the state witness of the activation parent's chunk
+    /// for this shard, so its designated validators can endorse without tracking the
+    /// shard.
+    fn distribute_boundary_witness(&self, block: &Block) -> Result<(), Error> {
+        let shard_id = self.shard_uid.shard_id();
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunk_headers = block.chunks();
+        let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
+        // TODO(spice-boundary): a chunk missing at the activation parent needs a
+        // multi-block witness anchored at its last included chunk; not produced yet.
+        let Some(chunk) = self.get_new_chunk_if_valid(chunk_header, block.header().height())?
+        else {
+            return Ok(());
+        };
+        let transactions = chunk.into_transactions();
+
+        let Some(stored_transition) = self
+            .chain_store
+            .store()
+            .get_ser(DBCol::StateTransitionData, &get_block_shard_id(block.hash(), shard_id))
+        else {
+            tracing::warn!(
+                target: "chunk_executor",
+                block_hash = %block.hash(),
+                %shard_id,
+                "no recorded state transition to build the boundary witness from",
+            );
+            return Ok(());
+        };
+        let StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+            base_state,
+            receipts_hash,
+            contract_accesses,
+            contract_deploys: _,
+        }) = stored_transition;
+
+        let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = self
+            .chain_store
+            .get_incoming_receipts(block.hash(), shard_id)?
+            .iter()
+            .map(|proof| (proof.1.from_shard_id, proof.clone()))
+            .collect();
+
+        let state_witness = SpiceChunkStateWitness::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id },
+            base_state,
+            source_receipt_proofs,
+            receipts_hash,
+            transactions,
+            contract_accesses.iter().cloned().collect(),
+            None,
+        );
+        let contract_accesses: HashSet<CodeHash> = contract_accesses.into_iter().collect();
+        save_witness_and_contract_accesses(
+            &self.chain_store,
+            block.hash(),
+            shard_id,
+            &state_witness,
+            &contract_accesses,
+        );
+        self.data_distributor_adapter
+            .send(SpiceDistributorStateWitness { state_witness, contract_accesses });
         Ok(())
     }
 
