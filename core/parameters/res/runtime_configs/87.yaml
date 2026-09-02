@@ -6,6 +6,10 @@ burnt_gas_reward:
     new: { numerator: 0, denominator: 1 },
   }
 
+# Limit contracts to one local per two bytes of contract code, in addition to
+# the existing absolute limit on locals per contract.
+min_contract_size_per_local: { new: 2 }
+
 # Bound the combined size of a single receipt's resolved promise inputs.
 # The value is measured against the borsh-encoded `ReceivedData` of each input,
 # and is set to `max_length_returned_data` (4 MiB) plus the worst-case per-input

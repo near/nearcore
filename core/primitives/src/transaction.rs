@@ -1,3 +1,4 @@
+use crate::action::UniversalStateInitAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -7,8 +8,10 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::universal_state_init::UniversalStateInit;
+use crate::utils::derive_universal_account_id;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::account::AccountContract;
@@ -213,6 +216,49 @@ impl Transaction {
             Transaction::V0(_) => NonceMode::Monotonic,
             Transaction::V1(tx) => tx.nonce_mode,
         }
+    }
+
+    /// The state init action which this transaction contains, if it is shaped as
+    /// a self-signed universal account bootstrap.
+    ///
+    /// A `0u` account id is the hash of its state init, and the state init names
+    /// the account's access keys. Therefore, a transaction addressed to that account,
+    /// signed by one of those keys, and carrying the state init itself is authorized
+    /// by the account id alone.
+    ///
+    /// This is only the stateless half of the check. Whether the account exists,
+    /// is still uninitialized, and is at the right nonce is decided against the state.
+    ///
+    /// Deliberately looks only at top-level actions. A `UniversalStateInit`
+    /// nested in a `Delegate` is validated against the *delegate's* receiver
+    /// (see `validate_delegate_action`) and executes in a receipt of its own, so
+    /// it authorizes nothing here.
+    pub fn state_init_bootstrap(&self) -> Option<&UniversalStateInitAction> {
+        // A bootstrap pays from the account's own balance, so it can never be a
+        // gas-key transaction: a gas key is state this account does not have yet.
+        if self.nonce().nonce_index().is_some() {
+            return None;
+        }
+        let account_id = self.signer_id();
+        if account_id != self.receiver_id() {
+            return None;
+        }
+        let handle = PublicKeyHandle::from(self.public_key());
+        self.actions().iter().find_map(|action| {
+            let Action::UniversalStateInit(action) = action else { return None };
+            if derive_universal_account_id(&action.state_init) != *account_id {
+                return None;
+            }
+            let state_init = UniversalStateInit::from_raw(&action.state_init).ok()?;
+            state_init.access_keys().contains(&handle).then_some(&**action)
+        })
+    }
+
+    /// Whether this transaction is shaped as a self-signed universal account
+    /// bootstrap. [`Self::state_init_bootstrap`] is the same check for callers
+    /// that need the action itself.
+    pub fn is_state_init_bootstrap(&self) -> bool {
+        self.state_init_bootstrap().is_some()
     }
 }
 
@@ -788,9 +834,13 @@ pub struct ExecutionOutcomeWithProof {
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+    use crate::universal_state_init::UniversalStateInitV1;
     use borsh::BorshDeserialize;
+    use near_crypto::SecretKey;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
     use near_primitives::types::Gas;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::slice::from_ref;
 
     #[test]
     fn test_verify_transaction() {
@@ -1214,5 +1264,192 @@ mod tests {
         assert_eq!(signed_tx.size_for_limits(pre), signed_tx.get_size());
         assert_eq!(signed_tx.size_for_limits(post), signed_tx.wire_size());
         assert!(signed_tx.size_for_limits(post) > signed_tx.size_for_limits(pre));
+    }
+
+    fn key(seed: &str, key_type: KeyType) -> PublicKey {
+        SecretKey::from_seed(key_type, seed).public_key()
+    }
+
+    fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: keys.iter().cloned().map(PublicKeyHandle::from).collect::<BTreeSet<_>>(),
+        })
+    }
+
+    /// A transaction shaped as a self-signed bootstrap: addressed to the id its
+    /// own state init derives to, and signed by one of that state init's keys.
+    fn bootstrap_tx(
+        state_init: &UniversalStateInit,
+        signer: PublicKey,
+        extra_actions: Vec<Action>,
+    ) -> Transaction {
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let mut actions = vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw,
+            deposit: Balance::ZERO,
+        }))];
+        actions.extend(extra_actions);
+        Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions,
+        })
+    }
+
+    #[test]
+    fn recognizes_a_self_signed_state_init() {
+        let signer = key("uaid-a", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(&state_init, signer, vec![]);
+
+        let found = tx.state_init_bootstrap().expect("state init not found");
+        assert_eq!(found.state_init, state_init.to_raw());
+    }
+
+    /// Batched actions do not change the claim: safety comes from the runtime's
+    /// uninitialized-account guard, not from restricting the action list.
+    #[test]
+    fn extra_actions_do_not_disqualify_the_claim() {
+        let signer = key("uaid-b", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(
+            &state_init,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        );
+
+        assert!(tx.is_state_init_bootstrap());
+    }
+
+    /// The signing key must be one the account id commits to. Without this, the
+    /// state init bytes are public, so anyone could spend the account's balance.
+    #[test]
+    fn rejects_a_key_the_state_init_does_not_commit_to() {
+        let committed = key("uaid-c", KeyType::ED25519);
+        let outsider = key("uaid-outsider", KeyType::ED25519);
+        let state_init = state_init_for(&[committed]);
+        let tx = bootstrap_tx(&state_init, outsider, vec![]);
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// An ML-DSA-65 handle is a hash of the key, so a naive public-key
+    /// comparison would never match for a post-quantum signer.
+    #[test]
+    fn matches_a_post_quantum_key_on_its_handle() {
+        let signer = key("uaid-pq", KeyType::MLDSA65);
+        let state_init = state_init_for(from_ref(&signer));
+        let tx = bootstrap_tx(&state_init, signer, vec![]);
+
+        assert!(tx.is_state_init_bootstrap());
+    }
+
+    /// The state init must derive to the account it is addressed to, otherwise
+    /// the account id is not a commitment to anything in this transaction.
+    #[test]
+    fn rejects_a_state_init_for_another_account() {
+        let signer = key("uaid-d", KeyType::ED25519);
+        let ours = state_init_for(from_ref(&signer));
+        let theirs = state_init_for(&[signer.clone(), key("uaid-e", KeyType::ED25519)]);
+
+        // Addressed to our id, but carrying somebody else's state init.
+        let account_id = derive_universal_account_id(&ours.to_raw());
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: theirs.to_raw(),
+                deposit: Balance::ZERO,
+            }))],
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// The account pays for itself, so the transaction must be addressed to the
+    /// signer. A relayer-paid init is a different, already-supported flow.
+    #[test]
+    fn rejects_a_relayer_paid_state_init() {
+        let signer = key("uaid-f", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let mut tx = bootstrap_tx(&state_init, signer, vec![]);
+        match &mut tx {
+            Transaction::V0(tx) => tx.signer_id = "relayer.near".parse().unwrap(),
+            Transaction::V1(tx) => tx.signer_id = "relayer.near".parse().unwrap(),
+        }
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// A gas key is state the account does not have yet, so a bootstrap can
+    /// never carry a nonce index.
+    #[test]
+    fn rejects_a_gas_key_nonce() {
+        let signer = key("uaid-g", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let tx = Transaction::V1(TransactionV1 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: TransactionNonce::from_nonce_and_index(1, 0),
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw,
+                deposit: Balance::ZERO,
+            }))],
+            nonce_mode: NonceMode::Monotonic,
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
+    }
+
+    /// A state init nested in a `Delegate` is validated against the delegate's
+    /// receiver and runs in a receipt of its own, so it must not authorize the
+    /// outer transaction.
+    #[test]
+    fn does_not_look_inside_a_delegate_action() {
+        use crate::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
+
+        let signer = key("uaid-h", KeyType::ED25519);
+        let state_init = state_init_for(from_ref(&signer));
+        let raw = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw);
+        let inner = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw,
+            deposit: Balance::ZERO,
+        }));
+        let delegate = Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                actions: vec![NonDelegateAction::try_from(inner).unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: signer.clone(),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }));
+
+        let tx = Transaction::V0(TransactionV0 {
+            signer_id: account_id.clone(),
+            public_key: signer,
+            nonce: 1,
+            receiver_id: account_id,
+            block_hash: CryptoHash::default(),
+            actions: vec![delegate],
+        });
+
+        assert!(!tx.is_state_init_bootstrap());
     }
 }

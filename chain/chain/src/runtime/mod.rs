@@ -37,7 +37,7 @@ use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransa
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
@@ -52,7 +52,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_gas_key_nonce,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -61,9 +61,10 @@ use node_runtime::cache_warming::cache_keys_differ;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    ValidatorAccountsUpdate, get_signer_and_access_key, validate_transaction,
-    verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorization,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
+    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
@@ -771,38 +772,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, authorization) = get_signer_and_authorization(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
         let block_height: Option<BlockHeight> = None;
-        if let Some(nonce_index) = tx.nonce().nonce_index() {
-            let current_nonce =
-                get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .ok_or_else(|| {
-                        let num_nonces = access_key
-                            .gas_key_info()
-                            .map_or(0, |gas_key_info| gas_key_info.num_nonces);
-                        InvalidTxError::InvalidNonceIndex {
-                            tx_nonce_index: Some(nonce_index),
-                            num_nonces,
-                        }
-                    })?;
-            match verify_and_charge_gas_key_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &access_key,
-                current_nonce,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ) {
-                TxVerdict::Success(_) => Ok(()),
-                TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
-            }
-        } else {
-            match verify_and_charge_tx_ephemeral(
+
+        let verdict = match authorization {
+            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
                 runtime_config,
                 &signer,
                 &access_key,
@@ -810,12 +787,43 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &cost,
                 block_height,
                 pending_constraints,
-            ) {
-                TxVerdict::Success(_) => Ok(()),
-                TxVerdict::Failed(error) => Err(error),
-                // verify_and_charge_tx_ephemeral never returns DepositFailed.
-                TxVerdict::DepositFailed { .. } => unreachable!(),
+            ),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                let current_nonce =
+                    get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
+                        .ok_or_else(|| {
+                            let num_nonces = access_key
+                                .gas_key_info()
+                                .map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                            InvalidTxError::InvalidNonceIndex {
+                                tx_nonce_index: Some(nonce_index),
+                                num_nonces,
+                            }
+                        })?;
+                verify_and_charge_gas_key_tx_ephemeral(
+                    runtime_config,
+                    &signer,
+                    &access_key,
+                    current_nonce,
+                    &tx,
+                    &cost,
+                    block_height,
+                    pending_constraints,
+                )
             }
+            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
+                runtime_config,
+                &signer,
+                &tx,
+                &cost,
+                block_height,
+                pending_constraints,
+            ),
+        };
+
+        match verdict {
+            TxVerdict::Success(_) => Ok(()),
+            TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
         }
     }
 
@@ -993,41 +1001,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break 'add_txs_loop;
                 }
 
-                // Strict nonce gap check: if the tx requires sequential
-                // nonces and there is a gap, leave it in the pool for a
-                // future block rather than popping and discarding it.
-                // Use the signer cache if available; otherwise read through
-                // a throwaway trie to avoid inflating the recorded witness
-                // size for transactions that won't be included.
-                if tx_peek.nonce_mode() == NonceMode::Strict {
-                    let signer_id = tx_peek.signer_id();
-                    let public_key = tx_peek.public_key();
-                    let nonce_index = tx_peek.nonce().nonce_index();
-                    let current_nonce = if let Some(nonce) =
-                        signer_overlay.cached_nonce(signer_id, public_key, nonce_index)
-                    {
-                        Some(nonce)
-                    } else {
-                        peek_nonce_for_gap_check(
-                            &state_update.trie_update.trie,
-                            signer_id,
-                            public_key,
-                            nonce_index,
-                        )?
-                    };
-                    // When the key exists, check for a nonce gap. When the
-                    // key is missing, let the tx through so full validation
-                    // can reject it.
-                    if let Some(current_nonce) = current_nonce {
-                        let tx_nonce = tx_peek.nonce().nonce();
-                        if tx_nonce > current_nonce.saturating_add(1) {
-                            if !validate_tx_ttl(tx_peek.to_signed_tx()) {
-                                transaction_group_iter.next();
-                                continue;
-                            }
-                            break;
-                        }
+                // Nonce gap check: if the tx requires sequential nonces and
+                // there is a gap, leave it in the pool for a future block
+                // rather than popping and discarding it.
+                let current_nonce =
+                    gap_check_nonce(&state_update.trie_update.trie, &signer_overlay, tx_peek)?;
+                if let Some(current_nonce) = current_nonce
+                    && tx_peek.nonce().nonce() > current_nonce.saturating_add(1)
+                {
+                    if !validate_tx_ttl(tx_peek.to_signed_tx()) {
+                        transaction_group_iter.next();
+                        continue;
                     }
+                    break;
                 }
 
                 // Take the transaction out of the pool. Please take note that
@@ -1100,36 +1086,49 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verdict = if let Some(nonce_index) = nonce_index {
-                    let current_nonce = *key_entry
-                        .gas_key_nonces
-                        .get(&nonce_index)
-                        .expect("loaded by get_or_load_entry_mut");
-                    verify_and_charge_gas_key_tx_ephemeral(
+
+                let verdict = match &key_entry.access_key {
+                    None => verify_and_charge_bootstrap_tx_ephemeral(
                         runtime_config,
                         account,
-                        &key_entry.access_key,
-                        current_nonce,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
                         &pending_constraints,
-                    )
-                } else {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        account,
-                        &key_entry.access_key,
-                        validated_tx.to_tx(),
-                        &cost,
-                        Some(next_block_height),
-                        &pending_constraints,
-                    )
+                    ),
+                    Some(access_key) => {
+                        if let Some(nonce_index) = nonce_index {
+                            let current_nonce = *key_entry
+                                .gas_key_nonces
+                                .get(&nonce_index)
+                                .expect("loaded by get_or_load_entry_mut");
+                            verify_and_charge_gas_key_tx_ephemeral(
+                                runtime_config,
+                                account,
+                                access_key,
+                                current_nonce,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                                &pending_constraints,
+                            )
+                        } else {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                account,
+                                access_key,
+                                validated_tx.to_tx(),
+                                &cost,
+                                Some(next_block_height),
+                                &pending_constraints,
+                            )
+                        }
+                    }
                 };
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.
-                        result.apply(account, &mut key_entry.access_key);
+                        result.apply(account, key_entry.access_key.as_mut())?;
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);
                         }
@@ -1676,23 +1675,62 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-/// Reads the current nonce for a strict-nonce gap check using a throwaway
-/// trie recorder to avoid inflating the recorded witness size. Does not
-/// cache the result. Returns `Ok(None)` when the key does not exist,
-/// signaling the caller to skip the gap check and let full validation
-/// handle the missing-key rejection.
-fn peek_nonce_for_gap_check(
+/// The current nonce for a transaction that requires strict nonce ordering, or
+/// `Ok(None)` when no such check applies to it.
+///
+/// Against that nonce the caller sorts the transaction into one of three
+/// outcomes: `tx_nonce <= current` is left to full validation to reject,
+/// `tx_nonce == current + 1` is accepted, and `tx_nonce > current + 1` is kept
+/// in the pool for a later chunk rather than popped and discarded, so that a
+/// sequential sender does not lose the rest of its queue.
+///
+/// Strict ordering is required by a transaction declaring `NonceMode::Strict`,
+/// and by a self-signed state init, which is charged with strict semantics
+/// whatever it declared (see `verify_and_charge_bootstrap_tx_ephemeral`) and so
+/// takes part even as a V0 transaction, which cannot declare a mode at all.
+///
+/// Prefers the overlay, which already carries this chunk's updates; otherwise
+/// reads through a throwaway trie recorder, so a transaction that will not be
+/// included does not inflate the recorded witness size. Caches nothing.
+/// `Ok(None)` for a nonce that is not in state, leaving that rejection to full
+/// validation.
+fn gap_check_nonce(
     trie: &Trie,
-    account_id: &AccountId,
-    public_key: &PublicKey,
-    nonce_index: Option<NonceIndex>,
+    signer_overlay: &SignerOverlay,
+    tx: &ValidatedTransaction,
 ) -> Result<Option<Nonce>, StorageError> {
+    let account_id = tx.signer_id();
+    // A bootstrap's nonce sits on the account rather than on a key, and only
+    // while the account is uninitialized. Reading it for anything else would
+    // hold a junk transaction until its TTL expires, since that nonce can
+    // authorize nothing but the bootstrap itself.
+    if tx.to_tx().is_state_init_bootstrap() {
+        if let Some(nonce) = signer_overlay.cached_bootstrap_nonce(account_id) {
+            return Ok(Some(nonce));
+        }
+        let throwaway_trie = trie.recording_reads_new_recorder();
+        if let Some(account) = get_account(&throwaway_trie, account_id)?
+            && let Some(nonce) = account.bootstrap_nonce()
+        {
+            return Ok(Some(nonce));
+        }
+        // The account is already initialized, so this is an ordinary
+        // transaction against its keys, under the mode it declared itself.
+    }
+
+    if tx.nonce_mode() != NonceMode::Strict {
+        return Ok(None);
+    }
+    let public_key = tx.public_key();
+    let nonce_index = tx.nonce().nonce_index();
+    if let Some(nonce) = signer_overlay.cached_nonce(account_id, public_key, nonce_index) {
+        return Ok(Some(nonce));
+    }
     let throwaway_trie = trie.recording_reads_new_recorder();
     if let Some(idx) = nonce_index {
-        get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)
-    } else {
-        Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|ak| ak.nonce))
+        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
     }
+    Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|access_key| access_key.nonce))
 }
 
 /// How much gas of the next chunk we want to spend on converting new

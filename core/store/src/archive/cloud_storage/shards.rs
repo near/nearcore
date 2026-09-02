@@ -58,7 +58,8 @@ pub struct NewChunkData {
     chunk_apply_stats: ChunkApplyStats,
     /// Read from `DBCol::StateChanges`.
     state_changes: Vec<RawStateChangesWithTrieKey>,
-    /// Read from `DBCol::OutcomeIds` and `DBCol::TransactionResultForBlock`.
+    /// Read from `DBCol::OutcomeIds` and `DBCol::TransactionResultForBlock`, in the
+    /// execution order that row holds.
     transaction_result_for_block: Vec<(CryptoHash, ExecutionOutcomeWithProof)>,
     /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
     /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
@@ -190,8 +191,6 @@ fn build_transaction_result_for_block(
         )?;
         transaction_result_for_block.push((outcome_id, outcome));
     }
-    // Sort so blob bytes are deterministic regardless of chunk-apply enumeration order.
-    transaction_result_for_block.sort_by_key(|(id, _)| *id);
     Ok(transaction_result_for_block)
 }
 
@@ -321,6 +320,13 @@ impl ShardData {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => &d.chunk_apply_stats,
             ShardData::V1(ShardDataV1::Carried(d)) => &d.chunk_apply_stats,
+        }
+    }
+
+    pub fn incoming_receipts(&self) -> Option<&[ReceiptProof]> {
+        match self {
+            ShardData::V1(ShardDataV1::NewChunk(d)) => d.incoming_receipts.as_deref(),
+            ShardData::V1(ShardDataV1::Carried(d)) => d.incoming_receipts.as_deref(),
         }
     }
 

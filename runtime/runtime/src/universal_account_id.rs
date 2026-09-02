@@ -9,9 +9,10 @@ use near_primitives::action::UniversalStateInitAction;
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, BlockHeight};
+use near_primitives::types::{AccountId, Balance, Nonce};
 use near_primitives::universal_state_init::UniversalStateInit;
 use near_store::{TrieUpdate, set_access_key_by_handle};
+use std::cmp::max;
 
 /// Create the `0u` universal account described by `action.state_init`. The
 /// receiver id has already been checked to equal the state init's derived id
@@ -30,9 +31,9 @@ pub(crate) fn action_universal_state_init(
     let storage_usage_config = &fees.storage_usage_config;
 
     // The account may already exist without its state: a transfer to a `0u` id
-    // creates an uninitialized account holding nothing but balance. Install on
-    // the first state init and skip straight to the deposit handling on a
-    // repeat, without touching the state already there.
+    // creates an uninitialized account. Install on the first state init and skip
+    // straight to the deposit handling on a repeat, without touching the state
+    // already there.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),
@@ -43,6 +44,7 @@ pub(crate) fn action_universal_state_init(
         None => maybe_account.insert(Account::new_uninitialized(
             Balance::ZERO,
             storage_usage_config.num_bytes_account,
+            initial_nonce_value(apply_state.block_height),
         )),
     };
 
@@ -57,6 +59,12 @@ pub(crate) fn action_universal_state_init(
             result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
             return Ok(());
         };
+        // Installed keys must start above the nonce the bootstrap consumed, or those
+        // same bytes replay through the access-key path. It's practically impossible
+        // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
+        // but let's keep the check for the sake of complete safety.
+        let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
+        let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
         account.initialize().or_inconsistent_state(account_id)?;
         install_universal_account(
             state_update,
@@ -65,7 +73,7 @@ pub(crate) fn action_universal_state_init(
             &state_init,
             result,
             fees,
-            apply_state.block_height,
+            access_key_nonce,
         )?;
         if result.result.is_err() {
             return Ok(());
@@ -88,6 +96,9 @@ pub(crate) fn action_universal_state_init(
 ///
 /// Pre-condition: the account must not already carry contract data (holds for a
 /// newly created account), so overwrites don't need to be netted out.
+///
+/// Every installed key is seeded with `access_key_nonce`; see the caller for why
+/// that has to clear the nonce the bootstrap consumed.
 fn install_universal_account(
     state_update: &mut TrieUpdate,
     account: &mut Account,
@@ -95,7 +106,7 @@ fn install_universal_account(
     state_init: &UniversalStateInit,
     result: &mut ActionResult,
     fees: &RuntimeFeesConfig,
-    block_height: BlockHeight,
+    access_key_nonce: Nonce,
 ) -> Result<(), RuntimeError> {
     let storage_usage_config = &fees.storage_usage_config;
 
@@ -125,7 +136,7 @@ fn install_universal_account(
     // ML-DSA-65 handle is the pubkey hash, so no full pubkey is needed here).
     // Every key is the same full-access value, so size it once.
     let mut access_key = AccessKey::full_access();
-    access_key.nonce = initial_nonce_value(block_height);
+    access_key.nonce = access_key_nonce;
     let access_key_bytes = borsh::object_length(&access_key).expect("borsh must not fail") as u64;
     for handle in state_init.access_keys() {
         // Mirror `access_key_storage_usage`: on-trie handle length + the access

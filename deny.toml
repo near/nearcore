@@ -36,13 +36,10 @@ deny = [
 skip = [
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
-    { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
     { name = "wasmparser", version = "=0.236.1" },
-    { name = "wasm-encoder", version = "=0.27.0" },
     { name = "wasm-encoder", version = "=0.236.0" },
     { name = "wasmprinter", version = "=0.2.57" },
     { name = "wasmprinter", version = "=0.236.1" },

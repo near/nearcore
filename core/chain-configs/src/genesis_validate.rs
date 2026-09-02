@@ -351,7 +351,7 @@ mod test {
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::Account {
                 account_id: "uninitialized".parse().unwrap(),
-                account: Account::new_uninitialized(Balance::from_yoctonear(50), 0),
+                account: Account::new_uninitialized(Balance::from_yoctonear(50), 0, 1_000_000),
             },
         ]);
         let genesis = &Genesis::new(config, records).unwrap();

@@ -408,6 +408,13 @@ impl PendingTransactionQueue {
         let pending_gas_key_cost =
             self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
 
+        // Keyed per key, which a self-signed universal state init does not fit:
+        // its nonce lives on the account and is shared by every key the state
+        // init commits to, so two of them signed by two committed keys at the
+        // same nonce both clear this floor and one is rejected later, at chunk
+        // production. Balance is already account-scoped, so nothing is
+        // double-spent; the cost is a wasted transaction slot. This floor is a
+        // best-effort pre-filter, so that is left as a follow-up.
         let nonce_key = (gas_key.0, gas_key.1, nonce_index);
         let max_nonce = self.pending_nonces.get(&nonce_key).map(|n| n.max_nonce()).unwrap_or(0);
 

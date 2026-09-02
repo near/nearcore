@@ -29,7 +29,7 @@ use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    get_signer_and_access_key, set_tx_state_changes, verify_and_charge_tx_ephemeral,
+    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
@@ -518,9 +518,15 @@ impl Testbed<'_> {
         )
         .expect("expected no validation error");
         let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
-        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
-            .expect("getting signer and access key should not fail in estimator");
+        let (mut signer, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx)
+                .expect("getting signer and access key should not fail in estimator");
 
+        // The estimator never measures a self-signed state init, which has no
+        // access key by construction.
+        let mut access_key = authorization
+            .into_access_key()
+            .expect("estimator expects a transaction with an access key");
         let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &signer,
@@ -532,8 +538,8 @@ impl Testbed<'_> {
         ) else {
             panic!("tx verification should not fail in estimator");
         };
-        result.apply(&mut signer, &mut access_key);
-        set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
+        result.apply(&mut signer, Some(&mut access_key)).expect("tx must apply in estimator");
+        set_tx_state_changes(&mut state_update, &validated_tx, &signer, Some(&access_key));
         clock.elapsed()
     }
 

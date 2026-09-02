@@ -126,6 +126,9 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// If present, requires at least this many bytes of contract code per local.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_contract_size_per_local: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_params_per_contract: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

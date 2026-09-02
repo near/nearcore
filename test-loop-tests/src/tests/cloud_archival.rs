@@ -1496,8 +1496,8 @@ fn test_cloud_archival_outcomes_and_receipts() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in the per-block
-/// cold columns the reader reconstructs from cloud data.
+/// Verifies that the reader's store has a row at every height in the per-block cold
+/// columns the reader reconstructs from cloud data.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_block_columns() {
@@ -1545,13 +1545,10 @@ fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in
-/// the always-populated per-shard cold columns: `Chunks`, `ChunkExtra`,
-/// `ChunkApplyStats`, `IncomingReceipts`, `OutgoingReceipts`, and
-/// `OutcomeIds`.
+/// Verifies that the reader's store has a row per shard in the per-shard cold columns, at
+/// every height in the range.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
-#[ignore]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -1607,11 +1604,9 @@ fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in
-/// the per-shard data columns the reader reconstructs from chunk-apply
-/// activity: `Transactions`, `Receipts`, `TransactionResultForBlock`,
-/// `ReceiptToTx`, and `StateChanges`. The test submits a cross-shard
-/// transfer before the bootstrap range to populate them.
+/// Verifies that the reader's store has entries in the per-shard data columns
+/// the reader reconstructs from chunk-apply activity. The test submits a
+/// cross-shard transfer before the bootstrap range to populate them.
 #[test]
 // TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
 #[ignore]

@@ -433,6 +433,15 @@
         "title": "AccountInfo",
         "type": "object"
       },
+      "AccountState": {
+        "description": "Whether an account's state has been installed.\n\nOnly universal accounts can be uninitialized: they come into existence when\na transfer funds a `0u` id whose state init has not been applied yet. A\ndeterministic `0s` account waiting for its state init is an ordinary V1\naccount with no contract, not this.",
+        "enum": [
+          "initialized",
+          "uninitialized"
+        ],
+        "title": "AccountState",
+        "type": "string"
+      },
       "AccountWithPublicKey": {
         "description": "Account ID with its public key.",
         "properties": {
@@ -1285,6 +1294,28 @@
             "const": "MalformedUniversalStateInit",
             "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The action needs a set-up account, but the receiver is an uninitialized\nuniversal account. Distinct from `AccountDoesNotExist`: the account is\nthere, it just has no access keys, code or data yet.",
+            "properties": {
+              "AccountNotInitialized": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AccountNotInitialized"
+            ],
+            "title": "AccountNotInitialized",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -7253,6 +7284,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "min_contract_size_per_local": {
+            "description": "If present, requires at least this many bytes of contract code per local.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "per_receipt_storage_proof_size_limit": {
             "description": "Hard limit on the size of storage proof generated while executing a single receipt.",
             "format": "uint",
@@ -10805,6 +10845,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bootstrap_nonce": {
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "code_hash": {
             "allOf": [
               {
@@ -10842,6 +10891,14 @@
               }
             ],
             "description": "Staked balance locked for validation, in yoctoNEAR."
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountState"
+              }
+            ],
+            "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -11980,6 +12037,15 @@
                     ],
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
+                  "bootstrap_nonce": {
+                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "code_hash": {
                     "allOf": [
                       {
@@ -12017,6 +12083,14 @@
                       }
                     ],
                     "description": "Staked balance locked for validation, in yoctoNEAR."
+                  },
+                  "state": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountState"
+                      }
+                    ],
+                    "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
                   },
                   "storage_paid_at": {
                     "default": 0,
