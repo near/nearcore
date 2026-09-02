@@ -189,7 +189,6 @@ ed25519-dalek = { version = "2.2.0", default-features = false }
 enum-map = "2.1.0"
 ethabi = "18"
 expect-test = "1.3.0"
-finite-wasm = "0.5.1"
 finite-wasm-6 = { package = "finite-wasm", version = "0.6.1" }
 futures = "0.3.5"
 futures-util = "0.3"
