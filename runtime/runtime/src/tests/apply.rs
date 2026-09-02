@@ -58,7 +58,7 @@ use near_store::{
     set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -250,16 +250,11 @@ fn test_apply_check_balance_validation_rewards() {
         .unwrap();
 }
 
-/// An uninitialized account named in `stake_info` must be skipped, not written
-/// to. It can hold no stake, so there is nothing to return, and `set_locked`
-/// rejects the write on such an account, which fails the whole chunk rather
-/// than the account. Reachable for a `0u` account that staked, unstaked, was
-/// deleted and was then funded again while still inside the stake-return window.
-///
-/// A positive `max_of_stakes` for such an account is a different matter: it
-/// cannot hold locked balance at all, so that combination is corrupt state and
-/// fails loudly. (A reward cannot be owed here, since earning one puts that
-/// epoch's stake into `max_of_stakes`, which this branch already rejects.)
+/// An uninitialized account in `stake_info` must be skipped rather than
+/// written to, since it has no locked balance and `set_locked` would
+/// fail the whole chunk over it. Skipping is only allowed while nothing
+/// is owed, so this covers each of the three amounts that need locked balance:
+/// maximum of stakes, reward, and last proposal.
 #[test]
 fn test_apply_validator_update_uninitialized_account() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
@@ -287,11 +282,14 @@ fn test_apply_validator_update_uninitialized_account() {
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit();
 
-    let apply_with = |max_of_stakes| {
+    let apply_with = |max_of_stakes: Balance, reward: Option<Balance>, proposal| {
+        let entry = |amount: Option<Balance>| -> HashMap<AccountId, Balance> {
+            amount.map(|amount| (uninitialized.clone(), amount)).into_iter().collect()
+        };
         let validator_accounts_update = ValidatorAccountsUpdate {
             stake_info: vec![(uninitialized.clone(), max_of_stakes)].into_iter().collect(),
-            validator_rewards: Default::default(),
-            last_proposals: Default::default(),
+            validator_rewards: entry(reward),
+            last_proposals: entry(proposal),
             protocol_treasury_account_id: None,
         };
         runtime.apply(
@@ -305,9 +303,9 @@ fn test_apply_validator_update_uninitialized_account() {
         )
     };
 
-    // Zero stake is the tail of a return window, and applying at all is the
-    // property under test: an inconsistent-state error would be a failed chunk.
-    let result = apply_with(Balance::ZERO)
+    // Nothing owed is what the skip is for, and applying at all is the property
+    // under test: an inconsistent-state error would be a failed chunk.
+    let result = apply_with(Balance::ZERO, None, None)
         .expect("an uninitialized account in stake_info must not fail the chunk");
     let mut store_update = tries.store_update();
     let new_root =
@@ -318,13 +316,29 @@ fn test_apply_validator_update_uninitialized_account() {
     assert!(!account.is_initialized(), "the skip must leave the account untouched");
     assert_eq!(account.amount(), balance);
 
-    // A stake it cannot hold is corrupt state, not something to skip over.
-    let err = apply_with(Balance::from_near(1))
-        .expect_err("an uninitialized account cannot hold a positive max of stakes");
-    assert!(
-        matches!(err, RuntimeError::StorageError(StorageError::StorageInconsistentState(_))),
-        "unexpected error: {err:?}"
-    );
+    // A zero-valued entry is ordinary and owes nothing: the reward calculator
+    // records a zero reward for a validator that stayed below the online
+    // threshold, and a zero proposal is how unstaking is expressed. Testing for
+    // the presence of a key rather than a positive amount would fail here.
+    apply_with(Balance::ZERO, Some(Balance::ZERO), Some(Balance::ZERO))
+        .expect("zero-valued reward and proposal entries must not fail the chunk");
+
+    // Each of the three needs locked balance the account cannot have.
+    let owed = Balance::from_near(1);
+    let cases = [
+        ("a max of stakes", apply_with(owed, None, None)),
+        ("a reward", apply_with(Balance::ZERO, Some(owed), None)),
+        ("a last proposal", apply_with(Balance::ZERO, None, Some(owed))),
+    ];
+    for (what, result) in cases {
+        let err = result
+            .err()
+            .unwrap_or_else(|| panic!("{what} owed to an uninitialized account must fail"));
+        assert!(
+            matches!(err, RuntimeError::StorageError(StorageError::StorageInconsistentState(_))),
+            "unexpected error for {what}: {err:?}"
+        );
+    }
 }
 
 #[test]

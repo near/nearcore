@@ -1717,22 +1717,25 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             let account = get_account(state_update, account_id)?;
-            // An uninitialized account holds no stake, so there is nothing to
-            // give back, and `set_locked` would fail. Reachable at the tail of a
-            // return window: a `0u` validator can unstake, delete the account,
-            // and be funded again, which brings the account ID back as uninitialized,
-            // while `stake_info` still names it.
-            //
-            // No reward can be owed to it. Earning reward means having validated in
-            // the epoch being paid for, which puts that epoch's stake into
-            // `max_of_stakes`. A positive `max_of_stakes` means the account
-            // still held locked balance and could not have been deleted.
+            // An uninitialized account has no `locked` field, so none of this applies
+            // and it is skipped. The only way it could appear in stake_info is when a
+            // validator deletes their account and re-creates in an uninitialized state.
+            // None of the checked values could be positive in such case. The check is
+            // defense in depth, so that minted tokens do not leak from the supply if
+            // this path ever becomes reachable.
             if account.as_ref().is_some_and(|account| !account.is_initialized()) {
-                if *max_of_stakes > Balance::ZERO {
+                let rewards = &validator_accounts_update.validator_rewards;
+                let reward = *rewards.get(account_id).unwrap_or(&Balance::ZERO);
+                let proposals = &validator_accounts_update.last_proposals;
+                let last_proposal = *proposals.get(account_id).unwrap_or(&Balance::ZERO);
+                if *max_of_stakes > Balance::ZERO
+                    || reward > Balance::ZERO
+                    || last_proposal > Balance::ZERO
+                {
                     return Err(StorageError::StorageInconsistentState(format!(
-                        "FATAL: staking invariant does not hold. Uninitialized account {} \
-                         cannot hold the maximum of stakes {} of the past three epochs",
-                        account_id, max_of_stakes
+                        "FATAL: staking invariant does not hold. Uninitialized account \
+                         {account_id} can hold no locked balance: max of stakes \
+                         {max_of_stakes}, reward {reward}, last proposal {last_proposal}"
                     ))
                     .into());
                 }
