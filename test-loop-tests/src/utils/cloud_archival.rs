@@ -14,8 +14,9 @@ use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{ProcessedReceiptMetadata, ReceiptSource};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
@@ -715,7 +716,7 @@ fn apply_state_changes(
         cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
     assert_eq!(
         state_root,
-        start_block_shard_data.chunk().unwrap().prev_state_root(),
+        start_block_shard_data.new_chunk().unwrap().chunk().prev_state_root(),
         "initial state_root must match prev_state_root of the start block"
     );
     for block_height in start_block_height..=target_block_height {
@@ -745,6 +746,48 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
+/// Receipts the writer processed over a height range, one count per source.
+#[derive(Default, Debug)]
+pub(crate) struct ProcessedReceiptCounts {
+    pub(crate) local: usize,
+    pub(crate) delayed: usize,
+    pub(crate) instant: usize,
+    pub(crate) receipt_to_tx_gc: usize,
+}
+
+/// Counts the writer's processed receipts over `[start, end]` by source.
+pub(crate) fn count_processed_receipts(
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
+) -> ProcessedReceiptCounts {
+    let chain_store = writer.chain_store();
+    let mut counts = ProcessedReceiptCounts::default();
+    for height in start..=end {
+        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+            continue;
+        };
+        // Keyed by block hash followed by the shard id, so one prefix scan on the hash
+        // finds every shard's row.
+        let rows = writer.iter_prefix_ser::<Vec<ProcessedReceiptMetadata>>(
+            DBCol::ProcessedReceiptIds,
+            block_hash.as_ref(),
+        );
+        for (_key, processed) in rows {
+            for metadata in &processed {
+                let counter = match metadata.source() {
+                    ReceiptSource::Local => &mut counts.local,
+                    ReceiptSource::Delayed => &mut counts.delayed,
+                    ReceiptSource::Instant => &mut counts.instant,
+                    ReceiptSource::ReceiptToTxGc => &mut counts.receipt_to_tx_gc,
+                };
+                *counter += 1;
+            }
+        }
+    }
+    counts
+}
+
 /// Asserts the reader reproduces the writer's rows over `[start, end]`, for the columns
 /// the filter below keeps. Caller must `.disable_gc()` so the writer retains the
 /// bootstrap range.
@@ -761,10 +804,7 @@ pub(crate) fn assert_reader_writer_parity(
                 && !matches!(
                     c,
                     // Not reconstructed yet.
-                    DBCol::Transactions
-                        | DBCol::Receipts
-                        | DBCol::ReceiptToTx
-                        | DBCol::State
+                    DBCol::State
                         // Reconstructed, but keyed off-height (genesis BlockInfo under
                         // CryptoHash::default(), EpochInfo under AGGREGATOR_KEY), so the
                         // height walk can't reproduce their key sets.
@@ -825,37 +865,69 @@ fn collect_chunk_hashes_kvs(
     }
 }
 
-/// Collects the writer's rows for one chunk into `kvs`.
-fn collect_chunk_kvs(
+/// Collects into `kvs` the writer's rows that only a new chunk has.
+fn collect_new_chunk_kvs(
     writer: &Store,
     kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
     block_hash: &CryptoHash,
     chunk_header: &ShardChunkHeader,
     height: BlockHeight,
 ) {
-    let block_shard_id = get_block_shard_id(block_hash, chunk_header.shard_id());
-    if chunk_header.is_new_chunk(height) {
-        let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
-        let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
-        kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
-        if let Some(value) = writer.get(DBCol::OutgoingReceipts, &block_shard_id) {
-            kvs.get_mut(&DBCol::OutgoingReceipts)
-                .unwrap()
-                .insert(block_shard_id.clone(), value.to_vec());
-        }
-        // `TransactionResultForBlock` is keyed by outcome id followed by the block
-        // hash, so its rows are reached through this shard's own `OutcomeIds` row.
-        let outcome_ids = writer
-            .chain_store()
-            .get_outcomes_by_block_hash_and_shard_id(block_hash, chunk_header.shard_id());
-        for outcome_id in &outcome_ids {
-            let key = get_outcome_id_block_hash(outcome_id, block_hash).to_vec();
-            let value = writer.get(DBCol::TransactionResultForBlock, &key).unwrap();
-            kvs.get_mut(&DBCol::TransactionResultForBlock).unwrap().insert(key, value.to_vec());
+    if !chunk_header.is_new_chunk(height) {
+        return;
+    }
+    let shard_id = chunk_header.shard_id();
+    let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
+    let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
+    let chunk = ShardChunk::try_from_slice(&value)
+        .unwrap_or_else(|_| panic!("Chunks row at h={height} shard={shard_id} does not decode"));
+    kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
+    // Keyed by a bare hash, so a chunk's own rows are the rows in range.
+    for transaction in chunk.to_transactions() {
+        let key = transaction.get_hash().as_ref().to_vec();
+        let value = writer.get(DBCol::Transactions, &key).unwrap();
+        kvs.get_mut(&DBCol::Transactions).unwrap().insert(key, value.to_vec());
+    }
+    let processed_key = get_block_shard_id(block_hash, shard_id);
+    let processed_row = writer.get(DBCol::ProcessedReceiptIds, &processed_key);
+    let processed: Vec<ProcessedReceiptMetadata> =
+        processed_row.as_ref().map(|value| Vec::try_from_slice(value).unwrap()).unwrap_or_default();
+    if let Some(value) = processed_row {
+        kvs.get_mut(&DBCol::ProcessedReceiptIds).unwrap().insert(processed_key, value.to_vec());
+    }
+    collect_receipt_kvs(writer, kvs, &chunk, &processed);
+    // `TransactionResultForBlock` is keyed by outcome id followed by the block hash, so
+    // its rows are reached through this shard's own `OutcomeIds` row.
+    let outcome_ids =
+        writer.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
+    for outcome_id in &outcome_ids {
+        let key = get_outcome_id_block_hash(outcome_id, block_hash).to_vec();
+        let value = writer.get(DBCol::TransactionResultForBlock, &key).unwrap();
+        kvs.get_mut(&DBCol::TransactionResultForBlock).unwrap().insert(key, value.to_vec());
+    }
+}
+
+/// Collects into `kvs` the receipt rows a chunk and its processed receipts name.
+fn collect_receipt_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    chunk: &ShardChunk,
+    processed: &[ProcessedReceiptMetadata],
+) {
+    let mut receipt_keys: Vec<Vec<u8>> =
+        chunk.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_ref().to_vec()).collect();
+    for metadata in processed {
+        let key = metadata.receipt_id().as_ref().to_vec();
+        if metadata.source().has_receipt_body() {
+            receipt_keys.push(key);
+        } else if let Some(value) = writer.get(DBCol::ReceiptToTx, &key) {
+            kvs.get_mut(&DBCol::ReceiptToTx).unwrap().insert(key, value.to_vec());
         }
     }
-    if let Some(value) = writer.get(DBCol::ChunkApplyStats, &block_shard_id) {
-        kvs.get_mut(&DBCol::ChunkApplyStats).unwrap().insert(block_shard_id, value.to_vec());
+    for key in receipt_keys {
+        if let Some(value) = writer.get(DBCol::Receipts, &key) {
+            kvs.get_mut(&DBCol::Receipts).unwrap().insert(key, value.to_vec());
+        }
     }
 }
 
@@ -901,7 +973,9 @@ fn writer_kvs(
         for col in [
             DBCol::ChunkProducers,
             DBCol::ChunkExtra,
+            DBCol::ChunkApplyStats,
             DBCol::IncomingReceipts,
+            DBCol::OutgoingReceipts,
             DBCol::OutcomeIds,
             DBCol::StateChanges,
         ] {
@@ -914,7 +988,7 @@ fn writer_kvs(
         collect_block_ordinal_kv(&writer_store, kvs, &block);
         collect_chunk_hashes_kvs(&writer_store, kvs, &block);
         for chunk_header in block.chunks().iter_raw() {
-            collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
+            collect_new_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }
         if let Some(value) = writer.get(DBCol::NextBlockHashes, block_hash.as_ref()) {
             kvs.get_mut(&DBCol::NextBlockHashes)

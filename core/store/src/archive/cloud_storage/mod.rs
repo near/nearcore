@@ -5,7 +5,9 @@ pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData, read_chun
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-pub use crate::archive::cloud_storage::shards::{InverseStateChanges, ShardBatch, ShardData};
+pub use crate::archive::cloud_storage::shards::{
+    InverseStateChanges, NewChunkData, ShardBatch, ShardData,
+};
 use near_external_storage::ExternalConnection;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
@@ -133,6 +135,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             | DBCol::ReceiptToTx
             | DBCol::IncomingReceipts
             | DBCol::OutgoingReceipts
+            | DBCol::ProcessedReceiptIds
             | DBCol::ChunkExtra
             | DBCol::ChunkApplyStats
             | DBCol::StateChanges
