@@ -5741,7 +5741,7 @@ mod self_signed_state_init {
     /// The happy path: an account with no access key signs for itself, the state
     /// init installs its keys, and the account's pre-key nonce is consumed.
     #[test]
-    fn self_signed_init_succeeds_and_consumes_the_nonce() {
+    fn self_signed_init_succeeds_and_consumes_nonce() {
         init_test_logger();
         if skip() {
             return;
@@ -5772,7 +5772,7 @@ mod self_signed_state_init {
     /// initialized, so the ordinary path applies, and the installed key's nonce
     /// already exceeds the one the transaction carries.
     #[test]
-    fn the_same_bootstrap_cannot_be_replayed() {
+    fn same_bootstrap_cannot_be_replayed() {
         init_test_logger();
         if skip() {
             return;
@@ -5830,7 +5830,7 @@ mod self_signed_state_init {
     /// it through the cached account, so the second must see the advanced value
     /// rather than a freshly read one and be rejected.
     #[test]
-    fn two_bootstraps_with_one_nonce_in_a_chunk() {
+    fn two_bootstraps_with_one_nonce_in_chunk() {
         init_test_logger();
         if skip() {
             return;
@@ -5868,7 +5868,7 @@ mod self_signed_state_init {
     /// got wrong this is a panic inside `process_transactions`, i.e. a failed
     /// chunk rather than a failed transaction.
     #[test]
-    fn a_gas_key_nonce_index_is_not_a_bootstrap() {
+    fn gas_key_nonce_index_is_not_bootstrap() {
         init_test_logger();
         if skip() {
             return;
@@ -5905,7 +5905,7 @@ mod self_signed_state_init {
     /// the transaction is otherwise shaped like one. Without this the state init
     /// bytes are public, so anyone could spend the account's balance.
     #[test]
-    fn an_uncommitted_key_cannot_bootstrap() {
+    fn uncommitted_key_cannot_bootstrap() {
         init_test_logger();
         if skip() {
             return;
@@ -5937,7 +5937,7 @@ mod self_signed_state_init {
     /// committed, so the nonce must be consumed all the same. Otherwise the same
     /// bytes could be resubmitted until the balance was burnt away.
     #[test]
-    fn a_failed_init_still_consumes_the_nonce() {
+    fn failed_init_still_consumes_nonce() {
         init_test_logger();
         if skip() {
             return;
@@ -6001,7 +6001,7 @@ mod self_signed_state_init {
     /// because the key-membership condition classifies rather than rejects, so
     /// the transaction falls through to the ordinary access-key path.
     #[test]
-    fn an_added_key_can_still_send_an_idempotent_init() {
+    fn added_key_can_still_send_idempotent_init() {
         init_test_logger();
         if skip() {
             return;
@@ -6036,6 +6036,75 @@ mod self_signed_state_init {
         );
     }
 
+    /// The funding receipt seeds the account's nonce from the height it runs at,
+    /// which is what `recreated_account_rejects_old_bootstrap` rests on: a
+    /// seed that ignored the height would let the old bootstrap through the second
+    /// time. Every other test here writes the account straight into the trie, so
+    /// this is the only one that covers the seeding itself.
+    #[test]
+    fn funding_transfer_seeds_nonce_from_its_height() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let signer = signer_for("bootstrap-seeded");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let seeded_at = |height: BlockHeight| -> Nonce {
+            let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+                setup_runtime(
+                    vec![alice_account()],
+                    Balance::from_near(1_000_000),
+                    Balance::ZERO,
+                    Gas::from_teragas(1000),
+                );
+            apply_state.block_height = height;
+            let receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::hash_borsh(height),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: signers[0].public_key(),
+                    gas_price: GAS_PRICE,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction {
+                        deposit: Balance::from_near(1),
+                    })],
+                }),
+            });
+            let shard_uid = ShardUId::single_shard();
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(shard_uid, root),
+                    &None,
+                    &apply_state,
+                    &[receipt],
+                    SignedValidPeriodTransactions::empty(),
+                    &epoch_info_provider,
+                    Default::default(),
+                )
+                .unwrap();
+            let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+            let state = tries.new_trie_update(shard_uid, root);
+            let account = get_account(&state, &account_id).unwrap().unwrap();
+            assert!(!account.is_initialized(), "a transfer alone must not initialize the account");
+            account.bootstrap_nonce().expect("an uninitialized account carries the nonce")
+        };
+
+        // Never height 1, where the seed is zero and a constant matches it by
+        // accident, and two heights, so no single constant fits both.
+        for height in [5, 10] {
+            assert_eq!(
+                seeded_at(height),
+                initial_nonce_value(height),
+                "the nonce must come from the height the funding receipt ran at"
+            );
+        }
+    }
+
     /// Delete the account, fund the same `0u` id again, and replay the original
     /// bootstrap. This is the case the account-level nonce exists for: after a
     /// successful init the installed key's nonce would stop a replay, but a
@@ -6046,7 +6115,7 @@ mod self_signed_state_init {
     /// creation (a transaction cannot even see the account in the chunk that
     /// created it), so the fresh seed always exceeds the consumed nonce.
     #[test]
-    fn a_recreated_account_rejects_the_old_bootstrap() {
+    fn recreated_account_rejects_old_bootstrap() {
         init_test_logger();
         if skip() {
             return;
@@ -6105,7 +6174,7 @@ mod self_signed_state_init {
     /// The relayer-path versions of these are covered where the guard lives; this
     /// pins the self-signed path, which did not exist when that guard was written.
     #[test]
-    fn owner_only_actions_before_the_init_fail_gracefully() {
+    fn owner_only_actions_before_init_fail_gracefully() {
         init_test_logger();
         if skip() {
             return;
@@ -6187,7 +6256,7 @@ mod self_signed_state_init {
     /// the account, so the guard that refuses these before the init must not
     /// refuse them here.
     #[test]
-    fn owner_only_actions_after_the_init_succeed() {
+    fn owner_only_actions_after_init_succeed() {
         init_test_logger();
         if skip() {
             return;
@@ -6232,7 +6301,7 @@ mod self_signed_state_init {
     /// the delete then removes it, both inside one receipt, so the account is
     /// gone by the end of the chunk.
     #[test]
-    fn a_delete_after_the_init_removes_the_account() {
+    fn delete_after_init_removes_account() {
         init_test_logger();
         if skip() {
             return;
@@ -6285,7 +6354,7 @@ mod self_signed_state_init {
     /// forever, so without the initialized check a revoked key would be able to
     /// re-authorize itself.
     #[test]
-    fn a_revoked_key_cannot_re_bootstrap() {
+    fn revoked_key_cannot_re_bootstrap() {
         init_test_logger();
         if skip() {
             return;
@@ -6323,7 +6392,7 @@ mod self_signed_state_init {
     /// the attacker spend its balance on their own state init. The transaction is
     /// not a bootstrap, because the state init does not derive to the signer.
     #[test]
-    fn a_victims_account_cannot_be_named_as_signer() {
+    fn victims_account_cannot_be_named_as_signer() {
         init_test_logger();
         if skip() {
             return;
@@ -6366,7 +6435,7 @@ mod self_signed_state_init {
     /// the state init commits to. Only the first can ever take effect; what the
     /// second does depends on the nonce it carries, so both outcomes are pinned.
     #[test]
-    fn a_second_key_cannot_repeat_the_bootstrap() {
+    fn second_key_cannot_repeat_bootstrap() {
         init_test_logger();
         if skip() {
             return;
@@ -6435,7 +6504,7 @@ mod self_signed_state_init {
     /// An account that does not exist at all is not a bootstrap candidate: the
     /// flow requires the account to have been funded first.
     #[test]
-    fn a_missing_account_is_not_a_bootstrap() {
+    fn missing_account_is_not_bootstrap() {
         init_test_logger();
         if skip() {
             return;
