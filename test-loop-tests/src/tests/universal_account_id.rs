@@ -22,17 +22,25 @@ use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_client_primitives::types::QueryError;
-use near_crypto::{KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey};
+use near_crypto::{
+    InMemorySigner, KeyType, MlDsa65PublicKeyHandle, PublicKey, PublicKeyHandle, SecretKey,
+};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::account::{AccessKey, AccountState};
 use near_primitives::action::{
-    Action, GlobalContractDeployMode, GlobalContractIdentifier, UniversalStateInitAction,
+    Action, AddKeyAction, GlobalContractDeployMode, GlobalContractIdentifier, StakeAction,
+    UniversalStateInitAction,
 };
-use near_primitives::errors::{ActionsValidationError, InvalidTxError};
+use near_primitives::errors::{
+    ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{
+    DeployContractAction, FunctionCallAction, SignedTransaction, TransferAction,
+};
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
@@ -345,8 +353,8 @@ fn test_universal_state_init_repeated() {
 }
 
 /// A `0u` id can be funded before its state init exists: the transfer creates an
-/// uninitialized account holding nothing but balance, and a later state init
-/// installs the state on top of it without losing the funds.
+/// uninitialized account, and a later state init installs the state on top of it
+/// without losing the funds.
 #[test]
 fn test_universal_state_init_after_transfer() {
     init_test_logger();
@@ -370,6 +378,13 @@ fn test_universal_state_init_after_transfer() {
     let funded = env.view_account(&account);
     assert_eq!(funded.amount, transferred, "transfer should credit the uninitialized account");
     assert_eq!(funded.code_hash, CryptoHash::default(), "uninitialized account has no contract");
+    // The two facts a client needs to send a self-signed state init: that the
+    // account is still waiting for one, and the nonce that init must carry.
+    // There is no access key to ask, so this view is the only source.
+    assert_eq!(funded.state, AccountState::Uninitialized);
+    let bootstrap_nonce =
+        funded.bootstrap_nonce.expect("an uninitialized account must expose its nonce");
+    assert!(bootstrap_nonce > 0, "the nonce is seeded from the creation height, never zero");
 
     // The state init then installs the state, keeping the balance.
     env.create_universal_account(state_init.to_raw(), &account, Balance::from_near(1));
@@ -379,6 +394,10 @@ fn test_universal_state_init_after_transfer() {
         initialized.amount, transferred,
         "balance funded before init must survive it, and the deposit be refunded"
     );
+    // Once the state is installed the account's keys carry their own nonces, so
+    // the pre-key nonce is gone and the account reports as ordinary.
+    assert_eq!(initialized.state, AccountState::Initialized);
+    assert_eq!(initialized.bootstrap_nonce, None);
     assert!(
         initialized.storage_usage > funded.storage_usage,
         "installing state must grow storage usage: {} !> {}",
@@ -637,4 +656,305 @@ fn test_universal_state_init_wrong_receiver() {
 
     assert!(env.try_view_account(&elsewhere).is_err(), "nothing at the addressed id");
     assert!(env.try_view_account(&derived).is_err(), "nothing at the derived id either");
+}
+
+/// The batched shape the UA design has to support: one transaction that installs
+/// the account's state and then calls its freshly installed contract. The
+/// `Action::FunctionCall` at index 1 only passes `check_account_existence`
+/// because the state init at index 0 already moved the account out of the
+/// uninitialized state within the same receipt.
+#[test]
+fn test_universal_state_init_then_function_call() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let account = state_init.derive_account_id();
+
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::from_near(1),
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_owned(),
+                args: vec![],
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        env.block_hash(),
+    );
+    // Asserts success, so both actions ran.
+    env.run_tx(tx);
+
+    let initialized = env.view_account(&account);
+    assert_eq!(
+        initialized.global_contract_account_id.as_ref(),
+        Some(&env.global_contract_account),
+        "the state init must have installed the global contract"
+    );
+}
+
+/// An uninitialized account has no access keys, code or data, so every action
+/// that needs a set-up account is refused with `AccountNotInitialized`, as an
+/// action error rather than anything harsher. Without this an `AddKey` would
+/// silently install a key the account id does not commit to, and a `Stake` or
+/// `DeployContract` would reach a setter that an uninitialized account rejects.
+#[test]
+fn test_uninitialized_account_rejects_actions_needing_state() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-uninitialized").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
+
+    // Funding the `0u` id creates the account without installing its state.
+    env.transfer(&account, Balance::from_near(3));
+    assert!(env.view_account(&account).amount > Balance::ZERO);
+
+    let actions = [
+        Action::AddKey(Box::new(AddKeyAction {
+            public_key: public_key.clone(),
+            access_key: AccessKey::full_access(),
+        })),
+        Action::Stake(Box::new(StakeAction { stake: Balance::from_near(1), public_key })),
+        Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::trivial_contract().to_vec(),
+        }),
+        Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_owned(),
+            args: vec![],
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        })),
+    ];
+
+    for action in actions {
+        let signer_id = env.user_account.clone();
+        let signer = create_user_test_signer(&signer_id);
+        let tx = SignedTransaction::from_actions(
+            env.next_nonce(),
+            signer_id,
+            account.clone(),
+            &signer,
+            vec![action.clone()],
+            env.block_hash(),
+        );
+        let outcome = env.env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
+        let FinalExecutionStatus::Failure(TxExecutionError::ActionError(err)) = outcome.status
+        else {
+            panic!("expected an action error for {action:?}, got {:?}", outcome.status);
+        };
+        assert_eq!(
+            err.kind,
+            ActionErrorKind::AccountNotInitialized { account_id: account.clone() },
+            "unexpected error for {action:?}",
+        );
+    }
+
+    // The account is untouched: still uninitialized, still holding its balance.
+    let view = env.view_account(&account);
+    assert_eq!(view.amount, Balance::from_near(3));
+    assert_eq!(view.code_hash, CryptoHash::default());
+}
+
+/// The whole relayerless flow end to end: fund a `0u` id, read back the two
+/// facts a client needs, and let the account sign for itself with a key no
+/// account holds yet. Unlike the `apply`-level tests this also exercises RPC
+/// admission and chunk production, which resolve the signer independently.
+#[test]
+fn test_self_signed_state_init() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let secret_key = SecretKey::from_seed(KeyType::ED25519, "self-signed-init");
+    let public_key = secret_key.public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
+
+    // Somebody funds the address. Nothing else is needed from them: no state
+    // init, no signature, no knowledge of the account's keys.
+    env.transfer(&account, Balance::from_near(3));
+
+    // The account can now bootstrap itself. Both inputs come from one view call,
+    // which is the only place they are available: there is no access key to ask.
+    let view = env.view_account(&account);
+    assert_eq!(view.state, AccountState::Uninitialized);
+    let nonce = view.bootstrap_nonce.expect("an uninitialized account exposes its nonce") + 1;
+
+    let signer = InMemorySigner::from_secret_key(account.clone(), secret_key);
+    let tx = SignedTransaction::from_actions(
+        nonce,
+        account.clone(),
+        account.clone(),
+        &signer,
+        vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit: Balance::ZERO,
+        }))],
+        env.block_hash(),
+    );
+    env.run_tx(tx);
+
+    // The account is live, and the key it signed with is now a real access key.
+    let initialized = env.view_account(&account);
+    assert_eq!(initialized.state, AccountState::Initialized);
+    assert_eq!(initialized.bootstrap_nonce, None);
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
+    assert!(
+        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
+        "the key that signed the bootstrap must now be installed, got {:?}",
+        access_key.permission
+    );
+}
+
+/// A relayer creating a universal account from nothing: one transaction that
+/// creates the account, installs its state and keys, and funds it.
+///
+/// The state init has to come first, because it is what creates the account, so
+/// the transfer that follows lands on an account that exists.
+///
+/// TODO(universal-accounts): Test the opposite action order when it's supported.
+/// `[Transfer, UniversalStateInit]` against an account that does not exist yet
+/// needs `implicit_account_creation_eligible` relaxed, which has to happen
+/// together with removing the `actor_id = account_id` mutation in
+/// `action_implicit_account_creation_transfer` that the gate currently keeps
+/// inert.
+#[test]
+fn create_and_fund_universal_account_in_one_tx() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "create-and-fund").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
+    let funded = Balance::from_near(1);
+
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })),
+            Action::Transfer(TransferAction { deposit: funded }),
+        ],
+        env.block_hash(),
+    );
+    env.run_tx(tx);
+
+    let view = env.view_account(&account);
+    assert_eq!(view.state, AccountState::Initialized, "the account must be created and set up");
+    assert_eq!(view.amount, funded, "and funded, in the same transaction");
+    let access_key = env.env.rpc_node().view_access_key_query(&account, &public_key).unwrap();
+    assert!(
+        matches!(access_key.permission, AccessKeyPermissionView::FullAccess),
+        "the committed key must be installed, got {:?}",
+        access_key.permission
+    );
+}
+
+/// The relayer-paid batch from the UA design notes: fund the account, install
+/// its state, and call its contract, all in one transaction signed by somebody
+/// else. Self-signed init must not have restricted this: it is a separate flow
+/// and it has to keep working against an already-existing uninitialized account.
+#[test]
+fn test_relayer_transfer_then_init_then_call() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let account = state_init.derive_account_id();
+
+    // The account must already exist for a Transfer to lead the batch: implicit
+    // creation by transfer requires the transfer to be the only action.
+    env.transfer(&account, Balance::from_yoctonear(1));
+
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_owned(),
+                args: vec![],
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        env.block_hash(),
+    );
+    env.run_tx(tx);
+
+    let initialized = env.view_account(&account);
+    assert_eq!(initialized.state, AccountState::Initialized);
+    assert_eq!(
+        initialized.global_contract_account_id.as_ref(),
+        Some(&env.global_contract_account),
+        "the batched state init must have installed the contract"
+    );
 }

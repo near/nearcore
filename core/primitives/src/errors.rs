@@ -925,6 +925,12 @@ pub enum ActionErrorKind {
     /// Action validation rejects such an action before it runs, so this only fires
     /// if that check was bypassed.
     MalformedUniversalStateInit = 29,
+    /// The action needs a set-up account, but the receiver is an uninitialized
+    /// universal account. Distinct from `AccountDoesNotExist`: the account is
+    /// there, it just has no access keys, code or data yet.
+    AccountNotInitialized {
+        account_id: AccountId,
+    } = 30,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1280,6 +1286,11 @@ impl Display for ActionErrorKind {
             ActionErrorKind::MalformedUniversalStateInit => {
                 write!(f, "UniversalStateInit payload is not a valid state init")
             }
+            ActionErrorKind::AccountNotInitialized { account_id } => write!(
+                f,
+                "Can't complete the action because account {:?} is uninitialized",
+                account_id
+            ),
         }
     }
 }
