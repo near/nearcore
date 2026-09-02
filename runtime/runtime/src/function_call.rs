@@ -15,6 +15,7 @@ use near_primitives::receipt::{
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     KeyLookupMode, MissingTrieValue, MissingTrieValueContext, StorageError, TrieUpdate,
@@ -292,7 +293,10 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
             });
-            if global_contract_is_missing(runtime_ext.trie_update, contract_id)? {
+            if ProtocolFeature::FailCallToMissingGlobalContract
+                .enabled(apply_state.current_protocol_version)
+                && global_contract_is_missing(runtime_ext.trie_update, contract_id)?
+            {
                 // The account points at a global contract that was never deployed
                 // on this chain. ETH implicit accounts get their wallet contract
                 // hash hardcoded at creation without an existence check, so this
@@ -404,8 +408,9 @@ fn record_contract_call(
 }
 
 /// Returns true if `contract_id` refers to a global contract that is not in the
-/// trie, i.e. it was never deployed on this chain. The lookup is a regular state access, so its trie nodes are
-/// recorded in the state witness and validators can verify the absence.
+/// trie, i.e. it was never deployed on this chain. The lookup is a regular
+/// state access, so its trie nodes are recorded in the state witness and
+/// validators can verify the absence.
 fn global_contract_is_missing(
     state_update: &TrieUpdate,
     contract_id: &RuntimeContractIdentifier,

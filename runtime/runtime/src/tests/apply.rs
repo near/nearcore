@@ -2134,14 +2134,38 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
     );
 }
 
-/// Points alice at a global contract hash that was never deployed and calls it.
-/// ETH implicit accounts are created this way, with a hardcoded wallet contract
-/// hash and no existence check. Both the chunk producer and a chunk validator
-/// replaying the recorded witness must fail the call with `CodeDoesNotExist`
-/// instead of treating the missing code as an inconsistent state or as an
-/// incomplete witness.
-#[test]
-fn test_call_to_missing_global_contract_fails_gracefully() {
+/// The hash of a global contract that is never deployed in these tests.
+fn missing_global_contract_hash() -> CryptoHash {
+    hash(b"global contract that was never deployed")
+}
+
+fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(
+        &call_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::CodeDoesNotExist { .. }
+            )),
+            ..
+        }))
+    );
+}
+
+/// Points alice at a global contract hash that was never deployed, calls it as
+/// the chunk producer and replays the recorded witness as a chunk validator
+/// running `validator_protocol_version`. ETH implicit accounts are created this
+/// way, with a hardcoded wallet contract hash and no existence check. The
+/// producer must fail the call with `CodeDoesNotExist` instead of treating the
+/// missing code as an inconsistent state; the validator's verdict is returned
+/// together with the call's receipt id.
+fn apply_call_to_missing_global_contract(
+    validator_protocol_version: ProtocolVersion,
+) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
         Balance::from_near(1_000_000),
@@ -2150,10 +2174,9 @@ fn test_call_to_missing_global_contract_fails_gracefully() {
     );
 
     // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
-    let missing_hash = hash(b"global contract that was never deployed");
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
-    alice.set_contract(AccountContract::Global(missing_hash)).unwrap();
+    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
     set_account(&mut state_update, alice_account(), &alice);
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().trie_changes;
@@ -2173,22 +2196,6 @@ fn test_call_to_missing_global_contract_fails_gracefully() {
     );
     let call_id = *call_receipt.receipt_id();
     let receipts = [call_receipt];
-    let assert_code_does_not_exist = |apply_result: &ApplyResult| {
-        let call_outcome = apply_result
-            .outcomes
-            .iter()
-            .find(|outcome| outcome.id == call_id)
-            .expect("function call outcome missing");
-        assert_matches!(
-            &call_outcome.outcome.status,
-            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::CodeDoesNotExist { .. }
-                )),
-                ..
-            }))
-        );
-    };
 
     // The chunk producer applies with a full trie and records the witness.
     let apply_result = runtime
@@ -2202,27 +2209,48 @@ fn test_call_to_missing_global_contract_fails_gracefully() {
             Default::default(),
         )
         .unwrap();
-    assert_code_does_not_exist(&apply_result);
+    assert_code_does_not_exist(&apply_result, call_id);
     // There is no code to distribute to validators.
     assert!(apply_result.contract_updates.contract_accesses.is_empty());
     let partial_storage = apply_result.proof.unwrap();
 
-    // A chunk validator replays the call over the recorded storage. The witness
-    // proves the global contract key is absent, so the outcome is the same.
+    // A chunk validator replays the call over the recorded storage.
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
-    let apply_result = runtime
-        .apply(
-            Trie::from_recorded_storage(partial_storage, root, false),
-            &None,
-            &apply_state,
-            &receipts,
-            SignedValidPeriodTransactions::empty(),
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .unwrap();
-    assert_code_does_not_exist(&apply_result);
+    apply_state.current_protocol_version = validator_protocol_version;
+    let apply_result = runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        &receipts,
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    );
+    (call_id, apply_result)
+}
+
+/// The witness proves the global contract key is absent, so the validator
+/// reaches the same `CodeDoesNotExist` outcome as the producer.
+#[test]
+fn test_call_to_missing_global_contract_fails_gracefully() {
+    let (call_id, apply_result) = apply_call_to_missing_global_contract(PROTOCOL_VERSION);
+    assert_code_does_not_exist(&apply_result.unwrap(), call_id);
+}
+
+/// Before the feature a validator does not consult the absence proof and
+/// rejects the witness as incomplete, as it does for any missing code body.
+#[test]
+fn test_call_to_missing_global_contract_rejected_before_feature() {
+    let feature_version = ProtocolFeature::FailCallToMissingGlobalContract.protocol_version();
+    let (_, apply_result) = apply_call_to_missing_global_contract(feature_version - 1);
+    assert_matches!(
+        apply_result,
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == missing_global_contract_hash()
+    );
 }
 
 /// Deploys the test contract to alice and returns the resulting state root.
