@@ -243,15 +243,13 @@ mod tests {
         boundary_uncertified_chunks, check_pre_spice_execution_result,
         execution_result_from_pre_spice_child, synthesize_execution_result,
     };
-    use crate::spice::core::{SpiceCoreReader, save_uncertified_chunks};
-    use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
-    use crate::{Block, Chain};
+    use crate::Chain;
+    use crate::spice::core::save_uncertified_chunks;
+    use crate::spice::tests::{add_pre_spice_block, setup_pre_spice_chain};
     use near_async::time::Clock;
-    use near_chain_configs::Genesis;
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::gas::Gas;
     use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::merklize;
@@ -267,21 +265,6 @@ mod tests {
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
-    /// Saves the block and records it in the epoch manager, the way block
-    /// postprocessing does, so epoch lookups keyed on its hash resolve.
-    fn save_and_record_block(chain: &mut Chain, block: &Arc<Block>) {
-        let mut store_update = chain.chain_store.store_update();
-        store_update.save_block(block.clone());
-        store_update.save_block_header(block.header().clone()).unwrap();
-        let block_info = BlockInfo::from_header(block.header(), 0, pre_spice_protocol_version());
-        let epoch_manager_update = chain
-            .epoch_manager
-            .add_validator_proposals(block_info, *block.header().random_value())
-            .unwrap();
-        store_update.merge(epoch_manager_update.into());
-        store_update.commit().unwrap();
-    }
-
     /// The synthesized result must be the chunk extra the pre-spice apply wrote plus
     /// the receipts root a producer of the next block's chunk would compute: the
     /// receipts of the shard's last included chunk, whether that chunk was included
@@ -289,36 +272,17 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_synthesize_execution_result_with_included_and_missing_chunk() {
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut genesis =
-            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
-        genesis.config.protocol_version = pre_spice_protocol_version();
-        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let shard_layout =
+            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
 
         // The first block includes a new chunk; the second copies the first's chunk
         // headers, so its chunk is missing (last included height stays at the first).
-        let block_with_chunk = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            genesis_block.as_ref(),
-            signer.clone(),
-        )
-        .chunks(get_fake_next_block_chunk_headers(&genesis_block, epoch_manager.as_ref()))
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-        let block_missing_chunk = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            block_with_chunk.as_ref(),
-            signer.clone(),
-        )
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-        save_and_record_block(&mut chain, &block_with_chunk);
-        save_and_record_block(&mut chain, &block_missing_chunk);
-
-        let shard_layout =
-            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let block_with_chunk = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
+        let block_missing_chunk = add_pre_spice_block(&mut chain, &block_with_chunk, &[]);
         let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
@@ -376,28 +340,12 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_core_reader_returns_seeded_uncertified_chunks_of_pre_spice_block() {
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut genesis =
-            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
-        genesis.config.protocol_version = pre_spice_protocol_version();
-        let genesis_gas_limit = genesis.config.gas_limit;
-        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        let block = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            genesis_block.as_ref(),
-            signer.clone(),
-        )
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-        save_and_record_block(&mut chain, &block);
+        let block = add_pre_spice_block(&mut chain, &genesis_block, &[]);
 
-        let core_reader = SpiceCoreReader::new(
-            chain.chain_store.store().chain_store(),
-            epoch_manager.clone(),
-            genesis_gas_limit,
-        );
+        let core_reader = chain.spice_core_reader.clone();
         assert_eq!(core_reader.get_uncertified_chunks(block.hash()).unwrap(), vec![]);
 
         let uncertified_chunks =
@@ -415,37 +363,17 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_pre_spice_execution_result_tripwire() {
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut genesis =
-            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
-        genesis.config.protocol_version = pre_spice_protocol_version();
-        let mut chain = get_chain_with_genesis(Clock::real(), genesis);
+        let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-
-        let block = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            genesis_block.as_ref(),
-            signer.clone(),
-        )
-        .chunks(get_fake_next_block_chunk_headers(&genesis_block, epoch_manager.as_ref()))
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-        // Applied by this node: chunk extra and receipts on disk, synthesis possible.
-        let applied_block = block;
-        // Never applied by this node: no chunk extra, synthesis impossible.
-        let unapplied_block = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            applied_block.as_ref(),
-            signer.clone(),
-        )
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-        save_and_record_block(&mut chain, &applied_block);
-        save_and_record_block(&mut chain, &unapplied_block);
-
         let shard_layout =
             epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
+
+        // Applied by this node: chunk extra and receipts on disk, synthesis possible.
+        let applied_block = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
+        // Never applied by this node: no chunk extra, synthesis impossible.
+        let unapplied_block = add_pre_spice_block(&mut chain, &applied_block, &[]);
         let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_uid = shard_layout.shard_uids().next().unwrap();
         let mut store_update = chain.chain_store.store_update();
@@ -499,10 +427,7 @@ mod tests {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_execution_result_from_pre_spice_child() {
         let signer = Arc::new(create_test_signer("test1"));
-        let mut genesis =
-            Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
-        genesis.config.protocol_version = pre_spice_protocol_version();
-        let chain = get_chain_with_genesis(Clock::real(), genesis);
+        let chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
         let shard_layout =
