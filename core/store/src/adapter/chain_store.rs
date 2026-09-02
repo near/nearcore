@@ -7,13 +7,11 @@ use crate::{
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
@@ -460,7 +458,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 
     pub fn set_block_height(&mut self, hash: &CryptoHash, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash);
+        self.store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), hash);
     }
 
     pub fn delete_block_height(&mut self, height: BlockHeight) {
@@ -498,6 +496,19 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         );
     }
 
+    pub fn set_incoming_receipt(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        incoming_receipts: &[ReceiptProof],
+    ) {
+        self.store_update.set_ser(
+            DBCol::IncomingReceipts,
+            &get_block_shard_id(block_hash, shard_id),
+            &incoming_receipts,
+        );
+    }
+
     /// Writes the `ProcessedReceiptIds` metadata index and increments the
     /// refcount of each processed `Receipt` (the `DBCol::Receipts` rc-column).
     /// The caller builds `metadata` (including any `ReceiptToTxGc` markers gated
@@ -531,16 +542,15 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        proofs: Vec<MerklePath>,
+        outcomes: &[(CryptoHash, ExecutionOutcomeWithProof)],
     ) {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
-        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            outcome_ids.push(outcome_with_id.id);
+        for (outcome_id, outcome_with_proof) in outcomes {
+            outcome_ids.push(*outcome_id);
             self.store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(&outcome_with_id.id, block_hash),
-                &ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                &get_outcome_id_block_hash(outcome_id, block_hash),
+                outcome_with_proof,
             );
         }
         self.store_update.set_ser(

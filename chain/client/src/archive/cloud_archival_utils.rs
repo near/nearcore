@@ -3,9 +3,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::ExecutionOutcomeWithId;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::archive::cloud_storage::{
@@ -238,8 +237,8 @@ pub(crate) fn save_shard_data(
     shard_uid: ShardUId,
     shard_data: &ShardData,
 ) {
-    // TODO(cloud_archival): write the shard's transaction and receipt rows, and apply
-    // per-block state deltas.
+    // TODO(cloud_archival): write the rows a transaction or receipt hash alone addresses,
+    // and apply each block's recorded changes to the shard's state.
     let block_hash = shard_data.block_hash();
     let shard_id = shard_uid.shard_id();
     let mut chunk_store_update = update.chunk_store_update();
@@ -252,25 +251,10 @@ pub(crate) fn save_shard_data(
         update.chain_store_update().set_outgoing_receipt(block_hash, shard_id, outgoing_receipts);
     }
     if let Some(incoming_receipts) = shard_data.incoming_receipts() {
-        update.set_ser(
-            DBCol::IncomingReceipts,
-            &get_block_shard_id(block_hash, shard_id),
-            incoming_receipts,
-        );
+        update.chain_store_update().set_incoming_receipt(block_hash, shard_id, incoming_receipts);
     }
     if let Some(results) = shard_data.transaction_result_for_block() {
-        let (outcomes, proofs) = results
-            .iter()
-            .map(|(outcome_id, result)| {
-                (
-                    ExecutionOutcomeWithId { id: *outcome_id, outcome: result.outcome.clone() },
-                    result.proof.clone(),
-                )
-            })
-            .unzip();
-        update
-            .chain_store_update()
-            .set_outcomes_with_proofs(block_hash, shard_id, outcomes, proofs);
+        update.chain_store_update().set_outcomes_with_proofs(block_hash, shard_id, results);
     }
     for changes in shard_data.state_changes() {
         let row_key =

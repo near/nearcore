@@ -1604,11 +1604,9 @@ fn test_cloud_archival_reader_reconstructs_per_shard_columns() {
     h.shutdown();
 }
 
-/// Verifies that after reader bootstrap, the local store has entries in
-/// the per-shard data columns the reader reconstructs from chunk-apply
-/// activity: `Transactions`, `Receipts`, `TransactionResultForBlock`,
-/// `ReceiptToTx`, and `StateChanges`. The test submits a cross-shard
-/// transfer before the bootstrap range to populate them.
+/// Verifies that the reader's store has entries in the per-shard data columns
+/// the reader reconstructs from chunk-apply activity. The test submits a
+/// cross-shard transfer before the bootstrap range to populate them.
 #[test]
 // TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns.
 #[ignore]
