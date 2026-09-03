@@ -14,6 +14,7 @@ use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, ReceiptSource};
 use near_primitives::shard_layout::ShardLayout;
@@ -43,6 +44,88 @@ pub(crate) struct WriterConfig {
     pub archive_block_data: bool,
     pub tracked_shards: Vec<ShardUId>,
     pub snapshot_every_n_epochs: u64,
+}
+
+/// Runs a workload producing a receipt of every kind the archive records, and asserts it
+/// did. `verify_store` must be a node tracking every shard, `gas_limit` the harness's.
+pub(crate) fn run_receipts_of_every_kind(
+    env: &mut TestLoopEnv,
+    writer_id: &AccountId,
+    user_account: &AccountId,
+    gas_limit: Gas,
+    verify_store: &Store,
+) {
+    // Cross-shard transfers exercise outgoing receipts; one self-transfer produces a
+    // local (non-outgoing) action receipt whose ReceiptToTx the writer must archive.
+    for _ in 0..3 {
+        let tx =
+            env.validator().tx_send_money(user_account, writer_id, Balance::from_yoctonear(100));
+        env.validator().submit_tx(tx);
+    }
+    let self_tx =
+        env.validator().tx_send_money(user_account, user_account, Balance::from_yoctonear(1));
+    env.validator().submit_tx(self_tx);
+    let deploy_tx = env.validator().tx_deploy_test_contract(user_account);
+    env.validator().submit_tx(deploy_tx);
+    let epoch_length = env.validator().client().config.epoch_length;
+    run_node_until(env, writer_id, epoch_length);
+
+    // Each call's local receipt burns more than half a chunk's gas, so the third one does
+    // not fit and lands on the delayed-receipt queue instead.
+    let gas_to_burn = Gas::from_gas(gas_limit.as_gas() / 2 + 1);
+    for _ in 0..3 {
+        let tx = env.validator().tx_call(
+            user_account,
+            user_account,
+            "burn_gas_raw",
+            gas_to_burn.as_gas().to_le_bytes().to_vec(),
+            Balance::ZERO,
+            gas_limit,
+        );
+        env.validator().submit_tx(tx);
+    }
+    // A yield creates a `PromiseYield` receipt, which the runtime applies instantly.
+    let yield_tx = env.validator().tx_call(
+        user_account,
+        user_account,
+        "call_yield_create_return_promise",
+        vec![42u8; 16],
+        Balance::ZERO,
+        gas_limit,
+    );
+    env.validator().submit_tx(yield_tx);
+    run_node_until(env, writer_id, 3 * epoch_length);
+
+    // Without a receipt of each kind in the window, a walk over it passes vacuously.
+    // `verify_store` must be a node that tracks every shard: the account above may live in
+    // a shard the writer does not.
+    let (mut local, mut delayed, mut instant, mut receipt_to_tx_gc) = (0, 0, 0, 0);
+    for height in epoch_length / 2..=2 * epoch_length {
+        let Ok(block_hash) = verify_store.chain_store().get_block_hash_by_height(height) else {
+            continue;
+        };
+        // Keyed by block hash followed by the shard id, so one prefix scan on the hash
+        // finds every shard's row.
+        let rows = verify_store.iter_prefix_ser::<Vec<ProcessedReceiptMetadata>>(
+            DBCol::ProcessedReceiptIds,
+            block_hash.as_ref(),
+        );
+        for (_key, processed) in rows {
+            for metadata in &processed {
+                let counter = match metadata.source() {
+                    ReceiptSource::Local => &mut local,
+                    ReceiptSource::Delayed => &mut delayed,
+                    ReceiptSource::Instant => &mut instant,
+                    ReceiptSource::ReceiptToTxGc => &mut receipt_to_tx_gc,
+                };
+                *counter += 1;
+            }
+        }
+    }
+    assert!(local > 0, "no local receipt");
+    assert!(delayed > 0, "no delayed receipt");
+    assert!(instant > 0, "no receipt applied instantly");
+    assert!(receipt_to_tx_gc > 0, "no receipt-to-tx marker");
 }
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
@@ -734,53 +817,10 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
-/// Receipts the writer processed over a height range, one count per source.
-#[derive(Default, Debug)]
-pub(crate) struct ProcessedReceiptCounts {
-    pub(crate) local: usize,
-    pub(crate) delayed: usize,
-    pub(crate) instant: usize,
-    pub(crate) receipt_to_tx_gc: usize,
-}
-
-/// Counts the writer's processed receipts over `[start, end]` by source.
-pub(crate) fn count_processed_receipts(
-    writer: &Store,
-    start: BlockHeight,
-    end: BlockHeight,
-) -> ProcessedReceiptCounts {
-    let chain_store = writer.chain_store();
-    let mut counts = ProcessedReceiptCounts::default();
-    for height in start..=end {
-        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
-            continue;
-        };
-        // Keyed by block hash followed by the shard id, so one prefix scan on the hash
-        // finds every shard's row.
-        let rows = writer.iter_prefix_ser::<Vec<ProcessedReceiptMetadata>>(
-            DBCol::ProcessedReceiptIds,
-            block_hash.as_ref(),
-        );
-        for (_key, processed) in rows {
-            for metadata in &processed {
-                let counter = match metadata.source() {
-                    ReceiptSource::Local => &mut counts.local,
-                    ReceiptSource::Delayed => &mut counts.delayed,
-                    ReceiptSource::Instant => &mut counts.instant,
-                    ReceiptSource::ReceiptToTxGc => &mut counts.receipt_to_tx_gc,
-                };
-                *counter += 1;
-            }
-        }
-    }
-    counts
-}
-
-/// Asserts the reader reproduces the writer's rows over `[start, end]`, for the columns
-/// the filter below keeps. Caller must `.disable_gc()` so the writer retains the
-/// bootstrap range.
-pub(crate) fn assert_reader_writer_parity(
-    reader: &Store,
+/// Asserts `store` holds every row `writer` has over `[start, end]`, with the value the
+/// writer carries. Extra rows are allowed. The writer must run with gc disabled.
+pub(crate) fn assert_store_parity(
+    store: &Store,
     writer: &Store,
     start: BlockHeight,
     end: BlockHeight,
@@ -794,21 +834,21 @@ pub(crate) fn assert_reader_writer_parity(
     let writer_kvs = writer_kvs(writer, &cols, start, end);
 
     for &col in &cols {
-        assert_keyed_parity(reader, col, &writer_kvs[&col]);
+        assert_keyed_parity(store, col, &writer_kvs[&col]);
     }
 }
 
-/// Compares the writer's rows in `col` against the full reader.
-/// Every in-scope writer row is present in the reader with the same value. Extra
-/// reader rows are allowed, e.g. because of a batch being written whole.
-fn assert_keyed_parity(reader: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
-    let reader_all_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
-        reader.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
+/// Compares the writer's rows in `col` against `store`. Every in-scope writer row is
+/// present there with the same value; extra rows are allowed, e.g. because of a batch
+/// being written whole.
+fn assert_keyed_parity(store: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
+    let store_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
+        store.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
     for (key, writer_value) in writer_kvs {
-        let reader_value = reader_all_kvs
+        let store_value = store_kvs
             .get(key)
-            .unwrap_or_else(|| panic!("{col} row missing from the reader: {key:?}"));
-        assert_eq!(reader_value, writer_value, "{col} value mismatch for {key:?}");
+            .unwrap_or_else(|| panic!("{col} row missing from the store: {key:?}"));
+        assert_eq!(store_value, writer_value, "{col} value mismatch for {key:?}");
     }
 }
 
