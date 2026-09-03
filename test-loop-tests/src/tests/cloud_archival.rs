@@ -4,12 +4,12 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
-    assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced,
-    assert_writer_inverse_deltas, bootstrap_historical_reader, check_account_balance,
-    check_data_at_height_for_shards, count_processed_receipts, epoch_id_at, exec,
-    gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head, get_state_header_for_epoch,
-    get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
-    simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
+    assert_resharding_epoch_snapshot_forced, assert_store_parity, assert_writer_inverse_deltas,
+    bootstrap_historical_reader, check_account_balance, check_data_at_height_for_shards,
+    epoch_id_at, exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
+    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
+    run_receipts_of_every_kind, run_until_one_epoch_after_resharding, simulate_lagging_shard,
+    snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
@@ -467,17 +467,17 @@ impl CloudArchiveHarness {
 
     fn recent_reader_store(&self) -> Store {
         let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
-        self.env.node_for_account(&reader_id).client().chain.chain_store().store()
+        self.store_for(&reader_id)
     }
 
     fn historical_reader_store(&self) -> Store {
         let reader_id =
             self.historical_reader_id.as_ref().expect("no historical reader bootstrapped");
-        self.env.node_for_account(reader_id).client().chain.chain_store().store()
+        self.store_for(reader_id)
     }
 
     fn writer_store(&self) -> Store {
-        self.env.archival_node().client().chain.chain_store().store()
+        self.store_for(&self.writer_id)
     }
 
     /// Checks heads alignment and GC tail bounds. Use after a full run when
@@ -519,7 +519,11 @@ impl CloudArchiveHarness {
     }
 
     fn assert_reader_writer_parity(&self, reader: Reader, start: BlockHeight, end: BlockHeight) {
-        assert_reader_writer_parity(&self.reader_store(reader), &self.writer_store(), start, end);
+        assert_store_parity(&self.reader_store(reader), &self.writer_store(), start, end);
+    }
+
+    fn store_for(&self, account_id: &AccountId) -> Store {
+        self.env.node_for_account(account_id).client().chain.chain_store().store()
     }
 
     fn assert_reader_account_balance(&self, account: &AccountId, expected: Balance) {
@@ -1395,52 +1399,10 @@ fn test_cloud_archival_outcomes_and_receipts() {
     let gas_limit = Gas::from_teragas(300);
     let mut h = CloudArchiveHarness::builder().disable_gc().gas_limit(gas_limit).build();
     let user_account: AccountId = CloudArchiveHarness::USER_ACCOUNT.parse().unwrap();
-    // Cross-shard transfers exercise outgoing receipts; one self-transfer
-    // produces a local (non-outgoing) action receipt whose ReceiptToTx the
-    // writer must still archive.
-    for _ in 0..3 {
-        let tx = h.env.validator().tx_send_money(
-            &user_account,
-            &h.writer_id,
-            Balance::from_yoctonear(100),
-        );
-        h.env.validator().submit_tx(tx);
-    }
-    let self_tx =
-        h.env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(1));
-    h.env.validator().submit_tx(self_tx);
-    let deploy_tx = h.env.validator().tx_deploy_test_contract(&user_account);
-    h.env.validator().submit_tx(deploy_tx);
-    h.run_until_epoch(1);
-
-    // Each call's local receipt burns more than half a chunk's gas, so the third one
-    // does not fit and lands on the delayed-receipt queue instead.
-    let gas_to_burn = Gas::from_gas(gas_limit.as_gas() / 2 + 1);
-    for _ in 0..3 {
-        let tx = h.env.validator().tx_call(
-            &user_account,
-            &user_account,
-            "burn_gas_raw",
-            gas_to_burn.as_gas().to_le_bytes().to_vec(),
-            Balance::ZERO,
-            gas_limit,
-        );
-        h.env.validator().submit_tx(tx);
-    }
-    // A yield creates a `PromiseYield` receipt, which the runtime applies instantly.
-    let yield_tx = h.env.validator().tx_call(
-        &user_account,
-        &user_account,
-        "call_yield_create_return_promise",
-        vec![42u8; 16],
-        Balance::ZERO,
-        gas_limit,
-    );
-    h.env.validator().submit_tx(yield_tx);
-    h.run_until_epoch(3);
+    let writer_store = h.writer_store();
+    run_receipts_of_every_kind(&mut h.env, &h.writer_id, &user_account, gas_limit, &writer_store);
 
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
-    let writer_store = h.writer_store();
     let chain_store = writer_store.chain_store();
     let writer_chunk_store = writer_store.chunk_store();
 
@@ -1540,15 +1502,6 @@ fn test_cloud_archival_outcomes_and_receipts() {
     }
     assert!(total_outcomes > 0, "no outcomes were compared");
     assert!(total_receipt_to_tx > 0, "no receipt_to_tx entries were compared");
-    // Without a receipt of each source in the window, the walk above passes vacuously.
-    let counts = count_processed_receipts(&writer_store, start, end);
-    assert!(counts.local > 0, "no local receipt over [{start}, {end}]: {counts:?}");
-    assert!(counts.delayed > 0, "no delayed receipt over [{start}, {end}]: {counts:?}");
-    assert!(counts.instant > 0, "no instant receipt over [{start}, {end}]: {counts:?}");
-    assert!(
-        counts.receipt_to_tx_gc > 0,
-        "no receipt-to-tx marker over [{start}, {end}]: {counts:?}",
-    );
 
     h.bootstrap_historical_reader(start, end);
     h.assert_reader_writer_parity(Reader::Historical, start, end);
