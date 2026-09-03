@@ -6,7 +6,9 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, KeyForStateChanges, ShardTries, StateSnapshotConfig, Store, TrieConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
-use near_primitives::chunk_apply_stats::{BandwidthSchedulerStats, ChunkApplyStats};
+use near_primitives::chunk_apply_stats::{
+    BandwidthSchedulerStats, ChunkApplyStats, ChunkApplyStatsV1,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -130,12 +132,25 @@ struct InverseDeltasContext {
 /// That field is how long the scheduler took on the node that applied the chunk, so two
 /// writers of the same shard disagree on it; every other field follows from the chunk.
 pub fn archived_chunk_apply_stats(mut stats: ChunkApplyStats) -> ChunkApplyStats {
+    // Both levels are destructured so that a field added to either has to be classified
+    // here before this builds: node-dependent ones join `time_to_run_ms`, the rest are
+    // ignored. The blob is frozen, so a field cannot arrive in it unnoticed.
     let scheduler = match &mut stats {
         ChunkApplyStats::V0(v0) => &mut v0.bandwidth_scheduler,
-        ChunkApplyStats::V1(v1) => &mut v1.bandwidth_scheduler,
+        ChunkApplyStats::V1(v1) => {
+            let ChunkApplyStatsV1 {
+                height: _,
+                shard_id: _,
+                is_new_chunk: _,
+                transactions_num: _,
+                incoming_receipts_num: _,
+                bandwidth_scheduler,
+                balance: _,
+                receipt_sink: _,
+            } = v1;
+            bandwidth_scheduler
+        }
     };
-    // Destructured so that a field added to the scheduler's stats has to be classified here
-    // before this builds: node-dependent ones join `time_to_run_ms`, the rest are ignored.
     let BandwidthSchedulerStats {
         params: _,
         prev_bandwidth_requests: _,
@@ -534,8 +549,8 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::chunk_extra::ChunkExtra;
 
-    /// The tag a blob enum serializes to is part of the format, and the schema check does
-    /// not hash it, so the one tag whose value is not also its position is pinned here.
+    /// The wire tag is part of the frozen format. The schema check hashes it too, but a
+    /// change there reads as a hash to regenerate; this states the byte a reader expects.
     #[test]
     fn carried_shard_data_keeps_its_tag() {
         let carried = ShardDataV1::Carried(CarriedData {
