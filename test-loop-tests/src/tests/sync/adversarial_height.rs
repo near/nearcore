@@ -196,6 +196,74 @@ fn test_stale_node_syncs() {
     );
 }
 
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_node_inside_the_horizon_keeps_its_store_despite_far_ahead_claim() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .epoch_length(epoch_length)
+        .config_modifier(|config, _| {
+            // The claim makes the node ask the adversary first, which never answers.
+            // This timeout is what lets it move on to an honest peer while its head
+            // is still inside the horizon.
+            config.epoch_sync.timeout_for_epoch_sync = Duration::seconds(2);
+        })
+        .build();
+
+    let kill_height = 3 * epoch_length;
+    env.node_runner(0).run_until_head_height(kill_height);
+
+    // Down long enough for the head to read as stale, but still near enough that
+    // block sync can close the gap. Staleness needs `epoch_length` blocks and the
+    // horizon allows `TEST_EPOCH_SYNC_HORIZON * epoch_length`.
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let killed_state = env.kill_node(&node0_identifier);
+    env.node_runner(1).run_until_head_height(kill_height + epoch_length + epoch_length / 2);
+
+    let restart_id = format!("{}-restart", node0_identifier);
+    env.restart_node(&restart_id, killed_state);
+    let restarted_idx = env.node_datas.len() - 1;
+
+    let restarted_handle = env.node_datas[restarted_idx].client_sender.actor_handle();
+    let head = env.test_loop.data.get(&restarted_handle).client.chain.head().unwrap();
+    let head_before = head.height;
+    let head_header = env
+        .test_loop
+        .data
+        .get(&restarted_handle)
+        .client
+        .chain
+        .get_block_header(&head.last_block_hash)
+        .unwrap();
+    let mut fake_header = head_header.as_ref().clone();
+    fake_header.set_height(head.height + (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length);
+    let adversary = PeerInfo {
+        id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, "adversary").public_key()),
+        addr: None,
+        account_id: None,
+    };
+    env.shared_state.network_shared_state.mark_unresponsive(&adversary.id);
+    Sender::<TestLoopNetworkBlockInfo>::from(&env.node_datas[restarted_idx])
+        .send(TestLoopNetworkBlockInfo { peer: adversary, block_header: fake_header });
+
+    env.node_runner(1).run_for_number_of_blocks(3 * epoch_length as usize);
+
+    let restarted_head =
+        env.test_loop.data.get(&restarted_handle).client.chain.head().unwrap().height;
+    assert!(
+        !env.test_loop.is_denylisted(&restart_id),
+        "a claim alone must not delete the store of a node inside the horizon"
+    );
+    assert!(
+        restarted_head > head_before,
+        "node should follow the chain, head stuck at {head_before}"
+    );
+}
+
 /// One `PeerMessage::Block` from `peer`, as `NetworkState::handle_peer_message`
 /// models it: the network records the advertised height before any validation,
 /// and the block reaches the client.

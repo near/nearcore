@@ -199,9 +199,9 @@ impl SyncHandler {
     /// 2. Restart recovery: if an epoch sync proof exists and header_head is
     ///    within the epoch sync horizon, the node crashed mid-pipeline but is
     ///    still close enough to resume via HeaderSync.
-    /// 3. Epoch sync: everything else. Stale nodes (header_head past genesis)
-    ///    are detected in the epoch sync response handler and trigger data reset.
-    fn decide_initial_phase(
+    /// 3. Epoch sync: everything else. The response handler resets data only when
+    ///    the proof shows the head is beyond the horizon.
+    pub fn decide_initial_phase(
         &mut self,
         chain: &Chain,
         highest_height: u64,
