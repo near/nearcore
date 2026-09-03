@@ -933,8 +933,8 @@ fn assert_keyed_parity(store: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>,
     }
 }
 
-/// A row as the archive would carry it, through the same function the writer uses, so a
-/// field one of them drops and the other keeps cannot pass unnoticed.
+/// A row as the archive would carry it, through `archived_chunk_apply_stats`, so a field
+/// the archive drops and a node keeps cannot pass unnoticed.
 fn archived_row(col: DBCol, value: &[u8]) -> Vec<u8> {
     if col != DBCol::ChunkApplyStats {
         return value.to_vec();

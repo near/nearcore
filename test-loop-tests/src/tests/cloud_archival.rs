@@ -937,9 +937,9 @@ fn test_cloud_archival_writer_joins_later() {
     h.shutdown();
 }
 
-/// Verifies that two writers tracking all shards both produce valid data, and that they
-/// would archive the same bytes, so one writer's upload can be validated against another's.
-/// Anything a node measures for itself has to be dropped where the blob is built.
+/// A writer and an ordinary node tracking the same shards archive the same bytes, so one
+/// node's upload can be validated against another's. Anything a node measures for itself
+/// has to be dropped where the blob is built.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -964,7 +964,7 @@ fn test_cloud_archival_multi_writer_same_shards() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore once the blob drops the bandwidth scheduler's run time.
-#[ignore]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_blob_drops_node_measurements() {
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
@@ -991,7 +991,7 @@ fn test_cloud_archival_blob_drops_node_measurements() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore once the block-level blob stops carrying the writer's
 // own `ChunkHashesByHeight` rows, which two writers with different tracked shards differ on.
-#[ignore]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_multi_writer_disjoint_shards() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
     let all_shard_ids = CloudArchiveHarness::all_shard_ids();
@@ -1994,7 +1994,7 @@ fn test_cloud_archival_writer_resharding_inverse_deltas() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 // TODO(cloud_archival): un-ignore once the top of the resharding gap is the sync hash
 // itself, so a gap block archives the same bytes before and after the epoch records it.
-#[ignore]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_writer_resharding_inverse_deltas_batch_size_1() {
     let mut h = CloudArchiveHarness::builder().enable_resharding().batch_size(1).build();
 
