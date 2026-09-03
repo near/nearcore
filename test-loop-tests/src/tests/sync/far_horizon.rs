@@ -207,6 +207,41 @@ fn test_far_horizon_stale_node_shutdown() {
     );
 }
 
+// Scenario: Same as above, but only one epoch past the horizon. The epoch sync
+// proof names the first block of an epoch that is itself behind the tip, so
+// reading that height without the distance `validate_proof` demands from the
+// peer's advertised height leaves the node short of the reset it needs.
+//
+// Assertions:
+//   - The restarted node is still denylisted via EpochSyncDataReset
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
+
+    let kill_height = 3 * epoch_length;
+    env.node_runner(0).run_until_head_height(kill_height);
+
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let killed_state = env.kill_node(&node0_identifier);
+
+    let target_height = kill_height + (TEST_EPOCH_SYNC_HORIZON + 1) * epoch_length;
+    env.node_runner(1).run_until_head_height(target_height);
+
+    let restart_id = format!("{}-restart", node0_identifier);
+    env.restart_node(&restart_id, killed_state);
+    env.node_runner(1).run_for_number_of_blocks(5);
+
+    assert!(
+        env.test_loop.is_denylisted(&restart_id),
+        "a node one epoch past the horizon should still reset its store"
+    );
+}
+
 // Scenario: An archival node that falls behind the network should NOT use
 // epoch sync. Archival nodes must process all blocks to maintain a complete
 // history, so they enter block sync (potentially header sync first) but

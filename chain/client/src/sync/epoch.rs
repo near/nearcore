@@ -188,13 +188,7 @@ impl EpochSync {
             tracing::warn!(target: "sync", %source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
             return Ok(false);
         }
-        if proof
-            .current_epoch
-            .first_block_header_in_epoch
-            .height()
-            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-            >= *source_peer_height
-        {
+        if Self::min_peer_height_for_proof(chain, proof) >= *source_peer_height {
             tracing::error!(
                 target: "sync",
                 %source_peer,
@@ -220,6 +214,31 @@ impl EpochSync {
         self.verify_proof(proof, epoch_manager)?;
 
         Ok(true)
+    }
+
+    /// The lowest height a peer can advertise and still have this proof accepted.
+    /// `validate_proof` rejects a proof whose epoch starts any nearer than this.
+    fn min_peer_height_for_proof(chain: &Chain, proof: &EpochSyncProofV1) -> BlockHeight {
+        proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+    }
+
+    /// Whether catching up needs a data reset. The proof decides, not the peer
+    /// claim that started epoch sync.
+    ///
+    /// `decide_initial_phase` judges block sync against the same chain head, so a
+    /// proof that fails this never sends the node back to epoch sync.
+    fn proof_shows_head_beyond_horizon(
+        &self,
+        chain: &Chain,
+        proof: &EpochSyncProofV1,
+        chain_head_height: BlockHeight,
+    ) -> bool {
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        chain_head_height.saturating_add(horizon) < Self::min_peer_height_for_proof(chain, proof)
     }
 
     /// Applies a previously validated epoch sync proof to the store and updates
@@ -636,6 +655,28 @@ impl ClientActor {
             .peer_selector
             .record_failed_to_serve(peer_id, self.clock.now_utc());
     }
+
+    fn reset_data_or_choose_a_sync_phase(&mut self, proof: &EpochSyncProofV1) {
+        let Ok(head) = self.client.chain.head() else {
+            tracing::error!(target: "sync", "failed to read head while handling epoch sync proof");
+            return;
+        };
+        let epoch_sync = &self.client.sync_handler.epoch_sync;
+        if epoch_sync.proof_shows_head_beyond_horizon(&self.client.chain, proof, head.height) {
+            tracing::info!(target: "sync", head_height = head.height, "stale node validated epoch sync proof, requesting data reset");
+            if let Some(tx) = self.shutdown_signal.take() {
+                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+            }
+            return;
+        }
+        let min_peer_height = EpochSync::min_peer_height_for_proof(&self.client.chain, proof);
+        tracing::warn!(target: "sync", head_height = head.height, min_peer_height, "epoch sync proof leaves the node inside the horizon, keeping the store");
+        if let Err(err) =
+            self.client.sync_handler.decide_initial_phase(&self.client.chain, min_peer_height)
+        {
+            tracing::error!(target: "sync", ?err, "failed to choose a sync phase from the epoch sync proof");
+        }
+    }
 }
 
 impl Handler<EpochSyncResponseMessage> for ClientActor {
@@ -691,10 +732,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
         };
         let genesis_height = self.client.chain.genesis().height();
         if tip_height != genesis_height {
-            tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
-            if let Some(tx) = self.shutdown_signal.take() {
-                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-            }
+            self.reset_data_or_choose_a_sync_phase(&proof);
             return;
         }
 
