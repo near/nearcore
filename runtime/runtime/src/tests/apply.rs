@@ -6613,6 +6613,7 @@ mod relayer_funded_state_init {
 
         let mut outcomes = vec![];
         let mut incoming = vec![];
+        let mut settled = false;
         // The relayer is not the receiver, so the action receipt is buffered rather
         // than run locally: round 0 converts the transaction, round 1 runs the
         // batch, round 2 delivers the refunds. The fourth is slack, and the loop
@@ -6633,14 +6634,20 @@ mod relayer_funded_state_init {
                     Default::default(),
                 )
                 .unwrap();
+            let delayed = result.delayed_receipts_count;
             root = commit_apply_result(&result, &mut apply_state, &tries, shard_uid);
             outcomes.extend(result.outcomes);
             incoming = result.outgoing_receipts;
             apply_state.block_height += 1;
-            if round > 0 && incoming.is_empty() {
+            if round > 0 && incoming.is_empty() && delayed == 0 {
+                settled = true;
                 break;
             }
         }
+        // Every assertion downstream reads the state the cascade left behind, so a
+        // run that stopped with a receipt still queued would be measuring a
+        // half-finished one, and could mask a failure or invent one.
+        assert!(settled, "receipt cascade did not settle within the round budget");
         (tries, root, outcomes)
     }
 

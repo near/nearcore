@@ -212,7 +212,7 @@ pub(crate) fn action_create_account(
 ///
 /// The account is created without claiming `actor_id`, which stays the receipt's
 /// predecessor. A `0u` id can be created by a transfer inside a batch (see
-/// [`check_transfer_to_nonexisting_account`]), and claiming it would hand the
+/// [`implicit_creation_allowed`]), and claiming it would hand the
 /// rest of that batch the new account's own authority: a relayer sending
 /// `[Transfer, UniversalStateInit, AddKey]` would install a key the id does not
 /// commit to, and one ending in `DeleteAccount` would take the balance. For the
@@ -228,12 +228,14 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
-    match account_id.get_account_type() {
+    // Config-aware: account type whose feature is off reads as `NamedAccount` and panics
+    // below rather than being created. Only `universal_accounts` can still be off.
+    match get_account_type(account_id, apply_state.config.as_ref()) {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
             access_key.nonce = initial_nonce_value(block_height);
 
-            // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
+            // unwrap: the arm we are in means `account_id` is 64 hex characters.
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
@@ -271,17 +273,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 &apply_state.config.fees.storage_usage_config,
             ));
         }
-        AccountType::UniversalAccount if apply_state.config.wasm_config.universal_accounts => {
+        AccountType::UniversalAccount => {
             *account = Some(Account::new_uninitialized(
                 deposit,
                 fee_config.storage_usage_config.num_bytes_account,
                 initial_nonce_value(block_height),
             ));
         }
-        // This panic is unreachable as this is an implicit account creation transfer.
-        // `check_account_existence` would fail because `implicit_creation_allowed` would
-        // return false for such a receiver.
-        AccountType::NamedAccount | AccountType::UniversalAccount => panic!("must be implicit"),
+        // Unreachable: this is an implicit account creation transfer, so
+        // `check_account_existence` has already turned away every receiver that
+        // `implicit_creation_allowed` refuses.
+        AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
 
@@ -934,7 +936,7 @@ fn implicit_creation_allowed(account_type: AccountType, receipt_shape: ReceiptSh
         // Named accounts can never be implicitly created by transfer
         AccountType::NamedAccount => false,
         // Near-implicit, Eth-implicit, and deterministic accounts can only be created
-        // is transfer is the only action, to avoid account hijacking.
+        // if transfer is the only action, to avoid account hijacking.
         AccountType::NearImplicitAccount
         | AccountType::EthImplicitAccount
         | AccountType::NearDeterministicAccount => is_the_only_action,
@@ -2539,6 +2541,33 @@ mod tests {
                  universal_accounts={universal_accounts}"
             );
         }
+    }
+
+    /// The transfer arm has to judge a `0u` id by the config-aware type, not the
+    /// raw one: with the flag off the id reads as a named account and a transfer
+    /// creates nothing. Reading it raw would instead admit the transfer and hand
+    /// it to `action_implicit_account_creation_transfer`, whose `must be implicit`
+    /// panic is unreachable only because of this check.
+    #[test]
+    fn transfer_to_missing_universal_account_follows_the_flag() {
+        let account_id = encode_universal_account_id(&[0x33; 32]);
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+        let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
+
+        assert_eq!(
+            check_account_existence(
+                &transfer,
+                &None,
+                &account_id,
+                &config_with(true, false),
+                alone
+            ),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+        );
+        assert_eq!(
+            check_account_existence(&transfer, &None, &account_id, &config_with(true, true), alone),
+            Ok(())
+        );
     }
 
     /// Every path through `implicit_creation_allowed`: a refund creates nothing
