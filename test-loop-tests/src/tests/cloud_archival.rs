@@ -943,7 +943,7 @@ fn test_cloud_archival_writer_joins_later() {
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_cloud_archival_multi_writer_same_shards() {
+fn test_cloud_archival_two_nodes_archive_the_same_bytes() {
     let all_shard_ids = CloudArchiveHarness::all_shard_ids();
     // The parity walk below reads every height in its range, which gc would take. The
     // writer is compared against the RPC node, which tracks the same shards.

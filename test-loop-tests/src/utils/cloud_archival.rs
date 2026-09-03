@@ -110,12 +110,12 @@ pub(crate) fn assert_writer_agrees_with_rpc_node(
             .into_iter()
             .collect()
     };
-    // A shard only one of them tracks has rows only that one holds, so the comparison
-    // needs the writer to cover what the node does.
+    // A shard only one of them tracks has rows only that one holds, and the walk below runs
+    // in both directions, so the two must track the same set.
     let (writer_shards, rpc_shards) = (tracked_shards(writer_id), tracked_shards(rpc_id));
-    assert!(
-        writer_shards.is_superset(&rpc_shards),
-        "the writer tracks {writer_shards:?}, which does not cover the node's {rpc_shards:?}"
+    assert_eq!(
+        writer_shards, rpc_shards,
+        "the writer tracks {writer_shards:?} and the node {rpc_shards:?}; the walk needs them equal"
     );
     let rpc_store = get_hot_store(env, rpc_id);
     assert_store_parity(&rpc_store, &writer_store, start, end);

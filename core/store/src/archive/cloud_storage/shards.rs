@@ -6,7 +6,7 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, KeyForStateChanges, ShardTries, StateSnapshotConfig, Store, TrieConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
-use near_primitives::chunk_apply_stats::ChunkApplyStats;
+use near_primitives::chunk_apply_stats::{BandwidthSchedulerStats, ChunkApplyStats};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -126,10 +126,21 @@ struct InverseDeltasContext {
 /// That field is how long the scheduler took on the node that applied the chunk, so two
 /// writers of the same shard disagree on it; every other field follows from the chunk.
 pub fn archived_chunk_apply_stats(mut stats: ChunkApplyStats) -> ChunkApplyStats {
-    match &mut stats {
-        ChunkApplyStats::V0(v0) => v0.bandwidth_scheduler.time_to_run_ms = 0,
-        ChunkApplyStats::V1(v1) => v1.bandwidth_scheduler.time_to_run_ms = 0,
-    }
+    let scheduler = match &mut stats {
+        ChunkApplyStats::V0(v0) => &mut v0.bandwidth_scheduler,
+        ChunkApplyStats::V1(v1) => &mut v1.bandwidth_scheduler,
+    };
+    // Destructured so that a field added to the scheduler's stats has to be classified here
+    // before this builds: node-dependent ones join `time_to_run_ms`, the rest are ignored.
+    let BandwidthSchedulerStats {
+        params: _,
+        prev_bandwidth_requests: _,
+        prev_bandwidth_requests_num: _,
+        time_to_run_ms,
+        granted_bandwidth: _,
+        new_bandwidth_requests: _,
+    } = scheduler;
+    *time_to_run_ms = 0;
     stats
 }
 
