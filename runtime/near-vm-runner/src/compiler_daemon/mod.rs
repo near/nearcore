@@ -41,12 +41,15 @@ use std::time::Duration;
 /// might be possible but almost certainly would be a maliciously crafted Wasm.
 const MIN_WORKER_MEMORY_LIMIT_BYTES: u64 = bytesize::GIB;
 
-/// Default number of rayon compilation threads per worker subprocess.
+/// Default number of compilation threads per worker subprocess.
 ///
 /// Setting this higher results in higher virtual memory usage, reaching the
 /// `RLIMIT_AS` faster. Experimental results on mainnet contracts show
 /// diminishing returns for compilation time around 6 threads.
-const DEFAULT_RAYON_THREADS_PER_WORKER: usize = 6;
+const DEFAULT_THREADS_PER_WORKER: u32 = 6;
+
+/// Default stack size for compiler threads, matching neard's global rayon pool.
+const DEFAULT_THREAD_STACK_SIZE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Hard cap on worker subprocesses regardless of the configured/derived size.
 ///

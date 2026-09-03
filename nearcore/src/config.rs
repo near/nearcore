@@ -429,8 +429,9 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
-    /// Whether to use isolated compiler-daemon subprocesses. Disable this to
-    /// always compile contracts in-process.
+    /// Whether to use the isolated compiler-daemon subprocesses.
+    ///
+    /// Disabled by default.
     pub enable_compiler_daemon: bool,
 
     /// Location where to store a cache of compiled contracts.

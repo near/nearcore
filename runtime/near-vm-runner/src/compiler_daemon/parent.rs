@@ -9,16 +9,18 @@
 //! waiting caller is served first (see [`CompilePriority`]).
 
 use super::protocol::{
-    CompileRequest, DaemonStartup, DaemonStatus, IsolationStatus, read_compile_response,
-    read_frame, write_frame,
+    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
+    DaemonStatus, IsolationStatus, WorkerConfig, read_compile_response, read_frame, write_frame,
 };
 use super::watchdog::ProcessWatchdog;
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::{
-    DAEMON_STARTUP_TIMEOUT, DEFAULT_RAYON_THREADS_PER_WORKER, DEFAULT_TOTAL_MEMORY_BUDGET_BYTES,
-    MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS, MIN_WORKER_MEMORY_LIMIT_BYTES,
+    DAEMON_STARTUP_TIMEOUT, DEFAULT_THREAD_STACK_SIZE_BYTES, DEFAULT_THREADS_PER_WORKER,
+    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS,
+    MIN_WORKER_MEMORY_LIMIT_BYTES,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
+use crate::metrics::COMPILATION_PATH_TOTAL;
 use crate::wasmtime_runner::compiler_compatibility_hash;
 use near_parameters::vm::LimitConfig;
 use parking_lot::{Condvar, Mutex};
@@ -60,7 +62,7 @@ pub fn set_test_action_for_next_request(action: super::protocol::TestAction) {
 /// Only works once, subsequent calls are ignored.
 pub fn set_daemon_binary(path: PathBuf) {
     if DAEMON_BINARY.set(path).is_err() {
-        tracing::error!("set_daemon_binary called more than once, ignoring");
+        tracing::error!(target: "vm", "set_daemon_binary called more than once, ignoring");
     }
 }
 
@@ -71,7 +73,7 @@ pub fn set_daemon_binary(path: PathBuf) {
 /// clamped to `[1, MAX_POOL_SIZE]`.
 pub fn set_daemon_pool_size(size: usize) {
     if DAEMON_POOL_SIZE.set(size).is_err() {
-        tracing::warn!("set_daemon_pool_size called more than once, ignoring");
+        tracing::warn!(target: "vm", "set_daemon_pool_size called more than once, ignoring");
     }
 }
 
@@ -81,6 +83,13 @@ pub fn is_daemon_configured() -> bool {
 }
 
 type CompileResult = Result<Vec<u8>, String>;
+
+fn default_worker_config() -> WorkerConfig {
+    WorkerConfig {
+        threads: DEFAULT_THREADS_PER_WORKER,
+        thread_stack_size_bytes: DEFAULT_THREAD_STACK_SIZE_BYTES,
+    }
+}
 
 struct DaemonProcess {
     child: Arc<Mutex<Child>>,
@@ -92,26 +101,24 @@ struct DaemonProcess {
 }
 
 impl DaemonProcess {
-    fn spawn(binary: &Path) -> std::io::Result<Self> {
-        // The compiler is fully configured through IPC. In particular it must
-        // not inherit environment-based allocator, proxy, logging, or compiler
-        // configuration from neard.
+    fn spawn(binary: &Path, config: WorkerConfig) -> std::io::Result<Self> {
+        // Do not inherit environment-based allocator, proxy, logging, or
+        // compiler configuration from neard. The two variables below are the
+        // explicit process-level configuration contract for the worker.
         let mut command = Command::new(binary);
         command
             .arg("compile-wasm")
             .env_clear()
-            // Rayon determines its global compilation pool size from this
-            // variable.
-            // TODO(jakmeier): make this configurable
-            .env("RAYON_NUM_THREADS", DEFAULT_RAYON_THREADS_PER_WORKER.to_string())
+            .env(COMPILER_DAEMON_THREADS_ENV, config.threads.to_string())
+            .env(COMPILER_DAEMON_STACK_SIZE_ENV, config.thread_stack_size_bytes.to_string())
             .current_dir("/")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let mut child = command.spawn()?;
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let child_stderr = child.stderr.take().unwrap();
+        let stdin = child.stdin.take().expect("stdio configured as piped");
+        let stdout = child.stdout.take().expect("stdio configured as piped");
+        let child_stderr = child.stderr.take().expect("stdio configured as piped");
         let worker_id = child.id();
         let stderr_thread = match Builder::new()
             .name("compiler-daemon-stderr".to_owned())
@@ -139,11 +146,11 @@ impl DaemonProcess {
             }
         };
         let mut process = Self { child, stdin, stdout, stderr_thread, watchdog, status: None };
-        process.status = Some(process.wait_for_startup()?);
+        process.status = Some(process.wait_for_startup(config)?);
         Ok(process)
     }
 
-    fn wait_for_startup(&mut self) -> std::io::Result<DaemonStatus> {
+    fn wait_for_startup(&mut self, config: WorkerConfig) -> std::io::Result<DaemonStatus> {
         let generation = self
             .watchdog
             .arm(DAEMON_STARTUP_TIMEOUT)
@@ -154,7 +161,7 @@ impl DaemonProcess {
                 let startup: DaemonStartup = borsh::from_slice(&bytes)
                     .map_err(|err| format!("failed to deserialize startup response: {err}"))?;
                 match startup {
-                    DaemonStartup::Ready(status) => validate_daemon_status(status),
+                    DaemonStartup::Ready(status) => validate_daemon_status(status, config),
                     DaemonStartup::Err(err) => Err(err),
                 }
             });
@@ -205,7 +212,10 @@ impl DaemonProcess {
     }
 }
 
-fn validate_daemon_status(status: DaemonStatus) -> Result<DaemonStatus, String> {
+fn validate_daemon_status(
+    status: DaemonStatus,
+    expected_config: WorkerConfig,
+) -> Result<DaemonStatus, String> {
     let expected_hash = EXPECTED_COMPILER_COMPATIBILITY_HASH
         .get_or_init(|| {
             compiler_compatibility_hash()
@@ -218,9 +228,21 @@ fn validate_daemon_status(status: DaemonStatus) -> Result<DaemonStatus, String> 
             status.compiler_compatibility_hash
         ));
     }
+    if status.worker_config != expected_config {
+        return Err(format!(
+            "compiler daemon configuration mismatch: daemon reported {} threads with {} byte stacks, expected {} threads with {} byte stacks",
+            status.worker_config.threads,
+            status.worker_config.thread_stack_size_bytes,
+            expected_config.threads,
+            expected_config.thread_stack_size_bytes,
+        ));
+    }
     #[cfg(target_os = "linux")]
     if !matches!(status.isolation, IsolationStatus::LinuxLandlock { abi: 1.. }) {
-        return Err(format!("compiler daemon did not enable landlock: {:?}", status.isolation));
+        return Err(format!(
+            "compiler daemon did not enable landlock isolation: {:?}; ensure the kernel is at least 5.13, CONFIG_SECURITY_LANDLOCK is enabled, landlock is in the active LSM list, and the container seccomp profile allows landlock syscalls, or disable enable_compiler_daemon",
+            status.isolation
+        ));
     }
     #[cfg(not(target_os = "linux"))]
     if status.isolation != IsolationStatus::Unavailable {
@@ -268,7 +290,7 @@ fn relay_stderr(mut child_stderr: ChildStderr, worker_id: u32) {
             Ok(0) => return,
             Ok(count) => count as u64,
             Err(err) => {
-                tracing::warn!(worker_id, %err, "failed to read compiler daemon stderr");
+                tracing::warn!(target: "vm", worker_id, %err, "failed to read compiler daemon stderr");
                 return;
             }
         };
@@ -281,11 +303,11 @@ fn relay_stderr(mut child_stderr: ChildStderr, worker_id: u32) {
         let relay_count = count.min(stderr_relay_limit_bytes.saturating_sub(relayed));
         if relay_count > 0 {
             let output = String::from_utf8_lossy(&buffer[..relay_count as usize]);
-            tracing::warn!(worker_id, stderr = %output, "compiler daemon stderr");
+            tracing::warn!(target: "vm", worker_id, stderr = %output, "compiler daemon stderr");
             relayed += relay_count;
         }
         if relay_count < count && !rate_limit_reported {
-            tracing::warn!(worker_id, "compiler daemon stderr rate limit exceeded");
+            tracing::warn!(target: "vm", worker_id, "compiler daemon stderr rate limit exceeded");
             rate_limit_reported = true;
         }
     }
@@ -316,6 +338,7 @@ struct PoolInner {
 
 struct DaemonPool {
     binary: PathBuf,
+    worker_config: WorkerConfig,
     max_workers: usize,
     inner: Mutex<PoolInner>,
     /// One wait queue per priority class; index by `CompilePriority::index`.
@@ -379,7 +402,7 @@ impl DaemonPool {
                     self.wake_one(&inner);
                 }
                 drop(inner);
-                return match DaemonProcess::spawn(&self.binary) {
+                return match DaemonProcess::spawn(&self.binary, self.worker_config) {
                     Ok(worker) => Ok(worker),
                     Err(e) => {
                         let mut inner = self.inner.lock();
@@ -482,6 +505,7 @@ fn get_or_init_pool() -> &'static DaemonPool {
             .clamp(1, MAX_POOL_SIZE);
         DaemonPool {
             binary,
+            worker_config: default_worker_config(),
             max_workers,
             inner: Mutex::new(PoolInner {
                 idle: Vec::new(),
@@ -531,9 +555,16 @@ pub fn compile_in_subprocess(
 
     let mut last_err = String::new();
     for attempt in 0..MAX_REQUEST_ATTEMPTS {
+        COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
         let mut lease = match pool.checkout(priority) {
             Ok(worker) => Lease { pool, worker: Some(worker) },
             Err(spawn_err) => {
+                tracing::warn!(
+                    target: "vm",
+                    attempt,
+                    err = %spawn_err,
+                    "failed to spawn compiler daemon worker"
+                );
                 last_err = spawn_err;
                 continue;
             }
@@ -551,6 +582,7 @@ pub fn compile_in_subprocess(
             }
             Err(ipc_err) => {
                 tracing::warn!(
+                    target: "vm",
                     attempt,
                     worker_id,
                     err = %ipc_err,
@@ -561,7 +593,12 @@ pub fn compile_in_subprocess(
             }
         }
     }
-    tracing::error!(attempts = MAX_REQUEST_ATTEMPTS, "compiler daemon failed, giving up");
+    tracing::error!(
+        target: "vm",
+        attempts = MAX_REQUEST_ATTEMPTS,
+        err = %last_err,
+        "compiler daemon failed, giving up"
+    );
     Err(VMRunnerError::WasmCompilationUnknownError { debug_message: last_err })
 }
 

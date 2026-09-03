@@ -4,6 +4,10 @@ use borsh::{BorshDeserialize, BorshSerialize, from_slice, to_vec};
 use std::borrow::Cow;
 use std::io::{self, ErrorKind, Read, Write};
 
+/// Environment contract used by the parent to configure a worker process.
+pub const COMPILER_DAEMON_THREADS_ENV: &str = "NEAR_COMPILER_DAEMON_THREADS";
+pub const COMPILER_DAEMON_STACK_SIZE_ENV: &str = "NEAR_COMPILER_DAEMON_STACK_SIZE_BYTES";
+
 /// Test-only behavior requested from a compiler worker.
 #[cfg(feature = "test_features")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -21,12 +25,21 @@ pub enum IsolationStatus {
     Unavailable,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct WorkerConfig {
+    pub threads: u32,
+    pub thread_stack_size_bytes: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct DaemonStatus {
     /// Hash supplied by Wasmtime for deciding whether serialized artifacts can
     /// be loaded by another engine.
     pub compiler_compatibility_hash: u64,
     pub isolation: IsolationStatus,
+    /// Effective worker settings, echoed so the parent can verify that the
+    /// child implementation honored its process configuration.
+    pub worker_config: WorkerConfig,
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -67,11 +80,14 @@ const MAX_FRAME_SIZE: usize = 128 * 1024 * 1024;
 
 const ARTIFACT_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 
+/// Maximum serialized size of a compilation error response.
+const MAX_COMPILE_ERROR_SIZE: usize = 1024 * 1024;
+
 pub fn read_frame(r: &mut impl Read) -> io::Result<Vec<u8>> {
     read_frame_with_limit(r, MAX_FRAME_SIZE)
 }
 
-fn read_frame_with_limit(r: &mut impl Read, max_size: usize) -> io::Result<Vec<u8>> {
+fn read_frame_length(r: &mut impl Read, max_size: usize) -> io::Result<usize> {
     let mut len_buf = [0u8; 4];
     r.read_exact(&mut len_buf)?;
     let len = u32::from_le_bytes(len_buf) as usize;
@@ -81,9 +97,47 @@ fn read_frame_with_limit(r: &mut impl Read, max_size: usize) -> io::Result<Vec<u
             format!("frame too large: {len} bytes (max {max_size})"),
         ));
     }
+    Ok(len)
+}
+
+fn read_frame_with_limit(r: &mut impl Read, max_size: usize) -> io::Result<Vec<u8>> {
+    let len = read_frame_length(r, max_size)?;
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
     Ok(buf)
+}
+
+/// Append one frame directly to `destination`, avoiding an intermediate frame
+/// allocation. Allocation remains incremental so an untrusted announced total
+/// artifact size cannot make the parent reserve it all at once.
+fn read_frame_into(
+    r: &mut impl Read,
+    destination: &mut Vec<u8>,
+    max_frame_size: usize,
+    max_total_size: usize,
+) -> io::Result<usize> {
+    let frame_len = read_frame_length(r, max_frame_size)?;
+    let old_len = destination.len();
+    let new_len = old_len.checked_add(frame_len).ok_or_else(|| {
+        io::Error::new(ErrorKind::InvalidData, "artifact length exceeds address space")
+    })?;
+    if new_len > max_total_size {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "artifact length exceeds announced size: received {new_len} bytes, expected {max_total_size}"
+            ),
+        ));
+    }
+    destination
+        .try_reserve(frame_len)
+        .map_err(|err| io::Error::other(format!("failed to allocate artifact buffer: {err}")))?;
+    destination.resize(new_len, 0);
+    if let Err(err) = r.read_exact(&mut destination[old_len..]) {
+        destination.truncate(old_len);
+        return Err(err);
+    }
+    Ok(frame_len)
 }
 
 /// Write a compilation result without placing the whole artifact in one frame.
@@ -107,45 +161,29 @@ pub fn write_compile_response(w: &mut impl Write, response: Result<&[u8], &str>)
 
 /// Read a chunked compilation result.
 pub fn read_compile_response(r: &mut impl Read) -> io::Result<Result<Vec<u8>, String>> {
-    let header = read_frame_with_limit(r, ARTIFACT_CHUNK_SIZE)?;
+    let header = read_frame_with_limit(r, MAX_COMPILE_ERROR_SIZE)?;
     let response: CompileResponse =
         from_slice(&header).map_err(|err| io::Error::new(ErrorKind::InvalidData, err))?;
     match response {
         CompileResponse::Err(err) => Ok(Err(err)),
         CompileResponse::Ok { artifact_size } => {
+            let artifact_size = artifact_size as usize;
             let mut artifact = Vec::new();
-            let mut received = 0u32;
             loop {
-                let chunk = read_frame_with_limit(r, ARTIFACT_CHUNK_SIZE)?;
-                if chunk.is_empty() {
-                    if received != artifact_size {
+                let chunk_len =
+                    read_frame_into(r, &mut artifact, ARTIFACT_CHUNK_SIZE, artifact_size)?;
+                if chunk_len == 0 {
+                    if artifact.len() != artifact_size {
                         return Err(io::Error::new(
                             ErrorKind::InvalidData,
                             format!(
-                                "artifact length mismatch: received {received} bytes, expected {artifact_size}"
+                                "artifact length mismatch: received {} bytes, expected {artifact_size}",
+                                artifact.len()
                             ),
                         ));
                     }
                     return Ok(Ok(artifact));
                 }
-                let chunk_len = u32::try_from(chunk.len()).map_err(|_| {
-                    io::Error::new(ErrorKind::InvalidData, "artifact chunk length exceeds u32")
-                })?;
-                received = received.checked_add(chunk_len).ok_or_else(|| {
-                    io::Error::new(ErrorKind::InvalidData, "artifact length exceeds u32")
-                })?;
-                if received > artifact_size {
-                    return Err(io::Error::new(
-                        ErrorKind::InvalidData,
-                        format!(
-                            "artifact length exceeds announced size: received {received} bytes, expected {artifact_size}"
-                        ),
-                    ));
-                }
-                artifact.try_reserve(chunk.len()).map_err(|err| {
-                    io::Error::other(format!("failed to allocate artifact buffer: {err}"))
-                })?;
-                artifact.extend_from_slice(&chunk);
             }
         }
     }
@@ -154,8 +192,8 @@ pub fn read_compile_response(r: &mut impl Read) -> io::Result<Result<Vec<u8>, St
 #[cfg(test)]
 mod tests {
     use super::{
-        ARTIFACT_CHUNK_SIZE, CompileResponse, ErrorKind, read_compile_response, to_vec,
-        write_compile_response, write_frame,
+        ARTIFACT_CHUNK_SIZE, CompileResponse, ErrorKind, MAX_COMPILE_ERROR_SIZE,
+        read_compile_response, to_vec, write_compile_response, write_frame,
     };
 
     #[test]
@@ -176,6 +214,14 @@ mod tests {
             read_compile_response(&mut wire.as_slice()).unwrap(),
             Err("compilation failed".to_owned())
         );
+    }
+
+    #[test]
+    fn compile_error_size_is_bounded() {
+        let wire = Vec::from(((MAX_COMPILE_ERROR_SIZE + 1) as u32).to_le_bytes());
+
+        let err = read_compile_response(&mut wire.as_slice()).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
     }
 
     #[test]

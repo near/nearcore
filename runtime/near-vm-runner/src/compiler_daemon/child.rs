@@ -10,12 +10,15 @@
 
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{
-    CompileRequest, DaemonStartup, DaemonStatus, read_frame, write_compile_response, write_frame,
+    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
+    DaemonStatus, WorkerConfig, read_frame, write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
 use std::collections::{HashMap, hash_map};
+use std::env;
 use std::fmt::Display;
+use std::io::Write;
 use std::process::exit;
 #[cfg(feature = "test_features")]
 use std::thread::park;
@@ -24,23 +27,36 @@ use std::thread::park;
 pub fn daemon_main() -> ! {
     let stdout = std::io::stdout();
     let mut writer = stdout.lock();
+    let worker_config = match worker_config_from_env() {
+        Ok(config) => config,
+        Err(err) => report_startup_error(&mut writer, err),
+    };
 
     set_memory_limit();
     raise_oom_score_adj();
     let sandbox_status = match sandbox::apply() {
         Ok(status) => status,
-        Err(err) => {
-            let startup = DaemonStartup::Err(err);
-            let _ = write_frame(&mut writer, &borsh::to_vec(&startup).unwrap());
-            std::process::exit(1);
-        }
+        Err(err) => report_startup_error(
+            &mut writer,
+            format!(
+                "{err}; compiler daemon isolation on linux requires kernel 5.13 or newer, CONFIG_SECURITY_LANDLOCK, landlock in the active LSM list, and a container seccomp profile that allows landlock syscalls; otherwise disable enable_compiler_daemon"
+            ),
+        ),
     };
+    if let Err(err) = rayon::ThreadPoolBuilder::new()
+        .num_threads(worker_config.threads as usize)
+        .stack_size(worker_config.thread_stack_size_bytes as usize)
+        .build_global()
+    {
+        report_startup_error(&mut writer, format!("failed to create compiler thread pool: {err}"));
+    }
     let compiler_compatibility_hash = compiler_compatibility_hash().unwrap_or_else(|err| {
         abort_worker(format!("failed to create compatibility engine: {err}"))
     });
     let startup = DaemonStartup::Ready(DaemonStatus {
         compiler_compatibility_hash,
         isolation: sandbox_status.isolation_status(),
+        worker_config,
     });
     if write_frame(&mut writer, &borsh::to_vec(&startup).unwrap()).is_err() {
         std::process::exit(1);
@@ -65,6 +81,40 @@ pub fn daemon_main() -> ! {
             std::process::exit(0);
         }
     }
+}
+
+fn worker_config_from_env() -> Result<WorkerConfig, String> {
+    let threads = read_positive_env(COMPILER_DAEMON_THREADS_ENV)?;
+    let threads = u32::try_from(threads).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_THREADS_ENV} exceeds the supported thread count"
+        )
+    })?;
+    let thread_stack_size_bytes = read_positive_env(COMPILER_DAEMON_STACK_SIZE_ENV)?;
+    usize::try_from(thread_stack_size_bytes).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_STACK_SIZE_ENV} exceeds the platform address space"
+        )
+    })?;
+    Ok(WorkerConfig { threads, thread_stack_size_bytes })
+}
+
+fn read_positive_env(name: &str) -> Result<u64, String> {
+    let value = env::var(name)
+        .map_err(|err| format!("failed to read environment variable {name}: {err}"))?;
+    let value = value
+        .parse::<u64>()
+        .map_err(|err| format!("invalid environment variable {name}: {err}"))?;
+    if value == 0 {
+        return Err(format!("environment variable {name} must be greater than zero"));
+    }
+    Ok(value)
+}
+
+fn report_startup_error(writer: &mut impl Write, err: String) -> ! {
+    let startup = DaemonStartup::Err(err);
+    let _ = write_frame(writer, &borsh::to_vec(&startup).unwrap());
+    exit(1);
 }
 
 fn handle_request(

@@ -288,8 +288,7 @@ pub(crate) fn execute_function_call(
     // User-code errors are stored in `outcome.aborted` and do not reach these
     // match arms.
     //
-    // TODO: Compilation must become asynchronous before this can work with
-    // SPICE, where chunks are determined before execution.
+    // TODO(spice): check this behavior is still acceptable.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
             if runtime_ext.account().contract().is_some() {

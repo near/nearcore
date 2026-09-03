@@ -54,7 +54,6 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -396,7 +395,14 @@ pub async fn start_with_config_and_synchronization_impl(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     if config.config.enable_compiler_daemon {
-        let current_exe = env::current_exe().context("failed to locate the neard executable")?;
+        // Keep using the running executable's inode after a rename-over binary
+        // upgrade. Resolving this symlink up front would leave a stale deleted
+        // path and make later lazy worker spawns fail.
+        #[cfg(target_os = "linux")]
+        let current_exe = PathBuf::from("/proc/self/exe");
+        #[cfg(not(target_os = "linux"))]
+        let current_exe =
+            std::env::current_exe().context("failed to locate the neard executable")?;
         tracing::info!(path = %current_exe.display(), "using neard as compiler daemon binary");
         near_vm_runner::compiler_daemon::set_daemon_binary(current_exe);
         let status = near_vm_runner::compiler_daemon::start_daemon()
