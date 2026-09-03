@@ -19,6 +19,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use node_runtime::config::tx_cost;
 use std::collections::HashSet;
+use std::slice;
 
 const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
@@ -59,8 +60,8 @@ fn submit_transfers(
         .collect()
 }
 
-/// Submit count_limit() + 2 transactions. The pending transaction queue should
-/// throttle inclusion to at most count_limit() at a time from one account.
+/// Submit two transactions more than the count limit. The pending transaction
+/// queue should throttle inclusion to the count limit per account.
 /// All transactions are eventually included after certification frees slots.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -82,13 +83,12 @@ fn test_ptq_count_limit() {
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
-    // Submit count_limit() + 2 transfer transactions from the sender.
     let num_txs = count_limit() + 2;
     let tx_hashes = submit_transfers(&env, &sender, &receiver, num_txs);
-    // Only count_limit() txs should be included before certification.
+    // Only the first count_limit() txs should be included before certification.
     env.validator_runner().run_until_included(&tx_hashes[..count_limit()]);
     for tx_hash in &tx_hashes[count_limit()..] {
-        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
+        assert!(!is_included_in_head(&env.validator(), slice::from_ref(tx_hash)));
     }
     // The remaining txs are included after certification advances.
     let remaining: Vec<_> = tx_hashes[count_limit()..].to_vec();
@@ -136,7 +136,7 @@ fn test_ptq_bytes_limit() {
     let tx_hashes = submit_transfers(&env, &sender, &receiver, 4);
     env.validator_runner().run_until_included(&tx_hashes[..2]);
     for tx_hash in &tx_hashes[2..] {
-        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
+        assert!(!is_included_in_head(&env.validator(), slice::from_ref(tx_hash)));
     }
     env.validator_runner().run_until_included(&tx_hashes[2..]);
 }
@@ -184,7 +184,7 @@ fn test_ptq_conversion_gas_limit() {
     let tx_hashes = submit_transfers(&env, &sender, &receiver, 4);
     env.validator_runner().run_until_included(&tx_hashes[..2]);
     for tx_hash in &tx_hashes[2..] {
-        assert!(!is_included_in_head(&env.validator(), std::slice::from_ref(tx_hash)));
+        assert!(!is_included_in_head(&env.validator(), slice::from_ref(tx_hash)));
     }
     env.validator_runner().run_until_included(&tx_hashes[2..]);
 }
@@ -246,8 +246,8 @@ fn test_ptq_nonce_constraint() {
 
 /// Pending transaction queue accumulates across blocks.
 ///
-/// Submit transactions across multiple blocks. Verify that count_limit() counts
-/// transactions from all uncertified blocks, not just the latest one.
+/// Submit transactions across multiple blocks. Verify that the count limit
+/// covers transactions from all uncertified blocks, not just the latest one.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_accumulates_across_blocks() {
@@ -269,7 +269,7 @@ fn test_ptq_accumulates_across_blocks() {
     let mut env = env.warmup();
 
     // Submit transactions in two batches, let the first batch get included,
-    // then submit the rest. Total across uncertified blocks should be count_limit().
+    // then submit the rest. Together the batches fill the count limit.
     let first_batch_size = count_limit() / 2;
     let second_batch_size = count_limit() - first_batch_size;
     let first_batch = submit_transfers(&env, &sender, &receiver, first_batch_size);
@@ -279,13 +279,13 @@ fn test_ptq_accumulates_across_blocks() {
     let second_batch = submit_transfers(&env, &sender, &receiver, second_batch_size);
     env.validator_runner().run_until_included(&second_batch);
 
-    // Submit a (count_limit()+1)th tx. This should be blocked by count_limit() since there
-    // are already count_limit() uncertified txs from this account.
+    // Submit one more tx. The count limit blocks it while the earlier txs
+    // are uncertified.
     let extra = submit_transfers(&env, &sender, &receiver, 1);
     let extra_hash = extra[0];
 
     // Run blocks up to just before the first batch gets certified.
-    // The extra tx should not get included while count_limit() uncertified txs are pending.
+    // The extra tx should not get included while the count limit is filled.
     let current_height = env.validator().head().height;
     let target_height = first_inclusion_height + execution_delay - 1;
     let blocks_until_certification = target_height.saturating_sub(current_height);
@@ -321,13 +321,13 @@ fn test_ptq_cleanup_on_certification() {
     env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
-    // Submit count_limit() transactions and wait for inclusion + certification.
+    // Fill the count limit and wait for inclusion + certification.
     let first_batch = submit_transfers(&env, &sender, &receiver, count_limit());
     env.validator_runner().run_until_included(&first_batch);
     let height = env.validator().head().height;
     env.validator_runner().run_until_certified(height);
 
-    // Submit count_limit() more. All should be admitted since the first batch is certified.
+    // Submit a full count limit again. All should be admitted since the first batch is certified.
     let second_batch = submit_transfers(&env, &sender, &receiver, count_limit());
     env.validator_runner().run_until_included(&second_batch);
 }
