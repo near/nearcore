@@ -937,6 +937,27 @@ fn test_cloud_archival_writer_joins_later() {
     h.shutdown();
 }
 
+/// Verifies that two writers tracking all shards both produce valid data.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_multi_writer_same_shards() {
+    let all_shard_uids = CloudArchiveHarness::all_shard_uids();
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let mut h = CloudArchiveHarness::builder().build();
+    h.add_writer_node(&WriterConfig {
+        id: "writer_b".parse().unwrap(),
+        archive_block_data: true,
+        tracked_shards: all_shard_uids,
+        snapshot_every_n_epochs: 1,
+    });
+    h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
+    h.check_data(&[(3, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
+    h.assert_heads_and_gc_ok();
+
+    h.shutdown();
+}
+
 /// A writer and an ordinary node tracking the same shards archive the same bytes, so one
 /// node's upload can be validated against another's. Anything a node measures for itself
 /// has to be dropped where the blob is built.
@@ -944,12 +965,10 @@ fn test_cloud_archival_writer_joins_later() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_two_nodes_archive_the_same_bytes() {
-    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
     // The parity walk below reads every height in its range, which gc would take. The
     // writer is compared against the RPC node, which tracks the same shards.
     let mut h = CloudArchiveHarness::builder().disable_gc().dont_take_over_rpc().build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
-    h.check_data(&[(3, &all_shard_ids), (h.epoch_length + 1, &all_shard_ids)]);
     h.assert_heads_ok_before_gc();
 
     let end = h.local_min_head();
