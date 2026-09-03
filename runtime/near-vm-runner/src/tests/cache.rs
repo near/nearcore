@@ -265,6 +265,19 @@ fn test_wasmtime_sparse_contract_stability() {
     );
 }
 
+#[cfg(feature = "wasmtime_vm")]
+impl crate::wasmtime_runner::CachedArtifact {
+    /// Convenience helper for tests
+    fn unwrap(self) -> Vec<u8> {
+        match self {
+            Self::CompiledBytes(bytes) => bytes,
+            Self::CompilerError(_) => {
+                panic!("contract compilation failed")
+            }
+        }
+    }
+}
+
 /// [`ContractRuntimeCache`] which simulates failures in the underlying
 /// database.
 #[derive(Default, Clone)]

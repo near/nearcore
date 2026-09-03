@@ -9,7 +9,7 @@ use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
 use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
-use crate::metrics::COMPILATION_PATH_TOTAL;
+use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -86,7 +86,10 @@ static VMS: LazyLock<RwLock<HashMap<VMKey, WasmtimeVM>>> = LazyLock::new(RwLock:
 // TODO(crt): consider splitting out the compile cache and locking logic to its own file
 /// One cache entry: the serialized wasmtime module bytes, or the cached
 /// [`CompilationError`] from a prior failed compile of the same code.
-type CachedArtifact = Result<Vec<u8>, CompilationError>;
+pub(crate) enum CachedArtifact {
+    CompiledBytes(Vec<u8>),
+    CompilerError(CompilationError),
+}
 
 /// Per-key compilation lock map. Prevents redundant concurrent compilations
 /// of the same contract by multiple threads (e.g. precompile_contracts and
@@ -146,8 +149,8 @@ fn read_cache(
     key: &CryptoHash,
 ) -> Result<Option<CachedArtifact>, CacheError> {
     Ok(cache.get(key).map_err(CacheError::ReadError)?.map(|info| match info.compiled {
-        CompiledContract::Code(module) => Ok(module),
-        CompiledContract::CompileModuleError(err) => Err(err),
+        CompiledContract::Code(module) => CachedArtifact::CompiledBytes(module),
+        CompiledContract::CompileModuleError(err) => CachedArtifact::CompilerError(err),
     }))
 }
 
@@ -608,19 +611,31 @@ impl WasmtimeVM {
         code: &ContractCode,
     ) -> Result<CachedArtifact, VMRunnerError> {
         let start = std::time::Instant::now();
+        let daemon_configured = compiler_daemon::is_daemon_configured();
+        let path = if daemon_configured { "daemon" } else { "in_process" };
         let prepared_code =
             match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
                 Ok(code) => code,
-                Err(err) => return Ok(Err(CompilationError::PrepareError(err))),
+                Err(err) => {
+                    COMPILATION_TOTAL.with_label_values(&[path, "compile_error"]).inc();
+                    return Ok(CachedArtifact::CompilerError(CompilationError::PrepareError(err)));
+                }
             };
 
-        let serialized = if compiler_daemon::is_daemon_configured() {
-            COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
-            compiler_daemon::compile_in_subprocess(
+        let serialized = if daemon_configured {
+            let result = compiler_daemon::compile_in_subprocess(
                 &prepared_code,
                 &self.config.limit_config,
                 self.priority,
-            )?
+            );
+            let serialized = match result {
+                Ok(serialized) => serialized,
+                Err(err) => {
+                    COMPILATION_TOTAL.with_label_values(&["daemon", "unavailable"]).inc();
+                    return Err(err);
+                }
+            };
+            serialized
         } else {
             COMPILATION_PATH_TOTAL.with_label_values(&["in_process"]).inc();
             match self.engine.precompile_module(&prepared_code) {
@@ -638,8 +653,14 @@ impl WasmtimeVM {
             }
         };
         let serialized = match serialized {
-            Ok(serialized) => serialized,
-            Err(err) => return Ok(Err(err)),
+            Ok(serialized) => {
+                COMPILATION_TOTAL.with_label_values(&[path, "ok"]).inc();
+                serialized
+            }
+            Err(err) => {
+                COMPILATION_TOTAL.with_label_values(&[path, "compile_error"]).inc();
+                return Ok(CachedArtifact::CompilerError(err));
+            }
         };
 
         let elapsed = start.elapsed();
@@ -653,7 +674,7 @@ impl WasmtimeVM {
         );
 
         crate::metrics::compilation_duration(elapsed);
-        Ok(Ok(serialized))
+        Ok(CachedArtifact::CompiledBytes(serialized))
     }
 
     #[tracing::instrument(
@@ -727,16 +748,20 @@ impl WasmtimeVM {
         }
         // Failures which prevent compilation from returning a result propagate
         // without producing a cache record.
-        let serialized_or_error = self.compile_uncached(code)?;
+        let artifact = self.compile_uncached(code)?;
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
-            compiled: match &serialized_or_error {
-                Ok(serialized) => CompiledContract::Code(serialized.clone()),
-                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+            compiled: match &artifact {
+                CachedArtifact::CompiledBytes(serialized) => {
+                    CompiledContract::Code(serialized.clone())
+                }
+                CachedArtifact::CompilerError(err) => {
+                    CompiledContract::CompileModuleError(err.clone())
+                }
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
-        Ok(serialized_or_error)
+        Ok(artifact)
     }
 
     #[tracing::instrument(
@@ -786,13 +811,13 @@ impl WasmtimeVM {
                         };
                         let wasm_bytes = code.code().len() as u64;
                         match self.compile_and_cache(&code, cache)? {
-                            Err(err) => {
+                            CachedArtifact::CompilerError(err) => {
                                 return Ok((
                                     err.size_bytes_approximate() as u64,
                                     to_any((wasm_bytes, Err(err))),
                                 ));
                             }
-                            Ok(module) => (wasm_bytes, module),
+                            CachedArtifact::CompiledBytes(module) => (wasm_bytes, module),
                         }
                     };
                 // (UN-)SAFETY: the `module` must have been produced by
@@ -926,9 +951,10 @@ impl crate::runner::VM for WasmtimeVM {
         if self.contract_cached(cache, *code.hash())? {
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }
-        Ok(self
-            .compile_and_cache(code, cache)?
-            .map(|_| ContractPrecompilatonResult::ContractCompiled))
+        Ok(match self.compile_and_cache(code, cache)? {
+            CachedArtifact::CompiledBytes(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+            CachedArtifact::CompilerError(err) => Err(err),
+        })
     }
 
     fn try_precompile(
@@ -944,7 +970,10 @@ impl crate::runner::VM for WasmtimeVM {
             // check and the inner one, or another thread holds the per-key lock
             // and is compiling — both cases resolve to `ContractAlreadyInCache`.
             None => Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
-            Some(result) => Ok(result.map(|_| ContractPrecompilatonResult::ContractCompiled)),
+            Some(CachedArtifact::CompiledBytes(_)) => {
+                Ok(Ok(ContractPrecompilatonResult::ContractCompiled))
+            }
+            Some(CachedArtifact::CompilerError(err)) => Ok(Err(err)),
         }
     }
 
