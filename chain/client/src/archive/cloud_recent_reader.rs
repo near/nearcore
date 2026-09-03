@@ -1,6 +1,6 @@
 use crate::archive::cloud_archival_utils::{
     CloudArchivalReaderError, apply_batch_state_changes, pull_block_batch, pull_shard_batch,
-    save_reader_head, shards_tracked_in_batch,
+    save_reader_head, shard_state_anchor, shards_tracked_in_batch,
 };
 use crate::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_async::time::{Clock, Duration};
@@ -119,9 +119,29 @@ impl CloudArchivalRecentReader {
         self.interrupt.stop();
     }
 
+    /// Reads the root every shard the reader tracks at its head stands at, so a store
+    /// holding no state for one of them stops the reader here instead of on a poll it
+    /// would go on repeating.
+    fn check_state_anchors(
+        &self,
+        reader_head: &CloudReaderHead,
+    ) -> Result<(), CloudArchivalReaderError> {
+        let shard_uids = shards_tracked_in_batch(
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            &reader_head.last_present_block_hash,
+            None,
+        )?;
+        for shard_uid in shard_uids {
+            shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+        }
+        Ok(())
+    }
+
     /// Follows the bucket, copying what it holds into the local store, until interrupted.
     pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
         let mut reader_head = self.ensure_reader_head()?;
+        self.check_state_anchors(&reader_head)?;
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {
@@ -174,13 +194,7 @@ impl CloudArchivalRecentReader {
                 reader_head.height + 1,
             )
             .await?;
-            apply_batch_state_changes(
-                &self.store,
-                &self.tries,
-                shard_uid,
-                &shard_batch,
-                reader_head,
-            )?;
+            apply_batch_state_changes(&self.tries, shard_uid, &shard_batch, reader_head)?;
         }
         let head = save_reader_head(&self.store, window.end_height, window.last_present_block_hash);
         Ok(PullOutcome::Pulled { head })

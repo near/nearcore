@@ -175,7 +175,6 @@ pub(crate) async fn pull_shard_batch(
 /// Applies the state changes `shard_batch` carries from just above `reader_head` to its
 /// own end, in one commit.
 pub(crate) fn apply_batch_state_changes(
-    store: &Store,
     tries: &ShardTries,
     shard_uid: ShardUId,
     shard_batch: &ShardBatch,
@@ -186,7 +185,7 @@ pub(crate) fn apply_batch_state_changes(
     let start_height = (reader_head.height + 1).max(shard_batch.start_height());
     // TODO(cloud_archival): anchor a shard a resharding added above the head.
     let prev_state_root =
-        shard_state_anchor(store, &reader_head.last_present_block_hash, shard_uid)?;
+        shard_state_anchor(tries, &reader_head.last_present_block_hash, shard_uid)?;
     let mut update = BatchTrieUpdate::new(tries, shard_uid, prev_state_root);
     for height in start_height..=shard_batch.end_height() {
         let Some(shard_data) = shard_batch.get_data_at_height(height) else {
@@ -210,12 +209,12 @@ pub(crate) fn apply_batch_state_changes(
 
 /// The state root `shard_uid` stands at under `block_hash`, which is the root the height
 /// above that block applies onto.
-fn shard_state_anchor(
-    store: &Store,
+pub(crate) fn shard_state_anchor(
+    tries: &ShardTries,
     block_hash: &CryptoHash,
     shard_uid: ShardUId,
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
-    match store.chunk_store().get_chunk_extra(block_hash, &shard_uid) {
+    match tries.store().store_ref().chunk_store().get_chunk_extra(block_hash, &shard_uid) {
         Ok(chunk_extra) => Ok(*chunk_extra.state_root()),
         Err(Error::DBNotFoundErr(_)) => {
             Err(CloudArchivalReaderError::NoStateAnchor { shard_uid, block_hash: *block_hash })
