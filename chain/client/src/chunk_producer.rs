@@ -539,7 +539,7 @@ impl ChunkProducer {
                         &mut iter,
                         chain_validate,
                         validate_tx_ttl,
-                        std::collections::HashSet::new(),
+                        HashSet::new(),
                         &mut |tx| {
                             if ptq_enabled {
                                 session.check_pending(tx)
