@@ -483,11 +483,9 @@ impl CloudArchivalWriter {
         Ok(Some(info))
     }
 
-    /// Early in a resharding epoch, below its state snapshot, a new child shard
-    /// has no snapshot of its own; this run of blocks is the resharding gap, and
-    /// the reader recovers those shards by walking inverse changes back from the
-    /// snapshot. Returns the gap's top height (`sync_prev_prev`), or
-    /// `BlockHeight::MAX` until the epoch's sync hash is recorded.
+    /// The top of the resharding gap, the run of blocks where a new child shard has no
+    /// snapshot of its own and the reader rebuilds it by walking inverse changes back from
+    /// the epoch's snapshot. `BlockHeight::MAX` until the epoch records its sync hash.
     fn resharding_sync_point(
         &self,
         resharding_epoch_id: &EpochId,
@@ -496,10 +494,7 @@ impl CloudArchivalWriter {
         let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(resharding_epoch_id) else {
             return Ok(BlockHeight::MAX);
         };
-        let sync_header = chain_store.get_block_header(&sync_hash)?;
-        let sync_prev_header = chain_store.get_block_header(sync_header.prev_hash())?;
-        let sync_prev_prev_header = chain_store.get_block_header(sync_prev_header.prev_hash())?;
-        Ok(sync_prev_prev_header.height())
+        Ok(chain_store.get_block_header(&sync_hash)?.height())
     }
 
     /// Uploads epoch data for the epoch that starts right after `prev_epoch_end`.
@@ -654,6 +649,10 @@ impl CloudArchivalWriter {
             .into_iter()
             .collect();
 
+        // A child opens above the resharding block, and the retired parent below carries its
+        // own row at that block. That pairing is what lets the reader build a child's
+        // `ChunkExtra` at the split: every field but the state root and the congestion info
+        // comes from the parent's row there. Moving either boundary takes that input away.
         let child_shard_batch_start =
             (resharding.resharding_block_height + 1).max(batch_range.start());
         let mut shard_batches = Vec::new();
@@ -681,7 +680,8 @@ impl CloudArchivalWriter {
             }
         }
         // The removed parents are present only when the batch straddles the
-        // boundary; each ends at the old epoch's last block.
+        // boundary; each ends at the old epoch's last block, which is the resharding block
+        // whose row the reader reads for its children.
         if epoch_ending_block_hash.is_some() {
             let new_tracked_shards: HashSet<ShardUId> = tracked_shards.iter().copied().collect();
             for shard_uid in old_tracked_shards {

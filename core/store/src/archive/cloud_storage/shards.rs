@@ -27,17 +27,21 @@ pub type InverseStateChanges = BTreeMap<TrieKey, Option<Vec<u8>>>;
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardData {
-    V1(ShardDataV1),
+    V1(ShardDataV1) = 0,
 }
 
 // Short-lived deserialized blob held only in small bounded collections;
 // the size disparity is transient, not worth a heap indirection per read.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardDataV1 {
-    NewChunk(NewChunkData),
-    Carried(CarriedData),
+    NewChunk(NewChunkData) = 0,
+    Carried(CarriedData) = 1,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -171,10 +175,10 @@ fn build_shard_data(
     };
 
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
-    let chunk_apply_stats = option_to_not_found(
+    let chunk_apply_stats = archived_chunk_apply_stats(option_to_not_found(
         chunk_store.get_chunk_apply_stats(&block_hash, &shard_id),
         format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
-    )?;
+    )?);
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let inverse_state_changes = build_inverse_state_changes(
         store,
@@ -414,8 +418,10 @@ impl ShardData {
 
 /// Versioned container for a batch of shard data spanning consecutive heights.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardBatch {
-    V1(ShardBatchV1),
+    V1(ShardBatchV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -518,5 +524,31 @@ impl ShardBatch {
         );
         let index = (height - batch.start_height) as usize;
         batch.data[index].as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CarriedData, ShardData, ShardDataV1};
+    use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::chunk_extra::ChunkExtra;
+
+    /// The tag a blob enum serializes to is part of the format, and the schema check does
+    /// not hash it, so the one tag whose value is not also its position is pinned here.
+    #[test]
+    fn carried_shard_data_keeps_its_tag() {
+        let carried = ShardDataV1::Carried(CarriedData {
+            block_hash: CryptoHash::default(),
+            chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+            chunk_apply_stats: ChunkApplyStats::V1(ChunkApplyStatsV1::dummy()),
+            state_changes: vec![],
+            incoming_receipts: None,
+            inverse_state_changes: None,
+        });
+        let bytes = borsh::to_vec(&carried).unwrap();
+        assert_eq!(bytes.first(), Some(&1), "`Carried` serializes as tag 1");
+        let wrapped = borsh::to_vec(&ShardData::V1(carried)).unwrap();
+        assert_eq!(&wrapped[..2], &[0u8, 1][..], "the container tag leads the variant tag");
     }
 }
