@@ -369,7 +369,7 @@ impl AllEpochConfig {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, ProtocolSchema)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account

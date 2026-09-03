@@ -8,7 +8,7 @@ use near_primitives::utils::index_to_bytes;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::archive::cloud_storage::{
-    BlockData, CloudRetrievalError, CloudStorage, EpochData, ShardData,
+    BlockData, CloudRetrievalError, CloudStorage, EpochData, NewChunkData, ShardData,
 };
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
@@ -35,8 +35,6 @@ pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     let block_hash = *header.hash();
     let height = header.height();
 
-    // The block row is content-addressed, so it is insert-only. Every other row here is
-    // keyed by height, hash or ordinal, and a re-pull may overwrite it.
     update.insert_ser(DBCol::Block, block_hash.as_ref(), block);
     let mut chain_store_update = update.chain_store_update();
     chain_store_update.set_block_header_only(header);
@@ -229,6 +227,16 @@ pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) 
     epoch_store_update.set_epoch_info(epoch_id, epoch_data.epoch_info());
     epoch_store_update.set_epoch_start(epoch_id, epoch_data.epoch_start_height());
     epoch_store_update.set_block_info(epoch_data.epoch_first_block_info());
+    // A blob is published at epoch start, so it cannot carry its own aggregate data.
+    // What it carries is the epoch below's, and it goes under that epoch's id.
+    let prev_epoch_id = epoch_data.prev_epoch_id();
+    if let Some(summary) = epoch_data.prev_epoch_summary() {
+        epoch_store_update.set_epoch_validator_info(prev_epoch_id, summary);
+    }
+    epoch_store_update.set_epoch_info(&epoch_data.next_epoch_id(), epoch_data.next_epoch_info());
+    if let Some(light_client_block) = epoch_data.prev_epoch_light_client_block() {
+        update.set_ser(DBCol::EpochLightClientBlocks, prev_epoch_id.as_ref(), light_client_block);
+    }
 }
 
 /// Writes one shard's columns from its cloud `ShardData` into `update`.
@@ -237,29 +245,57 @@ pub(crate) fn save_shard_data(
     shard_uid: ShardUId,
     shard_data: &ShardData,
 ) {
-    // TODO(cloud_archival): write the rows a transaction or receipt hash alone addresses,
-    // and apply each block's recorded changes to the shard's state.
+    // TODO(cloud_archival): apply each block's recorded changes to the shard's state.
     let block_hash = shard_data.block_hash();
     let shard_id = shard_uid.shard_id();
     let mut chunk_store_update = update.chunk_store_update();
     chunk_store_update.set_chunk_apply_stats(block_hash, shard_id, shard_data.chunk_apply_stats());
     chunk_store_update.set_chunk_extra(block_hash, &shard_uid, shard_data.chunk_extra());
-    if let Some(chunk) = shard_data.chunk() {
-        update.insert_ser(DBCol::Chunks, chunk.chunk_hash().as_ref(), chunk);
-    }
-    if let Some(outgoing_receipts) = shard_data.outgoing_receipts() {
-        update.chain_store_update().set_outgoing_receipt(block_hash, shard_id, outgoing_receipts);
-    }
     if let Some(incoming_receipts) = shard_data.incoming_receipts() {
         update.chain_store_update().set_incoming_receipt(block_hash, shard_id, incoming_receipts);
-    }
-    if let Some(results) = shard_data.transaction_result_for_block() {
-        update.chain_store_update().set_outcomes_with_proofs(block_hash, shard_id, results);
     }
     for changes in shard_data.state_changes() {
         let row_key =
             KeyForStateChanges::for_state_change(block_hash, &changes.trie_key, &shard_uid);
         update.trie_store_update().set_state_changes(row_key, changes);
+    }
+    if let Some(new_chunk) = shard_data.new_chunk() {
+        save_new_chunk_data(update, block_hash, shard_id, new_chunk);
+    }
+}
+
+/// Writes the rows only a block that produced a new chunk for this shard has.
+fn save_new_chunk_data(
+    update: &mut StoreUpdate,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    new_chunk: &NewChunkData,
+) {
+    let chunk = new_chunk.chunk();
+    update.insert_ser(DBCol::Chunks, chunk.chunk_hash().as_ref(), chunk);
+    let mut chain_store_update = update.chain_store_update();
+    chain_store_update.set_processed_receipt_ids(
+        block_hash,
+        shard_id,
+        new_chunk.processed_receipts(),
+        new_chunk.processed_receipt_bodies(),
+    );
+    chain_store_update.set_receipt_to_tx(new_chunk.receipt_to_tx());
+    chain_store_update.set_outgoing_receipt(block_hash, shard_id, new_chunk.outgoing_receipts());
+    chain_store_update.set_outcomes_with_proofs(
+        block_hash,
+        shard_id,
+        new_chunk.transaction_result_for_block(),
+    );
+    // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
+    // need gc at the reader.
+    for transaction in chunk.to_transactions() {
+        let bytes = borsh::to_vec(transaction).expect("borsh cannot fail");
+        update.increment_refcount(DBCol::Transactions, transaction.get_hash().as_ref(), &bytes);
+    }
+    for receipt in chunk.prev_outgoing_receipts() {
+        let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
+        update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
     }
 }
 

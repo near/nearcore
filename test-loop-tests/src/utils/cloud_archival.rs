@@ -14,8 +14,9 @@ use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{ProcessedReceiptMetadata, ReceiptSource};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
@@ -715,7 +716,7 @@ fn apply_state_changes(
         cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
     assert_eq!(
         state_root,
-        start_block_shard_data.chunk().unwrap().prev_state_root(),
+        start_block_shard_data.new_chunk().unwrap().chunk().prev_state_root(),
         "initial state_root must match prev_state_root of the start block"
     );
     for block_height in start_block_height..=target_block_height {
@@ -745,6 +746,48 @@ fn apply_state_changes(
     assert_eq!(state_root, *expected_final_state_root);
 }
 
+/// Receipts the writer processed over a height range, one count per source.
+#[derive(Default, Debug)]
+pub(crate) struct ProcessedReceiptCounts {
+    pub(crate) local: usize,
+    pub(crate) delayed: usize,
+    pub(crate) instant: usize,
+    pub(crate) receipt_to_tx_gc: usize,
+}
+
+/// Counts the writer's processed receipts over `[start, end]` by source.
+pub(crate) fn count_processed_receipts(
+    writer: &Store,
+    start: BlockHeight,
+    end: BlockHeight,
+) -> ProcessedReceiptCounts {
+    let chain_store = writer.chain_store();
+    let mut counts = ProcessedReceiptCounts::default();
+    for height in start..=end {
+        let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+            continue;
+        };
+        // Keyed by block hash followed by the shard id, so one prefix scan on the hash
+        // finds every shard's row.
+        let rows = writer.iter_prefix_ser::<Vec<ProcessedReceiptMetadata>>(
+            DBCol::ProcessedReceiptIds,
+            block_hash.as_ref(),
+        );
+        for (_key, processed) in rows {
+            for metadata in &processed {
+                let counter = match metadata.source() {
+                    ReceiptSource::Local => &mut counts.local,
+                    ReceiptSource::Delayed => &mut counts.delayed,
+                    ReceiptSource::Instant => &mut counts.instant,
+                    ReceiptSource::ReceiptToTxGc => &mut counts.receipt_to_tx_gc,
+                };
+                *counter += 1;
+            }
+        }
+    }
+    counts
+}
+
 /// Asserts the reader reproduces the writer's rows over `[start, end]`, for the columns
 /// the filter below keeps. Caller must `.disable_gc()` so the writer retains the
 /// bootstrap range.
@@ -754,25 +797,9 @@ pub(crate) fn assert_reader_writer_parity(
     start: BlockHeight,
     end: BlockHeight,
 ) {
-    // TODO(cloud_archival): compare the skipped columns too.
+    // TODO(cloud_archival): compare `DBCol::State` too, once the reader reconstructs it.
     let cols: Vec<DBCol> = DBCol::iter()
-        .filter(|&c| {
-            is_cloud_archive_reader_bootstrapped(c)
-                && !matches!(
-                    c,
-                    // Not reconstructed yet.
-                    DBCol::Transactions
-                        | DBCol::Receipts
-                        | DBCol::ReceiptToTx
-                        | DBCol::State
-                        // Reconstructed, but keyed off-height (genesis BlockInfo under
-                        // CryptoHash::default(), EpochInfo under AGGREGATOR_KEY), so the
-                        // height walk can't reproduce their key sets.
-                        | DBCol::BlockInfo
-                        | DBCol::EpochInfo
-                        | DBCol::EpochStart
-                )
-        })
+        .filter(|&c| is_cloud_archive_reader_bootstrapped(c) && c != DBCol::State)
         .collect();
 
     let writer_kvs = writer_kvs(writer, &cols, start, end);
@@ -825,37 +852,125 @@ fn collect_chunk_hashes_kvs(
     }
 }
 
-/// Collects the writer's rows for one chunk into `kvs`.
-fn collect_chunk_kvs(
+/// Collects into `kvs` the writer's rows that only a new chunk has.
+fn collect_new_chunk_kvs(
     writer: &Store,
     kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
     block_hash: &CryptoHash,
     chunk_header: &ShardChunkHeader,
     height: BlockHeight,
 ) {
-    let block_shard_id = get_block_shard_id(block_hash, chunk_header.shard_id());
-    if chunk_header.is_new_chunk(height) {
-        let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
-        let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
-        kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
-        if let Some(value) = writer.get(DBCol::OutgoingReceipts, &block_shard_id) {
-            kvs.get_mut(&DBCol::OutgoingReceipts)
-                .unwrap()
-                .insert(block_shard_id.clone(), value.to_vec());
-        }
-        // `TransactionResultForBlock` is keyed by outcome id followed by the block
-        // hash, so its rows are reached through this shard's own `OutcomeIds` row.
-        let outcome_ids = writer
-            .chain_store()
-            .get_outcomes_by_block_hash_and_shard_id(block_hash, chunk_header.shard_id());
-        for outcome_id in &outcome_ids {
-            let key = get_outcome_id_block_hash(outcome_id, block_hash).to_vec();
-            let value = writer.get(DBCol::TransactionResultForBlock, &key).unwrap();
-            kvs.get_mut(&DBCol::TransactionResultForBlock).unwrap().insert(key, value.to_vec());
+    if !chunk_header.is_new_chunk(height) {
+        return;
+    }
+    let shard_id = chunk_header.shard_id();
+    let chunk_hash = chunk_header.chunk_hash().as_ref().to_vec();
+    let value = writer.get(DBCol::Chunks, &chunk_hash).unwrap();
+    let chunk = ShardChunk::try_from_slice(&value)
+        .unwrap_or_else(|_| panic!("Chunks row at h={height} shard={shard_id} does not decode"));
+    kvs.get_mut(&DBCol::Chunks).unwrap().insert(chunk_hash, value.to_vec());
+    // Keyed by a bare hash, so a chunk's own rows are the rows in range.
+    for transaction in chunk.to_transactions() {
+        let key = transaction.get_hash().as_ref().to_vec();
+        let value = writer.get(DBCol::Transactions, &key).unwrap();
+        kvs.get_mut(&DBCol::Transactions).unwrap().insert(key, value.to_vec());
+    }
+    let processed_key = get_block_shard_id(block_hash, shard_id);
+    let processed_row = writer.get(DBCol::ProcessedReceiptIds, &processed_key);
+    let processed: Vec<ProcessedReceiptMetadata> =
+        processed_row.as_ref().map(|value| Vec::try_from_slice(value).unwrap()).unwrap_or_default();
+    if let Some(value) = processed_row {
+        kvs.get_mut(&DBCol::ProcessedReceiptIds).unwrap().insert(processed_key, value.to_vec());
+    }
+    collect_receipt_kvs(writer, kvs, &chunk, &processed);
+    // `TransactionResultForBlock` is keyed by outcome id followed by the block hash, so
+    // its rows are reached through this shard's own `OutcomeIds` row.
+    let outcome_ids =
+        writer.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
+    for outcome_id in &outcome_ids {
+        let key = get_outcome_id_block_hash(outcome_id, block_hash).to_vec();
+        let value = writer.get(DBCol::TransactionResultForBlock, &key).unwrap();
+        kvs.get_mut(&DBCol::TransactionResultForBlock).unwrap().insert(key, value.to_vec());
+    }
+}
+
+/// Collects into `kvs` the receipt rows a chunk and its processed receipts name.
+fn collect_receipt_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    chunk: &ShardChunk,
+    processed: &[ProcessedReceiptMetadata],
+) {
+    let mut receipt_keys: Vec<Vec<u8>> =
+        chunk.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_ref().to_vec()).collect();
+    for metadata in processed {
+        let key = metadata.receipt_id().as_ref().to_vec();
+        if metadata.source().has_receipt_body() {
+            receipt_keys.push(key);
+        } else if let Some(value) = writer.get(DBCol::ReceiptToTx, &key) {
+            kvs.get_mut(&DBCol::ReceiptToTx).unwrap().insert(key, value.to_vec());
         }
     }
-    if let Some(value) = writer.get(DBCol::ChunkApplyStats, &block_shard_id) {
-        kvs.get_mut(&DBCol::ChunkApplyStats).unwrap().insert(block_shard_id, value.to_vec());
+    for key in receipt_keys {
+        if let Some(value) = writer.get(DBCol::Receipts, &key) {
+            kvs.get_mut(&DBCol::Receipts).unwrap().insert(key, value.to_vec());
+        }
+    }
+}
+
+/// Collects into `kvs` the writer's epoch-keyed rows, split by whether the reader holds
+/// them over `[start, end]`.
+fn collect_epoch_kvs(
+    writer: &Store,
+    in_scope: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    out_of_scope: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+    epoch_first_heights: &[(EpochId, BlockHeight)],
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let in_range = |height: &BlockHeight| (start..=end).contains(height);
+    let mut take = |in_scope_now: bool, col, key: &[u8]| {
+        let kvs = if in_scope_now { &mut *in_scope } else { &mut *out_of_scope };
+        if let Some(value) = writer.get(col, key) {
+            kvs.get_mut(&col).unwrap().insert(key.to_vec(), value.to_vec());
+        }
+    };
+    for (index, (epoch_id, first_height)) in epoch_first_heights.iter().enumerate() {
+        let key = epoch_id.as_ref();
+        // An epoch's own info and start travel in its own blob, while its closing rows
+        // travel in the blob of the epoch above it.
+        let starts_in_scope = in_range(first_height);
+        let closes_in_scope =
+            epoch_first_heights.get(index + 1).is_some_and(|(_, next)| in_range(next));
+        take(starts_in_scope, DBCol::EpochInfo, key);
+        take(starts_in_scope, DBCol::EpochStart, key);
+        take(closes_in_scope, DBCol::EpochValidatorInfo, key);
+        take(closes_in_scope, DBCol::EpochLightClientBlocks, key);
+    }
+
+    // The writer computes an epoch's info before that epoch has a block, so it holds
+    // rows no walked epoch names. They are outside any range the reader took.
+    let named: HashSet<Vec<u8>> =
+        epoch_first_heights.iter().map(|(id, _)| id.as_ref().to_vec()).collect();
+    for (key, value) in writer.iter(DBCol::EpochInfo) {
+        let key = key.into_vec();
+        if !named.contains(&key) {
+            out_of_scope.get_mut(&DBCol::EpochInfo).unwrap().insert(key, value.into_vec());
+        }
+    }
+}
+
+/// Collects into `kvs` the rows keyed by genesis's prev hash.
+fn collect_genesis_prev_hash_kvs(
+    writer: &Store,
+    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
+) {
+    // No block hashes to it, so the height walk cannot reach these. Node init writes
+    // them on both sides and no blob carries them.
+    let key = CryptoHash::default().as_ref().to_vec();
+    for col in [DBCol::BlockInfo, DBCol::NextBlockHashes] {
+        let value = writer.get(col, &key).unwrap_or_else(|| panic!("node init writes {col}"));
+        kvs.get_mut(&col).unwrap().insert(key.clone(), value.to_vec());
     }
 }
 
@@ -875,6 +990,9 @@ fn writer_kvs(
     let mut out_of_scope: HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>> =
         cols.iter().map(|&c| (c, BTreeMap::new())).collect();
 
+    // Every epoch the walk sees, in chain order, with the height it starts at.
+    let mut epoch_first_heights: Vec<(EpochId, BlockHeight)> = Vec::new();
+
     // Walk the chain, reading each column's row at height `h` into the in-scope
     // or the out-of-scope map.
     for h in 0..=chain_head {
@@ -890,7 +1008,7 @@ fn writer_kvs(
                 .unwrap_or_else(|| panic!("{col} row missing at h={h}"));
             kvs.get_mut(&col).unwrap().insert(height_key.clone(), value.to_vec());
         }
-        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree] {
+        for col in [DBCol::Block, DBCol::BlockHeader, DBCol::BlockMerkleTree, DBCol::BlockInfo] {
             let key = block_hash.as_ref().to_vec();
             if let Some(value) = writer.get(col, &key) {
                 kvs.get_mut(&col).unwrap().insert(key, value.to_vec());
@@ -901,7 +1019,9 @@ fn writer_kvs(
         for col in [
             DBCol::ChunkProducers,
             DBCol::ChunkExtra,
+            DBCol::ChunkApplyStats,
             DBCol::IncomingReceipts,
+            DBCol::OutgoingReceipts,
             DBCol::OutcomeIds,
             DBCol::StateChanges,
         ] {
@@ -911,10 +1031,14 @@ fn writer_kvs(
         }
         let block =
             writer_store.get_block(&block_hash).expect("the caller disabled garbage collection");
+        let epoch_id = *block.header().epoch_id();
+        if epoch_first_heights.last().map(|(id, _)| *id) != Some(epoch_id) {
+            epoch_first_heights.push((epoch_id, h));
+        }
         collect_block_ordinal_kv(&writer_store, kvs, &block);
         collect_chunk_hashes_kvs(&writer_store, kvs, &block);
         for chunk_header in block.chunks().iter_raw() {
-            collect_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
+            collect_new_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }
         if let Some(value) = writer.get(DBCol::NextBlockHashes, block_hash.as_ref()) {
             kvs.get_mut(&DBCol::NextBlockHashes)
@@ -923,13 +1047,9 @@ fn writer_kvs(
         }
     }
 
-    // The row keyed by genesis's prev hash, which no block hashes to, so the loop above
-    // cannot reach it. Node init writes it on both sides and no blob carries it.
-    let genesis_prev_key = CryptoHash::default().as_ref().to_vec();
-    let value = writer
-        .get(DBCol::NextBlockHashes, &genesis_prev_key)
-        .expect("node init writes the row genesis's prev hash keys");
-    in_scope.get_mut(&DBCol::NextBlockHashes).unwrap().insert(genesis_prev_key, value.to_vec());
+    collect_epoch_kvs(writer, &mut in_scope, &mut out_of_scope, &epoch_first_heights, start, end);
+
+    collect_genesis_prev_hash_kvs(writer, &mut in_scope);
 
     // TODO(cloud_archival): add a negative test (follow-up PR) that tampers a
     // reader row and confirms these checks catch it.

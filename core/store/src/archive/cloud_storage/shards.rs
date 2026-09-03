@@ -16,7 +16,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
-use near_primitives::utils::get_block_shard_id;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 
@@ -64,8 +63,38 @@ pub struct NewChunkData {
     /// Read from `DBCol::ProcessedReceiptIds` (entries tagged
     /// `ReceiptSource::ReceiptToTxGc`) and `DBCol::ReceiptToTx`.
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// Read from `DBCol::ProcessedReceiptIds`.
+    processed_receipts: Vec<ProcessedReceiptMetadata>,
+    /// Bodies of the receipts `processed_receipts` names, read from `DBCol::Receipts`.
+    processed_receipt_bodies: Vec<Receipt>,
     /// Earlier value of each key in `state_changes`. `None` if not computed.
     inverse_state_changes: Option<InverseStateChanges>,
+}
+
+impl NewChunkData {
+    pub fn chunk(&self) -> &ShardChunk {
+        &self.chunk
+    }
+
+    pub fn outgoing_receipts(&self) -> &[Receipt] {
+        &self.outgoing_receipts
+    }
+
+    pub fn transaction_result_for_block(&self) -> &[(CryptoHash, ExecutionOutcomeWithProof)] {
+        &self.transaction_result_for_block
+    }
+
+    pub fn receipt_to_tx(&self) -> &[(CryptoHash, ReceiptToTxInfo)] {
+        &self.receipt_to_tx
+    }
+
+    pub fn processed_receipts(&self) -> &[ProcessedReceiptMetadata] {
+        &self.processed_receipts
+    }
+
+    pub fn processed_receipt_bodies(&self) -> &[Receipt] {
+        &self.processed_receipt_bodies
+    }
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -158,7 +187,9 @@ fn build_shard_data(
     let outgoing_receipts = chain_store.get_outgoing_receipts(&block_hash, shard_id)?.to_vec();
     let transaction_result_for_block =
         build_transaction_result_for_block(store, &block_hash, shard_id)?;
-    let receipt_to_tx = build_receipt_to_tx(store, &block_hash, shard_id)?;
+    let processed_receipts = chain_store.get_processed_receipt_ids(&block_hash, shard_id)?.to_vec();
+    let receipt_to_tx = build_receipt_to_tx(store, &processed_receipts)?;
+    let processed_receipt_bodies = build_processed_receipt_bodies(store, &processed_receipts)?;
 
     Ok(Some(ShardData::V1(ShardDataV1::NewChunk(NewChunkData {
         block_hash,
@@ -170,6 +201,8 @@ fn build_shard_data(
         state_changes,
         transaction_result_for_block,
         receipt_to_tx,
+        processed_receipts,
+        processed_receipt_bodies,
         inverse_state_changes,
     }))))
 }
@@ -196,15 +229,11 @@ fn build_transaction_result_for_block(
 
 fn build_receipt_to_tx(
     store: &Store,
-    block_hash: &CryptoHash,
-    shard_id: ShardId,
+    processed_receipts: &[ProcessedReceiptMetadata],
 ) -> Result<Vec<(CryptoHash, ReceiptToTxInfo)>, Error> {
     let chain_store = store.chain_store();
-    let processed_receipt_ids: Vec<ProcessedReceiptMetadata> = store
-        .get_ser(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id))
-        .unwrap_or_default();
     let mut receipt_to_tx = Vec::new();
-    for metadata in &processed_receipt_ids {
+    for metadata in processed_receipts {
         if !matches!(metadata.source(), ReceiptSource::ReceiptToTxGc) {
             continue;
         }
@@ -218,6 +247,28 @@ fn build_receipt_to_tx(
     // Sort so blob bytes are deterministic regardless of chunk-apply enumeration order.
     receipt_to_tx.sort_by_key(|(id, _)| *id);
     Ok(receipt_to_tx)
+}
+
+/// Bodies of the processed receipts, so a reader can reproduce their `DBCol::Receipts`
+/// rows.
+fn build_processed_receipt_bodies(
+    store: &Store,
+    processed_receipts: &[ProcessedReceiptMetadata],
+) -> Result<Vec<Receipt>, Error> {
+    let chain_store = store.chain_store();
+    let mut bodies = Vec::new();
+    for metadata in processed_receipts {
+        if !metadata.source().has_receipt_body() {
+            continue;
+        }
+        let receipt_id = *metadata.receipt_id();
+        let receipt = option_to_not_found(
+            chain_store.get_receipt(&receipt_id),
+            format_args!("PROCESSED RECEIPT BODY: receipt_id {receipt_id}"),
+        )?;
+        bodies.push(Receipt::clone(&receipt));
+    }
+    Ok(bodies)
 }
 
 // TODO(cloud_archival) Consider calling this function once per block height instead for each shard.
@@ -295,9 +346,10 @@ impl ShardData {
         }
     }
 
-    pub fn chunk(&self) -> Option<&ShardChunk> {
+    /// The rows only a block that produced a new chunk for this shard has.
+    pub fn new_chunk(&self) -> Option<&NewChunkData> {
         match self {
-            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.chunk),
+            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(d),
             ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
@@ -327,29 +379,6 @@ impl ShardData {
         match self {
             ShardData::V1(ShardDataV1::NewChunk(d)) => d.incoming_receipts.as_deref(),
             ShardData::V1(ShardDataV1::Carried(d)) => d.incoming_receipts.as_deref(),
-        }
-    }
-
-    pub fn transaction_result_for_block(
-        &self,
-    ) -> Option<&[(CryptoHash, ExecutionOutcomeWithProof)]> {
-        match self {
-            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.transaction_result_for_block),
-            ShardData::V1(ShardDataV1::Carried(_)) => None,
-        }
-    }
-
-    pub fn receipt_to_tx(&self) -> Option<&[(CryptoHash, ReceiptToTxInfo)]> {
-        match self {
-            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.receipt_to_tx),
-            ShardData::V1(ShardDataV1::Carried(_)) => None,
-        }
-    }
-
-    pub fn outgoing_receipts(&self) -> Option<&[Receipt]> {
-        match self {
-            ShardData::V1(ShardDataV1::NewChunk(d)) => Some(&d.outgoing_receipts),
-            ShardData::V1(ShardDataV1::Carried(_)) => None,
         }
     }
 
