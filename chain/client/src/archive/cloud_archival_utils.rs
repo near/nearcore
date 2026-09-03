@@ -183,7 +183,8 @@ pub(crate) fn apply_batch_state_changes(
 ) -> Result<(), CloudArchivalReaderError> {
     // A reader that joined mid-batch has its head inside the batch, and the heights below
     // that head are applied already.
-    let start_height = std::cmp::max(reader_head.height + 1, shard_batch.start_height());
+    let start_height = (reader_head.height + 1).max(shard_batch.start_height());
+    // TODO(cloud_archival): anchor a shard a resharding added above the head.
     let prev_state_root =
         shard_state_anchor(store, &reader_head.last_present_block_hash, shard_uid)?;
     let mut update = BatchTrieUpdate::new(tries, shard_uid, prev_state_root);
@@ -202,6 +203,7 @@ pub(crate) fn apply_batch_state_changes(
             });
         }
     }
+    // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
     update.commit();
     Ok(())
 }
