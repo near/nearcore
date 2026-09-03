@@ -7,7 +7,7 @@ use crate::universal_state_init::RawStateInit;
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
-use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::account::id::AccountId;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::universal_account_id::encode_universal_account_id;
@@ -465,25 +465,6 @@ where
     Serializable(object)
 }
 
-/// Whether a transfer to this account id creates it implicitly. `AccountType::is_implicit`
-/// cannot answer on its own, since a recently introduced kind may still sit behind a
-/// protocol flag. The match is exhaustive so a kind added later has to say which flag
-/// guards it, if any.
-pub fn account_is_implicit(
-    account_id: &AccountId,
-    eth_implicit_accounts_enabled: bool,
-    universal_accounts_enabled: bool,
-) -> bool {
-    match account_id.get_account_type() {
-        AccountType::NamedAccount => false,
-        AccountType::NearImplicitAccount => true,
-        // A deterministic account has no flag of its own and rides the eth-implicit one.
-        AccountType::NearDeterministicAccount => eth_implicit_accounts_enabled,
-        AccountType::EthImplicitAccount => eth_implicit_accounts_enabled,
-        AccountType::UniversalAccount => universal_accounts_enabled,
-    }
-}
-
 /// Returns hex-encoded copy of the public key.
 /// This is a NEAR-implicit account ID which can be controlled by the corresponding ED25519 private key.
 pub fn derive_near_implicit_account_id(public_key: &ED25519PublicKey) -> AccountId {
@@ -552,17 +533,6 @@ pub fn get_block_metadata(
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
-
-    /// `AccountType` carries no protocol version, so this is the only thing keeping
-    /// a universal account from reading as implicit before the feature activates.
-    #[test]
-    fn universal_account_is_implicit_only_when_enabled() {
-        let universal = encode_universal_account_id(&[0x33; 32]);
-        assert!(account_is_implicit(&universal, true, true));
-        assert!(account_is_implicit(&universal, false, true));
-        assert!(!account_is_implicit(&universal, true, false));
-        assert!(!account_is_implicit(&universal, false, false));
-    }
 
     #[test]
     fn test_derive_near_implicit_account_id() {
