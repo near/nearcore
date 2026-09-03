@@ -122,6 +122,17 @@ struct InverseDeltasContext {
     ceiling: BlockHeight,
 }
 
+/// The stats as the archive carries them, with the bandwidth scheduler's run time zeroed.
+/// That field is how long the scheduler took on the node that applied the chunk, so two
+/// writers of the same shard disagree on it; every other field follows from the chunk.
+pub fn archived_chunk_apply_stats(mut stats: ChunkApplyStats) -> ChunkApplyStats {
+    match &mut stats {
+        ChunkApplyStats::V0(v0) => v0.bandwidth_scheduler.time_to_run_ms = 0,
+        ChunkApplyStats::V1(v1) => v1.bandwidth_scheduler.time_to_run_ms = 0,
+    }
+    stats
+}
+
 /// `Ok(None)` at skipped heights (no block). Attaches inverse state changes when
 /// `inverse_deltas_context` is set and the block is within the resharding gap.
 fn build_shard_data(
