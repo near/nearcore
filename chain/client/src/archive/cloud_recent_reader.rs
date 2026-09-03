@@ -194,7 +194,18 @@ impl CloudArchivalRecentReader {
                 reader_head.height + 1,
             )
             .await?;
-            apply_batch_state_changes(&self.tries, shard_uid, &shard_batch, reader_head)?;
+            // TODO(cloud_archival): anchor a shard a resharding added above the head.
+            let state_root =
+                shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+            // A reader that joined mid-batch has its head inside the batch, and the
+            // heights below that head are applied already.
+            apply_batch_state_changes(
+                &self.tries,
+                shard_uid,
+                &shard_batch,
+                reader_head.height + 1,
+                state_root,
+            )?;
         }
         let head = save_reader_head(&self.store, window.end_height, window.last_present_block_hash);
         Ok(PullOutcome::Pulled { head })

@@ -1,15 +1,21 @@
 use crate::archive::cloud_archival_utils::{
-    install_anchors, pull_block_batch, pull_shard_batch, save_reader_head, shards_tracked_in_batch,
+    CloudArchivalReaderError, apply_batch_state_changes, find_present_block_below,
+    find_snapshot_at_or_before, pull_block_batch, pull_epoch_data, pull_shard_batch,
+    save_reader_head, shard_state_anchor, shards_tracked_in_batch,
 };
+use crate::archive::cloud_reader_trie_utils::{build_shard_tries, install_state_snapshot};
 use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
-use near_store::Store;
-use near_store::archive::cloud_storage::CloudStorage;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::archive::cloud_storage::{CloudRetrievalError, CloudStorage};
+use near_store::{ShardTries, ShardUId, Store};
 
 /// Downloads block, epoch, and per-shard chunk data covering `[start_height,
-/// end_height]` from cloud storage and writes it into the local store.
+/// end_height]` from cloud storage and writes it into the local store,
+/// reconstructing each shard's state as it goes.
 ///
 /// Rows reach past `end_height`, since each batch is written to its own end.
 ///
@@ -35,8 +41,9 @@ pub async fn bootstrap_range(
         tracing::warn!("tracked_shards_config selects no shards; bootstrapping block data only");
     }
 
+    let tries = build_shard_tries(store);
     let mut prev_block_hash =
-        install_anchors(store, cloud_storage, epoch_manager, start_height).await?;
+        install_anchors(cloud_storage, &tries, shard_tracker, start_height).await?;
 
     let range_length = end_height - start_height + 1;
     let log_interval = std::cmp::max(cloud_storage.batch_size() as u64, range_length / 100);
@@ -54,7 +61,11 @@ pub async fn bootstrap_range(
             batch_pull.opening_epoch_id,
         )?;
         for shard_uid in shard_uids {
-            pull_shard_batch(store, cloud_storage, shard_uid, height).await?;
+            let shard_batch = pull_shard_batch(store, cloud_storage, shard_uid, height).await?;
+            // TODO(cloud_archival): install a shard a resharding adds inside the range,
+            // which the walk did not open on.
+            let state_root = shard_state_anchor(&tries, &prev_block_hash, shard_uid)?;
+            apply_batch_state_changes(&tries, shard_uid, &shard_batch, height, state_root)?;
         }
         if let Some(block_hash) = batch_pull.last_present_block_hash {
             prev_block_hash = block_hash;
@@ -70,5 +81,105 @@ pub async fn bootstrap_range(
         }
     }
 
+    Ok(())
+}
+
+/// Seeds the store with what the epoch manager needs to answer for `start_height` and with
+/// each tracked shard's state, and returns the hash of the nearest present block below it.
+/// `start_height` must therefore be above the first archived block.
+async fn install_anchors(
+    cloud_storage: &CloudStorage,
+    tries: &ShardTries,
+    shard_tracker: &ShardTracker,
+    start_height: BlockHeight,
+) -> Result<CryptoHash, CloudArchivalReaderError> {
+    let trie_store = tries.store();
+    let store = trie_store.store_ref();
+    let epoch_manager = shard_tracker.epoch_manager().as_ref();
+    let (prev_block_height, prev_block) =
+        find_present_block_below(cloud_storage, start_height).await.map_err(|err| match err {
+            CloudRetrievalError::NoBlockData { .. } => {
+                CloudArchivalReaderError::NoAnchorBelow { start_height }
+            }
+            err => err.into(),
+        })?;
+    let prev_block_epoch_id = *prev_block.block().header().epoch_id();
+    pull_epoch_data(store, cloud_storage, &prev_block_epoch_id).await?;
+
+    let prev_block_hash = *prev_block.block().header().hash();
+    let mut update = store.store_update();
+    // `get_epoch_id_from_prev_block` starts by reading this row.
+    update.epoch_store_update().set_block_info(prev_block.block_info());
+    update.commit();
+
+    let start_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+    if start_epoch_id != prev_block_epoch_id {
+        pull_epoch_data(store, cloud_storage, &start_epoch_id).await?;
+    }
+
+    let shard_uids = shards_tracked_in_batch(epoch_manager, shard_tracker, &prev_block_hash, None)?;
+    for shard_uid in shard_uids {
+        install_shard_state(cloud_storage, tries, shard_uid, prev_block_height, start_height)
+            .await?;
+    }
+    Ok(prev_block_hash)
+}
+
+/// Builds one shard's state up to `start_height`, the first height of the range the caller
+/// writes rows over, from the newest snapshot at or below it. Writes the chunk extra of the
+/// block at `anchor_height`, the nearest present block under the range, so the first batch
+/// finds the root to apply onto.
+async fn install_shard_state(
+    cloud_storage: &CloudStorage,
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    anchor_height: BlockHeight,
+    start_height: BlockHeight,
+) -> Result<(), CloudArchivalReaderError> {
+    let shard_id = shard_uid.shard_id();
+    let (epoch_height, epoch_id) =
+        find_snapshot_at_or_before(cloud_storage, start_height, shard_id).await?;
+    let header = cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id).await?;
+    let mut state_root = header.chunk_prev_state_root();
+    let mut height = header.chunk_height_included();
+    tracing::info!(
+        target: "cloud_archival",
+        %shard_uid,
+        epoch_height,
+        snapshot_height = height,
+        start_height,
+        "installing a shard's state out of the bucket",
+    );
+    install_state_snapshot(cloud_storage, tries, shard_uid, epoch_height, epoch_id, &header)
+        .await?;
+
+    while height < start_height {
+        let shard_batch = cloud_storage.get_shard_batch(height, shard_id).await?;
+        state_root = apply_batch_state_changes(tries, shard_uid, &shard_batch, height, state_root)?;
+        height = shard_batch.end_height() + 1;
+    }
+    save_shard_state_anchor(tries, cloud_storage, shard_uid, anchor_height).await
+}
+
+/// Writes the chunk extra of the block at `anchor_height`. The first batch above it reads
+/// the root it applies onto from that row.
+async fn save_shard_state_anchor(
+    tries: &ShardTries,
+    cloud_storage: &CloudStorage,
+    shard_uid: ShardUId,
+    anchor_height: BlockHeight,
+) -> Result<(), CloudArchivalReaderError> {
+    let shard_id = shard_uid.shard_id();
+    let shard_batch = cloud_storage.get_shard_batch(anchor_height, shard_id).await?;
+    let shard_data = shard_batch
+        .get_data_at_height(anchor_height)
+        .ok_or(CloudRetrievalError::NoShardData { height: anchor_height, shard_id })?;
+    let mut update = tries.store().store_ref().store_update();
+    update.chunk_store_update().set_chunk_extra(
+        shard_data.block_hash(),
+        &shard_uid,
+        shard_data.chunk_extra(),
+    );
+    update.commit();
     Ok(())
 }

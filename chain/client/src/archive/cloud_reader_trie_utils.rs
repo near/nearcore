@@ -1,9 +1,12 @@
 use crate::archive::cloud_archival_utils::CloudArchivalReaderError;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::RawStateChangesWithTrieKey;
+use near_primitives::state_part::StatePartId;
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use near_primitives::types::{EpochHeight, EpochId, RawStateChangesWithTrieKey};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -22,6 +25,35 @@ pub fn build_shard_tries(store: &Store) -> ShardTries {
         FlatStorageManager::new(store.flat_store()),
         StateSnapshotConfig::Disabled,
     )
+}
+
+/// Downloads one shard's state snapshot and writes its parts into the trie, leaving the
+/// root the header names reachable.
+pub(crate) async fn install_state_snapshot(
+    cloud_storage: &CloudStorage,
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    epoch_height: EpochHeight,
+    epoch_id: EpochId,
+    header: &ShardStateSyncResponseHeader,
+) -> Result<(), CloudArchivalReaderError> {
+    let shard_id = shard_uid.shard_id();
+    let state_root = header.chunk_prev_state_root();
+    let num_parts = header.num_state_parts();
+    for part_index in 0..num_parts {
+        let part_id = StatePartId::new(part_index, num_parts);
+        let state_part =
+            cloud_storage.retrieve_state_part(epoch_height, epoch_id, shard_id, part_id).await?;
+        let partial_state = state_part.to_partial_state().map_err(|error| {
+            CloudArchivalReaderError::StatePartDeserialization { shard_uid, part_id, error }
+        })?;
+        let apply_result = Trie::apply_state_part(&state_root, part_id, partial_state);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
+    tracing::info!(target: "cloud_archival", %shard_uid, num_parts, "installed a state snapshot");
+    Ok(())
 }
 
 /// Trie storage for one batch: the nodes that batch has applied, over the nodes the store

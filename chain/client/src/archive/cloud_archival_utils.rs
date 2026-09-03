@@ -4,6 +4,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::StatePartId;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
@@ -13,6 +14,7 @@ use near_store::archive::cloud_storage::{
 };
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
+use std::io;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
 #[derive(thiserror::Error, Debug)]
@@ -31,6 +33,8 @@ pub enum CloudArchivalReaderError {
     NoAnchorBelow { start_height: BlockHeight },
     #[error("no state root for shard {shard_uid} under block {block_hash}")]
     NoStateAnchor { shard_uid: ShardUId, block_hash: CryptoHash },
+    #[error("shard {shard_uid} state part {part_id:?}: {error}")]
+    StatePartDeserialization { shard_uid: ShardUId, part_id: StatePartId, error: io::Error },
     #[error(
         "state root at block {block_hash} shard {shard_id}: applied {applied}, recorded {recorded}"
     )]
@@ -172,39 +176,35 @@ pub(crate) async fn pull_shard_batch(
     Ok(shard_batch)
 }
 
-/// Applies the state changes `shard_batch` carries from just above `reader_head` to its
-/// own end, in one commit.
+/// Applies the state changes `shard_batch` records at or above `from_height` on top of
+/// `state_root`, in one commit, and returns the root the last of them leaves.
 pub(crate) fn apply_batch_state_changes(
     tries: &ShardTries,
     shard_uid: ShardUId,
     shard_batch: &ShardBatch,
-    reader_head: &CloudReaderHead,
-) -> Result<(), CloudArchivalReaderError> {
-    // A reader that joined mid-batch has its head inside the batch, and the heights below
-    // that head are applied already.
-    let start_height = (reader_head.height + 1).max(shard_batch.start_height());
-    // TODO(cloud_archival): anchor a shard a resharding added above the head.
-    let prev_state_root =
-        shard_state_anchor(tries, &reader_head.last_present_block_hash, shard_uid)?;
-    let mut update = BatchTrieUpdate::new(tries, shard_uid, prev_state_root);
+    from_height: BlockHeight,
+    mut state_root: CryptoHash,
+) -> Result<CryptoHash, CloudArchivalReaderError> {
+    let start_height = from_height.max(shard_batch.start_height());
+    let mut update = BatchTrieUpdate::new(tries, shard_uid, state_root);
     for height in start_height..=shard_batch.end_height() {
         let Some(shard_data) = shard_batch.get_data_at_height(height) else {
             continue;
         };
-        let applied = update.apply(shard_data.state_changes())?;
+        state_root = update.apply(shard_data.state_changes())?;
         let recorded = *shard_data.chunk_extra().state_root();
-        if applied != recorded {
+        if state_root != recorded {
             return Err(CloudArchivalReaderError::StateRootMismatch {
                 block_hash: *shard_data.block_hash(),
                 shard_id: shard_uid.shard_id(),
-                applied,
+                applied: state_root,
                 recorded,
             });
         }
     }
     // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
     update.commit();
-    Ok(())
+    Ok(state_root)
 }
 
 /// The state root `shard_uid` stands at under `block_hash`, which is the root the height
@@ -221,38 +221,6 @@ pub(crate) fn shard_state_anchor(
         }
         Err(error) => Err(error.into()),
     }
-}
-
-/// Seeds the store with what the epoch manager needs to answer for `height`, and
-/// returns the hash of the nearest present block below it. `height` must therefore
-/// be above the first archived block.
-pub(crate) async fn install_anchors(
-    store: &Store,
-    cloud_storage: &CloudStorage,
-    epoch_manager: &dyn EpochManagerAdapter,
-    height: BlockHeight,
-) -> Result<CryptoHash, CloudArchivalReaderError> {
-    let (_, prev_block) =
-        find_present_block_below(cloud_storage, height).await.map_err(|err| match err {
-            CloudRetrievalError::NoBlockData { .. } => {
-                CloudArchivalReaderError::NoAnchorBelow { start_height: height }
-            }
-            err => err.into(),
-        })?;
-    let prev_block_epoch_id = *prev_block.block().header().epoch_id();
-    pull_epoch_data(store, cloud_storage, &prev_block_epoch_id).await?;
-
-    let prev_block_hash = *prev_block.block().header().hash();
-    let mut update = store.store_update();
-    // `get_epoch_id_from_prev_block` starts by reading this row.
-    update.epoch_store_update().set_block_info(prev_block.block_info());
-    update.commit();
-
-    let start_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-    if start_epoch_id != prev_block_epoch_id {
-        pull_epoch_data(store, cloud_storage, &start_epoch_id).await?;
-    }
-    Ok(prev_block_hash)
 }
 
 /// The shards this reader tracks in both epochs a batch can hold blocks in.
@@ -385,7 +353,7 @@ pub async fn find_present_block_below(
 }
 
 /// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
-/// whose state-header is present in cloud for `shard_id`. Errors when the walk-back
+/// whose state snapshot is stored in cloud for `shard_id`. Errors when the walk-back
 /// reaches below the earliest archived data without finding a snapshot.
 pub async fn find_snapshot_at_or_before(
     cloud_storage: &CloudStorage,
@@ -403,7 +371,15 @@ pub async fn find_snapshot_at_or_before(
         tracing::info!(epoch_height, ?epoch_id, "probing for state snapshot");
 
         if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id).await? {
-            return Ok((epoch_height, epoch_id));
+            let header =
+                cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id).await?;
+            // An epoch snapshots its sync block, a few heights into the epoch, so a
+            // `height` below that block is served by the epoch under this one.
+            // TODO(cloud_archival): stop here for a shard a resharding added, which is
+            // reached by walking the recorded inverse changes down instead.
+            if header.chunk_height_included() <= height {
+                return Ok((epoch_height, epoch_id));
+            }
         }
 
         let batch = cloud_storage.get_block_batch_for_height(epoch_start_height).await?;
