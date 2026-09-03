@@ -483,12 +483,12 @@ impl PendingTxSession {
         // If the runtime subsequently rejects the tx (e.g. insufficient
         // balance), these counts are not rolled back and the tx is discarded
         // (not reintroduced to the pool). This means a rejected tx may consume
-        // a P_MAX slot for the remainder of this chunk
-        // production session, reducing throughput under high contention. The
-        // risk is mitigated by the fact that check_pending is called after
-        // signature verification and basic validation, so only transactions
-        // with valid signatures can reach this point -- an adversary cannot
-        // cheaply spam rejected txs to exhaust slots.
+        // a P_MAX slot for the remainder of this chunk production session,
+        // reducing throughput under high contention. The risk is mitigated by
+        // the fact that check_pending is called after signature verification
+        // and basic validation, so only transactions with valid signatures
+        // can reach this point -- an adversary cannot cheaply spam rejected
+        // txs to exhaust slots.
         if !is_gas_key_tx {
             *self.session_access_key_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
         }
