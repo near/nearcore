@@ -6,6 +6,8 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_spice_activation_parent;
+use near_client::NetworkAdversarialMessage;
+use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::pre_spice_protocol_version;
@@ -51,24 +53,81 @@ fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> T
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice() {
+    run_protocol_upgrade_to_spice(false);
+}
+
+/// The upgrade with every chunk missing at the activation parent: certifying it then
+/// needs the multi-block witness — the main transition applies each shard's chunk at
+/// the block before, and the parent's own old-chunk application is replayed as an
+/// implicit transition. Stateless chunk validators make that witness load-bearing.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_missing_chunks_at_boundary() {
+    run_protocol_upgrade_to_spice(true);
+}
+
+fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
     init_test_logger();
-    let mut env = setup_upgrading_chain(2, 2);
+    let num_producers = 2;
+    let mut env = setup_upgrading_chain(num_producers, 2);
     let user = create_account_id("user");
     let receiver = create_account_id("validator1");
 
     // Trickle a transfer every block, so the blocks around the boundary burn gas:
     // the supply identity below must subtract a real burn to mean anything.
     let mut crossed = false;
+    let mut boundary_height = None;
+    let mut production_stopped = false;
+    let mut production_resumed = false;
     for _ in 0..10 * EPOCH_LENGTH {
         let tx = env.rpc_node().tx_send_money(&user, &receiver, Balance::from_yoctonear(1));
         env.rpc_node().submit_tx(tx);
         env.rpc_runner().run_for_number_of_blocks(1);
-        if env.rpc_node().head_block().is_spice_block() {
+        let head_block = env.rpc_node().head_block();
+        if head_block.is_spice_block() {
             crossed = true;
             break;
         }
+        if drop_chunks_at_boundary && boundary_height.is_none() {
+            let epoch_manager = env.rpc_node().client().epoch_manager.clone();
+            let next_protocol_version =
+                epoch_manager.get_next_epoch_protocol_version(head_block.hash()).unwrap();
+            if ProtocolFeature::Spice.enabled(next_protocol_version) {
+                // The head is in the last pre-spice epoch, whose final block is
+                // the activation parent.
+                let epoch_start_height =
+                    epoch_manager.get_epoch_start_height(head_block.hash()).unwrap();
+                boundary_height = Some(epoch_start_height + EPOCH_LENGTH - 1);
+            }
+        }
+        if let Some(boundary_height) = boundary_height {
+            // Chunks for a height are produced one block ahead: pausing two below
+            // the boundary and resuming one below skips exactly the boundary's.
+            let head_height = head_block.header().height();
+            if !production_stopped && head_height == boundary_height - 2 {
+                for i in 0..num_producers {
+                    env.node_runner(i).send_adversarial_message(
+                        NetworkAdversarialMessage::AdvProduceChunks(
+                            AdvProduceChunksMode::StopProduce,
+                        ),
+                    );
+                }
+                production_stopped = true;
+            }
+            if production_stopped && !production_resumed && head_height == boundary_height - 1 {
+                for i in 0..num_producers {
+                    env.node_runner(i).send_adversarial_message(
+                        NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::Valid),
+                    );
+                }
+                production_resumed = true;
+            }
+        }
     }
     assert!(crossed, "chain never crossed the activation boundary");
+    if drop_chunks_at_boundary {
+        assert!(production_stopped && production_resumed);
+    }
 
     // Locate the first spice block on the chain and its pre-spice parent.
     let (activation_parent, parent_supply, parent_burnt, num_shards) = {
@@ -96,15 +155,23 @@ fn test_protocol_upgrade_to_spice() {
             parent_burnt > Balance::ZERO,
             "the activation parent must burn gas for the supply identity to be meaningful",
         );
-        // The witness of the activation parent replays its apply with the gas price
-        // of the parent's parent (the pre-spice convention); the spice convention
-        // would take the parent's own.
-        let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
-        assert_ne!(
-            grandparent.header().next_gas_price(),
-            parent.header().next_gas_price(),
-            "gas price must move at the boundary for the era convention to matter",
-        );
+        if drop_chunks_at_boundary {
+            assert_eq!(Some(parent.header().height()), boundary_height);
+            assert!(
+                parent.header().chunk_mask().iter().all(|mask| !*mask),
+                "every chunk must be missing at the activation parent",
+            );
+        } else {
+            // The witness of the activation parent replays its apply with the gas
+            // price of the parent's parent (the pre-spice convention); the spice
+            // convention would take the parent's own.
+            let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
+            assert_ne!(
+                grandparent.header().next_gas_price(),
+                parent.header().next_gas_price(),
+                "gas price must move at the boundary for the era convention to matter",
+            );
+        }
         (
             parent.clone(),
             parent.header().total_supply(),
