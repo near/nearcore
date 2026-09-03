@@ -10,6 +10,7 @@ use near_client::archive::cloud_archival_utils::{
 };
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
+use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -29,11 +30,8 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::archive::cloud_storage::{
     CloudStorage, is_cloud_archive_reader_bootstrapped, read_chunk_hashes,
 };
-use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
-use near_store::{
-    COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieConfig,
-};
+use near_store::{COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
@@ -650,16 +648,6 @@ pub fn bootstrap_historical_reader(
     }
 }
 
-/// Builds a `ShardTries` over `store` with state snapshots disabled.
-pub(crate) fn build_shard_tries(store: &Store) -> ShardTries {
-    ShardTries::new(
-        store.trie_store(),
-        TrieConfig::default(),
-        FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::Disabled,
-    )
-}
-
 /// Whether `state_root` resolves to a reachable root node in `shard_uid`'s trie.
 pub(crate) fn has_state_root(
     tries: &ShardTries,
@@ -797,7 +785,8 @@ pub(crate) fn assert_reader_writer_parity(
     start: BlockHeight,
     end: BlockHeight,
 ) {
-    // TODO(cloud_archival): compare `DBCol::State` too, once the reader reconstructs it.
+    // TODO(cloud_archival): compare `DBCol::State` too, which needs a comparison by
+    // reachable root: the rows are keyed by node hash, so a height range cannot name them.
     let cols: Vec<DBCol> = DBCol::iter()
         .filter(|&c| is_cloud_archive_reader_bootstrapped(c) && c != DBCol::State)
         .collect();

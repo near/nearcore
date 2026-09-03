@@ -5,12 +5,11 @@ use crate::utils::account::archival_account_id;
 use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_reader_writer_parity, assert_resharding_epoch_snapshot_forced,
-    assert_writer_inverse_deltas, bootstrap_historical_reader, build_shard_tries,
-    check_account_balance, check_data_at_height_for_shards, count_processed_receipts, epoch_id_at,
-    exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
-    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
-    run_until_one_epoch_after_resharding, simulate_lagging_shard, snapshots_sanity_check,
-    stop_and_restart_node,
+    assert_writer_inverse_deltas, bootstrap_historical_reader, check_account_balance,
+    check_data_at_height_for_shards, count_processed_receipts, epoch_id_at, exec,
+    gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head, get_state_header_for_epoch,
+    get_writer_handle, has_state_root, run_node_until, run_until_one_epoch_after_resharding,
+    simulate_lagging_shard, snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
@@ -21,6 +20,7 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 #[cfg(feature = "nightly")]
 use near_client::archive::cloud_archival_utils::save_block_data;
+use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
@@ -459,6 +459,10 @@ impl CloudArchiveHarness {
         let mut update = store.store_update();
         update.cloud_archival_store_update().set_reader_head(&head);
         update.commit();
+    }
+
+    fn genesis_height(&self) -> BlockHeight {
+        self.env.node_for_account(&self.writer_id).client().chain.genesis().height()
     }
 
     fn recent_reader_store(&self) -> Store {
@@ -2258,6 +2262,40 @@ fn test_cloud_archival_recent_reader_waits_for_a_lagging_shard() {
     h.assert_reader_writer_parity(Reader::Recent, reader_from, h.recent_reader_height());
 
     reader.stop();
+    h.shutdown();
+}
+
+/// The recent reader moves each shard's state forward over the heights it takes, so every
+/// state root the writer recorded across the followed range resolves in the reader's trie.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_reconstructs_shard_state() {
+    let mut h = CloudArchiveHarness::builder().build();
+    h.run_until_epoch(2);
+    let followed_to = h.recent_reader_height();
+    assert!(
+        followed_to > h.genesis_height() + h.epoch_length,
+        "the reader followed to {followed_to}, which is under one epoch"
+    );
+
+    let reader_tries = build_shard_tries(&h.recent_reader_store());
+    let writer_store = h.writer_store();
+    for height in h.genesis_height() + 1..=followed_to {
+        let block_hash = writer_store.chain_store().get_block_hash_by_height(height).unwrap();
+        for shard_uid in CloudArchiveHarness::all_shard_uids() {
+            let state_root = *writer_store
+                .chunk_store()
+                .get_chunk_extra(&block_hash, &shard_uid)
+                .unwrap()
+                .state_root();
+            assert!(
+                has_state_root(&reader_tries, shard_uid, state_root),
+                "shard {shard_uid} state at h={height} unreachable in the reader trie"
+            );
+        }
+    }
+
     h.shutdown();
 }
 
