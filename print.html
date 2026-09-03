@@ -309,7 +309,7 @@ An ED25519 public key is 32 bytes long and maps to a 64-character account ID.</p
 <p>The account ID is derived from a Secp256K1 public key using the following formula: <code>'0x' + keccak256(public_key)[12:32].hex()</code>.</p>
 <p>Example: a public key in base58 <code>2KFsZcvNUMBfmTp5DTMmguyeQyontXZ2CirPsb21GgPG3KMhwrkRuNiFCdMyRU3R4KbopMpSMXTFQfLoMkrg4HsT</code> will map to the account ID <code>0x87b435f1fcb4519306f9b755e274107cc78ac4e3</code>.</p>
 <h3 id="implicit-account-creation"><a class="header" href="#implicit-account-creation">Implicit account creation</a></h3>
-<p>An account with implicit account ID can only be created by sending a transaction/receipt with a single <code>Transfer</code> action to the implicit account ID receiver:</p>
+<p>An account with a NEAR-implicit or ETH-implicit account ID can only be created by sending a transaction/receipt with a single <code>Transfer</code> action to the implicit account ID receiver (<a href="DataStructures/Account.html#deterministic-account-creation">deterministic accounts</a> have their own rules):</p>
 <ul>
 <li>The account will be created with the account ID.</li>
 <li>The account balance will have a transfer balance deposited to it.</li>
