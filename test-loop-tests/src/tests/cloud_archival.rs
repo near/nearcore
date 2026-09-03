@@ -1095,6 +1095,101 @@ fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
     h.shutdown();
 }
 
+/// A range whose start sits below its own epoch's snapshot anchors on the epoch under it.
+/// An epoch snapshots its sync block, a few heights in, so that snapshot stands at a root
+/// the range's first height does not apply onto.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(4);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let shard_uid = CloudArchiveHarness::all_shard_uids()[0];
+
+    // Pin the corner: `start` sits below the snapshot of the epoch it falls in, so the
+    // snapshot has to resolve to an earlier one.
+    let (start, target) = (12, 18);
+    let start_epoch_id = epoch_id_at(&cloud_storage, start);
+    let own_snapshot_height = get_state_header_for_epoch(&cloud_storage, start_epoch_id, shard_id)
+        .chunk_height_included();
+    assert!(
+        own_snapshot_height > start,
+        "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
+    );
+    let (_, resolved_epoch_id) =
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
+    assert_ne!(resolved_epoch_id, start_epoch_id, "the snapshot must resolve to an earlier epoch");
+
+    // The root the range's first height applies onto, which only a walk from the earlier
+    // epoch's snapshot reaches.
+    let anchor_root = *cloud_storage
+        .get_shard_data(start - 1, shard_id)
+        .unwrap()
+        .expect("the block below the range is present")
+        .chunk_extra()
+        .state_root();
+
+    h.bootstrap_historical_reader(start, target);
+
+    let tries = build_shard_tries(&h.historical_reader_store());
+    assert!(
+        has_state_root(&tries, shard_uid, anchor_root),
+        "the root h={start} applies onto must be reachable"
+    );
+
+    h.kill_historical_reader();
+    h.shutdown();
+}
+
+/// A range whose start sits above its own epoch's snapshot anchors on that snapshot, even
+/// when the batch holding the start opens below it.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(4);
+
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let shard_uid = CloudArchiveHarness::all_shard_uids()[0];
+
+    // Pin the corner: the batch holding `start` opens below the snapshot `start` resolves
+    // to, so anchoring on the batch start would reach back an epoch further.
+    let (start, target) = (14, 22);
+    let batch_start =
+        cloud_storage.get_shard_batch_for_height(start, shard_id).unwrap().start_height();
+    let (_, near_epoch_id) =
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
+    let (_, far_epoch_id) =
+        exec(find_snapshot_at_or_before(&cloud_storage, batch_start, shard_id)).unwrap();
+    assert_ne!(
+        near_epoch_id, far_epoch_id,
+        "h={start} and its batch start h={batch_start} must resolve to different snapshots"
+    );
+    let far_root =
+        get_state_header_for_epoch(&cloud_storage, far_epoch_id, shard_id).chunk_prev_state_root();
+    let near_root =
+        get_state_header_for_epoch(&cloud_storage, near_epoch_id, shard_id).chunk_prev_state_root();
+    assert_ne!(far_root, near_root, "the two snapshots must stand at different roots");
+
+    h.bootstrap_historical_reader(start, target);
+
+    let tries = build_shard_tries(&h.historical_reader_store());
+    assert!(
+        has_state_root(&tries, shard_uid, near_root),
+        "the snapshot at or below h={start} must be installed"
+    );
+    assert!(
+        !has_state_root(&tries, shard_uid, far_root),
+        "the earlier epoch's snapshot must not be installed"
+    );
+
+    h.kill_historical_reader();
+    h.shutdown();
+}
+
 /// Every block in a batch window is lost; the batch is uploaded with `None`
 /// at every height and archivization advances past the gap.
 #[test]
@@ -1754,25 +1849,32 @@ fn test_cloud_archival_reader_reconstructs_per_shard_data_columns() {
 /// missing-chunk height and its immediate neighbors via the block's chunk
 /// header `prev_state_root`.
 #[test]
-// TODO(cloud_archival): un-ignore once the reader reconstructs per-shard cold columns
-// and applies per-block state deltas with insertion-only trie updates.
-#[ignore]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_intermediate_state_through_missing_chunk() {
     let dropped_shard = CloudArchiveHarness::all_shard_ids()[0];
     let dropped_shard_uid = CloudArchiveHarness::all_shard_uids()[0];
     let epoch_length = CloudArchiveHarness::DEFAULT_EPOCH_LENGTH;
-    // Drop the dropped_shard chunk at one mid-epoch offset; the bootstrap
-    // range below is chosen wide enough to cover `dropped_height` and its
-    // `+/- 1` neighbors.
-    let dropped_height: BlockHeight = epoch_length / 2 + 1;
+    // `drop_chunks` keys its pattern on the height within an epoch, so the offset picked
+    // here becomes an absolute height only once the epoch start is known.
+    let dropped_offset = epoch_length / 2 + 1;
     let mut pattern = vec![true; epoch_length as usize];
-    pattern[dropped_height as usize] = false;
+    pattern[dropped_offset as usize] = false;
 
     let mut h =
         CloudArchiveHarness::builder().validators(4).drop_chunks(dropped_shard, pattern).build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let start = h.epoch_length / 2;
     let target = h.epoch_length + h.epoch_length / 2;
+    let epoch_start = exec(cloud_storage.get_epoch_data(epoch_id_at(&cloud_storage, start)))
+        .unwrap()
+        .epoch_start_height();
+    let dropped_height: BlockHeight = epoch_start + dropped_offset;
+    assert!(
+        start < dropped_height && dropped_height < target,
+        "dropped height {dropped_height} must sit inside the bootstrap range"
+    );
     h.bootstrap_historical_reader(start, target);
 
     let store = h.historical_reader_store();
