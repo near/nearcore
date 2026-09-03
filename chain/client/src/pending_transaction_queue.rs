@@ -1,15 +1,18 @@
-use near_chain::types::{PendingConstraints, PendingTxCheckResult};
+use near_chain::types::{PendingConstraints, PendingTxCheckResult, PendingTxUsage};
+use near_chain_configs::PendingTransactionQueueLimits;
 use near_crypto::PublicKeyHandle;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
+use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
+use near_primitives::version::ProtocolVersion;
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
+use std::ops::{Add, AddAssign};
 use std::sync::Arc;
 
 /// Checked subtraction that falls back to `Default::default()` on underflow,
@@ -26,10 +29,6 @@ macro_rules! checked_sub_or_default {
         }
     };
 }
-
-/// Maximum number of pending access key transactions per account across all
-/// uncertified blocks.
-pub const P_MAX: usize = 4;
 
 /// Maps ShardUId -> per-shard PendingTransactionQueue.
 pub struct ShardedPendingTransactionQueue {
@@ -93,7 +92,7 @@ pub struct PendingTransactionQueue {
     /// Per-chunk aggregate data, keyed by block hash (since SpiceChunkId
     /// is (block_hash, shard_id) and the shard is implicit).
     chunks: HashMap<CryptoHash, PendingChunkData>,
-    /// Per-account aggregates (P_MAX counts, balance commitments).
+    /// Per-account aggregates (access key usage, balance commitments).
     pending_accounts: HashMap<AccountId, PendingAccount>,
     /// Nonce tracking, per [`NonceScope`].
     pending_nonces: HashMap<NonceScope, PendingNonce>,
@@ -149,27 +148,83 @@ struct PendingChunkData {
     gas_key_costs: HashMap<GasKey, Balance>,
 }
 
+/// Resources used by a set of access key transactions from one account.
+/// Compared against `PendingTransactionQueueLimits`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct AccessKeyTxUsage {
+    count: usize,
+    bytes: u64,
+    conversion_gas: Gas,
+}
+
+impl Add for AccessKeyTxUsage {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            count: self.count + other.count,
+            bytes: self.bytes.saturating_add(other.bytes),
+            conversion_gas: self.conversion_gas.saturating_add(other.conversion_gas),
+        }
+    }
+}
+
+impl AddAssign for AccessKeyTxUsage {
+    fn add_assign(&mut self, other: Self) {
+        *self = *self + other;
+    }
+}
+
+impl AccessKeyTxUsage {
+    fn single_tx(usage: PendingTxUsage) -> Self {
+        Self { count: 1, bytes: usage.tx_bytes, conversion_gas: usage.conversion_gas }
+    }
+
+    fn subtract(&mut self, other: &AccessKeyTxUsage) {
+        self.count = checked_sub_or_default!(
+            self.count,
+            other.count,
+            "access key tx count underflow in pending transaction queue subtract"
+        );
+        self.bytes = checked_sub_or_default!(
+            self.bytes,
+            other.bytes,
+            "access key tx bytes underflow in pending transaction queue subtract"
+        );
+        self.conversion_gas = checked_sub_or_default!(
+            self.conversion_gas,
+            other.conversion_gas,
+            "access key tx conversion gas underflow in pending transaction queue subtract"
+        );
+    }
+
+    fn is_zero(&self) -> bool {
+        self.count == 0 && self.bytes == 0 && self.conversion_gas == Gas::ZERO
+    }
+
+    fn exceeds(&self, limits: &PendingTransactionQueueLimits) -> bool {
+        limits.count.is_some_and(|limit| self.count > limit)
+            || limits.bytes.is_some_and(|limit| self.bytes > limit)
+            || limits.conversion_gas.is_some_and(|limit| self.conversion_gas > limit)
+    }
+}
+
 /// Aggregate for a set of transactions, per account.
 /// Used both per-chunk and as pending transaction queue totals. Supports add/subtract.
 #[derive(Clone, Default)]
 struct PendingAccount {
-    access_key_tx_count: usize,
+    access_key_tx_usage: AccessKeyTxUsage,
     /// Access key total_cost + gas key deposit_cost.
     paid_from_balance: Balance,
 }
 
 impl PendingAccount {
     fn add(&mut self, other: &PendingAccount) {
-        self.access_key_tx_count += other.access_key_tx_count;
+        self.access_key_tx_usage += other.access_key_tx_usage;
         self.paid_from_balance = self.paid_from_balance.saturating_add(other.paid_from_balance);
     }
 
     fn subtract(&mut self, other: &PendingAccount) {
-        self.access_key_tx_count = checked_sub_or_default!(
-            self.access_key_tx_count,
-            other.access_key_tx_count,
-            "access_key_tx_count underflow in pending transaction queue subtract"
-        );
+        self.access_key_tx_usage.subtract(&other.access_key_tx_usage);
         self.paid_from_balance = checked_sub_or_default!(
             self.paid_from_balance,
             other.paid_from_balance,
@@ -178,7 +233,7 @@ impl PendingAccount {
     }
 
     fn is_zero(&self) -> bool {
-        self.access_key_tx_count == 0 && self.paid_from_balance.is_zero()
+        self.access_key_tx_usage.is_zero() && self.paid_from_balance.is_zero()
     }
 }
 
@@ -206,6 +261,7 @@ impl PendingTransactionQueue {
         transactions: &[SignedTransaction],
         config: &RuntimeConfig,
         gas_price: Balance,
+        protocol_version: ProtocolVersion,
     ) {
         let mut chunk_data = PendingChunkData {
             accounts: HashMap::new(),
@@ -241,7 +297,10 @@ impl PendingTransactionQueue {
                     chunk_account.paid_from_balance.saturating_add(cost.deposit_cost);
             } else {
                 // Access key tx: total_cost is paid from account balance.
-                chunk_account.access_key_tx_count += 1;
+                chunk_account.access_key_tx_usage += AccessKeyTxUsage::single_tx(PendingTxUsage {
+                    tx_bytes: signed_tx.size_for_limits(protocol_version),
+                    conversion_gas: cost.gas_burnt,
+                });
                 chunk_account.paid_from_balance =
                     chunk_account.paid_from_balance.saturating_add(cost.total_cost);
             }
@@ -377,7 +436,8 @@ impl PendingTransactionQueue {
     ) -> PendingStateSnapshot {
         let signer_id = tx.signer_id();
         let pending_account = self.pending_accounts.get(signer_id);
-        let access_key_tx_count = pending_account.map(|a| a.access_key_tx_count).unwrap_or(0);
+        let access_key_tx_usage =
+            pending_account.map(|a| a.access_key_tx_usage).unwrap_or_default();
         let paid_from_balance =
             pending_account.map(|a| a.paid_from_balance).unwrap_or(Balance::ZERO);
 
@@ -391,7 +451,7 @@ impl PendingTransactionQueue {
         let max_bootstrap_nonce = self.max_pending_nonce(&bootstrap_nonce_scope(signer_id));
 
         PendingStateSnapshot {
-            access_key_tx_count,
+            access_key_tx_usage,
             paid_from_balance,
             max_nonce,
             max_bootstrap_nonce,
@@ -404,7 +464,7 @@ impl PendingTransactionQueue {
 /// under the lock and used outside it.
 #[derive(Default)]
 struct PendingStateSnapshot {
-    access_key_tx_count: usize,
+    access_key_tx_usage: AccessKeyTxUsage,
     paid_from_balance: Balance,
     max_nonce: Nonce,
     max_bootstrap_nonce: Nonce,
@@ -418,7 +478,7 @@ struct PendingStateSnapshot {
 /// (deducts cost), gas key balance (deducts gas_key_cost), and nonces
 /// (advances after each accepted tx). The session only tracks what the
 /// ephemeral state does NOT cover:
-/// - P_MAX counts (per account)
+/// - per-account access key transaction limits (count, bytes, conversion gas)
 /// - WithdrawFromGasKey amounts (action effects not applied by ephemeral state)
 ///
 /// The session holds an `Arc<Mutex<ShardedPendingTransactionQueue>>` and acquires the lock briefly
@@ -427,7 +487,8 @@ struct PendingStateSnapshot {
 pub struct PendingTxSession {
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     shard_uid: ShardUId,
-    session_access_key_tx_counts: HashMap<AccountId, usize>,
+    limits: PendingTransactionQueueLimits,
+    session_access_key_tx_usage: HashMap<AccountId, AccessKeyTxUsage>,
     session_gas_key_withdrawals: HashMap<GasKey, Balance>,
 }
 
@@ -435,11 +496,13 @@ impl PendingTxSession {
     pub fn new(
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
         shard_uid: ShardUId,
+        limits: PendingTransactionQueueLimits,
     ) -> Self {
         Self {
             pending_transaction_queue,
             shard_uid,
-            session_access_key_tx_counts: HashMap::new(),
+            limits,
+            session_access_key_tx_usage: HashMap::new(),
             session_gas_key_withdrawals: HashMap::new(),
         }
     }
@@ -449,7 +512,11 @@ impl PendingTxSession {
     /// for the runtime's balance/nonce validation.
     ///
     /// Acquires the pending transaction queue lock briefly to read pending state, then releases it.
-    pub fn check_pending(&mut self, tx: &SignedTransaction) -> PendingTxCheckResult {
+    pub fn check_pending(
+        &mut self,
+        tx: &SignedTransaction,
+        tx_usage: PendingTxUsage,
+    ) -> PendingTxCheckResult {
         let signer_id = tx.transaction.signer_id();
         let nonce_index = tx.transaction.nonce().nonce_index();
         let is_gas_key_tx = nonce_index.is_some();
@@ -464,12 +531,14 @@ impl PendingTxSession {
             }
         };
 
-        let session_access_key_count =
-            self.session_access_key_tx_counts.get(signer_id).copied().unwrap_or(0);
-        let total_access_key_count = snapshot.access_key_tx_count + session_access_key_count;
-
-        if !is_gas_key_tx && total_access_key_count >= P_MAX {
-            return PendingTxCheckResult::Skip;
+        let tx_usage = AccessKeyTxUsage::single_tx(tx_usage);
+        if !is_gas_key_tx {
+            let session_usage =
+                self.session_access_key_tx_usage.get(signer_id).copied().unwrap_or_default();
+            let total_usage = snapshot.access_key_tx_usage + session_usage + tx_usage;
+            if total_usage.exceeds(&self.limits) {
+                return PendingTxCheckResult::Skip;
+            }
         }
 
         // Build constraints for runtime validation.
@@ -483,14 +552,14 @@ impl PendingTxSession {
         // If the runtime subsequently rejects the tx (e.g. insufficient
         // balance), these counts are not rolled back and the tx is discarded
         // (not reintroduced to the pool). This means a rejected tx may consume
-        // a P_MAX slot for the remainder of this chunk production session,
-        // reducing throughput under high contention. The risk is mitigated by
-        // the fact that check_pending is called after signature verification
-        // and basic validation, so only transactions with valid signatures
-        // can reach this point -- an adversary cannot cheaply spam rejected
-        // txs to exhaust slots.
+        // part of the per-account limits for the remainder of this chunk
+        // production session, reducing throughput under high contention. The
+        // risk is mitigated by the fact that check_pending is called after
+        // signature verification and basic validation, so only transactions
+        // with valid signatures can reach this point -- an adversary cannot
+        // cheaply spam rejected txs to exhaust slots.
         if !is_gas_key_tx {
-            *self.session_access_key_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
+            *self.session_access_key_tx_usage.entry(signer_id.clone()).or_default() += tx_usage;
         }
         // Track WithdrawFromGasKey amounts from this tx's actions.
         for action in tx.transaction.actions() {
@@ -516,16 +585,25 @@ impl PendingTxSession {
 mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_primitives::action::UniversalStateInitAction;
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::action::{TransferAction, UniversalStateInitAction};
+    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
+    use near_primitives::version::PROTOCOL_VERSION;
     use std::collections::BTreeSet;
     use std::slice;
 
     const TEST_SHARD_UID: ShardUId = ShardUId { version: 0, shard_id: 0 };
     const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(100_000_000);
     const TEST_DEPOSIT: Balance = Balance::from_yoctonear(1);
+    const TEST_CONVERSION_GAS: Gas = Gas::from_teragas(1);
+
+    fn test_usage(tx: &SignedTransaction) -> PendingTxUsage {
+        PendingTxUsage {
+            tx_bytes: tx.size_for_limits(PROTOCOL_VERSION),
+            conversion_gas: TEST_CONVERSION_GAS,
+        }
+    }
 
     fn test_signer() -> Signer {
         InMemorySigner::from_seed("alice.near".parse().unwrap(), KeyType::ED25519, "seed")
@@ -547,6 +625,25 @@ mod tests {
         )
     }
 
+    fn make_gas_key_transfer_tx(signer: &Signer, nonce: Nonce) -> SignedTransaction {
+        SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(nonce, 0),
+            signer.get_account_id(),
+            "bob.near".parse().unwrap(),
+            signer,
+            vec![Action::Transfer(TransferAction { deposit: TEST_DEPOSIT })],
+            CryptoHash::default(),
+        )
+    }
+
+    fn no_limits() -> PendingTransactionQueueLimits {
+        PendingTransactionQueueLimits { count: None, bytes: None, conversion_gas: None }
+    }
+
+    fn is_admitted(result: PendingTxCheckResult) -> bool {
+        matches!(result, PendingTxCheckResult::Admit(_))
+    }
+
     /// Wrap a sharded pending transaction queue in Arc<Mutex<...>>.
     fn make_sharded_ptq() -> Arc<Mutex<ShardedPendingTransactionQueue>> {
         Arc::new(Mutex::new(ShardedPendingTransactionQueue::new()))
@@ -560,7 +657,7 @@ mod tests {
         gas_price: Balance,
     ) {
         with_shard_ptq(sharded, |ptq| {
-            ptq.add_chunk_transactions(block_hash, txs, config, gas_price)
+            ptq.add_chunk_transactions(block_hash, txs, config, gas_price, PROTOCOL_VERSION)
         });
     }
 
@@ -572,7 +669,18 @@ mod tests {
     }
 
     fn make_session(sharded: &Arc<Mutex<ShardedPendingTransactionQueue>>) -> PendingTxSession {
-        PendingTxSession::new(Arc::clone(sharded), TEST_SHARD_UID)
+        make_session_with_limits(sharded, PendingTransactionQueueLimits::default())
+    }
+
+    fn make_session_with_limits(
+        sharded: &Arc<Mutex<ShardedPendingTransactionQueue>>,
+        limits: PendingTransactionQueueLimits,
+    ) -> PendingTxSession {
+        PendingTxSession::new(Arc::clone(sharded), TEST_SHARD_UID, limits)
+    }
+
+    fn count_limit() -> usize {
+        PendingTransactionQueueLimits::default().count.unwrap()
     }
 
     /// `query_pending_state` with the key handle its callers derive for it.
@@ -755,12 +863,22 @@ mod tests {
         let signer = test_signer();
         let tx1 = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        let expected_usage = AccessKeyTxUsage {
+            count: 2,
+            bytes: tx1.size_for_limits(PROTOCOL_VERSION) + tx2.size_for_limits(PROTOCOL_VERSION),
+            conversion_gas: tx_cost(&config, &tx1.transaction, TEST_GAS_PRICE)
+                .unwrap()
+                .gas_burnt
+                .saturating_add(
+                    tx_cost(&config, &tx2.transaction, TEST_GAS_PRICE).unwrap().gas_burnt,
+                ),
+        };
         let block_hash = CryptoHash::hash_bytes(&[1]);
         add_chunk_txs(&sharded, block_hash, &[tx1, tx2], &config, TEST_GAS_PRICE);
 
         with_shard_ptq(&sharded, |ptq| {
             let account = ptq.pending_accounts.get(&signer.get_account_id()).unwrap();
-            assert_eq!(account.access_key_tx_count, 2);
+            assert_eq!(account.access_key_tx_usage, expected_usage);
             assert!(!account.paid_from_balance.is_zero());
         });
         with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&block_hash));
@@ -782,7 +900,11 @@ mod tests {
 
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(
-                ptq.pending_accounts.get(&signer.get_account_id()).unwrap().access_key_tx_count,
+                ptq.pending_accounts
+                    .get(&signer.get_account_id())
+                    .unwrap()
+                    .access_key_tx_usage
+                    .count,
                 2
             );
             assert_eq!(ptq.pending_nonces.get(&key_scope).unwrap().chunk_count(), 2);
@@ -791,7 +913,11 @@ mod tests {
         with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&hash1));
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(
-                ptq.pending_accounts.get(&signer.get_account_id()).unwrap().access_key_tx_count,
+                ptq.pending_accounts
+                    .get(&signer.get_account_id())
+                    .unwrap()
+                    .access_key_tx_usage
+                    .count,
                 1
             );
             assert_eq!(ptq.pending_nonces.get(&key_scope).unwrap().chunk_count(), 1);
@@ -825,18 +951,96 @@ mod tests {
     }
 
     #[test]
-    fn test_session_p_max_enforcement() {
+    fn test_session_count_limit_enforcement() {
         let config = RuntimeConfig::test();
         let sharded = make_sharded_ptq();
         let signer = test_signer();
-        let txs: Vec<_> = (1..=P_MAX)
+        let txs: Vec<_> = (1..=count_limit())
             .map(|i| make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT))
             .collect();
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &txs, &config, TEST_GAS_PRICE);
-        let next_tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
+        let next_tx =
+            make_transfer_tx(&signer, "bob.near", (count_limit() + 1) as Nonce, TEST_DEPOSIT);
 
         let mut session = make_session(&sharded);
-        assert_eq!(session.check_pending(&next_tx), PendingTxCheckResult::Skip);
+        assert_eq!(
+            session.check_pending(&next_tx, test_usage(&next_tx)),
+            PendingTxCheckResult::Skip
+        );
+    }
+
+    #[test]
+    fn test_session_bytes_limit_enforcement() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let tx_bytes = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT)
+            .size_for_limits(PROTOCOL_VERSION);
+        let limits = PendingTransactionQueueLimits { bytes: Some(2 * tx_bytes), ..no_limits() };
+        let mut session = make_session_with_limits(&sharded, limits);
+        for nonce in 1..=2 {
+            let tx = make_transfer_tx(&signer, "bob.near", nonce, TEST_DEPOSIT);
+            assert!(is_admitted(session.check_pending(&tx, test_usage(&tx))));
+        }
+        let tx = make_transfer_tx(&signer, "bob.near", 3, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&tx, test_usage(&tx)), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_session_conversion_gas_limit_enforcement() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let limits = PendingTransactionQueueLimits {
+            conversion_gas: Some(TEST_CONVERSION_GAS.saturating_add(TEST_CONVERSION_GAS)),
+            ..no_limits()
+        };
+        let mut session = make_session_with_limits(&sharded, limits);
+        for nonce in 1..=2 {
+            let tx = make_transfer_tx(&signer, "bob.near", nonce, TEST_DEPOSIT);
+            assert!(is_admitted(session.check_pending(&tx, test_usage(&tx))));
+        }
+        let tx = make_transfer_tx(&signer, "bob.near", 3, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&tx, test_usage(&tx)), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_session_no_limits_admits_all() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session_with_limits(&sharded, no_limits());
+        for nonce in 1..=(count_limit() as Nonce * 4) {
+            let tx = make_transfer_tx(&signer, "bob.near", nonce, TEST_DEPOSIT);
+            assert!(is_admitted(session.check_pending(&tx, test_usage(&tx))));
+        }
+    }
+
+    #[test]
+    fn test_gas_key_tx_exempt_from_limits() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let pending_tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
+        add_chunk_txs(
+            &sharded,
+            CryptoHash::hash_bytes(&[1]),
+            &[pending_tx],
+            &config,
+            TEST_GAS_PRICE,
+        );
+        let limits = PendingTransactionQueueLimits {
+            count: Some(1),
+            bytes: Some(1),
+            conversion_gas: Some(Gas::ZERO),
+        };
+        let mut session = make_session_with_limits(&sharded, limits);
+        let access_key_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        assert_eq!(
+            session.check_pending(&access_key_tx, test_usage(&access_key_tx)),
+            PendingTxCheckResult::Skip
+        );
+        for nonce in 1..=3 {
+            let gas_key_tx = make_gas_key_transfer_tx(&signer, nonce);
+            assert!(is_admitted(session.check_pending(&gas_key_tx, test_usage(&gas_key_tx))));
+        }
     }
 
     #[test]
@@ -857,18 +1061,21 @@ mod tests {
         let signer = test_signer();
         let mut session = make_session(&sharded);
 
-        // Admit P_MAX access key txs within a single session.
-        for i in 1..=P_MAX {
+        // Admit count_limit() access key txs within a single session.
+        for i in 1..=count_limit() {
             let tx = make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT);
             assert!(
-                matches!(session.check_pending(&tx), PendingTxCheckResult::Admit(_)),
+                matches!(
+                    session.check_pending(&tx, test_usage(&tx)),
+                    PendingTxCheckResult::Admit(_)
+                ),
                 "tx {} should be admitted",
                 i
             );
         }
-        // The (P_MAX + 1)th should be skipped.
-        let tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&tx), PendingTxCheckResult::Skip);
+        // The next one should be skipped.
+        let tx = make_transfer_tx(&signer, "bob.near", (count_limit() + 1) as Nonce, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&tx, test_usage(&tx)), PendingTxCheckResult::Skip);
     }
 
     #[test]
@@ -882,7 +1089,7 @@ mod tests {
         let mut session = make_session(&sharded);
         let next_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
         assert_eq!(
-            session.check_pending(&next_tx),
+            session.check_pending(&next_tx, test_usage(&next_tx)),
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: expected_cost,
                 paid_from_gas_key: Balance::ZERO,

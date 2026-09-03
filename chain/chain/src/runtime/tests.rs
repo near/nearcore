@@ -1,6 +1,6 @@
 use super::*;
 use crate::types::{
-    BlockType, ChainConfig, MaybePinnedMemtrieRoot, RuntimeStorageConfig,
+    BlockType, ChainConfig, MaybePinnedMemtrieRoot, PendingTxUsage, RuntimeStorageConfig,
     StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
@@ -1686,7 +1686,7 @@ fn prepare_transactions_extra(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction, PendingTxUsage) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     prepare_transactions_extra_with_time_limit(
@@ -1707,7 +1707,7 @@ fn prepare_transactions_extra_with_time_limit(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction, PendingTxUsage) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
     time_limit: Option<Duration>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -2369,7 +2369,7 @@ fn test_prepare_transactions_pending_skip() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             call_count += 1;
             if call_count.is_multiple_of(2) {
                 PendingTxCheckResult::Skip
@@ -2428,7 +2428,7 @@ fn test_prepare_transactions_pending_balance_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: TESTING_INIT_BALANCE,
                 ..PendingConstraints::default()
@@ -2476,7 +2476,7 @@ fn test_prepare_transactions_pending_nonce_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 max_nonce: 1,
                 ..PendingConstraints::default()

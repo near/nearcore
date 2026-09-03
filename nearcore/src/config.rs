@@ -35,6 +35,12 @@ use near_chain_configs::{
     default_tx_routing_height_horizon, default_view_access_keys_limit, default_view_client_threads,
     get_initial_supply,
 };
+#[cfg(feature = "protocol_feature_spice")]
+use near_chain_configs::{
+    default_spice_pending_transactions_bytes_limit,
+    default_spice_pending_transactions_conversion_gas_limit,
+    default_spice_pending_transactions_count_limit,
+};
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_epoch_manager::EpochManagerHandle;
@@ -451,11 +457,26 @@ pub struct Config {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
-    /// during chunk production and RPC validation. Disabled by default; only
-    /// meaningful when SPICE is active.
+    /// transaction queue to enforce per-account pending transaction limits,
+    /// nonce, and gas-key constraints during chunk production and RPC
+    /// validation. Disabled by default; only meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
+    /// Maximum number of pending (included but uncertified) access key
+    /// transactions per account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    #[serde(default = "default_spice_pending_transactions_count_limit")]
+    pub spice_pending_transactions_count_limit: Option<usize>,
+    /// Maximum total size in bytes of pending access key transactions per
+    /// account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    #[serde(default = "default_spice_pending_transactions_bytes_limit")]
+    pub spice_pending_transactions_bytes_limit: Option<u64>,
+    /// Maximum total gas burnt to convert pending access key transactions to
+    /// receipts, per account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    #[serde(default = "default_spice_pending_transactions_conversion_gas_limit")]
+    pub spice_pending_transactions_conversion_gas_limit: Option<Gas>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -534,6 +555,15 @@ impl Default for Config {
             chunks_cache_height_horizon: None,
             #[cfg(feature = "protocol_feature_spice")]
             spice_pending_transaction_queue_enabled: false,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_count_limit: default_spice_pending_transactions_count_limit(
+            ),
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_bytes_limit: default_spice_pending_transactions_bytes_limit(
+            ),
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transactions_conversion_gas_limit:
+                default_spice_pending_transactions_conversion_gas_limit(),
         }
     }
 }
@@ -847,6 +877,15 @@ impl NearConfig {
                 #[cfg(feature = "protocol_feature_spice")]
                 spice_pending_transaction_queue_enabled: config
                     .spice_pending_transaction_queue_enabled,
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transactions_count_limit: config
+                    .spice_pending_transactions_count_limit,
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transactions_bytes_limit: config
+                    .spice_pending_transactions_bytes_limit,
+                #[cfg(feature = "protocol_feature_spice")]
+                spice_pending_transactions_conversion_gas_limit: config
+                    .spice_pending_transactions_conversion_gas_limit,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

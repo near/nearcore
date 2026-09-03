@@ -1,11 +1,12 @@
 //! Chain Client Configuration
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
-use near_primitives::version::Version;
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_time::Duration;
 #[cfg(feature = "schemars")]
 use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
@@ -869,11 +870,57 @@ pub struct ClientConfig {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
-    /// during chunk production and RPC validation. Disabled by default; only
-    /// meaningful when SPICE is active.
+    /// transaction queue to enforce per-account pending transaction limits,
+    /// nonce, and gas-key constraints during chunk production and RPC
+    /// validation. Disabled by default; only meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
+    /// Maximum number of pending (included but uncertified) access key
+    /// transactions per account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transactions_count_limit: Option<usize>,
+    /// Maximum total size in bytes of pending access key transactions per
+    /// account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transactions_bytes_limit: Option<u64>,
+    /// Maximum total gas burnt to convert pending access key transactions to
+    /// receipts, per account. `None` disables the limit.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transactions_conversion_gas_limit: Option<Gas>,
+}
+
+/// Per-account limits on pending access key transactions. Gas key
+/// transactions are exempt. `None` disables that limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingTransactionQueueLimits {
+    pub count: Option<usize>,
+    pub bytes: Option<u64>,
+    pub conversion_gas: Option<Gas>,
+}
+
+impl Default for PendingTransactionQueueLimits {
+    fn default() -> Self {
+        Self {
+            count: default_spice_pending_transactions_count_limit(),
+            bytes: default_spice_pending_transactions_bytes_limit(),
+            conversion_gas: default_spice_pending_transactions_conversion_gas_limit(),
+        }
+    }
+}
+
+pub fn default_spice_pending_transactions_count_limit() -> Option<usize> {
+    Some(4)
+}
+
+/// One maximum-size transaction (`max_transaction_size` runtime parameter).
+pub fn default_spice_pending_transactions_bytes_limit() -> Option<u64> {
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    Some(config.wasm_config.limit_config.max_transaction_size)
+}
+
+pub fn default_spice_pending_transactions_conversion_gas_limit() -> Option<Gas> {
+    None
 }
 
 impl ClientConfig {
@@ -884,6 +931,17 @@ impl ClientConfig {
         false
     }
 
+    pub fn spice_pending_transaction_queue_limits(&self) -> PendingTransactionQueueLimits {
+        #[cfg(feature = "protocol_feature_spice")]
+        return PendingTransactionQueueLimits {
+            count: self.spice_pending_transactions_count_limit,
+            bytes: self.spice_pending_transactions_bytes_limit,
+            conversion_gas: self.spice_pending_transactions_conversion_gas_limit,
+        };
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        PendingTransactionQueueLimits::default()
+    }
+
     #[cfg(feature = "protocol_feature_spice")]
     pub fn set_spice_pending_transaction_queue_enabled(&mut self, value: bool) {
         self.spice_pending_transaction_queue_enabled = value;
@@ -891,6 +949,23 @@ impl ClientConfig {
 
     #[cfg(not(feature = "protocol_feature_spice"))]
     pub fn set_spice_pending_transaction_queue_enabled(&mut self, _value: bool) {}
+
+    #[cfg(feature = "protocol_feature_spice")]
+    pub fn set_spice_pending_transaction_queue_limits(
+        &mut self,
+        limits: PendingTransactionQueueLimits,
+    ) {
+        self.spice_pending_transactions_count_limit = limits.count;
+        self.spice_pending_transactions_bytes_limit = limits.bytes;
+        self.spice_pending_transactions_conversion_gas_limit = limits.conversion_gas;
+    }
+
+    #[cfg(not(feature = "protocol_feature_spice"))]
+    pub fn set_spice_pending_transaction_queue_limits(
+        &mut self,
+        _limits: PendingTransactionQueueLimits,
+    ) {
+    }
 }
 
 #[cfg(feature = "schemars")]

@@ -14,7 +14,7 @@ use near_chain::types::{
     PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
-use near_chain_configs::MutableConfigValue;
+use near_chain_configs::{MutableConfigValue, PendingTransactionQueueLimits};
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
@@ -102,6 +102,7 @@ pub struct ChunkProducer {
     pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     spice_pending_transaction_queue_enabled: bool,
+    spice_pending_transaction_queue_limits: PendingTransactionQueueLimits,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -122,6 +123,7 @@ impl ChunkProducer {
         transaction_pool_size_limit: Option<u64>,
         prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
         spice_pending_transaction_queue_enabled: bool,
+        spice_pending_transaction_queue_limits: PendingTransactionQueueLimits,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
@@ -144,6 +146,7 @@ impl ChunkProducer {
             ))),
             pending_transaction_queue: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
             spice_pending_transaction_queue_enabled,
+            spice_pending_transaction_queue_limits,
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
@@ -449,7 +452,11 @@ impl ChunkProducer {
     }
 
     fn new_pending_tx_session(&self, shard_uid: ShardUId) -> PendingTxSession {
-        PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid)
+        PendingTxSession::new(
+            Arc::clone(&self.pending_transaction_queue),
+            shard_uid,
+            self.spice_pending_transaction_queue_limits,
+        )
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
@@ -540,9 +547,9 @@ impl ChunkProducer {
                         chain_validate,
                         validate_tx_ttl,
                         HashSet::new(),
-                        &mut |tx| {
+                        &mut |tx, tx_usage| {
                             if ptq_enabled {
-                                session.check_pending(tx)
+                                session.check_pending(tx, tx_usage)
                             } else {
                                 PendingTxCheckResult::Admit(PendingConstraints::default())
                             }
