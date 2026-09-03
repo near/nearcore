@@ -4,8 +4,6 @@
 //! not need pathname-based filesystem access. Linux workers therefore enter a
 //! Landlock domain with no allow rules before processing untrusted Wasm.
 
-// cspell:words landlock
-
 #[cfg(target_os = "linux")]
 mod linux {
     use super::super::protocol::IsolationStatus;

@@ -1,7 +1,5 @@
 //! IPC protocol: length-prefixed borsh frames over stdin/stdout.
 
-// cspell:words landlock
-
 use borsh::{BorshDeserialize, BorshSerialize, from_slice, to_vec};
 use std::borrow::Cow;
 use std::io::{self, ErrorKind, Read, Write};

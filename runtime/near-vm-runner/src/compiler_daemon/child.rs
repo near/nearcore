@@ -6,7 +6,7 @@
 //!
 //! Limits and sandboxing are only implemented for Linux.
 
-// cspell:words landlock landlocks sandboxing
+// cspell:words landlocks sandboxing
 
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{

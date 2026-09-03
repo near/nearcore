@@ -3,7 +3,7 @@
 //! This executable serves as both parent and child, matching how neard starts
 //! compiler workers without requiring a second binary.
 
-// cspell:words landlock sandboxed
+// cspell:words sandboxed
 
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
