@@ -368,10 +368,11 @@ pub fn background_contract_compilation_pool() -> &'static Arc<ThreadPool> {
 pub fn background_contract_compilation_coordinator_pool() -> &'static Arc<ThreadPool> {
     static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
     POOL.get_or_init(|| {
+        let thread_limit = available_parallelism().map_or(4, |n| n.get());
         Arc::new(ThreadPool::new(
             "background_contract_compilation_coordinator",
             Duration::from_secs(60),
-            1,
+            thread_limit,
             PRIORITY_BACKGROUND_RUNTIME_TASKS,
         ))
     })
@@ -622,75 +623,24 @@ mod tests {
         assert_eq!(outcome1.thread_id, outcome2.thread_id);
     }
 
+    /// Show the isolation property of different thread pools.
     #[test]
-    fn blocking_compilation_coordination_does_not_block_critical_work() {
-        let coordinator_pool =
-            ThreadPool::new("test_coordinator", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
-        let compilation_pool = Arc::new(ThreadPool::new(
-            "test_compilation",
-            DEFAULT_IDLE_TIMEOUT,
-            1,
-            DEFAULT_PRIORITY,
-        ));
-        let critical_pool =
-            ThreadPool::new("test_critical", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+    fn blocked_pool_does_not_block_another_pool() {
+        let blocked_pool =
+            ThreadPool::new("test_blocked", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
+        let other_pool = ThreadPool::new("test_other", DEFAULT_IDLE_TIMEOUT, 1, DEFAULT_PRIORITY);
 
-        let (release_compilation_sender, release_compilation_receiver) = mpsc::channel();
-        let (compilation_started_sender, compilation_started_receiver) = mpsc::channel();
-        compilation_pool.spawn_boxed(Box::new(move || {
-            compilation_started_sender.send(()).unwrap();
-            release_compilation_receiver.recv().unwrap();
-        }));
-        compilation_started_receiver.recv().unwrap();
+        let (blocking_job, blocking_job_handle) = create_job();
+        blocked_pool.spawn_boxed(blocking_job);
+        blocking_job_handle.wait_scheduled();
 
-        let (coordinator_waiting_sender, coordinator_waiting_receiver) = mpsc::channel();
-        let (coordinator_done_sender, coordinator_done_receiver) = mpsc::channel();
-        let compilation_pool_for_coordinator = Arc::clone(&compilation_pool);
-        coordinator_pool.spawn_boxed(Box::new(move || {
-            let (batch_done_sender, batch_done_receiver) = mpsc::channel();
-            compilation_pool_for_coordinator.spawn_boxed(Box::new(move || {
-                batch_done_sender.send(()).unwrap();
-            }));
-            coordinator_waiting_sender.send(()).unwrap();
-            batch_done_receiver.recv().unwrap();
-            coordinator_done_sender.send(()).unwrap();
-        }));
-        coordinator_waiting_receiver.recv().unwrap();
-
-        let (critical_done_sender, critical_done_receiver) = mpsc::channel();
-        critical_pool.spawn_boxed(Box::new(move || {
-            critical_done_sender.send(()).unwrap();
-        }));
-        critical_done_receiver
+        let (done_sender, done_receiver) = mpsc::channel();
+        other_pool.spawn_boxed(Box::new(move || done_sender.send(()).unwrap()));
+        done_receiver
             .recv_timeout(Duration::from_secs(1))
-            .expect("critical compilation was blocked by background coordination");
+            .expect("job was blocked by another pool");
 
-        release_compilation_sender.send(()).unwrap();
-        coordinator_done_receiver.recv().unwrap();
-    }
-
-    #[test]
-    fn blocked_cache_warming_does_not_block_runtime_maintenance() {
-        let (warming_started_sender, warming_started_receiver) = mpsc::channel();
-        let (release_warming_sender, release_warming_receiver) = mpsc::channel();
-        let (warming_done_sender, warming_done_receiver) = mpsc::channel();
-        contract_cache_warming_pool().spawn_boxed(Box::new(move || {
-            warming_started_sender.send(()).unwrap();
-            release_warming_receiver.recv().unwrap();
-            warming_done_sender.send(()).unwrap();
-        }));
-        warming_started_receiver.recv().unwrap();
-
-        let (maintenance_done_sender, maintenance_done_receiver) = mpsc::channel();
-        background_runtime_tasks().spawn_boxed(Box::new(move || {
-            maintenance_done_sender.send(()).unwrap();
-        }));
-        maintenance_done_receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("runtime maintenance was blocked by cache warming");
-
-        release_warming_sender.send(()).unwrap();
-        warming_done_receiver.recv().unwrap();
+        blocking_job_handle.wait_executed();
     }
 
     #[test]
@@ -704,7 +654,10 @@ mod tests {
             background_contract_compilation_pool(),
         ));
         assert!(!Arc::ptr_eq(contract_cache_warming_pool(), background_runtime_tasks()));
-        assert_eq!(background_contract_compilation_coordinator_pool().thread_limit, 1);
+        assert_eq!(
+            background_contract_compilation_coordinator_pool().thread_limit,
+            available_parallelism().map_or(4, |n| n.get())
+        );
         assert_eq!(contract_cache_warming_pool().thread_limit, 1);
     }
 
