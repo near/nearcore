@@ -192,14 +192,14 @@ impl Env {
         }
     }
 
-    /// Deploy the nightly test contract, the one exposing the universal-account
-    /// host functions, and return the account holding it.
+    /// Deploy the test contract exposing the universal-account host functions,
+    /// and return the account holding it.
     fn deploy_caller_contract(&mut self) -> AccountId {
         let account = self.caller_account.clone();
         let tx = SignedTransaction::deploy_contract(
             self.next_nonce(),
             &account,
-            near_test_contracts::nightly_rs_contract().to_vec(),
+            near_test_contracts::rs_contract().to_vec(),
             &create_user_test_signer(&account),
             self.block_hash(),
         );
