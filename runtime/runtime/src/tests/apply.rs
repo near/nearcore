@@ -19,7 +19,10 @@ use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
-use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
+use near_primitives::action::{
+    Action, DeleteAccountAction, GlobalContractIdentifier, TransferToGasKeyAction,
+    UseGlobalContractAction,
+};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
@@ -31,7 +34,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
+    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
+    ReceiptEnum, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -57,7 +61,7 @@ use near_store::{
     get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
     set_access_key, set_account,
 };
-use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
+use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
@@ -5576,6 +5580,91 @@ fn test_gas_key_transfer_send_fee_uses_wire_length() {
     );
 }
 
+/// Reproduces the problem fixed by `GlobalContractSameChunkCallFix`.
+/// Deploying a global contract and calling it in the same chunk should work, even without contract
+/// cache.
+#[test]
+fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
+    let owner: AccountId = "global_owner.near".parse().unwrap();
+    let user = alice_account();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![user.clone(), owner.clone()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let user_signer = signers[0].clone();
+    // A cache that never serves the artifact, forcing the same-chunk call to
+    // depend on the recorded deploy (or on committed storage, which is absent).
+    apply_state.cache = Some(Box::new(NoContractRuntimeCache));
+
+    let code = ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None);
+
+    // 1) Distribute the global contract (AccountId identifier mode).
+    let distribution_receipt = Receipt::new_global_contract_distribution(
+        owner.clone(),
+        GlobalContractDistributionReceipt::new(
+            GlobalContractIdentifier::AccountId(owner.clone()),
+            apply_state.shard_id,
+            vec![],
+            code.code().to_vec().into(),
+            0,
+        ),
+    );
+
+    // 2) Point the user account at the global contract.
+    let use_receipt = create_receipt_with_actions(
+        user.clone(),
+        user_signer.clone(),
+        vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::AccountId(owner),
+        }))],
+    );
+
+    // 3) Call the global contract from the user account, in the same chunk.
+    let call_receipt = create_receipt_with_actions(
+        user,
+        user_signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: Gas::from_teragas(10),
+            deposit: Balance::ZERO,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[distribution_receipt, use_receipt, call_receipt.clone()],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // The same-chunk call must execute, not degrade to a CodeDoesNotExist no-op.
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == *call_receipt.receipt_id())
+        .expect("function call outcome should be present");
+    assert_matches!(
+        call_outcome.outcome.status,
+        ExecutionStatus::SuccessValue(_),
+        "same-chunk call to a just-distributed global contract must succeed with a cold cache"
+    );
+
+    // The body is fetched from the contract tracker so the call succeeds, but the global contract
+    // is deliberately not broadcast to chunk validators as a deploy: the global contract
+    // distribution protocol already delivers the code network-wide.
+    assert!(
+        apply_result.contract_updates.contract_deploy_hashes().is_empty(),
+        "global contracts must not be re-broadcast as deploys"
+    );
+}
 /// Self-signed `UniversalStateInit`: the one transaction an account can send
 /// before it holds any access key.
 ///
