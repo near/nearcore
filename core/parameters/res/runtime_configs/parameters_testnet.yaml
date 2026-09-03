@@ -132,8 +132,11 @@ action_deterministic_state_init_per_byte: {
   send_not_sir: 72_000_000,
   execution: 70_000_000,
 }
-# TODO(universal-accounts): these UniversalStateInit fees are mostly copied
-# from DeterministicStateInit and may need further calibration
+# Same as action_deterministic_state_init: the work is the same, and the cost is
+# dominated by account creation rather than compute (derived in #14160, rebalanced
+# for NEP-642 in #15907). Access keys cost extra, charged per key at
+# action_add_full_access_key. Keep `execution` high enough to cover
+# account_creation_charge.
 action_universal_state_init: {
   send_sir: 500_000_000_000,
   send_not_sir: 500_000_000_000,
