@@ -6,10 +6,10 @@ use crate::runtime::metrics::{
 };
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, HasContract,
-    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
-    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
+    StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::{background_runtime_tasks, contract_compilation_pool};
@@ -914,7 +914,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction, HasContract) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1063,16 +1063,13 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
 
                 // Check pending transaction queue constraints.
-                let has_contract =
-                    if account.contract().is_some() { HasContract::Yes } else { HasContract::No };
-                let pending_constraints =
-                    match check_pending(validated_tx.to_signed_tx(), has_contract) {
-                        PendingTxCheckResult::Admit(constraints) => constraints,
-                        PendingTxCheckResult::Skip => {
-                            skipped_transactions.push(validated_tx);
-                            continue;
-                        }
-                    };
+                let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
+                    PendingTxCheckResult::Admit(constraints) => constraints,
+                    PendingTxCheckResult::Skip => {
+                        skipped_transactions.push(validated_tx);
+                        continue;
+                    }
+                };
 
                 let cost = match tx_cost(
                     runtime_config,

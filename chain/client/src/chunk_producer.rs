@@ -448,6 +448,10 @@ impl ChunkProducer {
         }))
     }
 
+    fn new_pending_tx_session(&self, shard_uid: ShardUId) -> PendingTxSession {
+        PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid)
+    }
+
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     #[instrument(
         target = "client",
@@ -472,111 +476,109 @@ impl ChunkProducer {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
         // (prepared_transactions, skipped_transactions_to_reintroduce)
-        let (prepared_transactions, skipped_transactions) = if let Some(mut iter) =
-            pool_guard.get_pool_iterator(shard_uid)
-        {
-            #[cfg(feature = "test_features")]
-            let skip_verification = matches!(
-                self.adversarial.produce_mode,
-                Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
-            );
-            #[cfg(not(feature = "test_features"))]
-            let skip_verification = false;
+        let (prepared_transactions, skipped_transactions) =
+            if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid) {
+                #[cfg(feature = "test_features")]
+                let skip_verification = matches!(
+                    self.adversarial.produce_mode,
+                    Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+                );
+                #[cfg(not(feature = "test_features"))]
+                let skip_verification = false;
 
-            if skip_verification {
-                let mut res = vec![];
-                while let Some(iter) = iter.next() {
-                    res.push(iter.next().unwrap());
-                }
-                (
-                    PreparedTransactions {
-                        transactions: res,
-                        limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                    },
-                    Vec::new(),
-                )
-            } else if ProtocolFeature::Spice.enabled(protocol_version) {
-                // SPICE path: use prepare_transactions_extra with pending transaction queue
-                // constraints. Use the last certified block's ChunkExtra for
-                // state validation (the certified block is guaranteed to have
-                // been executed, so its state root is available).
-                let certified_header =
-                    get_last_certified_block_header(&self.chain, &prev_block.hash())?;
-                let certified_chunk_extra = self
-                    .chain
-                    .chunk_store()
-                    .get_chunk_extra(certified_header.hash(), &shard_uid)?;
-                let trie = self.runtime_adapter.get_trie_for_shard(
-                    shard_id,
-                    certified_header.hash(),
-                    *certified_chunk_extra.state_root(),
-                    true,
-                )?;
-                let trie = trie.recording_reads_new_recorder();
-                let state_update = TrieUpdate::new(trie);
-                // Per-shard congestion from the last certified block's executed
-                // ChunkExtras, gating tx admission (local gas throttling + filtering
-                // to congested shards).
-                let congestion_info = spice_block_congestion_info(
-                    &self.chain,
-                    self.epoch_manager.as_ref(),
-                    certified_header.as_ref(),
-                )?;
-                let prev_block_context = PrepareTransactionsBlockContext::new(
-                    prev_block,
-                    &*self.epoch_manager,
-                    congestion_info,
-                )?;
-                let mut session =
-                    PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid);
-                let ptq_enabled = self.spice_pending_transaction_queue_enabled;
-                let (prepared, skipped) = self.runtime_adapter.prepare_transactions_extra(
-                    state_update,
-                    shard_id,
-                    prev_block_context,
-                    &mut iter,
-                    chain_validate,
-                    validate_tx_ttl,
-                    std::collections::HashSet::new(),
-                    &mut |tx, has_contract| {
-                        if ptq_enabled {
-                            session.check_pending(tx, has_contract)
-                        } else {
-                            PendingTxCheckResult::Admit(PendingConstraints::default())
-                        }
-                    },
-                    self.chunk_transactions_time_limit.get(),
-                    None,
-                )?;
-                (prepared, skipped.0)
-            } else {
-                let storage_config = RuntimeStorageConfig {
-                    state_root: *chunk_extra.state_root(),
-                    use_flat_storage: true,
-                    source: near_chain::types::StorageDataSource::Db,
-                    state_patch: Default::default(),
-                };
-                let prev_block_context = PrepareTransactionsBlockContext::new(
-                    prev_block,
-                    &*self.epoch_manager,
-                    prev_block.block_congestion_info(),
-                )?;
-                (
-                    self.runtime_adapter.prepare_transactions(
-                        storage_config,
+                if skip_verification {
+                    let mut res = vec![];
+                    while let Some(iter) = iter.next() {
+                        res.push(iter.next().unwrap());
+                    }
+                    (
+                        PreparedTransactions {
+                            transactions: res,
+                            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                        },
+                        Vec::new(),
+                    )
+                } else if ProtocolFeature::Spice.enabled(protocol_version) {
+                    // SPICE path: use prepare_transactions_extra with pending transaction queue
+                    // constraints. Use the last certified block's ChunkExtra for
+                    // state validation (the certified block is guaranteed to have
+                    // been executed, so its state root is available).
+                    let certified_header =
+                        get_last_certified_block_header(&self.chain, &prev_block.hash())?;
+                    let certified_chunk_extra = self
+                        .chain
+                        .chunk_store()
+                        .get_chunk_extra(certified_header.hash(), &shard_uid)?;
+                    let trie = self.runtime_adapter.get_trie_for_shard(
+                        shard_id,
+                        certified_header.hash(),
+                        *certified_chunk_extra.state_root(),
+                        true,
+                    )?;
+                    let trie = trie.recording_reads_new_recorder();
+                    let state_update = TrieUpdate::new(trie);
+                    // Per-shard congestion from the last certified block's executed
+                    // ChunkExtras, gating tx admission (local gas throttling + filtering
+                    // to congested shards).
+                    let congestion_info = spice_block_congestion_info(
+                        &self.chain,
+                        self.epoch_manager.as_ref(),
+                        certified_header.as_ref(),
+                    )?;
+                    let prev_block_context = PrepareTransactionsBlockContext::new(
+                        prev_block,
+                        &*self.epoch_manager,
+                        congestion_info,
+                    )?;
+                    let mut session = self.new_pending_tx_session(shard_uid);
+                    let ptq_enabled = self.spice_pending_transaction_queue_enabled;
+                    let (prepared, skipped) = self.runtime_adapter.prepare_transactions_extra(
+                        state_update,
                         shard_id,
                         prev_block_context,
                         &mut iter,
                         chain_validate,
                         validate_tx_ttl,
+                        HashSet::new(),
+                        &mut |tx| {
+                            if ptq_enabled {
+                                session.check_pending(tx)
+                            } else {
+                                PendingTxCheckResult::Admit(PendingConstraints::default())
+                            }
+                        },
                         self.chunk_transactions_time_limit.get(),
-                    )?,
-                    Vec::new(),
-                )
-            }
-        } else {
-            (PreparedTransactions::new(), Vec::new())
-        };
+                        None,
+                    )?;
+                    (prepared, skipped.0)
+                } else {
+                    let storage_config = RuntimeStorageConfig {
+                        state_root: *chunk_extra.state_root(),
+                        use_flat_storage: true,
+                        source: near_chain::types::StorageDataSource::Db,
+                        state_patch: Default::default(),
+                    };
+                    let prev_block_context = PrepareTransactionsBlockContext::new(
+                        prev_block,
+                        &*self.epoch_manager,
+                        prev_block.block_congestion_info(),
+                    )?;
+                    (
+                        self.runtime_adapter.prepare_transactions(
+                            storage_config,
+                            shard_id,
+                            prev_block_context,
+                            &mut iter,
+                            chain_validate,
+                            validate_tx_ttl,
+                            self.chunk_transactions_time_limit.get(),
+                        )?,
+                        Vec::new(),
+                    )
+                }
+            } else {
+                (PreparedTransactions::new(), Vec::new())
+            };
         // Reintroduce valid transactions back to the pool. They will be removed
         // when the chunk is included into the block.
         let reintroduced_count = pool_guard
