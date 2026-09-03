@@ -12,13 +12,17 @@ use crate::setup::peer_manager_actor::TestLoopNetworkBlockInfo;
 use crate::tests::sync::util::far_horizon_height;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
-use near_async::messaging::Sender;
+use near_async::messaging::{CanSend as _, Sender};
 use near_chain_configs::TrackedShardsConfig;
+use near_client::BlockResponse;
 use near_crypto::{KeyType, SecretKey};
 use near_network::types::PeerInfo;
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::Balance;
+use std::sync::Arc;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
@@ -185,5 +189,53 @@ fn test_stale_node_syncs() {
     assert!(
         env.test_loop.is_denylisted(restart_id),
         "stale node should reach epoch sync and trigger the data reset"
+    );
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_max_prev_height_does_not_abort_node() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .track_all_shards()
+        .build();
+    env.node_runner(0).run_until_head_height(2 * epoch_length);
+
+    // A real block re-signed by the producer the victim samples for the forged
+    // height, so it passes the producer signature check that guards the
+    // ancestry-free approval verification.
+    let head = env.node(0).head();
+    let head_block = env.node(0).head_block();
+    let forged_height = head.height + far_horizon_height(epoch_length);
+    let block_producer = env
+        .node(0)
+        .client()
+        .epoch_manager
+        .get_block_producer(&head.epoch_id, forged_height)
+        .unwrap();
+    let mut forged_block = head_block.as_ref().clone();
+    forged_block.mut_header().set_height(forged_height);
+    forged_block.mut_header().set_prev_height(u64::MAX);
+    forged_block.mut_header().resign(&create_test_signer(block_producer.as_str()));
+
+    let adversary = PeerId::new(SecretKey::from_seed(KeyType::ED25519, "adversary").public_key());
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, 0);
+    env.node_datas[0].client_sender.send(
+        BlockResponse { block: Arc::new(forged_block), peer_id: adversary, was_requested: false }
+            .span_wrap(),
+    );
+    env.node_runner(0).run_for_number_of_blocks(2 * epoch_length as usize);
+
+    assert!(env.node(0).head().height > head.height, "victim should keep following the chain");
+    assert!(
+        sync_history.borrow().iter().all(|status| status == "NoSync"),
+        "victim must not enter any sync phase after the max prev_height claim, saw {:?}",
+        sync_history.borrow(),
     );
 }
