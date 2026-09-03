@@ -43,7 +43,9 @@ use near_chain::{
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
     Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
+use near_chain_configs::{
+    BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::DecodedChunk;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
@@ -86,9 +88,6 @@ use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-
-/// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
@@ -408,7 +407,7 @@ impl Client {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             network_adapter.clone().into_async_sender(),
-            config.state_sync_external_timeout,
+            config.block_request_timeout,
             config.state_sync_p2p_timeout,
             config.state_sync_retry_backoff,
             &config.state_sync,
@@ -821,8 +820,7 @@ impl Client {
     pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
         self.last_optimistic_block_produced
             .as_ref()
-            .filter(|ob| ob.inner.block_height == next_height)
-            .is_some()
+            .is_some_and(|ob| ob.inner.block_height == next_height)
     }
 
     pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
@@ -1207,14 +1205,28 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// Record `peer_id`'s verified height if the relayed block is ahead of us
-    /// and its approvals verify as >2/3 of a known epoch's stake; far-ahead
-    /// blocks (unknown epoch) fail that check and are ignored.
+    /// A height that fails this test cannot change the sync decision, so it needs no proof.
+    pub(crate) fn peer_height_requires_sync(
+        &self,
+        peer_height: BlockHeight,
+        head_height: BlockHeight,
+    ) -> bool {
+        let threshold = if self.sync_handler.sync_status.is_syncing() {
+            0
+        } else {
+            self.config.sync_height_threshold
+        };
+        peer_height > head_height + threshold
+    }
+
+    /// Record `peer_id`'s verified height if the relayed block's approvals verify as
+    /// >2/3 of a known epoch's stake; far-ahead blocks (unknown epoch) fail that
+    /// check and are ignored.
     pub(crate) fn note_verified_peer_height(&mut self, block: &Block, peer_id: &PeerId) {
         let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
-        if height <= head_height {
+        if !self.peer_height_requires_sync(height, head_height) {
             return;
         }
         self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
@@ -2564,7 +2576,7 @@ impl Client {
                             self.epoch_manager.clone(),
                             self.runtime_adapter.clone(),
                             self.network_adapter.clone().into_async_sender(),
-                            self.config.state_sync_external_timeout,
+                            self.config.block_request_timeout,
                             self.config.state_sync_p2p_timeout,
                             self.config.state_sync_retry_backoff,
                             &self.config.state_sync,

@@ -141,6 +141,31 @@ pub fn epoch_config(
     chunk_validator_only_kickout_threshold: u8,
     max_inflation_rate: Rational32,
 ) -> AllEpochConfig {
+    epoch_config_at_version(
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        num_chunk_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        chunk_validator_only_kickout_threshold,
+        max_inflation_rate,
+        PROTOCOL_VERSION,
+    )
+}
+
+pub fn epoch_config_at_version(
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    num_chunk_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
+    max_inflation_rate: Rational32,
+    protocol_version: ProtocolVersion,
+) -> AllEpochConfig {
+    let shard_layout = ShardLayout::multi_shard(num_shards, 0);
     let epoch_config = EpochConfigBuilder::default()
         .epoch_length(epoch_length)
         .num_block_producer_seats(num_block_producer_seats)
@@ -159,17 +184,18 @@ pub fn epoch_config(
         .minimum_stake_ratio(Ratio::new(160i32, 1_000_000i32))
         .chunk_producer_assignment_changes_limit(5)
         .shuffle_shard_assignment_for_chunk_producers(false)
-        .shard_layout(ShardLayout::multi_shard(num_shards, 0))
+        .shard_layout(shard_layout.clone())
         .validator_max_kickout_stake_perc(100)
         .max_inflation_rate(max_inflation_rate)
         .build()
         .expect("config field missing");
-    let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
+    let config_store = EpochConfigStore::test_single_version(protocol_version, epoch_config);
     AllEpochConfig::from_epoch_config_store(
         "test-chain",
         epoch_length,
         config_store,
-        PROTOCOL_VERSION,
+        protocol_version,
+        shard_layout,
     )
 }
 
@@ -205,8 +231,39 @@ pub fn setup_epoch_manager(
     reward_calculator: RewardCalculator,
     max_inflation_rate: Rational32,
 ) -> EpochManager {
+    setup_epoch_manager_at_version(
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        chunk_validator_only_kickout_threshold,
+        reward_calculator,
+        max_inflation_rate,
+        PROTOCOL_VERSION,
+    )
+}
+
+/// `setup_epoch_manager` with the genesis epoch pinned to `protocol_version` instead of
+/// `PROTOCOL_VERSION`, so features stabilized above it stay disabled. Record blocks with
+/// `record_block_with_version` (or `record_block_with_final_and_mask_at_version`) at the same
+/// version, otherwise the validators vote the chain up to `PROTOCOL_VERSION` at the first
+/// epoch boundary.
+pub fn setup_epoch_manager_at_version(
+    validators: Vec<(AccountId, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
+    reward_calculator: RewardCalculator,
+    max_inflation_rate: Rational32,
+    protocol_version: ProtocolVersion,
+) -> EpochManager {
     let store = create_test_store();
-    let config = epoch_config(
+    let config = epoch_config_at_version(
         epoch_length,
         num_shards,
         num_block_producer_seats,
@@ -215,6 +272,7 @@ pub fn setup_epoch_manager(
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
         max_inflation_rate,
+        protocol_version,
     );
     EpochManager::new(
         store.epoch_store(),
@@ -249,6 +307,31 @@ pub fn setup_default_epoch_manager(
     )
 }
 
+/// `setup_default_epoch_manager` pinned to `protocol_version`, see
+/// [`setup_epoch_manager_at_version`].
+pub fn setup_default_epoch_manager_at_version(
+    validators: Vec<(AccountId, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    protocol_version: ProtocolVersion,
+) -> EpochManager {
+    setup_epoch_manager_at_version(
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        0,
+        default_reward_calculator(),
+        Ratio::new(0, 1),
+        protocol_version,
+    )
+}
+
 /// Makes an EpochManager with the given block and chunk producers,
 /// automatically coming up with stakes for them to ensure the desired
 /// election outcome.
@@ -258,6 +341,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     chunk_only_producers: Vec<AccountId>,
     num_shards: NumShards,
     epoch_length: BlockHeightDelta,
+    protocol_version: ProtocolVersion,
 ) -> EpochManager {
     let num_block_producers = block_producers.len() as u64;
     let block_producer_stake = Balance::from_yoctonear(1_000_000);
@@ -285,8 +369,17 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake = total_stake.checked_add(stake).unwrap();
     }
-    let config =
-        epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0, Ratio::new(0, 1));
+    let config = epoch_config_at_version(
+        epoch_length,
+        num_shards,
+        num_block_producers,
+        100,
+        0,
+        0,
+        0,
+        Ratio::new(0, 1),
+        protocol_version,
+    );
     let epoch_manager = EpochManager::new(
         store.epoch_store(),
         config,
@@ -305,6 +398,84 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();
     assert_eq!(actual_chunk_producers.len(), block_producers.len() + chunk_only_producers.len());
     epoch_manager
+}
+
+/// Records one block with an explicit per-shard `chunk_mask` (true = produced, false =
+/// missed) and explicit last-final fields. The finals are parameters rather than derived
+/// from the grandparent because a genesis-parented block at a skipped height has no
+/// grandparent and nothing final yet.
+pub fn record_block_with_final_and_mask(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+) {
+    record_block_with_final_and_mask_at_version(
+        em,
+        prev,
+        cur,
+        height,
+        last_final_hash,
+        last_final_height,
+        chunk_mask,
+        PROTOCOL_VERSION,
+    );
+}
+
+/// `record_block_with_final_and_mask` with the recorded block voting for
+/// `protocol_version` instead of `PROTOCOL_VERSION`. Pair with
+/// `setup_default_epoch_manager_at_version` to hold a whole chain below a feature's
+/// activation version.
+pub fn record_block_with_final_and_mask_at_version(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+    protocol_version: ProtocolVersion,
+) {
+    let epoch_id = em.get_epoch_id(&prev).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+    // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .enumerate()
+            .map(|(shard_index, shard_id)| {
+                if !chunk_mask[shard_index] {
+                    return vec![];
+                }
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, height).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    em.record_block_info(
+        BlockInfo::new(
+            cur,
+            height,
+            last_final_height,
+            last_final_hash,
+            prev,
+            vec![],
+            chunk_mask,
+            DEFAULT_TOTAL_SUPPLY,
+            protocol_version,
+            protocol_version,
+            height * NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+        [0; 32],
+    )
+    .unwrap()
+    .commit();
 }
 
 pub fn record_block_with_final_block_hash(

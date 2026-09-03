@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
@@ -24,7 +25,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -61,12 +62,21 @@ impl<'a> TestLoopNode<'a> {
         self.client().chain.tail()
     }
 
+    pub fn chunk_tail(&self) -> BlockHeight {
+        self.client().chain.chain_store().chunk_tail()
+    }
+
     pub fn head(&self) -> Arc<Tip> {
         self.client().chain.head().unwrap()
     }
 
     pub fn final_head(&self) -> Arc<Tip> {
         self.client().chain.final_head().unwrap()
+    }
+
+    pub fn protocol_version_at_head(&self) -> ProtocolVersion {
+        let head = self.head();
+        self.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
     }
 
     pub fn last_executed(&self) -> Arc<Tip> {
@@ -85,6 +95,12 @@ impl<'a> TestLoopNode<'a> {
     pub fn last_executed_block(&self) -> Arc<Block> {
         let block_hash = self.last_executed().last_block_hash;
         self.block(block_hash)
+    }
+
+    pub fn last_certified_block_header(&self) -> Arc<BlockHeader> {
+        let chain_store = &self.client().chain.chain_store;
+        let head_hash = self.head().last_block_hash;
+        get_last_certified_block_header(chain_store, &head_hash).unwrap()
     }
 
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {

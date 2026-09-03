@@ -12,7 +12,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
 use near_primitives::action::delegate::{
     VersionedDelegateActionRef, VersionedSignedDelegateActionRef,
@@ -29,7 +29,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, NonceIndex, StorageUsage,
 };
-use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
@@ -40,6 +39,21 @@ use near_store::{
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
+
+/// Reports a rejected account-state change as a storage inconsistency.
+///
+/// An uninitialized account has no access keys, so no receipt can name one as its
+/// actor. Reaching any of these call sites means the state is corrupt, not that a
+/// user did something wrong.
+pub(crate) trait OrInconsistentState {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError>;
+}
+
+impl OrInconsistentState for Result<(), InvalidAccountState> {
+    fn or_inconsistent_state(self, account_id: &AccountId) -> Result<(), StorageError> {
+        self.map_err(|err| StorageError::StorageInconsistentState(format!("{account_id}: {err}")))
+    }
+}
 
 pub(crate) fn action_stake(
     account: &mut Account,
@@ -80,7 +94,7 @@ pub(crate) fn action_stake(
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
             account.set_amount(new_balance);
-            account.set_locked(stake.stake);
+            account.set_locked(stake.stake).or_inconsistent_state(account_id)?;
         }
     } else {
         result.result = Err(ActionErrorKind::TriesToStake {
@@ -195,24 +209,33 @@ pub(crate) fn action_create_account(
 }
 
 /// Can only be used for implicit accounts.
+///
+/// The account is created without claiming `actor_id`, which stays the receipt's
+/// predecessor. A `0u` id can be created by a transfer inside a batch (see
+/// [`implicit_creation_allowed`]), and claiming it would hand the
+/// rest of that batch the new account's own authority: a relayer sending
+/// `[Transfer, UniversalStateInit, AddKey]` would install a key the id does not
+/// commit to, and one ending in `DeleteAccount` would take the balance. For the
+/// other implicit kinds the transfer is the whole receipt, so there is nothing
+/// after it to authorize either way.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
-    actor_id: &mut AccountId,
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
-    *actor_id = account_id.clone();
-    match account_id.get_account_type() {
+    // Config-aware: account type whose feature is off reads as `NamedAccount` and panics
+    // below rather than being created. Only `universal_accounts` can still be off.
+    match get_account_type(account_id, apply_state.config.as_ref()) {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
             access_key.nonce = initial_nonce_value(block_height);
 
-            // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
+            // unwrap: the arm we are in means `account_id` is 64 hex characters.
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
@@ -250,8 +273,16 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 &apply_state.config.fees.storage_usage_config,
             ));
         }
-        // This panic is unreachable as this is an implicit account creation transfer.
-        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
+        AccountType::UniversalAccount => {
+            *account = Some(Account::new_uninitialized(
+                deposit,
+                fee_config.storage_usage_config.num_bytes_account,
+                initial_nonce_value(block_height),
+            ));
+        }
+        // Unreachable: this is an implicit account creation transfer, so
+        // `check_account_existence` has already turned away every receiver that
+        // `implicit_creation_allowed` refuses.
         AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
@@ -277,7 +308,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_contract(AccountContract::Local(*code.hash()));
+    account.set_contract(AccountContract::Local(*code.hash())).or_inconsistent_state(account_id)?;
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -764,9 +795,20 @@ pub(crate) fn check_actor_permissions(
         | Action::Transfer(_)
         | Action::TransferToGasKey(_) => (),
         Action::Delegate(_) | Action::DelegateV2(_) => (),
-        Action::DeterministicStateInit(_) => (),
+        Action::DeterministicStateInit(_) | Action::UniversalStateInit(_) => (),
     };
     Ok(())
+}
+
+/// The bits of the enclosing receipt that decide whether a transfer to a
+/// nonexistent account may create it. Named fields, because the two flags are
+/// both `bool` and swapping them would still compile.
+#[derive(Clone, Copy)]
+pub(crate) struct ReceiptShape {
+    /// The receipt was produced by the system, i.e. it is a refund.
+    pub is_refund: bool,
+    /// The action is the receipt's only one.
+    pub is_the_only_action: bool,
 }
 
 pub(crate) fn check_account_existence(
@@ -774,7 +816,7 @@ pub(crate) fn check_account_existence(
     account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
-    implicit_account_creation_eligible: bool,
+    receipt_shape: ReceiptShape,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -783,38 +825,39 @@ pub(crate) fn check_account_existence(
                     account_id: account_id.clone(),
                 }
                 .into());
-            } else {
-                if account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts) {
-                    // If the account doesn't exist and it's implicit, then you
-                    // should only be able to create it using single transfer action.
-                    // Because you should not be able to add another access key to the account in
-                    // the same transaction.
-                    // Otherwise you can hijack an account without having the private key for the
-                    // public key. We've decided to make it an invalid transaction to have any other
-                    // actions on the implicit hex accounts.
-                    // The easiest way is to reject the `CreateAccount` action.
-                    // See https://github.com/nearprotocol/NEPs/pull/71
-                    return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
-                        account_id: account_id.clone(),
-                    }
-                    .into());
+            }
+            if get_account_type(account_id, config).is_implicit() {
+                // Implicit accounts can only be created implicitly.
+                // `CreateAccount` claims `actor_id` for the new account, which
+                // would let the rest of the receipt add an access key to an id
+                // whose private key the sender does not hold. Rejecting the action
+                // is the simplest way to close that.
+                // See https://github.com/nearprotocol/NEPs/pull/71
+                return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
+                    account_id: account_id.clone(),
                 }
+                .into());
             }
         }
         Action::Transfer(_) => {
-            if account.is_none() {
-                return check_transfer_to_nonexisting_account(
-                    config,
-                    account_id,
-                    implicit_account_creation_eligible,
-                );
+            let account_type = get_account_type(account_id, config);
+            if account.is_none() && !implicit_creation_allowed(account_type, receipt_shape) {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
         }
         Action::DeterministicStateInit(_) => {
-            // Existing and non existing is valid for DeterministicStateInit.
+            // Both existing and non-existing is valid for DeterministicStateInit.
             // Does not exist => The account will be created by the action.
             // Does exist => Nothing happens but the receipt is not aborted to
             // allow optional init before other actions.
+        }
+        Action::UniversalStateInit(_) => {
+            // A missing account is created by the action, an uninitialized one
+            // (funded by an earlier transfer) gets its state installed, and an
+            // initialized one is left untouched.
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
@@ -828,8 +871,17 @@ pub(crate) fn check_account_existence(
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
         | Action::WithdrawFromGasKey(_) => {
-            if account.is_none() {
+            let Some(account) = account else {
                 return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            };
+            // An uninitialized `0u` account has no access keys, code or data, so
+            // for everything but its own state init and a transfer it is as good
+            // as absent.
+            if !account.is_initialized() {
+                return Err(ActionErrorKind::AccountNotInitialized {
                     account_id: account_id.clone(),
                 }
                 .into());
@@ -839,25 +891,58 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
-fn check_transfer_to_nonexisting_account(
-    config: &RuntimeConfig,
-    account_id: &AccountId,
-    implicit_account_creation_eligible: bool,
-) -> Result<(), ActionError> {
-    if implicit_account_creation_eligible
-        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
-    {
-        // OK. It's implicit account creation.
-        // Notes:
-        // - Transfer action has to be the only action in the transaction to avoid
-        // abuse by hijacking this account with other public keys or contracts.
-        // - Refunds don't automatically create accounts, because refunds are free and
-        // we don't want some type of abuse.
-        // - Account deletion with beneficiary creates a refund, so it'll not create a
-        // new account.
-        Ok(())
-    } else {
-        Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+/// As which account type should this `account_id` be treated, given the
+/// flags in `config`. This exists because support for new account types
+/// is added via config flags and depends on protocol version. This should
+/// be used instead of raw `AccountId::get_account_type` to avoid implicit
+/// protocol upgrade.
+fn get_account_type(account_id: &AccountId, config: &RuntimeConfig) -> AccountType {
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => AccountType::NamedAccount,
+        AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
+        AccountType::EthImplicitAccount => {
+            if config.wasm_config.eth_implicit_accounts {
+                AccountType::EthImplicitAccount
+            } else {
+                AccountType::NamedAccount
+            }
+        }
+        // Deterministic accounts have no separate flag and re-use `eth_implicit_accounts`
+        AccountType::NearDeterministicAccount => {
+            if config.wasm_config.eth_implicit_accounts {
+                AccountType::NearDeterministicAccount
+            } else {
+                AccountType::NamedAccount
+            }
+        }
+        AccountType::UniversalAccount => {
+            if config.wasm_config.universal_accounts {
+                AccountType::UniversalAccount
+            } else {
+                AccountType::NamedAccount
+            }
+        }
+    }
+}
+
+/// Whether a transfer to an account that does not exist yet may create it.
+fn implicit_creation_allowed(account_type: AccountType, receipt_shape: ReceiptShape) -> bool {
+    let ReceiptShape { is_refund, is_the_only_action } = receipt_shape;
+    if is_refund {
+        return false; // Refund can never create an account
+    }
+
+    match account_type {
+        // Named accounts can never be implicitly created by transfer
+        AccountType::NamedAccount => false,
+        // Near-implicit, Eth-implicit, and deterministic accounts can only be created
+        // if transfer is the only action, to avoid account hijacking.
+        AccountType::NearImplicitAccount
+        | AccountType::EthImplicitAccount
+        | AccountType::NearDeterministicAccount => is_the_only_action,
+        // Universal account creation does NOT require transfer to be the only action.
+        // It cannot be hijacked by other actions batched with the transfer.
+        AccountType::UniversalAccount => true,
     }
 }
 
@@ -867,23 +952,42 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
+        VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    };
+    use near_primitives::action::{
+        AddKeyAction, DeleteKeyAction, DeployGlobalContractAction, GlobalContractDeployMode,
+        GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+        UseGlobalContractAction, WithdrawFromGasKeyAction,
     };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
+    use near_primitives::types::Nonce;
+    use near_primitives::universal_account_id::encode_universal_account_id;
+    use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
     const TEST_GAS_KEY_NUM_NONCES: u16 = 1;
+    /// Seed for an uninitialized account's pre-key nonce; its value is
+    /// irrelevant to these tests, which never check a nonce.
+    const TEST_BOOTSTRAP_NONCE: Nonce = 1_000_000;
+    /// The receipt shape `check_account_existence` is called with below. Only
+    /// the transfer-to-a-nonexistent-account path reads it, and none of these
+    /// tests take it.
+    const TEST_RECEIPT_SHAPE: ReceiptShape =
+        ReceiptShape { is_refund: false, is_the_only_action: false };
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -1470,7 +1574,7 @@ mod tests {
                 &mut None,
                 &sender_id,
                 &RuntimeConfig::test(),
-                false,
+                TEST_RECEIPT_SHAPE,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );
@@ -2196,5 +2300,324 @@ mod tests {
             )
             .into())
         );
+    }
+
+    fn account_id() -> AccountId {
+        // cspell:disable-next-line
+        "0u4bwt6zbknvvcyzmfnfhitcfzatxtthkbzdcm4zwezyf7zwe6pnc4c".parse().unwrap()
+    }
+
+    fn public_key() -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn signed_delegate_action() -> SignedDelegateAction {
+        SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: account_id(),
+                receiver_id: account_id(),
+                actions: vec![
+                    NonDelegateAction::try_from(Action::Transfer(TransferAction {
+                        deposit: Balance::from_yoctonear(1),
+                    }))
+                    .unwrap(),
+                ],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: public_key(),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }
+    }
+
+    /// Every action that needs a set-up account, i.e. the arm of
+    /// `check_account_existence` that rejects a missing one.
+    fn actions_requiring_an_account() -> Vec<Action> {
+        vec![
+            Action::DeployContract(DeployContractAction { code: vec![] }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "foo".to_string(),
+                args: vec![],
+                gas: Gas::from_teragas(1),
+                deposit: Balance::ZERO,
+            })),
+            Action::Stake(Box::new(StakeAction {
+                stake: Balance::from_yoctonear(1),
+                public_key: public_key(),
+            })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key() })),
+            Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id: "bob.near".parse().unwrap(),
+            }),
+            Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: vec![].into(),
+                deploy_mode: GlobalContractDeployMode::CodeHash,
+            }),
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+            })),
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: public_key(),
+                deposit: Balance::from_yoctonear(1),
+            })),
+            Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+                public_key: public_key(),
+                amount: Balance::from_yoctonear(1),
+            })),
+            // Meta-transactions: a delegate whose sender is an uninitialized
+            // account is stopped here, before `validate_delegate_action_key`
+            // would look for a key it does not have. Gasless self-init through a
+            // delegate is an explicit non-goal, so this pins it shut.
+            Action::Delegate(Box::new(signed_delegate_action())),
+            Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                delegate_action: VersionedDelegateActionPayload::V2(DelegateActionV2 {
+                    sender_id: account_id(),
+                    receiver_id: account_id(),
+                    actions: vec![],
+                    nonce: TransactionNonce::from_nonce(1),
+                    max_block_height: 1000,
+                    public_key: public_key(),
+                }),
+                signature: Signature::empty(KeyType::ED25519),
+            })),
+        ]
+    }
+
+    /// An uninitialized account has no access keys, code or data, so for
+    /// anything but its own state init and a transfer it is as good as absent.
+    #[test]
+    fn uninitialized_account_rejects_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
+        let expected: Result<(), ActionError> =
+            Err(ActionErrorKind::AccountNotInitialized { account_id: account_id.clone() }.into());
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &uninitialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                expected,
+                "expected rejection for {action:?}",
+            );
+        }
+    }
+
+    /// The same actions are fine once the state is installed. Guards against the
+    /// check rejecting more than the uninitialized case.
+    #[test]
+    fn initialized_account_accepts_actions_needing_state() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let initialized =
+            Some(Account::new(Balance::from_near(1), Balance::ZERO, AccountContract::None, 100));
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &initialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+    }
+
+    /// A missing account still reports `AccountDoesNotExist`, so the new variant
+    /// does not swallow the pre-existing case.
+    #[test]
+    fn missing_account_still_reports_does_not_exist() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+
+        for action in actions_requiring_an_account() {
+            assert_eq!(
+                check_account_existence(&action, &None, &account_id, &config, TEST_RECEIPT_SHAPE),
+                Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into()),
+                "expected AccountDoesNotExist for {action:?}",
+            );
+        }
+    }
+
+    /// The actions an uninitialized account must still accept: the state init that
+    /// sets it up, and a transfer that funds it further. A deterministic state init
+    /// passes the check too, but its receiver is pinned to a `0s` id, so it cannot
+    /// reach an uninitialized account.
+    #[test]
+    fn uninitialized_account_accepts_state_init_and_transfer() {
+        let account_id = account_id();
+        let config = RuntimeConfig::test();
+        let uninitialized =
+            Some(Account::new_uninitialized(Balance::from_near(1), 100, TEST_BOOTSTRAP_NONCE));
+
+        let state_init = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: RawStateInit(vec![]),
+            deposit: Balance::ZERO,
+        }));
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+
+        for action in [state_init, transfer] {
+            assert_eq!(
+                check_account_existence(
+                    &action,
+                    &uninitialized,
+                    &account_id,
+                    &config,
+                    TEST_RECEIPT_SHAPE
+                ),
+                Ok(()),
+                "expected acceptance for {action:?}",
+            );
+        }
+
+        // Creating it again is still the pre-existing "already exists", not the new error.
+        assert_eq!(
+            check_account_existence(
+                &Action::CreateAccount(CreateAccountAction {}),
+                &uninitialized,
+                &account_id,
+                &config,
+                TEST_RECEIPT_SHAPE,
+            ),
+            Err(ActionErrorKind::AccountAlreadyExists { account_id }.into())
+        );
+    }
+
+    fn config_with(eth_implicit_accounts: bool, universal_accounts: bool) -> RuntimeConfig {
+        let mut config = RuntimeConfig::test();
+        let wasm_config = Arc::make_mut(&mut config.wasm_config);
+        wasm_config.eth_implicit_accounts = eth_implicit_accounts;
+        wasm_config.universal_accounts = universal_accounts;
+        config
+    }
+
+    /// `get_account_type` decides which rules an id is judged by, so every kind
+    /// and every flag that gates one is pinned here. Reading as `NamedAccount`
+    /// while the flag is off is the whole point: it is what stops a kind from
+    /// coming into being before the protocol version that introduces it.
+    #[test]
+    fn test_get_account_type_follows_the_config_flags() {
+        let named: AccountId = "alice.near".parse().unwrap();
+        let near_implicit: AccountId = "ab".repeat(32).parse().unwrap();
+        let eth: AccountId = format!("0x{}", "ab".repeat(20)).parse().unwrap();
+        let deterministic: AccountId = format!("0s{}", "ab".repeat(20)).parse().unwrap();
+        let universal = encode_universal_account_id(&[0x33; 32]);
+
+        let cases = [
+            (&named, false, false, AccountType::NamedAccount),
+            (&named, true, true, AccountType::NamedAccount),
+            // NEAR-implicit accounts predate the flags and have none of their own.
+            (&near_implicit, false, false, AccountType::NearImplicitAccount),
+            (&near_implicit, true, true, AccountType::NearImplicitAccount),
+            (&eth, true, false, AccountType::EthImplicitAccount),
+            (&eth, false, true, AccountType::NamedAccount),
+            // A deterministic account has no flag of its own and rides the eth one.
+            (&deterministic, true, false, AccountType::NearDeterministicAccount),
+            (&deterministic, false, true, AccountType::NamedAccount),
+            (&universal, false, true, AccountType::UniversalAccount),
+            (&universal, true, false, AccountType::NamedAccount),
+        ];
+
+        for (account_id, eth_implicit_accounts, universal_accounts, expected) in cases {
+            let config = config_with(eth_implicit_accounts, universal_accounts);
+            assert_eq!(
+                get_account_type(account_id, &config),
+                expected,
+                "{account_id} with eth_implicit_accounts={eth_implicit_accounts}, \
+                 universal_accounts={universal_accounts}"
+            );
+        }
+    }
+
+    /// The transfer arm has to judge a `0u` id by the config-aware type, not the
+    /// raw one: with the flag off the id reads as a named account and a transfer
+    /// creates nothing. Reading it raw would instead admit the transfer and hand
+    /// it to `action_implicit_account_creation_transfer`, whose `must be implicit`
+    /// panic is unreachable only because of this check.
+    #[test]
+    fn transfer_to_missing_universal_account_follows_the_flag() {
+        let account_id = encode_universal_account_id(&[0x33; 32]);
+        let transfer = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+        let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
+
+        assert_eq!(
+            check_account_existence(
+                &transfer,
+                &None,
+                &account_id,
+                &config_with(true, false),
+                alone
+            ),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+        );
+        assert_eq!(
+            check_account_existence(&transfer, &None, &account_id, &config_with(true, true), alone),
+            Ok(())
+        );
+    }
+
+    /// Every path through `implicit_creation_allowed`: a refund creates nothing
+    /// whatever it is addressed to, a named id is never created by a transfer,
+    /// the three older implicit kinds need the transfer to be the whole receipt,
+    /// and a `0u` id is the one exception to that.
+    #[test]
+    fn test_implicit_creation_allowed() {
+        const ALL: [AccountType; 5] = [
+            AccountType::NamedAccount,
+            AccountType::NearImplicitAccount,
+            AccountType::EthImplicitAccount,
+            AccountType::NearDeterministicAccount,
+            AccountType::UniversalAccount,
+        ];
+        let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
+        let batched = ReceiptShape { is_refund: false, is_the_only_action: false };
+        let refund = ReceiptShape { is_refund: true, is_the_only_action: true };
+
+        // Refunds are free, and account deletion with a beneficiary makes one, so
+        // no kind may be created by one however lonely the transfer is.
+        for account_type in ALL {
+            assert!(
+                !implicit_creation_allowed(account_type, refund),
+                "{account_type:?} must not be created by a refund"
+            );
+        }
+
+        // A name has to be claimed by whoever is entitled to it.
+        assert!(!implicit_creation_allowed(AccountType::NamedAccount, alone));
+        assert!(!implicit_creation_allowed(AccountType::NamedAccount, batched));
+
+        // These are usable the moment they exist, so a batch could take one over.
+        for account_type in [
+            AccountType::NearImplicitAccount,
+            AccountType::EthImplicitAccount,
+            AccountType::NearDeterministicAccount,
+        ] {
+            assert!(
+                implicit_creation_allowed(account_type, alone),
+                "{account_type:?} must be created by a transfer of its own"
+            );
+            assert!(
+                !implicit_creation_allowed(account_type, batched),
+                "{account_type:?} must not be created by a batched transfer"
+            );
+        }
+
+        // A `0u` id commits to its own state init, so a batch cannot take it over.
+        assert!(implicit_creation_allowed(AccountType::UniversalAccount, alone));
+        assert!(implicit_creation_allowed(AccountType::UniversalAccount, batched));
     }
 }

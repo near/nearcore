@@ -433,6 +433,15 @@
         "title": "AccountInfo",
         "type": "object"
       },
+      "AccountState": {
+        "description": "Whether an account's state has been installed.\n\nOnly universal accounts can be uninitialized: they come into existence when\na transfer funds a `0u` id whose state init has not been applied yet. A\ndeterministic `0s` account waiting for its state init is an ordinary V1\naccount with no contract, not this.",
+        "enum": [
+          "initialized",
+          "uninitialized"
+        ],
+        "title": "AccountState",
+        "type": "string"
+      },
       "AccountWithPublicKey": {
         "description": "Account ID with its public key.",
         "properties": {
@@ -1256,6 +1265,57 @@
             ],
             "title": "TotalPromiseInputSizeExceeded",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receipt recorded more storage proof than\n`per_receipt_storage_proof_size_limit` allows.",
+            "properties": {
+              "ReceiptStorageProofSizeExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ReceiptStorageProofSizeExceeded"
+            ],
+            "title": "ReceiptStorageProofSizeExceeded",
+            "type": "object"
+          },
+          {
+            "const": "MalformedUniversalStateInit",
+            "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The action needs a set-up account, but the receiver is an uninitialized\nuniversal account. Distinct from `AccountDoesNotExist`: the account is\nthere, it just has no access keys, code or data yet.",
+            "properties": {
+              "AccountNotInitialized": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AccountNotInitialized"
+            ],
+            "title": "AccountNotInitialized",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -1652,6 +1712,31 @@
               "WithdrawFromGasKey"
             ],
             "title": "WithdrawFromGasKey",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "properties": {
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "state_init": {
+                    "$ref": "#/components/schemas/RawStateInit"
+                  }
+                },
+                "required": [
+                  "state_init",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
+            ],
+            "title": "UniversalStateInit",
             "type": "object"
           }
         ],
@@ -2131,6 +2216,130 @@
           {
             "const": "FunctionCallEmptyMethodName",
             "description": "The method name in a FunctionCall action must not be empty.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The receiver id of a `UniversalStateInit` action does not match the id\nderived from its state init.",
+            "properties": {
+              "InvalidUniversalStateInitReceiver": {
+                "properties": {
+                  "derived_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "receiver_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "receiver_id",
+                  "derived_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidUniversalStateInitReceiver"
+            ],
+            "title": "InvalidUniversalStateInitReceiver",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage key in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitKeyLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitKeyLengthExceeded"
+            ],
+            "title": "UniversalStateInitKeyLengthExceeded",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A storage value in a `UniversalStateInit` state init exceeds the limit.",
+            "properties": {
+              "UniversalStateInitValueLengthExceeded": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitValueLengthExceeded"
+            ],
+            "title": "UniversalStateInitValueLengthExceeded",
+            "type": "object"
+          },
+          {
+            "const": "MalformedUniversalStateInit",
+            "description": "The bytes in `RawStateInit` do not decode into `UniversalStateInit`.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The transaction includes a feature that was removed at or before the\ncurrent protocol version. The counterpart of\n`UnsupportedProtocolFeature`, which covers features not yet available.",
+            "properties": {
+              "RemovedProtocolFeature": {
+                "properties": {
+                  "protocol_feature": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "protocol_feature",
+                  "version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RemovedProtocolFeature"
+            ],
+            "title": "RemovedProtocolFeature",
+            "type": "object"
+          },
+          {
+            "const": "WithdrawFromGasKeyNotAllowedInDelegate",
+            "description": "A `WithdrawFromGasKey` action must not be nested inside a delegate action.",
             "type": "string"
           }
         ],
@@ -2760,6 +2969,80 @@
         "title": "ChunkDistributionUris",
         "type": "object"
       },
+      "ChunkExecutionProofView": {
+        "description": "Proof that a chunk's certified execution roots are committed by a spice block\nthat a light client can trust via its `light_client_head`.\n\n`roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;\n`certifying_block_proof` places the certifying block into the head's block merkle tree.",
+        "properties": {
+          "certifying_block_header_lite": {
+            "$ref": "#/components/schemas/LightClientBlockLiteView"
+          },
+          "certifying_block_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ChunkExecutionRoots"
+          },
+          "roots_proof": {
+            "items": {
+              "$ref": "#/components/schemas/MerklePathItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "roots",
+          "roots_proof",
+          "certifying_block_header_lite",
+          "certifying_block_proof"
+        ],
+        "title": "ChunkExecutionProofView",
+        "type": "object"
+      },
+      "ChunkExecutionRoots": {
+        "description": "Merkle leaf committing to a single chunk's certified execution roots.\nThe `chunk_execution_root` in a spice block header is the merkle root over\nthese leaves, sorted by `chunk_id`.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V1": {
+                "$ref": "#/components/schemas/ChunkExecutionRootsV1"
+              }
+            },
+            "required": [
+              "V1"
+            ],
+            "title": "V1",
+            "type": "object"
+          }
+        ],
+        "title": "ChunkExecutionRoots"
+      },
+      "ChunkExecutionRootsV1": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "outcome_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "outgoing_receipts_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "state_root": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "state_root",
+          "outcome_root",
+          "outgoing_receipts_root"
+        ],
+        "title": "ChunkExecutionRootsV1",
+        "type": "object"
+      },
       "ChunkHeaderView": {
         "description": "Contains main info about the chunk.",
         "properties": {
@@ -2898,6 +3181,18 @@
             "default": false,
             "description": "Determines whether block-related data should be written to cloud storage.",
             "type": "boolean"
+          },
+          "catch_up_throttle": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
+              }
+            ],
+            "default": {
+              "nanos": 100000000,
+              "secs": 1
+            },
+            "description": "Delay between consecutive batches while the writer is catching up, pacing\nhow fast it uploads to the storage backend."
           },
           "polling_interval": {
             "allOf": [
@@ -4424,6 +4719,22 @@
               }
             ],
             "description": "Cost per reading trie node from DB"
+          },
+          "universal_state_init_to_account_id_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Base cost of deriving a `0u` account id from a raw state init."
+          },
+          "universal_state_init_to_account_id_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Per byte of the raw state init."
           },
           "utf16_decoding_base": {
             "allOf": [
@@ -6184,7 +6495,7 @@
           },
           {
             "const": "DelegateActionRequiresNonGasKey",
-            "description": "Gas keys track nonces per index in dedicated storage, which a plain\naccess key nonce does not select, so a gas key must sign a `DelegateV2`\nwith a gas key nonce instead.",
+            "description": "A plain access key nonce does not select one of the gas key's nonces.\n`DelegateV2` was intended to carry a gas key nonce, however gas key\nmeta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.",
             "type": "string"
           },
           {
@@ -6973,6 +7284,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "min_contract_size_per_local": {
+            "description": "If present, requires at least this many bytes of contract code per local.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "per_receipt_storage_proof_size_limit": {
             "description": "Hard limit on the size of storage proof generated while executing a single receipt.",
             "format": "uint",
@@ -7339,6 +7659,19 @@
             ],
             "title": "WithdrawFromGasKey",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "UniversalStateInit": {
+                "$ref": "#/components/schemas/UniversalStateInitAction"
+              }
+            },
+            "required": [
+              "UniversalStateInit"
+            ],
+            "title": "UniversalStateInit",
+            "type": "object"
           }
         ],
         "title": "NonDelegateAction"
@@ -7589,6 +7922,11 @@
       },
       "PublicKeyHandle": {
         "title": "PublicKeyHandle",
+        "type": "string"
+      },
+      "RawStateInit": {
+        "description": "Raw bytes containing borsh-serialized `UniversalStateInit`.\n\nThis is the protocol's view of a state init, not a mere transport wrapper: the\naccount ID is SHA3-256 over exactly these bytes. The typed form is a decoded\n*view* of them, used to install the state and to price the action, and it is\nnever re-serialized to derive an ID. Two encodings of the same logical value\nare two different accounts, which is deliberate: canonical encoding cannot be\nenforced end to end anyway, since contracts serialize their own nested state\ninside the opaque storage values.\n\nIt also lets an immutable contract pass through a `UniversalStateInit` version it\npredates: the bytes travel verbatim, so a version added after the contract was\ncompiled still works.\n\nBorsh-serializing `RawStateInit` writes a 4-byte length prefix before the\nbytes, which is how the `UniversalStateInit` action carries it as a field;\nover serde the bytes are base64. Neither is what the account ID hashes: that\nis `self.0` alone, never `borsh::to_vec(self)`.",
+        "title": "RawStateInit",
         "type": "string"
       },
       "ReceiptEnumView": {
@@ -8260,6 +8598,17 @@
             ],
             "description": "Duration to check for producing / skipping block."
           },
+          "block_request_timeout": {
+            "description": "How long to wait for a state sync block request response",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
           "catchup_step_period": {
             "description": "Time between check to perform catchup.",
             "items": {
@@ -8611,17 +8960,6 @@
             ],
             "description": "Options for syncing state."
           },
-          "state_sync_external_timeout": {
-            "description": "How long to wait for a state sync block request response",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
           "state_sync_p2p_timeout": {
             "description": "How long to wait for a response from p2p state sync",
             "items": {
@@ -8891,6 +9229,106 @@
         "title": "RpcLightClientBlockProofResponse",
         "type": "object"
       },
+      "RpcLightClientChunkExecutionProofRequest": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "light_client_head"
+        ],
+        "title": "RpcLightClientChunkExecutionProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientChunkExecutionProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof"
+        ],
+        "title": "RpcLightClientChunkExecutionProofResponse",
+        "type": "object"
+      },
+      "RpcLightClientExecutionOutcomeProofRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "light_client_head": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "sender_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "transaction_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "type": {
+                "const": "transaction",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "transaction_hash",
+              "sender_id",
+              "light_client_head"
+            ],
+            "title": "Transaction",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "light_client_head": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "receipt_id": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "receiver_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "type": {
+                "const": "receipt",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "receipt_id",
+              "receiver_id",
+              "light_client_head"
+            ],
+            "title": "Receipt",
+            "type": "object"
+          }
+        ],
+        "title": "RpcLightClientExecutionOutcomeProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientExecutionOutcomeProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          },
+          "outcome_proof": {
+            "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof",
+          "outcome_proof"
+        ],
+        "title": "RpcLightClientExecutionOutcomeProofResponse",
+        "type": "object"
+      },
       "RpcLightClientExecutionProofRequest": {
         "oneOf": [
           {
@@ -9033,6 +9471,42 @@
           }
         },
         "title": "RpcLightClientNextBlockResponse",
+        "type": "object"
+      },
+      "RpcLightClientStateProofRequest": {
+        "properties": {
+          "chunk_id": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          },
+          "light_client_head": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "target": {
+            "$ref": "#/components/schemas/StateProofTarget"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "target",
+          "light_client_head"
+        ],
+        "title": "RpcLightClientStateProofRequest",
+        "type": "object"
+      },
+      "RpcLightClientStateProofResponse": {
+        "properties": {
+          "chunk_execution_proof": {
+            "$ref": "#/components/schemas/ChunkExecutionProofView"
+          },
+          "state_proof": {
+            "$ref": "#/components/schemas/StateProofView"
+          }
+        },
+        "required": [
+          "chunk_execution_proof",
+          "state_proof"
+        ],
+        "title": "RpcLightClientStateProofResponse",
         "type": "object"
       },
       "RpcMaintenanceWindowsRequest": {
@@ -10371,6 +10845,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bootstrap_nonce": {
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "code_hash": {
             "allOf": [
               {
@@ -10408,6 +10891,14 @@
               }
             ],
             "description": "Staked balance locked for validation, in yoctoNEAR."
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountState"
+              }
+            ],
+            "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -11238,6 +11729,23 @@
         "title": "SpiceChunkEndorsementStats",
         "type": "object"
       },
+      "SpiceChunkId": {
+        "description": "In spice missing chunks and equivalent to empty chunks so block hash and shard id always\nuniquely identifies chunks.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          }
+        },
+        "required": [
+          "block_hash",
+          "shard_id"
+        ],
+        "title": "SpiceChunkId",
+        "type": "object"
+      },
       "StakeAction": {
         "description": "An action which stakes signer_id tokens and setup's validator public key",
         "properties": {
@@ -11529,6 +12037,15 @@
                     ],
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
+                  "bootstrap_nonce": {
+                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "code_hash": {
                     "allOf": [
                       {
@@ -11566,6 +12083,14 @@
                       }
                     ],
                     "description": "Staked balance locked for validation, in yoctoNEAR."
+                  },
+                  "state": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountState"
+                      }
+                    ],
+                    "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
                   },
                   "storage_paid_at": {
                     "default": 0,
@@ -12008,6 +12533,114 @@
           "value"
         ],
         "title": "StateItem",
+        "type": "object"
+      },
+      "StateProofTarget": {
+        "description": "Which piece of a shard's state a light-client state proof targets.\n\nAn account that runs a global contract has no local code, so `LocalContractCode` is\nabsent for it. `Account::contract()` says which case applies.",
+        "oneOf": [
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "target_type": {
+                "const": "account",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id"
+            ],
+            "title": "Account",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "target_type": {
+                "const": "local_contract_code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id"
+            ],
+            "title": "LocalContractCode",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "key": {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              "target_type": {
+                "const": "contract_data",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id",
+              "key"
+            ],
+            "title": "ContractData",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "public_key": {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              "target_type": {
+                "const": "access_key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target_type",
+              "account_id",
+              "public_key"
+            ],
+            "title": "AccessKey",
+            "type": "object"
+          }
+        ],
+        "title": "StateProofTarget"
+      },
+      "StateProofView": {
+        "description": "A value read from a shard's state, with the trie nodes that prove it against the\nchunk's `state_root`. An absent `value` is proved the same way.",
+        "properties": {
+          "nodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StoreValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "StateProofView",
         "type": "object"
       },
       "StateSyncConfig": {
@@ -12576,6 +13209,23 @@
         ],
         "title": "TxExecutionStatus"
       },
+      "UniversalStateInitAction": {
+        "description": "Create a `0u` universal account from its state init. The receiver id must\nequal `derive_universal_account_id(state_init)`; the attached `deposit`\ncovers the new account's storage staking.\n\nThe state init travels as the bytes the producer serialized, because the\nreceiver id commits to exactly those bytes. The typed [`UniversalStateInit`]\nis a decoded view of them, used where the state has to be installed or priced.",
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "state_init": {
+            "$ref": "#/components/schemas/RawStateInit"
+          }
+        },
+        "required": [
+          "state_init",
+          "deposit"
+        ],
+        "title": "UniversalStateInitAction",
+        "type": "object"
+      },
       "UseGlobalContractAction": {
         "description": "Use global contract action",
         "properties": {
@@ -12690,6 +13340,10 @@
               }
             ],
             "description": "See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode)."
+          },
+          "universal_accounts": {
+            "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",
+            "type": "boolean"
           },
           "vm_kind": {
             "allOf": [
@@ -13984,6 +14638,7 @@
       ]
     },
     {
+      "deprecated": true,
       "name": "EXPERIMENTAL_tx_status",
       "paramStructure": "by-name",
       "params": [
@@ -14027,7 +14682,7 @@
           "$ref": "#/components/schemas/RpcTransactionResponse"
         }
       },
-      "summary": "Queries status of a transaction by hash (alias for tx)",
+      "summary": "Queries status of a transaction by hash including receipts (alias for tx_status)",
       "tags": [
         {
           "name": "transaction"
@@ -14126,6 +14781,146 @@
         }
       },
       "summary": "Returns block proof for light clients",
+      "tags": [
+        {
+          "name": "light_client"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_light_client_chunk_execution_proof",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "chunk_id",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          }
+        },
+        {
+          "name": "light_client_head",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcLightClientChunkExecutionProofResponse"
+        }
+      },
+      "summary": "Returns a proof of a chunk's certified execution roots for light clients",
+      "tags": [
+        {
+          "name": "light_client"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_light_client_execution_outcome_proof",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "light_client_head",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receipt_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "receiver_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "sender_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "transaction_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "type",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcLightClientExecutionOutcomeProofResponse"
+        }
+      },
+      "summary": "Returns an execution outcome and its proof against the chunk's certified outcome root",
+      "tags": [
+        {
+          "name": "light_client"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_light_client_state_proof",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "chunk_id",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/SpiceChunkId"
+          }
+        },
+        {
+          "name": "light_client_head",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "target",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/StateProofTarget"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcLightClientStateProofResponse"
+        }
+      },
+      "summary": "Returns a state value and its trie proof against the chunk's certified state root",
       "tags": [
         {
           "name": "light_client"
@@ -14691,6 +15486,57 @@
       "tags": [
         {
           "name": "validator"
+        }
+      ]
+    },
+    {
+      "name": "tx_status",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "sender_account_id",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/SignedTransaction"
+          }
+        },
+        {
+          "name": "tx_hash",
+          "required": false,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        {
+          "name": "wait_until",
+          "required": false,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxExecutionStatus"
+              }
+            ],
+            "default": "EXECUTED_OPTIMISTIC"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcTransactionResponse"
+        }
+      },
+      "summary": "Queries status of a transaction by hash including receipts",
+      "tags": [
+        {
+          "name": "transaction"
         }
       ]
     },

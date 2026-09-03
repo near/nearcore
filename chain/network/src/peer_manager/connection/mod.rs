@@ -164,11 +164,11 @@ pub(crate) struct PoolSnapshot {
     pub me: PeerId,
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
-    pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    pub ready: imbl::HashMap<PeerId, Arc<Connection>>,
     /// Index on `ready` by Connection.owned_account.account_key.
     /// We allow only 1 connection to a peer with the given account_key,
     /// as it is an invalid setup to have 2 nodes acting as the same validator.
-    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
+    pub ready_by_account_key: imbl::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -200,7 +200,7 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    pub outbound_handshakes: im::HashSet<PeerId>,
+    pub outbound_handshakes: imbl::HashSet<PeerId>,
     /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
     pub loop_inbound: Option<Arc<Connection>>,
 }
@@ -252,9 +252,9 @@ impl Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
             loop_inbound: None,
             me,
-            ready: im::HashMap::new(),
-            ready_by_account_key: im::HashMap::new(),
-            outbound_handshakes: im::HashSet::new(),
+            ready: imbl::HashMap::new(),
+            ready_by_account_key: imbl::HashMap::new(),
+            outbound_handshakes: imbl::HashSet::new(),
         })))
     }
 
@@ -363,14 +363,14 @@ impl Pool {
     pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|mut pool| {
             match pool.ready.entry(conn.peer_info.id.clone()) {
-                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                imbl::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
                     e.remove_entry();
                 }
                 _ => {}
             }
             if let Some(owned_account) = &conn.owned_account {
                 match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
-                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                    imbl::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
                         e.remove_entry();
                     }
                     _ => {}

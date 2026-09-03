@@ -5,6 +5,7 @@ use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::shards::ShardBatch;
 use borsh::BorshDeserialize;
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
@@ -78,6 +79,18 @@ impl CloudStorage {
         self.retrieve(&file_id).await
     }
 
+    /// Returns one part of a state snapshot from external storage.
+    pub async fn retrieve_state_part(
+        &self,
+        epoch_height: EpochHeight,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+        part_id: StatePartId,
+    ) -> Result<StatePart, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id);
+        self.retrieve(&file_id).await
+    }
+
     pub(super) async fn retrieve_epoch_data(
         &self,
         epoch_id: EpochId,
@@ -144,7 +157,7 @@ impl CloudStorage {
     async fn download(&self, file_id: &CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
         let path = self.file_path(file_id);
         self.external
-            .get(&path)
+            .get_authenticated(&path)
             .await
             .map_err(|error| CloudRetrievalError::GetError { file_id: file_id.clone(), error })
     }

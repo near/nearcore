@@ -25,7 +25,7 @@ node_config = {"tracked_shards_config": "AllShards"}
 
 
 def deploy_contract(node, config):
-    hash_ = node.get_latest_block().hash_bytes
+    hash_ = node.get_final_block_id().hash_bytes
     test_contract = utils.load_test_contract(config=config)
     tx = sign_deploy_contract_tx(node.signer_key, test_contract, 10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
@@ -37,7 +37,7 @@ def send_some_tx(node):
     nonce = node.get_nonce_for_pk(node.signer_key.account_id,
                                   node.signer_key.pk) + 10
     for i in range(10):
-        hash_ = node.get_latest_block().hash_bytes
+        hash_ = node.get_final_block_id().hash_bytes
         keyvalue = bytearray(16)
         keyvalue[0] = (nonce // 10) % 256
         keyvalue[8] = (nonce // 10) % 255
@@ -62,7 +62,7 @@ def unstake_and_stake(node, tx_sender_node):
     nonce = tx_sender_node.get_nonce_for_pk(node.signer_key.account_id,
                                             node.signer_key.pk) + 10
 
-    hash_ = tx_sender_node.get_latest_block().hash_bytes
+    hash_ = tx_sender_node.get_final_block_id().hash_bytes
     tx = sign_staking_tx(node.signer_key, node.validator_key, 0, nonce, hash_)
 
     nonce += 10
@@ -72,7 +72,7 @@ def unstake_and_stake(node, tx_sender_node):
     utils.wait_for_blocks(tx_sender_node, count=EPOCH_LENGTH * 2)
 
     logging.info(f'Restaking {node.signer_key.account_id}...')
-    hash_ = tx_sender_node.get_latest_block().hash_bytes
+    hash_ = tx_sender_node.get_final_block_id().hash_bytes
     tx = sign_staking_tx(node.signer_key, node.validator_key, full_balance // 2,
                          nonce, hash_)
     nonce += 10

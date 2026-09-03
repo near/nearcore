@@ -11,7 +11,8 @@ use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{
-    get_block_shard_id, get_contract_accesses_key, get_witnesses_key, index_to_bytes,
+    get_block_shard_id, get_contract_accesses_key, get_spice_invalid_chunk_key, get_witnesses_key,
+    index_to_bytes,
 };
 use std::collections::HashSet;
 use std::io;
@@ -70,8 +71,16 @@ impl ChunkStoreAdapter {
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    pub fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
-        self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref())
+    pub fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>> {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return None;
+        }
+        let key = get_spice_invalid_chunk_key(height_created, chunk_hash);
+        self.store.get_ser(DBCol::spice_invalid_chunks(), &key)
     }
 
     /// Information from applying chunk.

@@ -31,7 +31,7 @@ use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
     SpiceContractCodeResponseMessage, SpiceDataDistributorSenderForNetwork,
-    SpiceIncomingPartialData, SpicePartialDataRequestMessage,
+    SpiceDataRequestMessage, SpiceIncomingPartialData,
 };
 use crate::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -90,9 +90,6 @@ pub(crate) const PENDING_TIER3_REQUEST_TIMEOUT: time::Duration = time::Duration:
 /// Number of permits in the incoming semaphore - set to 1GB, meaning that neard will handle at most
 /// 1GB of incoming messages at the same time.
 pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
-
-/// Size of the semaphore which limits outgoing messages.
-pub(crate) const OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 1024 * 1024 * 1024;
 
 /// Number of bytes reserved for the epoch sync response
 pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
@@ -349,7 +346,7 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             pending_tier3_requests: DashMap::new(),
             outgoing_queue_limiter: OutgoingQueueLimiter::new(
-                OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
+                config.outgoing_queue_limiter_capacity_bytes,
             ),
             whitelist_nodes,
             set_chain_info_mutex: Mutex::new(()),
@@ -981,9 +978,9 @@ impl NetworkState {
                         .send(SpiceChunkEndorsementMessage(endorsement, recv_permit));
                     None
                 }
-                T1MessageBody::SpicePartialDataRequest(request) => {
+                T1MessageBody::SpiceDataRequest(request) => {
                     self.spice_data_distributor_adapter
-                        .send(SpicePartialDataRequestMessage { request, recv_permit });
+                        .send(SpiceDataRequestMessage { request, recv_permit });
                     None
                 }
                 T1MessageBody::SpiceChunkContractAccesses(accesses) => {
@@ -1077,7 +1074,7 @@ impl NetworkState {
                         body: Tier3RequestBody::StatePart(StatePartRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
-                            part_id: request.part_id,
+                            part_idx: request.part_idx,
                         }),
                         recv_permit,
                     });
@@ -1242,10 +1239,10 @@ impl NetworkState {
                     .await;
                 response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
             }
-            PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
                 let response = self
                     .state_request_adapter
-                    .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_idx })
                     .await;
                 response.ok().flatten().map(|r| PeerMessage::VersionedStateResponse(*r.0))
             }
@@ -1276,7 +1273,7 @@ impl NetworkState {
                 } else {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
                         .inc_msg_type("EpochSyncResponse");
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "network",
                         %peer_id,
                         "outgoing queue saturated; dropping epoch sync request",

@@ -10,7 +10,7 @@ use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -209,7 +209,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError> {
+    ) -> Result<Vec<PublicKeyHandle>, ChainError> {
         let mut ret = Vec::new();
         let mut after_key = None;
         loop {
@@ -230,11 +230,7 @@ impl crate::ChainAccess for ChainAccess {
             };
             for k in l.keys {
                 if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                    // TODO(post-quantum): Mirror does not support ML-DSA-65
-                    // hash-form entries; skip them silently.
-                    if let Some(pk) = k.public_key.full_pubkey() {
-                        ret.push(pk);
-                    }
+                    ret.push(k.public_key);
                 }
             }
             match l.last_key {

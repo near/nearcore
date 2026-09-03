@@ -1,4 +1,5 @@
 use crate::delayed_receipts::DelayedReceiptTracker;
+use crate::metrics::{self, Phase, SCAN_PROGRESS_INTERVAL, ShardMetrics, ShardPhase};
 use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -7,7 +8,7 @@ use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_mirror::key_mapping::{map_account, map_key};
+use near_mirror::key_mapping::{map_account, map_key_handle};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
 use near_parameters::RuntimeConfig;
@@ -53,6 +54,13 @@ use strum::IntoEnumIterator;
 ///
 /// If something goes wrong, use the sub-command reset and start over.
 pub struct ForkNetworkCommand {
+    /// `host:port` to serve fork-network Prometheus metrics on. `/metrics` is the only route.
+    /// Defaults to the port `neard run` serves metrics on, which existing scrapers already
+    /// target, so a forked-state build needs no scraper change. Pass an empty string to
+    /// disable. Failing to bind is logged and does not fail the command.
+    #[arg(long, global = true, default_value = "0.0.0.0:3030")]
+    prometheus_addr: String,
+
     #[clap(subcommand)]
     command: SubCommand,
 }
@@ -60,11 +68,10 @@ pub struct ForkNetworkCommand {
 #[derive(clap::Subcommand)]
 enum SubCommand {
     /// Prepares the DB for doing the modifications:
-    /// * Makes a snapshot.
+    /// * Makes a snapshot, unless `--no-snapshot` is given.
     /// * Finds and persists state roots.
     Init(InitCmd),
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
     AmendAccessKeys(AmendAccessKeysCmd),
 
@@ -90,6 +97,17 @@ struct InitCmd {
     /// Shard layout protocol version. If given, the shard layout from the given protocol version will be used to generate the forked genesis state
     #[arg(short = 'p', long)]
     pub shard_layout_protocol_version: Option<ProtocolVersion>,
+    /// Skip the `data/fork-snapshot` checkpoint this command normally makes.
+    ///
+    /// The snapshot buys one thing: `fork-network reset` can roll the DB back to this point.
+    /// Nothing else reads it. It is a hard-link checkpoint, so it starts free and then grows
+    /// as `amend-access-keys` modifies the DB.
+    ///
+    /// So it is disk traded for iteration speed. Keep it when working locally, or on a large
+    /// state, where `reset` is far quicker than rebuilding the DB from its source. Skip it in
+    /// automation, which rebuilds from the source image anyway and never resets.
+    #[arg(long)]
+    pub no_snapshot: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -251,8 +269,17 @@ impl ForkNetworkCommand {
         .await
         .global();
 
+        // Start serving metrics before doing any work: the whole point is watching a run that
+        // may get stuck, and an endpoint that appears after the stage that hangs is useless.
+        metrics::init();
+        crate::metrics_server::spawn(&self.prometheus_addr);
+
         match &self.command {
-            SubCommand::Init(InitCmd { shard_layout_file, shard_layout_protocol_version }) => {
+            SubCommand::Init(InitCmd {
+                shard_layout_file,
+                shard_layout_protocol_version,
+                no_snapshot,
+            }) => {
                 let shard_layout_override = {
                     if let Some(file) = shard_layout_file {
                         ShardLayoutOverride::UseShardLayoutFromFile(file.clone())
@@ -262,7 +289,7 @@ impl ForkNetworkCommand {
                         ShardLayoutOverride::NoOverride
                     }
                 };
-                self.init(near_config, home_dir, &shard_layout_override)?;
+                self.init(near_config, home_dir, &shard_layout_override, *no_snapshot)?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
@@ -297,7 +324,14 @@ impl ForkNetworkCommand {
                 self.reset(near_config, home_dir)?;
             }
         };
+        metrics::set_phase(Phase::Done);
         Ok(())
+    }
+
+    fn fork_snapshot_path(near_config: &NearConfig, home_dir: &Path) -> PathBuf {
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
+        store_path.join("fork-snapshot")
     }
 
     /// Checks if a DB snapshot exists.
@@ -308,15 +342,14 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path = home_dir
-            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
-        let fork_snapshot_path = store_path.join("fork-snapshot");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
             tracing::info!(?fork_snapshot_path, "found a DB snapshot");
             Ok(false)
         } else {
             tracing::info!(destination = ?fork_snapshot_path, "creating snapshot of original DB");
+            metrics::set_phase(Phase::Snapshot);
             // checkpointing only hot storage, because cold storage will not be changed
             checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
             Ok(true)
@@ -331,11 +364,31 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
-        assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        if no_snapshot {
+            let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir);
+            if fork_snapshot_path.is_dir() {
+                tracing::warn!(
+                    ?fork_snapshot_path,
+                    "--no-snapshot was given, but a snapshot from an earlier run is still here. \
+                     No new one is made, yet this one keeps hard-linking SSTs, so it will pin \
+                     every file compaction retires during amend-access-keys. `fork-network \
+                     reset` does still work. Delete it to free that space."
+                );
+            } else {
+                tracing::warn!(
+                    "skipping the fork snapshot as requested; `fork-network reset` will not be \
+                     available for this DB and rolling back means rebuilding it from its source"
+                );
+            }
+        } else {
+            assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+        }
+        metrics::set_phase(Phase::WriteForkInfo);
 
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
@@ -424,14 +477,16 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
         shard_layout_override: &ShardLayoutOverride,
+        no_snapshot: bool,
     ) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir, shard_layout_override)?;
+        self.write_fork_info(near_config, home_dir, shard_layout_override, no_snapshot)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
                 unwanted_cols.push(col);
             }
         }
+        metrics::set_phase(Phase::ClearColumns);
         near_store::clear_columns(
             home_dir,
             &near_config.config.store,
@@ -443,7 +498,6 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
-    /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
     fn amend_access_keys(
         &self,
@@ -480,6 +534,7 @@ impl ForkNetworkCommand {
             StateSnapshotConfig::Disabled,
         )
         .context("could not create the transaction runtime")?;
+        metrics::set_phase(Phase::LoadMemtries);
         runtime.get_tries().load_memtries_for_enabled_shards(&all_shard_uids, None, true)?;
 
         let shard_tries = runtime.get_tries();
@@ -651,6 +706,7 @@ impl ForkNetworkCommand {
             original_genesis_config,
             genesis_file,
             epoch_config,
+            target_shard_layout,
             new_state_roots,
             new_validator_accounts,
         )
@@ -733,7 +789,12 @@ impl ForkNetworkCommand {
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
         genesis.config.chain_id.clone_from(chain_id);
-        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
+        initialize_sharded_genesis_state(
+            store.clone(),
+            &genesis,
+            target_shard_layout,
+            Some(home_dir),
+        );
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();
 
@@ -794,6 +855,7 @@ impl ForkNetworkCommand {
             genesis.config,
             near_config.config.genesis_file.clone(),
             epoch_config,
+            target_shard_layout.clone(),
             state_roots.clone(),
             validators,
         )?;
@@ -903,10 +965,11 @@ impl ForkNetworkCommand {
         let store_path = home_dir
             .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
-        let fork_snapshot_path = store_path.join("fork-snapshot/data");
+        let fork_snapshot_path = Self::fork_snapshot_path(near_config, home_dir).join("data");
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
+        metrics::set_phase(Phase::Reset);
         tracing::info!("removing all current data");
         for entry in std::fs::read_dir(&store_path)? {
             let entry = entry?;
@@ -954,11 +1017,20 @@ impl ForkNetworkCommand {
                 config.num_chunk_validator_seats = *num_seats;
             }
             if let Some(shard_layout) = shard_layout_override {
-                // fork-network writes a static-layout genesis, so apply the requested shard
-                // layout whether the base (mainnet) config is static or dynamic. The base is
-                // dynamic since resharding stabilized; otherwise make_and_write_genesis fails.
-                config.shard_layout_config =
-                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                // Only pin versions that already had a static layout. Once dynamic resharding is
+                // enabled the layout comes from EpochInfo, and forcing it static here would
+                // disable resharding on the fork -- which is one of the things a fork exists to
+                // exercise.
+                if config.shard_layout_config.static_shard_layout().is_some() {
+                    config.shard_layout_config =
+                        ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                } else {
+                    tracing::warn!(
+                        target: "near", version,
+                        "shard layout override ignored: this protocol version uses dynamic \
+                         resharding, so the layout is determined per-epoch rather than by config"
+                    );
+                }
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -998,15 +1070,38 @@ impl ForkNetworkCommand {
         let mut receipts_tracker =
             DelayedReceiptTracker::new(shard_uid, target_shard_layout.shard_ids().count());
 
+        let shard_metrics = ShardMetrics::new(shard_uid);
+        shard_metrics.set_phase(ShardPhase::Pass1);
+        let scan = shard_metrics.pass1();
+
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut ref_keys_retrieved = 0;
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
+        let mut keys_scanned: u64 = 0;
 
         for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            keys_scanned += 1;
+            scan.key_scanned();
+            if keys_scanned.is_multiple_of(SCAN_PROGRESS_INTERVAL) {
+                let position = scan.report_position(keys_scanned, &key);
+                tracing::info!(
+                    ?shard_uid,
+                    keys_scanned,
+                    position,
+                    // Which trie column the scan is in. `position` alone is misleading here:
+                    // ContractData dwarfs every other column, so pass 1 sits around 0.4 for
+                    // hours and reads as stuck. The column moving is the honest progress.
+                    column = key.first().copied().unwrap_or_default(),
+                    ref_keys_retrieved,
+                    records_parsed,
+                    "pass 1 scanning"
+                );
+            }
             let (key, value) = match flat_value {
                 FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
+                    shard_metrics.ref_value_retrieved();
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
                 FlatStateValue::Inlined(value) => (key, value),
@@ -1021,19 +1116,13 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        // TODO(post-quantum): fork-network does not support ML-DSA-65 yet -
-                        // skip hash-form entries since we lack the full
-                        // pubkey needed for key_mapping.
-                        let Some(full_pk) = public_key.full_pubkey() else {
-                            continue;
-                        };
-                        let replacement = map_key(&full_pk, None);
+                        let replacement = map_key_handle(&public_key, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
-                        storage_mutator.remove_access_key(shard_uid, account_id, full_pk)?;
+                        storage_mutator.remove_access_key(shard_uid, account_id, public_key)?;
                         storage_mutator.set_access_key(
                             new_shard_idx,
                             new_account_id,
@@ -1047,19 +1136,14 @@ impl ForkNetworkCommand {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        // TODO(post-quantum): same skip as the AccessKey arm above for
-                        // hash-form ML-DSA-65 entries.
-                        let Some(full_pk) = public_key.full_pubkey() else {
-                            continue;
-                        };
-                        let replacement = map_key(&full_pk, None);
+                        let replacement = map_key_handle(&public_key, None);
                         let new_shard_id =
                             target_shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx =
                             target_shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator
-                            .remove_gas_key_nonce(shard_uid, account_id, full_pk, index)?;
+                            .remove_gas_key_nonce(shard_uid, account_id, public_key, index)?;
                         storage_mutator.set_gas_key_nonce(
                             new_shard_idx,
                             new_account_id,
@@ -1109,8 +1193,10 @@ impl ForkNetworkCommand {
                     }
                 }
                 records_parsed += 1;
+                shard_metrics.record_parsed();
             } else {
                 records_not_parsed += 1;
+                shard_metrics.record_not_parsed();
             }
             if storage_mutator.should_commit(batch_size) {
                 tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
@@ -1126,8 +1212,10 @@ impl ForkNetworkCommand {
             storage_mutator = make_storage_mutator(update_state.clone())?;
         }
 
+        scan.report_complete();
         tracing::info!(
             ?shard_uid,
+            keys_scanned,
             ref_keys_retrieved,
             records_parsed,
             records_not_parsed,
@@ -1139,10 +1227,29 @@ impl ForkNetworkCommand {
         // Remember that we kept track of accounts with full access keys in `has_full_key`.
         // Iterating over the whole flat state is very fast compared to writing all the updates.
         // TODO: Just remember what accounts we saw in the above iteration
+        // Pass 1 rewrote flat state as it went, so its key count is close to, but not exactly,
+        // what pass 2 will scan. It is still a far better denominator than a keyspace estimate.
+        shard_metrics.set_keys_expected(keys_scanned);
+        shard_metrics.set_phase(ShardPhase::Pass2);
+        let scan = shard_metrics.pass2(keys_scanned);
         let mut num_added = 0;
         let mut num_accounts = 0;
+        let mut keys_scanned: u64 = 0;
         for (key, _) in store.flat_store().iter(shard_uid) {
-            if key[0] == col::ACCOUNT {
+            keys_scanned += 1;
+            scan.key_scanned();
+            if keys_scanned.is_multiple_of(SCAN_PROGRESS_INTERVAL) {
+                let position = scan.report_position(keys_scanned, &key);
+                tracing::info!(
+                    ?shard_uid,
+                    keys_scanned,
+                    position,
+                    num_accounts,
+                    num_added,
+                    "pass 2 scanning"
+                );
+            }
+            if key.first() == Some(&col::ACCOUNT) {
                 num_accounts += 1;
                 let account_id = match parse_account_id_from_account_key(&key) {
                     Ok(account_id) => account_id,
@@ -1177,14 +1284,24 @@ impl ForkNetworkCommand {
                     AccessKey::full_access(),
                 )?;
                 num_added += 1;
+                shard_metrics.access_key_added();
                 if storage_mutator.should_commit(batch_size) {
+                    tracing::info!(
+                        ?shard_uid,
+                        keys_scanned,
+                        num_accounts,
+                        num_added,
+                        "pass 2 commit"
+                    );
                     storage_mutator.commit()?;
                     storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }
-        tracing::info!(?shard_uid, num_accounts, num_added, "pass 2 done");
+        scan.report_complete();
+        tracing::info!(?shard_uid, keys_scanned, num_accounts, num_added, "pass 2 done");
         storage_mutator.commit()?;
+        shard_metrics.set_phase(ShardPhase::Done);
         Ok(receipts_tracker)
     }
 
@@ -1227,6 +1344,8 @@ impl ForkNetworkCommand {
             &source_state_roots,
         )?;
 
+        metrics::init_shards(&shard_uids);
+        metrics::set_phase(Phase::PrepareState);
         // the try_fold().try_reduce() will give a Vec<> of the return values and return early if one fails
         let receipt_trackers = shard_uids
             .into_par_iter()
@@ -1260,6 +1379,7 @@ impl ForkNetworkCommand {
             &update_state,
         );
         let shard_tries = runtime.get_tries();
+        metrics::set_phase(Phase::BandwidthScheduler);
         crate::storage_mutator::write_bandwidth_scheduler_state(
             &shard_tries,
             &source_shard_layout,
@@ -1274,6 +1394,7 @@ impl ForkNetworkCommand {
             &target_shard_layout,
             &update_state,
         );
+        metrics::set_phase(Phase::DelayedReceipts);
         crate::delayed_receipts::write_delayed_receipts(
             &shard_tries,
             &update_state,
@@ -1282,6 +1403,7 @@ impl ForkNetworkCommand {
             &target_shard_layout,
             &default_key,
         )?;
+        metrics::set_phase(Phase::FinalizeState);
         crate::storage_mutator::finalize_state(
             &shard_tries,
             &source_shard_layout,
@@ -1590,12 +1712,12 @@ impl ForkNetworkCommand {
         original_config: GenesisConfig,
         genesis_file: String,
         epoch_config: EpochConfig,
+        // The layout the fork was built with. Passed in rather than read back out of
+        // `epoch_config`, which has no static layout once dynamic resharding is enabled.
+        shard_layout: ShardLayout,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config
-            .static_shard_layout()
-            .context("dynamic resharding epoch config is not supported")?;
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id,
             genesis_height: original_config.genesis_height,

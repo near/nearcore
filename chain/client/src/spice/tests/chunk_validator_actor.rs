@@ -40,8 +40,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::state_witness::compute_contract_accesses_hash;
-use near_primitives::spice::state_witness::{SpiceChunkStateTransition, SpiceChunkStateWitness};
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::MAX_CONTRACTS_PER_REQUEST;
 use near_primitives::stateless_validation::{
     ChunkProductionKey,
@@ -49,9 +49,7 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    Balance, ChunkExecutionResult, ChunkExecutionResultHash, ShardId, SpiceChunkId,
-};
+use near_primitives::types::{Balance, ChunkExecutionResult, ShardId, SpiceChunkId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter as _;
@@ -59,7 +57,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -96,7 +94,8 @@ fn test_valid_witness_adds_endorsement_to_core_state() {
     record_execution_results(&actor, &prev_block, starting_state_root);
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
-    let post_state_root = witness_message.witness.main_state_transition().post_state_root;
+    let (_, post_state_root) =
+        simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
 
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
     send_empty_contract_accesses(&mut actor, &block);
@@ -132,7 +131,8 @@ fn test_valid_witness_sends_endorsements() {
     record_execution_results(&actor, &prev_block, starting_state_root);
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
-    let post_state_root = witness_message.witness.main_state_transition().post_state_root;
+    let (_, post_state_root) =
+        simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
 
     assert_matches!(actor.network_rc.try_recv(), Err(TryRecvError::Empty));
     send_empty_contract_accesses(&mut actor, &block);
@@ -225,6 +225,33 @@ fn test_witness_arriving_before_block() {
     )
     .unwrap();
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_arriving_before_block_without_accesses_message() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let prev_block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let block = build_block(&actor.chain, &prev_block);
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+    actor.handle(witness_message.span_wrap());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+
+    process_block_sync(
+        &mut actor.chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    assert_no_contract_requests(&mut actor.network_rc);
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
@@ -367,17 +394,17 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
 
     let (spawner, tasks_rc) = FakeSpawner::new();
 
+    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        validator_signer.clone(),
         core_reader.clone(),
         noop().into_sender(),
         noop().into_sender(),
     )));
     let core_writer_sender =
         Sender::from_fn(move |message| core_writer_actor.write().handle(message));
-
-    let validator_signer = MutableConfigValue::new(Some(signer), "validator_signer");
     let mut actor = TestActor {
         actor: SpiceChunkValidatorActor::new(
             runtime.store().clone(),
@@ -512,7 +539,7 @@ fn simulate_chunk_application(
     block: &Block,
     prev_block: &Block,
     starting_state_root: &CryptoHash,
-) -> (SpiceChunkStateTransition, ChunkExecutionResultHash) {
+) -> (PartialState, CryptoHash) {
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
     let chunk_header = &chunks[0];
@@ -547,31 +574,15 @@ fn simulate_chunk_application(
         )
         .unwrap();
 
-    let chunk_extra = apply_result.to_chunk_extra(GAS_LIMIT);
-    let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
-        &shard_layout,
-        chunk_header.shard_id(),
-        apply_result.outgoing_receipts,
-    )
-    .unwrap();
-    let execution_result = ChunkExecutionResult { chunk_extra, outgoing_receipts_root };
-
-    (
-        SpiceChunkStateTransition {
-            base_state: apply_result.proof.unwrap().nodes,
-            post_state_root: apply_result.new_root,
-        },
-        execution_result.compute_hash(),
-    )
+    (apply_result.proof.unwrap().nodes, apply_result.new_root)
 }
 
 fn test_witness_message(
     block: &Block,
-    state_transition: SpiceChunkStateTransition,
-    chunk_execution_result_hash: ChunkExecutionResultHash,
+    pre_state: PartialState,
     receipt_proofs: HashMap<ShardId, ReceiptProof>,
     receipts_hash: CryptoHash,
-    contract_accesses_hash: CryptoHash,
+    contract_accesses: BTreeSet<CodeHash>,
 ) -> SpiceChunkStateWitnessMessage {
     let chunks = block.chunks();
     assert_eq!(chunks.len(), 1);
@@ -579,12 +590,11 @@ fn test_witness_message(
     let transactions = vec![];
     let witness = SpiceChunkStateWitness::new(
         SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
-        state_transition,
+        pre_state,
         receipt_proofs,
         receipts_hash,
         transactions,
-        chunk_execution_result_hash,
-        contract_accesses_hash,
+        contract_accesses,
         None,
     );
     let witness_size = borsh::object_length(&witness).unwrap();
@@ -613,18 +623,16 @@ fn valid_witness_message_with_accesses(
     starting_state_root: &CryptoHash,
     contract_accesses: &HashSet<CodeHash>,
 ) -> SpiceChunkStateWitnessMessage {
-    let (state_transition, execution_result_hash) =
+    let (state_transition, _post_state_root) =
         simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
     let receipt_proofs = test_receipt_proofs(&actor, &prev_block);
     let receipts_hash = hash(&borsh::to_vec(&TEST_RECEIPTS).unwrap());
-    let contract_accesses_hash = compute_contract_accesses_hash(contract_accesses);
     test_witness_message(
         &block,
         state_transition,
-        execution_result_hash,
         receipt_proofs,
         receipts_hash,
-        contract_accesses_hash,
+        contract_accesses.iter().cloned().collect(),
     )
 }
 
@@ -662,29 +670,22 @@ fn drain_contract_requests(
     requests
 }
 
+fn assert_no_contract_requests(network_rc: &mut UnboundedReceiver<PeerManagerMessageRequest>) {
+    assert_matches!(drain_contract_requests(network_rc).as_slice(), []);
+}
+
 fn invalid_witness_message(
     actor: &TestActor,
     block: &Block,
     prev_block: &Block,
     starting_state_root: &CryptoHash,
 ) -> SpiceChunkStateWitnessMessage {
-    let (state_transition, execution_result_hash) = {
-        let (mut transition, execution_result_hash) =
-            simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
-        transition.post_state_root = CryptoHash::default();
-        (transition, execution_result_hash)
-    };
+    let (state_transition, _post_state_root) =
+        simulate_chunk_application(&actor, &block, &prev_block, &starting_state_root);
     let receipt_proofs = test_receipt_proofs(&actor, &prev_block);
-    let receipts_hash = hash(&borsh::to_vec(&TEST_RECEIPTS).unwrap());
-    let contract_accesses_hash = compute_contract_accesses_hash(&HashSet::new());
-    test_witness_message(
-        &block,
-        state_transition,
-        execution_result_hash,
-        receipt_proofs,
-        receipts_hash,
-        contract_accesses_hash,
-    )
+    // Wrong applied-receipts hash makes pre-validation reject the witness.
+    let receipts_hash = CryptoHash::default();
+    test_witness_message(&block, state_transition, receipt_proofs, receipts_hash, BTreeSet::new())
 }
 
 /// Empty accesses message signals no contracts needed — witness should finalize immediately.
@@ -713,7 +714,6 @@ fn test_empty_contract_accesses_finalizes_witness() {
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
-/// Witness arrives before accesses with no contracts — still finalizes.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_witness_before_empty_accesses() {
@@ -726,15 +726,51 @@ fn test_witness_before_empty_accesses() {
     record_execution_results(&actor, &prev_block, starting_state_root);
 
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
-
-    // Witness first, then empty accesses.
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+    assert_no_contract_requests(&mut actor.network_rc);
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 
     let accesses = make_contract_accesses(&block, HashSet::new());
     actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
+}
 
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_without_accesses_message_requests_its_missing_contracts() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let hash_a: CodeHash = hash(b"contract_a").into();
+    let hash_b: CodeHash = hash(b"contract_b").into();
+    let contracts = HashSet::from([hash_a, hash_b]);
+    let witness_message = valid_witness_message_with_accesses(
+        &actor,
+        &block,
+        &prev_block,
+        &starting_state_root,
+        &contracts,
+    );
+    actor.handle(witness_message.span_wrap());
+
+    let requests = drain_contract_requests(&mut actor.network_rc);
+    assert_eq!(requests, vec![contracts.clone()]);
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+
+    let accesses = make_contract_accesses(&block, contracts);
+    actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
+
+    // A message that disagrees with the witness does not displace the witness's own accesses.
+    let hash_c: CodeHash = hash(b"contract_c").into();
+    let disagreeing = make_contract_accesses(&block, HashSet::from([hash_c]));
+    actor.handle(SpiceChunkContractAccessesMessage(disagreeing, RecvMessagePermit::none()));
+    assert_no_contract_requests(&mut actor.network_rc);
 }
 
 /// Contract accesses with missing contracts sends a request.
@@ -755,8 +791,6 @@ fn test_contract_accesses_sends_request_for_missing() {
     assert_eq!(requests[0], HashSet::from([hash_a, hash_b]));
 }
 
-/// Contract accesses signed by a non-chunk-producer are rejected — no requests are sent,
-/// and the chunk does not finalize.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_contract_accesses_invalid_signature_rejected() {
@@ -771,14 +805,14 @@ fn test_contract_accesses_invalid_signature_rejected() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     // Sign accesses with a key that does not belong to the chunk producer.
+    let hash_a: CodeHash = hash(b"contract_a").into();
     let accesses =
-        make_contract_accesses_with_signer(&block, HashSet::new(), "not-a-chunk-producer");
+        make_contract_accesses_with_signer(&block, HashSet::from([hash_a]), "not-a-chunk-producer");
     actor.handle(SpiceChunkContractAccessesMessage(accesses, RecvMessagePermit::none()));
     actor.handle(witness_message.span_wrap());
 
-    // No contract requests should be sent, and no endorsement should be recorded.
     assert!(drain_contract_requests(&mut actor.network_rc).is_empty());
-    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 fn setup_two_validators() -> TestActor {
@@ -841,9 +875,8 @@ fn test_correct_accesses_first_then_malicious() {
     assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
 }
 
-/// When malicious contract accesses arrive first and the correct one arrives second,
-/// the validator detects the mismatch, falls back to the correct accesses, and
-/// validation succeeds.
+/// When malicious contract accesses arrive first, the validator detects the mismatch against the
+/// witness and validates from the witness's own accesses; a correct message later adds nothing.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_malicious_accesses_first_then_correct() {
@@ -865,18 +898,15 @@ fn test_malicious_accesses_first_then_correct() {
     actor.handle(SpiceChunkContractAccessesMessage(malicious_accesses, RecvMessagePermit::none()));
     drain_contract_requests(&mut actor.network_rc);
 
-    // Send witness — can't finalize yet because the trusted accesses are wrong
-    // and no correct alternative is available yet.
     actor.handle(witness_message.span_wrap());
-    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
 
     // Correct accesses (empty set) from validator-1 arrive.
     let correct_accesses =
         make_contract_accesses_with_signer(&block, HashSet::new(), "test-validator-1");
     actor.handle(SpiceChunkContractAccessesMessage(correct_accesses, RecvMessagePermit::none()));
-
-    // Now validation should succeed after falling back to the correct accesses.
-    assert!(!drain_endorsements(&mut actor.network_rc).is_empty());
+    assert!(drain_endorsements(&mut actor.network_rc).is_empty());
+    assert_no_contract_requests(&mut actor.network_rc);
 }
 
 /// Validates that MAX_CONTRACTS_PER_REQUEST is large enough to cover the maximum

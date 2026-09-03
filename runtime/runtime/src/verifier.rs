@@ -16,6 +16,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::types::NonceIndex;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
@@ -123,17 +124,47 @@ pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
     signer: &Account,
-    access_key: &AccessKey,
+    access_key: Option<&AccessKey>,
 ) {
     let tx = validated_tx.to_tx();
-    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    // A self-signed state init has no access key yet: its nonce lives on the
+    // account, and the keys arrive when the state init installs them.
+    if let Some(access_key) = access_key {
+        set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), access_key);
+    }
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-pub fn get_signer_and_access_key(
+/// The way a transaction is authorized.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TxAuthorization {
+    /// Signed by a regular, existing access key.
+    AccessKey(AccessKey),
+    /// Signed by a gas key.
+    GasKey { access_key: AccessKey, nonce_index: NonceIndex },
+    /// Self-signed universal state init (bootstrap). The transaction is signed by
+    /// a key that will be added through this transaction. Secure because universal
+    /// account is committed to a particular set of keys.
+    SelfSignedStateInit,
+}
+
+impl TxAuthorization {
+    pub fn into_access_key(self) -> Option<AccessKey> {
+        match self {
+            TxAuthorization::AccessKey(access_key) => Some(access_key),
+            TxAuthorization::GasKey { access_key, .. } => Some(access_key),
+            TxAuthorization::SelfSignedStateInit => None,
+        }
+    }
+}
+
+/// Resolve the signer's account and what authorizes the transaction against it:
+/// an access key, a gas key, or the account id itself for a self-signed state
+/// init.
+pub fn get_signer_and_authorization(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
-) -> Result<(Account, AccessKey), InvalidTxError> {
+) -> Result<(Account, TxAuthorization), InvalidTxError> {
     let signer_id = validated_tx.signer_id();
 
     let signer = match get_account(state_update, signer_id)? {
@@ -143,19 +174,31 @@ pub fn get_signer_and_access_key(
         }
     };
 
-    let access_key = match get_access_key(state_update, signer_id, validated_tx.public_key())? {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: validated_tx.public_key().clone().into(),
-                },
-            )
-            .into());
+    let access_key = get_access_key(state_update, signer_id, validated_tx.public_key())?;
+    let nonce_index = validated_tx.nonce().nonce_index();
+
+    match (access_key, nonce_index) {
+        (Some(access_key), None) => Ok((signer, TxAuthorization::AccessKey(access_key))),
+        (Some(access_key), Some(nonce_index)) => {
+            Ok((signer, TxAuthorization::GasKey { access_key, nonce_index }))
         }
-    };
-    Ok((signer, access_key))
+        (None, _) if is_bootstrap(&signer, validated_tx.to_tx()) => {
+            Ok((signer, TxAuthorization::SelfSignedStateInit))
+        }
+        (None, _) => {
+            Err(InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: signer_id.clone(),
+                public_key: validated_tx.public_key().clone().into(),
+            }))
+        }
+    }
+}
+
+/// Whether this transaction is a self-signed state init that may proceed without
+/// an access key: the stateless half is decided by the transaction's own shape,
+/// the stateful half is that the account is still uninitialized.
+pub fn is_bootstrap(account: &Account, tx: &Transaction) -> bool {
+    !account.is_initialized() && tx.is_state_init_bootstrap()
 }
 
 /// Validates FunctionCall permission constraints:
@@ -360,6 +403,117 @@ pub fn verify_and_charge_tx_ephemeral(
     })
 }
 
+/// Verify a self-signed universal-account state init and compute the charge outcome.
+///
+/// This is the one transaction an account can send before it holds any access
+/// key. Authorization is the account id itself: a `0u` id is the hash of its
+/// state init, the state init names the account's keys, so a transaction
+/// addressed to that id and signed by one of those keys is authorized by the id
+/// alone.
+///
+/// That claim is re-checked here rather than assumed from the caller. Three
+/// paths reach this verifier, and the chunk producer's path picks it on nothing
+/// more than a missing access key, which an uninitialized account always has.
+/// Re-checking here is what makes the property hold for all three, and it is
+/// the whole of the authorization: everything below is only what a key would
+/// otherwise have provided, a nonce plus the balance and storage checks. The
+/// nonce lives on the account until the state init installs the keys.
+///
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Performs no mutation; changes are returned in the `VerificationResult`.
+pub fn verify_and_charge_bootstrap_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &Account,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+) -> TxVerdict {
+    let account_id = tx.signer_id();
+    // Only an uninitialized account carries this nonce, which is the stateful
+    // half of `is_bootstrap`, so reading it doubles as that check. The feature
+    // check is redundant, since an uninitialized account cannot exist without
+    // it, but it keeps this path gated by something local rather than by an
+    // invariant held somewhere else.
+    let bootstrap_nonce = account.bootstrap_nonce();
+    let current_nonce = match bootstrap_nonce {
+        Some(nonce) if config.wasm_config.universal_accounts && tx.is_state_init_bootstrap() => {
+            nonce
+        }
+        _ => {
+            return TxVerdict::Failed(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: account_id.clone(),
+                    public_key: tx.public_key().clone().into(),
+                },
+            ));
+        }
+    };
+
+    let TransactionCost {
+        gas_burnt,
+        compute_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        total_cost,
+        burnt_amount,
+        ..
+    } = *transaction_cost;
+
+    // Strict regardless of what the transaction asked for, so that exactly one
+    // nonce is ever admissible. Monotonic would let the signer pick any value
+    // above the floor, and the keys the state init installs start at
+    // `initial_nonce_value(execution_height)`, which can sit *below* such a
+    // choice: the same signed bytes would then replay through the ordinary path
+    // once the account is initialized. Forcing Strict also lets a V0
+    // transaction bootstrap, since V0 cannot express a nonce mode at all.
+    let tx_nonce = tx.nonce().nonce();
+    // The bootstrap nonce is the account's, so the floor is too: `max_nonce` is
+    // scoped to the signing key, and the state init commits to several.
+    let effective_nonce = std::cmp::max(current_nonce, pending.max_bootstrap_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, NonceMode::Strict) {
+        return TxVerdict::Failed(e);
+    }
+
+    // saturating_sub for the same reason as the regular path: pending
+    // constraints are zero on the consensus path and best-effort elsewhere.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < total_cost {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
+            signer_id: account_id.clone(),
+            balance: available_balance,
+            cost: total_cost,
+        });
+    }
+    let new_amount = account.amount().checked_sub(total_cost).unwrap();
+
+    // Vacuous today, since an uninitialized account is always under the
+    // zero-balance limit, but it is the same invariant the other paths hold and
+    // the account's storage usage is not fixed by anything here.
+    match check_storage_stake(account, new_amount, config) {
+        Ok(()) => {}
+        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
+        }
+        Err(StorageStakingError::StorageError(err)) => {
+            return TxVerdict::Failed(StorageError::StorageInconsistentState(err).into());
+        }
+    };
+
+    TxVerdict::Success(VerificationResult {
+        gas_burnt,
+        compute_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        new_account_amount: new_amount,
+        access_key_update: AccessKeyUpdate::Bootstrap { nonce: tx_nonce },
+    })
+}
+
 /// Verify a gas key transaction and compute the charge outcome.
 ///
 /// This function performs validation only and does NOT mutate `account` or `access_key`.
@@ -543,7 +697,7 @@ pub(crate) fn validate_receipt(
 
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
-    // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
+    // in near-vm-runner/src/wasmtime_runner/logic.rs#fn(read_and_parse_account_id)
     AccountId::validate(receipt.predecessor_id().as_ref()).map_err(|_| {
         ReceiptValidationError::InvalidPredecessorId {
             account_id: receipt.predecessor_id().to_string(),
@@ -638,11 +792,11 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, Signer};
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
-    use near_primitives::action::TransferToGasKeyAction;
+    use near_primitives::action::{TransferToGasKeyAction, UniversalStateInitAction};
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -657,10 +811,13 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NonceIndex, StateChangeCause,
     };
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::derive_universal_account_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::collections::BTreeSet;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -707,7 +864,7 @@ mod tests {
             accounts
         {
             let mut initial_account = account_new(initial_balance, CryptoHash::default());
-            initial_account.set_locked(initial_locked);
+            initial_account.set_locked(initial_locked).unwrap();
             let mut key_count = 0;
             for access_key in access_keys {
                 let public_key = if key_count == 0 {
@@ -740,7 +897,7 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_contract(AccountContract::Local(code_hash));
+                initial_account.set_contract(AccountContract::Local(code_hash)).unwrap();
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
@@ -887,13 +1044,15 @@ mod tests {
             }
         };
 
-        let (signer, access_key) = match get_signer_and_access_key(state_update, &validated_tx) {
-            Ok((signer, access_key)) => (signer, access_key),
-            Err(err) => {
-                assert_eq!(err, expected_err);
-                return;
-            }
-        };
+        let (signer, authorization) =
+            match get_signer_and_authorization(state_update, &validated_tx) {
+                Ok((signer, authorization)) => (signer, authorization),
+                Err(err) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
+        let access_key = authorization.into_access_key().expect("access key expected");
 
         let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
             config,
@@ -921,42 +1080,52 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, authorization) =
+            get_signer_and_authorization(state_update, &validated_tx)?;
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let tx = validated_tx.to_tx();
 
-        // Check if this is a gas key transaction
-        let verdict = if let Some(nonce_index) = tx.nonce().nonce_index() {
-            let current_nonce =
-                get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .unwrap_or(0);
-            verify_and_charge_gas_key_tx_ephemeral(
+        let verdict = match &authorization {
+            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
                 config,
                 &signer,
-                &access_key,
-                current_nonce,
+                access_key,
                 tx,
                 &transaction_cost,
                 block_height,
                 &PendingConstraints::default(),
-            )
-        } else {
-            verify_and_charge_tx_ephemeral(
+            ),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                let current_nonce =
+                    get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), *nonce_index)?
+                        .unwrap_or(0);
+                verify_and_charge_gas_key_tx_ephemeral(
+                    config,
+                    &signer,
+                    access_key,
+                    current_nonce,
+                    tx,
+                    &transaction_cost,
+                    block_height,
+                    &PendingConstraints::default(),
+                )
+            }
+            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
                 config,
                 &signer,
-                &access_key,
                 tx,
                 &transaction_cost,
                 block_height,
                 &PendingConstraints::default(),
-            )
+            ),
         };
         let result = match verdict {
             TxVerdict::Success(result) => result,
             TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
         };
-        result.apply(&mut signer, &mut access_key);
-        set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
+        let mut access_key = authorization.into_access_key();
+        result.apply(&mut signer, access_key.as_mut())?;
+        set_tx_state_changes(state_update, &validated_tx, &signer, access_key.as_ref());
         Ok(result)
     }
 
@@ -2357,6 +2526,75 @@ mod tests {
         );
     }
 
+    /// The floor a bootstrap is held to is the account's, not the signing key's.
+    /// Both are pending values, and the queue records a bootstrap under both
+    /// scopes, so for an uninitialized account the account scope is never behind
+    /// the key's: ignoring `max_nonce` here loses nothing. Reading it *instead*
+    /// would, since the state init commits to several keys and a second init
+    /// signed by a sibling one would find that key's scope empty.
+    #[test]
+    fn test_bootstrap_nonce_floor_is_account_scoped() {
+        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+            return;
+        }
+        let config = RuntimeConfig::test();
+        let gas_price = Balance::from_yoctonear(5000);
+        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // to the transaction nonce matters, since no block height is passed.
+        const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+        // The account id is the hash of the state init, so the key comes first,
+        // under a placeholder that the seeded key does not depend on.
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: Default::default(),
+            access_keys: BTreeSet::from([PublicKeyHandle::from(signer.public_key())]),
+        });
+        let raw_state_init = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw_state_init);
+        let account = Account::new_uninitialized(TESTING_INIT_BALANCE, 100, BOOTSTRAP_NONCE);
+        let signed_tx = SignedTransaction::from_actions(
+            BOOTSTRAP_NONCE + 1,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw_state_init,
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let tx = &signed_tx.transaction;
+        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let verify = |pending| {
+            verify_and_charge_bootstrap_tx_ephemeral(&config, &account, tx, &cost, None, &pending)
+        };
+
+        // A pending bootstrap at the same nonce, whoever signed it, is the floor.
+        let account_floor = PendingConstraints {
+            max_bootstrap_nonce: BOOTSTRAP_NONCE + 1,
+            ..PendingConstraints::default()
+        };
+        let TxVerdict::Failed(err) = verify(account_floor) else {
+            panic!("a pending bootstrap at the same nonce must be the floor")
+        };
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce {
+                tx_nonce: BOOTSTRAP_NONCE + 1,
+                ak_nonce: BOOTSTRAP_NONCE + 1,
+            }
+        );
+
+        // The key-scoped floor belongs to a nonce this transaction does not carry.
+        let key_floor =
+            PendingConstraints { max_nonce: BOOTSTRAP_NONCE + 1, ..PendingConstraints::default() };
+        assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
+    }
+
     #[test]
     fn test_gas_key_tx_deposit_failed_for_account_balance() {
         let config = RuntimeConfig::test();
@@ -2378,8 +2616,10 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, access_key) =
-            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
@@ -2442,8 +2682,10 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, access_key) =
-            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 

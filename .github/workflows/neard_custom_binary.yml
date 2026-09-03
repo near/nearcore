@@ -39,6 +39,13 @@ jobs:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
 
+      - name: Checkout workflow repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/install-clang
+
       - name: Checkout ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
@@ -46,7 +53,6 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
           persist-credentials: false
 
-      - uses: ./.github/actions/install-clang
       - name: Neard binary build and upload to S3
         env:
           WITH_DEBUG_INFO: ${{ inputs.with-debug-info && '1' || '' }}

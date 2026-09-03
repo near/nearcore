@@ -205,7 +205,9 @@ snapshot_kind: text
       "bls12381_p1_decompress_base": 15000000000,
       "bls12381_p1_decompress_element": 81000000000,
       "bls12381_p2_decompress_base": 15000000000,
-      "bls12381_p2_decompress_element": 165000000000
+      "bls12381_p2_decompress_element": 165000000000,
+      "universal_state_init_to_account_id_base": 8520000000,
+      "universal_state_init_to_account_id_byte": 21471105
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
@@ -219,7 +221,7 @@ snapshot_kind: text
     "one_yocto_on_promise": true,
     "p256_verify_host_fn": true,
     "ml_dsa_verify_host_fn": true,
-    "sha3_host_fns": false,
+    "sha3_host_fns": true,
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": false,
@@ -227,6 +229,7 @@ snapshot_kind: text
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
+    "universal_accounts": false,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
       "max_stack_height": 262144,
@@ -254,6 +257,7 @@ snapshot_kind: text
       "max_receipt_total_input_size": 4194944,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "min_contract_size_per_local": 2,
       "max_params_per_contract": 50000,
       "max_params_per_function": 64,
       "max_operand_stack_bytes_per_function": 8192,

@@ -5,11 +5,12 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
-    MaybeBlockId, ShardId, TransactionOrReceiptId,
+    MaybeBlockId, ShardId, SpiceChunkId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
-    StateChangesRequestView, StateSyncStatusView, SyncStatusView, TxStatusView,
+    ChunkExecutionProofView, EpochSyncStatusView, ExecutionOutcomeWithIdView,
+    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateProofTarget,
+    StateProofView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -912,6 +913,90 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
                 Self::InternalError { error_message }
             }
             err => Self::Unreachable { error_message: err.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GetLightClientChunkExecutionProof {
+    pub chunk_id: SpiceChunkId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProof {
+    pub id: TransactionOrReceiptId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProof {
+    pub chunk_id: SpiceChunkId,
+    pub target: StateProofTarget,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub state_proof: StateProofView,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetLightClientProofError {
+    #[error("Chunk {chunk_id:?} is not yet certified")]
+    ChunkNotCertified { chunk_id: SpiceChunkId },
+    #[error(
+        "Light client head height {head_height} must be greater than height \
+         {certifying_block_height} of the block certifying chunk {chunk_id:?}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: SpiceChunkId,
+        certifying_block_height: BlockHeight,
+        head_height: BlockHeight,
+    },
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: \
+         {error_message}"
+    )]
+    UnknownBlock { error_message: String },
+    #[error("{transaction_or_receipt_id} does not exist")]
+    UnknownTransactionOrReceipt { transaction_or_receipt_id: CryptoHash },
+    #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
+    UnavailableShard { transaction_or_receipt_id: CryptoHash, shard_id: ShardId },
+    #[error("Node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error(
+        "Account {account_id} is in shard {account_shard_id}, not the requested shard \
+         {requested_shard_id}"
+    )]
+    TargetShardMismatch {
+        account_id: AccountId,
+        account_shard_id: ShardId,
+        requested_shard_id: ShardId,
+    },
+    #[error("State for chunk {chunk_id:?} is not available on this node")]
+    StateNotAvailable { chunk_id: SpiceChunkId },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetLightClientProofError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
+            }
+            err => Self::InternalError { error_message: err.to_string() },
         }
     }
 }

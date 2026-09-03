@@ -83,6 +83,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerEntry,
+    ActionUniversalStateInitPerByte,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -135,6 +138,8 @@ pub enum Parameter {
     WasmP256VerifyByte,
     WasmMlDsaVerifyBase,
     WasmMlDsaVerifyByte,
+    WasmUniversalStateInitToAccountIdBase,
+    WasmUniversalStateInitToAccountIdByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -224,6 +229,7 @@ pub enum Parameter {
     MaxReceiptTotalInputSize,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
+    MinContractSizePerLocal,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
@@ -244,7 +250,12 @@ pub enum Parameter {
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
+    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
+    // protocol version 70, where the feature is enabled.
     EthImplicitAccounts,
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past the protocol version where the feature is enabled.
+    UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
     ReftypesBulkMemory,
@@ -363,6 +374,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerByte,
+    ActionUniversalStateInitPerEntry,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -399,6 +413,7 @@ impl Parameter {
             Parameter::MaxReceiptTotalInputSize,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
+            Parameter::MinContractSizePerLocal,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
@@ -449,6 +464,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::universal_state_init_base => Self::ActionUniversalStateInit,
+            ActionCosts::universal_state_init_byte => Self::ActionUniversalStateInitPerByte,
+            ActionCosts::universal_state_init_entry => Self::ActionUniversalStateInitPerEntry,
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,

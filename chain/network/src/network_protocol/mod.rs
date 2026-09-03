@@ -5,10 +5,12 @@ mod proto_conv;
 mod state_sync;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
+use bytesize::{KIB, MIB};
 pub use edge::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
+use near_primitives::state_part::StatePartIndex;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
@@ -41,7 +43,7 @@ mod _proto {
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::spice::data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
 use near_crypto::PublicKey;
@@ -76,6 +78,12 @@ use tracing::Span;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
+// Per-message-type limits on the size of an incoming message
+const MAX_SMALL_MESSAGE_SIZE: usize = (512 * KIB) as usize;
+const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
+const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
+const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -487,6 +495,82 @@ impl PeerMessage {
             _ => self.into(),
         }
     }
+
+    /// Maximum allowed size (in bytes) of the encoded form of a message of this type.
+    /// Incoming messages larger than this are dropped before being processed.
+    pub(crate) fn max_size(&self) -> usize {
+        use T1MessageBody::*;
+        use T2MessageBody::*;
+        use TieredMessageBody::{T1, T2};
+
+        match self {
+            PeerMessage::BlockRequest(_)
+            | PeerMessage::BlockHeadersRequest(_)
+            | PeerMessage::StateRequestHeader(_, _)
+            | PeerMessage::StateRequestPart(_, _, _)
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_)
+            | PeerMessage::Disconnect(_)
+            | PeerMessage::HandshakeFailure(_, _)
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::PeersRequest(_)
+            | PeerMessage::Challenge(_) // challenges are disabled
+            | PeerMessage::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
+
+            PeerMessage::PeersResponse(_)
+            | PeerMessage::Transaction(_)
+            | PeerMessage::SyncRoutingTable(_)
+            | PeerMessage::SyncAccountsData(_)
+            | PeerMessage::SyncSnapshotHosts(_)
+            | PeerMessage::BlockHeaders(_)
+            | PeerMessage::Block(_)
+            | PeerMessage::OptimisticBlock(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+            PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
+            PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,
+            PeerMessage::Routed(msg) => match msg.body() {
+                T1(body) => match body.as_ref() {
+                    BlockApproval(_) | VersionedChunkEndorsement(_) | SpiceChunkEndorsement(_) => {
+                        MAX_SMALL_MESSAGE_SIZE
+                    }
+
+                    PartialEncodedChunkForward(_)
+                    | ChunkContractAccesses(_)
+                    | ContractCodeRequest(_)
+                    | SpiceDataRequest(_)
+                    | SpiceChunkContractAccesses(_)
+                    | SpiceContractCodeRequest(_)
+                    | VersionedPartialEncodedChunk(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+                    PartialEncodedStateWitness(_)
+                    | PartialEncodedStateWitnessForward(_)
+                    | VersionedPartialEncodedStateWitness(_)
+                    | VersionedPartialEncodedStateWitnessForward(_)
+                    | ContractCodeResponse(_)
+                    | SpicePartialData(_)
+                    | SpiceContractCodeResponse(_) => MAX_LARGE_MESSAGE_SIZE,
+                },
+                T2(body) => match body.as_ref() {
+                    TxStatusRequest(_, _)
+                    | Ping(_)
+                    | Pong(_)
+                    | ChunkStateWitnessAck(_)
+                    | StatePartRequest(_)
+                    | StateHeaderRequest(_)
+                    | StateRequestAck(_) => MAX_SMALL_MESSAGE_SIZE,
+
+                    ForwardTx(_)
+                    | PartialEncodedChunkRequest(_)
+                    | TxStatusResponse(_)
+                    | PartialEncodedChunkResponse(_) => MAX_MEDIUM_MESSAGE_SIZE,
+
+                    | PartialEncodedContractDeploys(_) => MAX_LARGE_MESSAGE_SIZE,
+                },
+            },
+        }
+    }
 }
 
 /// `TieredMessageBody` is used to distinguish between T1 and T2 messages.
@@ -609,8 +693,8 @@ impl TieredMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement).into()
             }
-            RoutedMessageBody::SpicePartialDataRequest(request) => {
-                T1MessageBody::SpicePartialDataRequest(request).into()
+            RoutedMessageBody::SpiceDataRequest(request) => {
+                T1MessageBody::SpiceDataRequest(request).into()
             }
             RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
                 T1MessageBody::SpiceChunkContractAccesses(accesses).into()
@@ -668,7 +752,7 @@ pub enum T1MessageBody {
     ContractCodeResponse(ContractCodeResponse) = 8,
     SpicePartialData(SpicePartialData) = 9,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
-    SpicePartialDataRequest(SpicePartialDataRequest) = 11,
+    SpiceDataRequest(SpiceDataRequest) = 11,
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 12,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 13,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 14,
@@ -777,7 +861,7 @@ pub enum RoutedMessageBody {
     SpicePartialData(SpicePartialData) = 33,
     StateRequestAck(StateRequestAck) = 34,
     SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
-    SpicePartialDataRequest(SpicePartialDataRequest) = 36,
+    SpiceDataRequest(SpiceDataRequest) = 36,
     SpiceChunkContractAccesses(SpiceChunkContractAccesses) = 37,
     SpiceContractCodeRequest(SpiceContractCodeRequest) = 38,
     SpiceContractCodeResponse(SpiceContractCodeResponse) = 39,
@@ -864,8 +948,8 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::StatePartRequest(request) => write!(
                 f,
-                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
-                request.sync_hash, request.shard_id, request.part_id,
+                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_idx={:?})",
+                request.sync_hash, request.shard_id, request.part_idx,
             ),
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
@@ -884,8 +968,8 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::StateRequestAck(ack) => write!(
                 f,
-                "StateRequestAck(sync_hash={:?}, shard_id={:?}, header_or_part_id={:?}, body={:?})",
-                ack.sync_hash, ack.shard_id, ack.part_id_or_header, ack.body,
+                "StateRequestAck(sync_hash={:?}, shard_id={:?}, part_or_header={:?}, body={:?})",
+                ack.sync_hash, ack.shard_id, ack.part_or_header, ack.body,
             ),
             RoutedMessageBody::SpicePartialData(spice_partial_data) => write!(
                 f,
@@ -896,8 +980,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(_) => {
                 write!(f, "SpiceChunkEndorsement")
             }
-            RoutedMessageBody::SpicePartialDataRequest(request) => {
-                write!(f, "SpicePartialDataRequest({:?})", request)
+            RoutedMessageBody::SpiceDataRequest(request) => {
+                write!(f, "SpiceDataRequest({:?})", request)
             }
             RoutedMessageBody::SpiceChunkContractAccesses(accesses) => {
                 write!(f, "SpiceChunkContractAccesses(code_hashes={:?})", accesses.contracts())
@@ -957,8 +1041,8 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                     RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement)
                 }
-                T1MessageBody::SpicePartialDataRequest(request) => {
-                    RoutedMessageBody::SpicePartialDataRequest(request)
+                T1MessageBody::SpiceDataRequest(request) => {
+                    RoutedMessageBody::SpiceDataRequest(request)
                 }
                 T1MessageBody::SpiceChunkContractAccesses(accesses) => {
                     RoutedMessageBody::SpiceChunkContractAccesses(accesses)
@@ -1512,10 +1596,10 @@ impl StateResponseInfo {
         }
     }
 
-    pub fn part_id(&self) -> Option<u64> {
+    pub fn part_idx(&self) -> Option<StatePartIndex> {
         match self {
-            Self::V1(info) => info.state_response.part_id(),
-            Self::V2(info) => info.state_response.part_id(),
+            Self::V1(info) => info.state_response.part_idx(),
+            Self::V2(info) => info.state_response.part_idx(),
         }
     }
 

@@ -35,14 +35,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::state_witness::compute_contract_accesses_hash;
-use near_primitives::spice::state_witness::{SpiceChunkStateTransition, SpiceChunkStateWitness};
-use near_primitives::state::PartialState;
+use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, Gas,
-    NumBlocks, ShardId, SpiceChunkId,
+    BlockExecutionResults, BlockHeight, ChunkExecutionResult, Gas, NumBlocks, ShardId, SpiceChunkId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
@@ -462,6 +459,18 @@ impl PerShardChunkExecutor {
                     &new_chunk_result,
                     outgoing_receipts_root,
                 );
+            } else if self
+                .epoch_manager
+                .get_validator_by_account_id(&epoch_id, my_signer.validator_id())
+                .is_ok()
+            {
+                // Non-designated epoch validator: record for the all-stake fallback.
+                self.record_own_fallback_endorsement(
+                    &block,
+                    &my_signer,
+                    &new_chunk_result,
+                    outgoing_receipts_root,
+                );
             }
 
             // Distribute witness and receipts if we are the chunk producer for the shard.
@@ -469,7 +478,7 @@ impl PerShardChunkExecutor {
                 self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id)?;
             if epoch_producers.contains(my_signer.validator_id()) {
                 self.send_outgoing_receipts(&block, receipt_proofs.clone());
-                self.distribute_witness(&block, &new_chunk_result, outgoing_receipts_root)?;
+                self.distribute_witness(&block, &new_chunk_result)?;
             }
         }
         // RPC nodes skip endorsement/distribution above; persistence below still runs.
@@ -485,6 +494,23 @@ impl PerShardChunkExecutor {
         Ok(receipt_proofs)
     }
 
+    fn build_chunk_endorsement(
+        &self,
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) -> SpiceChunkEndorsement {
+        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let execution_result =
+            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
+        SpiceChunkEndorsement::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id: shard_uid.shard_id() },
+            execution_result,
+            my_signer,
+        )
+    }
+
     fn send_chunk_endorsement(
         &self,
         block: &Block,
@@ -492,14 +518,11 @@ impl PerShardChunkExecutor {
         new_chunk_result: &NewChunkResult,
         outgoing_receipts_root: CryptoHash,
     ) {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
-        let shard_id = shard_uid.shard_id();
-        let execution_result =
-            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
-        let endorsement = SpiceChunkEndorsement::new(
-            SpiceChunkId { block_hash: *block.hash(), shard_id },
-            execution_result,
+        let endorsement = self.build_chunk_endorsement(
+            block,
             my_signer,
+            new_chunk_result,
+            outgoing_receipts_root,
         );
         send_spice_chunk_endorsement(
             endorsement.clone(),
@@ -511,21 +534,35 @@ impl PerShardChunkExecutor {
             .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
+    // Record our endorsement locally without broadcasting: the chunk isn't fallback-eligible yet so
+    // peers would reject it; the distributor broadcasts it from the stored result once overdue.
+    fn record_own_fallback_endorsement(
+        &self,
+        block: &Block,
+        my_signer: &ValidatorSigner,
+        new_chunk_result: &NewChunkResult,
+        outgoing_receipts_root: CryptoHash,
+    ) {
+        let endorsement = self.build_chunk_endorsement(
+            block,
+            my_signer,
+            new_chunk_result,
+            outgoing_receipts_root,
+        );
+        self.core_writer_sender
+            .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
+    }
+
     fn distribute_witness(
         &self,
         block: &Block,
         new_chunk_result: &NewChunkResult,
-        outgoing_receipts_root: CryptoHash,
     ) -> Result<(), Error> {
-        let NewChunkResult { shard_uid, gas_limit, apply_result } = new_chunk_result;
+        let NewChunkResult { shard_uid, gas_limit: _, apply_result } = new_chunk_result;
         let shard_id = shard_uid.shard_id();
 
-        let execution_result =
-            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
-        let execution_result_hash = execution_result.compute_hash();
-
         let ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses } =
-            self.create_chunk_execution_data(block, apply_result, shard_id, execution_result_hash)?;
+            self.create_chunk_execution_data(block, apply_result, shard_id)?;
 
         save_witness_and_contract_accesses(
             &self.chain_store,
@@ -545,7 +582,6 @@ impl PerShardChunkExecutor {
         block: &Block,
         apply_result: &ApplyChunkResult,
         shard_id: ShardId,
-        execution_result_hash: ChunkExecutionResultHash,
     ) -> Result<ChunkExecutionData, Error> {
         let block_hash = block.header().hash();
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash).unwrap();
@@ -561,7 +597,10 @@ impl PerShardChunkExecutor {
                         // Chunk is new but invalid (malicious producer): include proof.
                         self.chain_store
                             .chunk_store()
-                            .is_invalid_chunk(chunk_header.chunk_hash())
+                            .is_invalid_chunk(
+                                chunk_header.height_created(),
+                                chunk_header.chunk_hash(),
+                            )
                             .map(|enc| Box::new(enc.content().clone()))
                     } else {
                         None
@@ -575,17 +614,10 @@ impl PerShardChunkExecutor {
         let ContractUpdates { contract_accesses, contract_deploys: _ } =
             apply_result.contract_updates.clone();
 
-        let main_transition = {
-            let PartialState::TrieValues(base_state_values) =
-                apply_result.proof.clone().unwrap().nodes;
-            // Contract bytecodes are not included in the witness. They are sent
-            // separately via SpiceChunkContractAccesses so that validators can
-            // check their compiled contract cache and only request missing ones.
-            SpiceChunkStateTransition {
-                base_state: PartialState::TrieValues(base_state_values),
-                post_state_root: apply_result.new_root,
-            }
-        };
+        // Contract bytecodes are not included in the witness. They are sent
+        // separately via SpiceChunkContractAccesses so that validators can
+        // check their compiled contract cache and only request missing ones.
+        let pre_state = apply_result.proof.clone().unwrap().nodes;
         let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = {
             let prev_block_hash = block.header().prev_hash();
             let (_, prev_block_shard_id, _) =
@@ -601,15 +633,13 @@ impl PerShardChunkExecutor {
                 .collect::<Result<_, Error>>()?
         };
         // TODO(spice-resharding): Handle witness validation when resharding.
-        let contract_accesses_hash = compute_contract_accesses_hash(&contract_accesses);
         let state_witness = SpiceChunkStateWitness::new(
             near_primitives::types::SpiceChunkId { block_hash: *block_hash, shard_id },
-            main_transition,
+            pre_state,
             source_receipt_proofs,
             applied_receipts_hash,
             transactions,
-            execution_result_hash,
-            contract_accesses_hash,
+            contract_accesses.iter().cloned().collect(),
             proof_of_invalid_chunk,
         );
         Ok(ChunkExecutionData { witness: state_witness, code_accesses: contract_accesses })
@@ -629,7 +659,9 @@ impl PerShardChunkExecutor {
         match get_chunk_clone_from_header(&chunk_store, chunk_header) {
             Ok(chunk) => Ok(Some(chunk)),
             Err(Error::ChunkMissing(_))
-                if chunk_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+                if chunk_store
+                    .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
+                    .is_some() =>
             {
                 Ok(None)
             }

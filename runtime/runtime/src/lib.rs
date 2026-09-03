@@ -15,8 +15,10 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    TxAuthorization, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_authorization,
+    is_bootstrap, set_tx_state_changes, validate_transaction,
+    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -121,6 +123,7 @@ pub mod state_viewer;
 #[cfg(test)]
 mod tests;
 mod types;
+mod universal_account_id;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -253,11 +256,21 @@ pub struct PendingConstraints {
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
     pub max_nonce: Nonce,
+    /// Maximum nonce seen among pending self-signed universal state inits from
+    /// this account. Their nonce lives on the account rather than on a key, so
+    /// it is tracked apart from `max_nonce` and read only while the account is
+    /// still uninitialized, where it is the only nonce there is.
+    pub max_bootstrap_nonce: Nonce,
 }
 
 impl Default for PendingConstraints {
     fn default() -> Self {
-        Self { paid_from_balance: Balance::ZERO, paid_from_gas_key: Balance::ZERO, max_nonce: 0 }
+        Self {
+            paid_from_balance: Balance::ZERO,
+            paid_from_gas_key: Balance::ZERO,
+            max_nonce: 0,
+            max_bootstrap_nonce: 0,
+        }
     }
 }
 
@@ -307,31 +320,66 @@ pub enum AccessKeyUpdate {
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
     /// Gas key tx: set gas_key_info.balance and persist external nonce.
     GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
+    /// Self-signed universal-account state init: there is no access key yet, so
+    /// the nonce lives on the account until the state init installs the keys.
+    Bootstrap { nonce: Nonce },
 }
 
 impl VerificationResult {
-    /// Apply the state changes described by this result to the given account and access key.
-    pub fn apply(&self, account: &mut Account, access_key: &mut AccessKey) {
+    /// Apply the state changes described by this result.
+    ///
+    /// `access_key` must be present for every update except `Bootstrap`, which
+    /// requires an uninitialized account instead. Each verifier returns only the
+    /// variant matching what its caller loaded, so a mismatch means the two have
+    /// drifted apart; it is reported rather than panicked on, because this runs
+    /// while a chunk is being applied and a panic there stops the node instead of
+    /// the transaction.
+    pub fn apply(
+        &self,
+        account: &mut Account,
+        access_key: Option<&mut AccessKey>,
+    ) -> Result<(), StorageError> {
+        let inconsistent = |what: &str| {
+            StorageError::StorageInconsistentState(format!(
+                "{what} for {:?}",
+                self.access_key_update
+            ))
+        };
         account.set_amount(self.new_account_amount);
         match &self.access_key_update {
             AccessKeyUpdate::Regular { nonce, new_allowance } => {
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 access_key.nonce = *nonce;
                 if let Some(a) = new_allowance {
-                    access_key.permission.function_call_permission_mut().unwrap().allowance =
-                        Some(*a);
+                    let permission = access_key
+                        .permission
+                        .function_call_permission_mut()
+                        .ok_or_else(|| inconsistent("no function call permission"))?;
+                    permission.allowance = Some(*a);
                 }
             }
             AccessKeyUpdate::GasKey { new_balance, .. } => {
-                access_key.gas_key_info_mut().unwrap().balance = *new_balance;
+                let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
+                let gas_key_info =
+                    access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
+                gas_key_info.balance = *new_balance;
+            }
+            AccessKeyUpdate::Bootstrap { nonce } => {
+                // Consumed on the account, so the same signed bytes cannot be
+                // replayed even if the state init that follows them fails.
+                account
+                    .set_bootstrap_nonce(*nonce)
+                    .map_err(|_| inconsistent("account is already initialized"))?;
             }
         }
+        Ok(())
     }
 
     /// Extract the gas key nonce update, if this is a gas key transaction.
     pub fn gas_key_nonce_update(&self) -> Option<(NonceIndex, Nonce)> {
         match &self.access_key_update {
             AccessKeyUpdate::GasKey { nonce_index, nonce, .. } => Some((*nonce_index, *nonce)),
-            _ => None,
+            AccessKeyUpdate::Regular { .. } | AccessKeyUpdate::Bootstrap { .. } => None,
         }
     }
 }
@@ -537,7 +585,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -546,17 +594,12 @@ impl Runtime {
             account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
-        let is_the_only_action = actions.len() == 1;
-        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+        let receipt_shape = ReceiptShape { is_refund, is_the_only_action: actions.len() == 1 };
 
         // Account validation
-        if let Err(e) = check_account_existence(
-            action,
-            account,
-            account_id,
-            &apply_state.config,
-            implicit_account_creation_eligible,
-        ) {
+        if let Err(e) =
+            check_account_existence(action, account, account_id, &apply_state.config, receipt_shape)
+        {
             result.result = Err(e);
             return Ok(result);
         }
@@ -626,6 +669,18 @@ impl Runtime {
                     &mut result,
                 )?;
             }
+            Action::UniversalStateInit(universal_state_init_action) => {
+                metrics::ACTION_CALLED_COUNT.universal_state_init.inc();
+                universal_account_id::action_universal_state_init(
+                    state_update,
+                    apply_state,
+                    account,
+                    account_id,
+                    receipt,
+                    universal_state_init_action,
+                    &mut result,
+                )?;
+            }
             Action::FunctionCall(function_call) => {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
@@ -673,7 +728,6 @@ impl Runtime {
                     receipt,
                     state_update,
                     apply_state,
-                    actor_id,
                     epoch_info_provider,
                 )?;
             }
@@ -876,6 +930,17 @@ impl Runtime {
                 } else {
                     None
                 };
+            // The in-VM `RecordedStorageCounter` only bounds `FunctionCall` actions.
+            let storage_proof_limit_for_all_actions =
+                ProtocolFeature::EnforceStorageProofLimitForAllActions
+                    .enabled(apply_state.current_protocol_version)
+                    .then(|| {
+                        apply_state
+                            .config
+                            .wasm_config
+                            .limit_config
+                            .per_receipt_storage_proof_size_limit
+                    });
 
             // Executing actions one by one
             for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -914,6 +979,24 @@ impl Runtime {
                     }
                 }
                 result.merge(new_result)?;
+                if let (true, Some(size_before), Some(limit)) = (
+                    result.result.is_ok(),
+                    storage_proof_size_before_receipt,
+                    storage_proof_limit_for_all_actions,
+                ) {
+                    let recorded_by_receipt = state_update
+                        .trie
+                        .recorded_storage_size_upper_bound()
+                        .saturating_sub(size_before);
+                    if recorded_by_receipt > limit {
+                        result.set_error(
+                            ActionErrorKind::ReceiptStorageProofSizeExceeded {
+                                limit: limit as u64,
+                            }
+                            .into(),
+                        );
+                    }
+                }
                 // TODO storage error
                 if let Err(ref mut res) = result.result {
                     res.index = Some(action_index as u64);
@@ -1637,12 +1720,38 @@ impl Runtime {
         validator_accounts_update: &ValidatorAccountsUpdate,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
-            if let Some(mut account) = get_account(state_update, account_id)? {
+            let account = get_account(state_update, account_id)?;
+            // An uninitialized account has no `locked` field, so none of this applies
+            // and it is skipped. The only way it could appear in stake_info is when a
+            // validator deletes their account and re-creates in an uninitialized state.
+            // None of the checked values could be positive in such case. The check is
+            // defense in depth, so that minted tokens do not leak from the supply if
+            // this path ever becomes reachable.
+            if account.as_ref().is_some_and(|account| !account.is_initialized()) {
+                let rewards = &validator_accounts_update.validator_rewards;
+                let reward = *rewards.get(account_id).unwrap_or(&Balance::ZERO);
+                let proposals = &validator_accounts_update.last_proposals;
+                let last_proposal = *proposals.get(account_id).unwrap_or(&Balance::ZERO);
+                if *max_of_stakes > Balance::ZERO
+                    || reward > Balance::ZERO
+                    || last_proposal > Balance::ZERO
+                {
+                    return Err(StorageError::StorageInconsistentState(format!(
+                        "FATAL: staking invariant does not hold. Uninitialized account \
+                         {account_id} can hold no locked balance: max of stakes \
+                         {max_of_stakes}, reward {reward}, last proposal {last_proposal}"
+                    ))
+                    .into());
+                }
+                continue;
+            }
+            if let Some(mut account) = account {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
-                    account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
+                    let locked = account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
-                    })?);
+                    })?;
+                    account.set_locked(locked).or_inconsistent_state(account_id)?;
                 }
 
                 tracing::debug!(target: "runtime",
@@ -1669,13 +1778,12 @@ impl Runtime {
                         )
                     })?;
                 tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
-                account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - set_locked".into(),
-                        )
-                    },
-                )?);
+                let locked = account.locked().checked_sub(return_stake).ok_or_else(|| {
+                    RuntimeError::UnexpectedIntegerOverflow(
+                        "update_validator_accounts - set_locked".into(),
+                    )
+                })?;
+                account.set_locked(locked).or_inconsistent_state(account_id)?;
                 account.set_amount(account.amount().checked_add(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(
@@ -2057,8 +2165,13 @@ impl Runtime {
                 None => unreachable!("accounts should've been prefetched"),
             };
             let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-            let access_key = match access_key.as_deref_mut() {
-                Some(Ok(Some(ak))) => ak,
+            let mut access_key = match access_key.as_deref_mut() {
+                Some(Ok(Some(ak))) => Some(ak),
+                // A self-signed state init is the only transaction that may have
+                // no access key: the key it is signed with arrives with the
+                // state init the transaction itself carries. Its nonce lives on
+                // the account instead, so nothing is written to the key store.
+                Some(Ok(None)) if is_bootstrap(account, &tx.transaction) => None,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
@@ -2078,51 +2191,68 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
-            // Verify and charge based on transaction type (gas key vs regular access key)
-            let verdict = if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
-                // Gas key transaction - load nonce from prefetched cache
-                let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
-                let current_nonce = match nonce_entry.as_deref() {
-                    Some(Ok(Some(n))) => *n,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "gas key nonce not found");
-                        let num_nonces =
-                            access_key.gas_key_info().map(|info| info.num_nonces).unwrap_or(0);
-                        let outcome = ExecutionOutcomeWithId::failed(
-                            tx,
-                            InvalidTxError::InvalidNonceIndex {
-                                tx_nonce_index: Some(nonce_index),
-                                num_nonces,
-                            },
-                        );
-                        processing_state.outcomes.push(outcome);
-                        continue;
+
+            let verdict = match access_key.as_deref_mut() {
+                // A self-signed universal-account state init. Its nonce lives on
+                // the account until the state init installs the keys, so nothing
+                // is read from or written to the key store on this path.
+                None => verify_and_charge_bootstrap_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                    &PendingConstraints::default(),
+                ),
+                Some(access_key) => {
+                    if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                        // Gas key transaction - load nonce from prefetched cache
+                        let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
+                        let current_nonce = match nonce_entry.as_deref() {
+                            Some(Ok(Some(n))) => *n,
+                            Some(Ok(None)) => {
+                                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                                tracing::debug!(%tx_hash, "gas key nonce not found");
+                                let num_nonces = access_key
+                                    .gas_key_info()
+                                    .map(|info| info.num_nonces)
+                                    .unwrap_or(0);
+                                let outcome = ExecutionOutcomeWithId::failed(
+                                    tx,
+                                    InvalidTxError::InvalidNonceIndex {
+                                        tx_nonce_index: Some(nonce_index),
+                                        num_nonces,
+                                    },
+                                );
+                                processing_state.outcomes.push(outcome);
+                                continue;
+                            }
+                            Some(Err(e)) => return Err(e.clone().into()),
+                            None => unreachable!("gas key nonces should've been prefetched"),
+                        };
+                        verify_and_charge_gas_key_tx_ephemeral(
+                            &processing_state.apply_state.config,
+                            account,
+                            access_key,
+                            current_nonce,
+                            &tx.transaction,
+                            &cost,
+                            Some(block_height),
+                            &PendingConstraints::default(),
+                        )
+                    } else {
+                        // Regular access key transaction
+                        verify_and_charge_tx_ephemeral(
+                            &processing_state.apply_state.config,
+                            account,
+                            access_key,
+                            &tx.transaction,
+                            &cost,
+                            Some(block_height),
+                            &PendingConstraints::default(),
+                        )
                     }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("gas key nonces should've been prefetched"),
-                };
-                verify_and_charge_gas_key_tx_ephemeral(
-                    &processing_state.apply_state.config,
-                    account,
-                    access_key,
-                    current_nonce,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                    &PendingConstraints::default(),
-                )
-            } else {
-                // Regular access key transaction
-                verify_and_charge_tx_ephemeral(
-                    &processing_state.apply_state.config,
-                    account,
-                    access_key,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                    &PendingConstraints::default(),
-                )
+                }
             };
 
             // Build the outcome and extract the verification result (if any).
@@ -2234,7 +2364,7 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
 
-            result.apply(account, access_key);
+            result.apply(account, access_key.as_deref_mut())?;
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
             // Update gas key nonce if applicable
             if let Some((nonce_index, new_nonce)) = result.gas_key_nonce_update() {
@@ -2250,12 +2380,17 @@ impl Runtime {
                     *entry = Ok(Some(new_nonce));
                 }
             }
-            set_access_key(
-                &mut processing_state.state_update,
-                signer_id.clone(),
-                pubkey.clone(),
-                access_key,
-            );
+            // Nothing to write on the bootstrap path: the key does not exist yet
+            // and the state init is what creates it. Writing one here would leave
+            // an uninitialized account holding a key if the state init then failed.
+            if let Some(access_key) = access_key.as_deref_mut() {
+                set_access_key(
+                    &mut processing_state.state_update,
+                    signer_id.clone(),
+                    pubkey.clone(),
+                    access_key,
+                );
+            }
             processing_state
                 .state_update
                 .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });
@@ -2886,7 +3021,6 @@ fn action_transfer_or_implicit_account_creation(
     receipt: &Receipt,
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    actor_id: &mut AccountId,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
@@ -2919,7 +3053,6 @@ fn action_transfer_or_implicit_account_creation(
             &apply_state,
             &apply_state.config.fees,
             account,
-            actor_id,
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,

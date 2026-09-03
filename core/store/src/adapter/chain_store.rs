@@ -7,14 +7,12 @@ use crate::{
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
-};
-use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
     get_receipt_proof_target_shard_prefix, index_to_bytes,
@@ -363,6 +361,15 @@ impl ChainStoreAdapter {
             .unwrap_or_default()
     }
 
+    /// For spice, the block that certified `chunk_id`'s execution result, or
+    /// `None` when the chunk is not yet certified (as of the final head).
+    pub fn get_chunk_certifying_block(&self, chunk_id: &SpiceChunkId) -> Option<CryptoHash> {
+        self.store.get_ser(
+            DBCol::chunk_certifying_block(),
+            &get_block_shard_id(&chunk_id.block_hash, chunk_id.shard_id),
+        )
+    }
+
     /// Returns a vector of all known processed next block hashes.
     pub fn get_all_next_block_hashes(&self, block_hash: &CryptoHash) -> Vec<CryptoHash> {
         self.store.get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref()).unwrap_or_default()
@@ -451,7 +458,11 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 
     pub fn set_block_height(&mut self, hash: &CryptoHash, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash);
+        self.store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), hash);
+    }
+
+    pub fn delete_block_height(&mut self, height: BlockHeight) {
+        self.store_update.delete(DBCol::BlockHeight, &index_to_bytes(height));
     }
 
     pub fn set_header_head(&mut self, header_head: &Tip) {
@@ -482,6 +493,19 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
             DBCol::OutgoingReceipts,
             &get_block_shard_id(block_hash, shard_id),
             &outgoing_receipts,
+        );
+    }
+
+    pub fn set_incoming_receipt(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        incoming_receipts: &[ReceiptProof],
+    ) {
+        self.store_update.set_ser(
+            DBCol::IncomingReceipts,
+            &get_block_shard_id(block_hash, shard_id),
+            &incoming_receipts,
         );
     }
 
@@ -518,16 +542,15 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        proofs: Vec<MerklePath>,
+        outcomes: &[(CryptoHash, ExecutionOutcomeWithProof)],
     ) {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
-        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            outcome_ids.push(outcome_with_id.id);
+        for (outcome_id, outcome_with_proof) in outcomes {
+            outcome_ids.push(*outcome_id);
             self.store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(&outcome_with_id.id, block_hash),
-                &ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                &get_outcome_id_block_hash(outcome_id, block_hash),
+                outcome_with_proof,
             );
         }
         self.store_update.set_ser(
@@ -615,6 +638,19 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         let ShardProof { from_shard_id, to_shard_id, .. } = receipt_proof.1;
         let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
         self.store_update.set_ser(DBCol::receipt_proofs(), &key, receipt_proof);
+    }
+
+    /// For spice, records a chunk's certifying block; written once, at finality.
+    pub fn set_chunk_certifying_block(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        certifying_block_hash: &CryptoHash,
+    ) {
+        self.store_update.insert_ser(
+            DBCol::chunk_certifying_block(),
+            &get_block_shard_id(&chunk_id.block_hash, chunk_id.shard_id),
+            certifying_block_hash,
+        );
     }
 }
 

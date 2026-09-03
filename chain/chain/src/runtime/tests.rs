@@ -13,14 +13,14 @@ use near_chain_configs::{
     MutableConfigValue, default_produce_chunk_add_transactions_time_limit,
     default_view_access_keys_limit,
 };
-use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle, Signature, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::FunctionCallAction;
+use near_primitives::action::{FunctionCallAction, UniversalStateInitAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -44,8 +44,10 @@ use near_primitives::types::{
     BlockHeightDelta, Nonce, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason,
 };
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::utils::derive_universal_account_id;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
@@ -54,13 +56,13 @@ use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata}
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
+use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 const TEST_SEED: RngSeed = [3; 32];
 const NUM_TEST_SIGNERS: usize = 4;
@@ -864,7 +866,7 @@ fn test_state_sync() {
 
     let state_part = env
         .runtime
-        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], PartId::new(0, 1))
+        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], StatePartId::new(0, 1))
         .unwrap();
     let root_node =
         env.runtime.get_state_root_node(shard_id, &block_hash, &env.state_roots[0]).unwrap();
@@ -932,7 +934,7 @@ fn test_state_sync() {
         new_env.runtime.validate_state_part(
             ShardId::new(0),
             &Trie::EMPTY_ROOT,
-            PartId::new(0, 1),
+            StatePartId::new(0, 1),
             &state_part
         ),
         StatePartValidationResult::Invalid
@@ -940,13 +942,19 @@ fn test_state_sync() {
     new_env.runtime.validate_state_part(
         ShardId::new(0),
         &env.state_roots[0],
-        PartId::new(0, 1),
+        StatePartId::new(0, 1),
         &state_part,
     );
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
-        .apply_state_part(shard_id, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
+        .apply_state_part(
+            shard_id,
+            &env.state_roots[0],
+            StatePartId::new(0, 1),
+            &state_part,
+            epoch_id,
+        )
         .unwrap();
     new_env.state_roots[0] = env.state_roots[0];
     for _ in 3..=5 {
@@ -1858,6 +1866,213 @@ fn test_prepare_transactions_shared_balance_across_keys() {
         result.transactions.len(),
         1,
         "expected only one transfer to be included when both share the same account balance"
+    );
+}
+
+/// The chunk producer resolves signers through `SignerOverlay`, which reports a
+/// missing access key for *every* key on an uninitialized account. Only one that
+/// really is a self-signed state init may be charged against the account's bootstrap nonce.
+#[test]
+fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+
+    // The account id commits to `committed` and to nothing else, so `attacker`
+    // is exactly the key the id is not a promise about.
+    let unused: AccountId = "unused.near".parse().unwrap();
+    let committed = InMemorySigner::from_seed(unused.clone(), KeyType::ED25519, "committed");
+    let attacker = InMemorySigner::from_seed(unused, KeyType::ED25519, "attacker");
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(committed.public_key())]),
+    });
+    let raw_state_init = state_init.to_raw();
+    let account_id = derive_universal_account_id(&raw_state_init);
+
+    // Stands in for `initial_nonce_value(creation_height)`. The account is
+    // written straight into the trie, so only its relation to the transaction
+    // nonce matters, and it has to stay under the height-derived upper bound.
+    const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+    let block_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_uid =
+        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
+    {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut state_update = TrieUpdate::new(trie);
+        set_account(
+            &mut state_update,
+            account_id.clone(),
+            &Account::new_uninitialized(Balance::from_near(10), 100, BOOTSTRAP_NONCE),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = env.runtime.tries.store_update();
+        env.state_roots[0] =
+            env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
+
+    let prepare = |tx: SignedTransaction| {
+        let storage_config = RuntimeStorageConfig {
+            state_root: env.state_roots[0],
+            use_flat_storage: true,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+        };
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+        let mut iter = pool.pool_iterator();
+        prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap()
+    };
+
+    // Signed by a key the account id does not commit to, and carrying no state
+    // init at all. All the overlay can see is that the key is missing.
+    let unauthorized = SignedTransaction::from_actions(
+        BOOTSTRAP_NONCE + 1,
+        account_id.clone(),
+        account_id.clone(),
+        &attacker,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        block_hash,
+    );
+    assert!(
+        prepare(unauthorized).transactions.is_empty(),
+        "a transaction that is not a self-signed state init must not take the bootstrap path"
+    );
+
+    // The genuine article still goes through, so the check does not over-reject.
+    let authorized = SignedTransaction::from_actions(
+        BOOTSTRAP_NONCE + 1,
+        account_id.clone(),
+        account_id,
+        &committed,
+        vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw_state_init,
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    assert_eq!(
+        prepare(authorized).transactions.len(),
+        1,
+        "a genuine self-signed state init must still be included"
+    );
+}
+
+/// A self-signed state init is charged with strict nonce semantics whatever it
+/// declared, so a gapped one has to be *held* in the pool for a later chunk
+/// rather than popped and discarded. V0 cannot declare a mode at all, and that
+/// is the shape which would otherwise slip past the gap check entirely.
+///
+/// Nothing else on the same uninitialized account gets that treatment: the
+/// account's nonce cannot authorize any other transaction, so holding one would
+/// only keep junk around until its TTL expired.
+#[test]
+fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+
+    let unused: AccountId = "unused.near".parse().unwrap();
+    let committed = InMemorySigner::from_seed(unused.clone(), KeyType::ED25519, "committed");
+    let attacker = InMemorySigner::from_seed(unused, KeyType::ED25519, "attacker");
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(committed.public_key())]),
+    });
+    let raw_state_init = state_init.to_raw();
+    let account_id = derive_universal_account_id(&raw_state_init);
+
+    // As in the test above: stands in for `initial_nonce_value(creation_height)`.
+    const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+    let block_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_uid =
+        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
+    {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut state_update = TrieUpdate::new(trie);
+        set_account(
+            &mut state_update,
+            account_id.clone(),
+            &Account::new_uninitialized(Balance::from_near(10), 100, BOOTSTRAP_NONCE),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = env.runtime.tries.store_update();
+        env.state_roots[0] =
+            env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
+
+    // The one admissible bootstrap nonce is `BOOTSTRAP_NONCE + 1`, so this
+    // leaves a gap. The pool iterator returns whatever it did not pop, which is
+    // how a held transaction is told apart from a discarded one.
+    let gapped_nonce = BOOTSTRAP_NONCE + 2;
+    let prepare = |tx: SignedTransaction| {
+        let storage_config = RuntimeStorageConfig {
+            state_root: env.state_roots[0],
+            use_flat_storage: true,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+        };
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
+        let included = {
+            let mut iter = pool.pool_iterator();
+            prepare_transactions(&env, &chain, &mut iter, storage_config)
+                .unwrap()
+                .transactions
+                .len()
+        };
+        (included, pool.len())
+    };
+
+    let bootstrap = SignedTransaction::from_actions(
+        gapped_nonce,
+        account_id.clone(),
+        account_id.clone(),
+        &committed,
+        vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: raw_state_init,
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    assert_eq!(
+        prepare(bootstrap),
+        (0, 1),
+        "a gapped V0 self-signed state init must be held in the pool, not discarded"
+    );
+
+    // Strict, so it reaches the gap check, but the account's nonce is not its to
+    // be measured against. It must be popped and left for full validation.
+    let not_a_bootstrap = SignedTransaction::from_actions_v1_strict(
+        TransactionNonce::from_nonce(gapped_nonce),
+        account_id.clone(),
+        account_id,
+        &attacker,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        block_hash,
+    );
+    assert_eq!(
+        prepare(not_a_bootstrap),
+        (0, 0),
+        "a transaction that is not a bootstrap must not be held on the account's nonce"
     );
 }
 

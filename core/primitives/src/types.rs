@@ -1190,7 +1190,7 @@ pub struct SpiceChunkEndorsementStats {
     pub expected: u32,
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ChunkStats,
@@ -1340,8 +1340,11 @@ pub struct StateChangesForShard {
     Ord,
     BorshSerialize,
     BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SpiceChunkId {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -1357,12 +1360,34 @@ pub struct ChunkExecutionResult {
 /// Merkle leaf committing to a single chunk's certified execution roots.
 /// The `chunk_execution_root` in a spice block header is the merkle root over
 /// these leaves, sorted by `chunk_id`.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ChunkExecutionRoots {
     V1(ChunkExecutionRootsV1),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkExecutionRootsV1 {
     pub chunk_id: SpiceChunkId,
     pub state_root: CryptoHash,
@@ -1390,16 +1415,24 @@ impl ChunkExecutionRoots {
     }
 }
 
-/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
-pub fn compute_chunk_execution_root<'a>(
+/// Leaves for the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn sorted_chunk_execution_roots<'a>(
     execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
-) -> CryptoHash {
+) -> Vec<ChunkExecutionRoots> {
     let mut leaves: Vec<ChunkExecutionRoots> = execution_results
         .map(|(chunk_id, execution_result)| {
             ChunkExecutionRoots::from_execution_result(chunk_id, execution_result)
         })
         .collect();
     leaves.sort_by(|a, b| a.chunk_id().cmp(b.chunk_id()));
+    leaves
+}
+
+/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn compute_chunk_execution_root<'a>(
+    execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
+) -> CryptoHash {
+    let leaves = sorted_chunk_execution_roots(execution_results);
     merklize(&leaves).0
 }
 
@@ -1442,6 +1475,22 @@ pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Non-designated endorsements already on chain, accumulated for the all-stake fallback.
+    pub present_fallback_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Height at which the chunk became certifiable, meaning its parent got certified and the
+    /// designated validators could act. Set once, then carried forward. The all-stake fallback
+    /// opens `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks later.
+    pub certifiable_since_height: Option<BlockHeight>,
+}
+
+impl SpiceUncertifiedChunkInfo {
+    /// All endorsements already on chain for this chunk: designated (`present_endorsements`) and
+    /// non-designated (`present_fallback_endorsements`).
+    pub fn all_present_endorsements(
+        &self,
+    ) -> impl Iterator<Item = &(AccountId, SpiceStoredVerifiedEndorsement)> {
+        self.present_endorsements.iter().chain(&self.present_fallback_endorsements)
+    }
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing

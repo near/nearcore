@@ -42,7 +42,7 @@ use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
@@ -943,7 +943,7 @@ impl PeerManagerActor {
                 shard_id,
                 sync_hash,
                 sync_prev_prev_hash,
-                part_id,
+                part_idx,
             } => {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
@@ -956,9 +956,9 @@ impl PeerManagerActor {
                 let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                     &sync_prev_prev_hash,
                     shard_id,
-                    part_id,
+                    part_idx,
                 ) else {
-                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
+                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_idx, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -969,7 +969,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StatePartRequest(StatePartRequest {
                             shard_id,
                             sync_hash,
-                            part_id,
+                            part_idx,
                             addr,
                         })
                         .into(),
@@ -986,13 +986,13 @@ impl PeerManagerActor {
                     self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_idx, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestAck {
                 shard_id,
                 sync_hash,
-                part_id_or_header,
+                part_or_header,
                 body,
                 peer_id,
             } => {
@@ -1003,7 +1003,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StateRequestAck(StateRequestAck {
                             shard_id,
                             sync_hash,
-                            part_id_or_header,
+                            part_or_header,
                             body,
                         })
                         .into(),
@@ -1019,7 +1019,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
@@ -1416,11 +1416,11 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SpicePartialDataRequest { producer, request } => {
+            NetworkRequests::SpiceDataRequest { producer, request } => {
                 self.state.send_message_to_account(
                     &self.clock,
                     &producer,
-                    T1MessageBody::SpicePartialDataRequest(request).into(),
+                    T1MessageBody::SpiceDataRequest(request).into(),
                     &*self.transport,
                 );
                 NetworkResponses::NoResponse
@@ -1542,8 +1542,8 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
             .with_label_values::<&str>(&[(&msg).into()])
             .start_timer();
         match msg {
-            StateSyncEvent::StatePartReceived(shard_id, part_id) => {
-                self.state.snapshot_hosts.part_received(shard_id, part_id);
+            StateSyncEvent::StatePartReceived(shard_id, part_idx) => {
+                self.state.snapshot_hosts.part_received(shard_id, part_idx);
             }
         }
     }
@@ -1578,7 +1578,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                 let (tier2_ack, maybe_tier3_response) = match request.body {
                     Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
                         let (ack, response) = if response_permit.is_none() {
-                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
+                            tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state header response");
                             metrics::MessageDropped::OutgoingQueueLimitExceeded
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
@@ -1602,20 +1602,20 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Header,
+                                part_or_header: PartOrHeader::Header,
                                 body: ack,
                             }).into(),
                             response
                         )
                     }
-                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
+                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_idx }) => {
                         let (ack, response) = if response_permit.is_none() {
-                            tracing::debug!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
+                            tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
                             metrics::MessageDropped::OutgoingQueueLimitExceeded
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
                         } else {
-                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_idx }).await {
                                 Ok(Some(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }
@@ -1634,7 +1634,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Part { part_id },
+                                part_or_header: PartOrHeader::Part { part_idx },
                                 body: ack,
                             }).into(),
                             response

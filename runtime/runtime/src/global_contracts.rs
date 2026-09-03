@@ -1,3 +1,4 @@
+use crate::actions::OrInconsistentState;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::congestion_control::ReceiptSink;
 use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
@@ -103,7 +104,7 @@ pub(crate) fn use_global_contract(
             ))
         })?,
     );
-    account.set_contract(contract);
+    account.set_contract(contract).or_inconsistent_state(account_id)?;
     Ok(())
 }
 

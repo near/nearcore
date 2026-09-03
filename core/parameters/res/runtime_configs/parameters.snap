@@ -96,6 +96,18 @@ action_deterministic_state_init_per_byte
 - send_sir:               72_000_000
 - send_not_sir:           72_000_000
 - execution:              70_000_000
+action_universal_state_init             
+- send_sir:          500_000_000_000
+- send_not_sir:      500_000_000_000
+- execution:       7_430_000_000_000
+action_universal_state_init_per_entry   
+- send_sir:                        0
+- send_not_sir:                    0
+- execution:         200_000_000_000
+action_universal_state_init_per_byte    
+- send_sir:               72_000_000
+- send_not_sir:           72_000_000
+- execution:              70_000_000
 action_gas_key_transfer                 
 - send_sir:          115_123_062_500
 - send_not_sir:      115_123_062_500
@@ -148,6 +160,8 @@ wasm_p256_verify_base                      1_300_000_000_000
 wasm_p256_verify_byte                             13_000_000
 wasm_ml_dsa_verify_base                      540_000_000_000
 wasm_ml_dsa_verify_byte                           11_000_000
+wasm_universal_state_init_to_account_id_base       8_520_000_000
+wasm_universal_state_init_to_account_id_byte          21_471_105
 wasm_log_base                                  3_543_313_050
 wasm_log_byte                                     13_198_791
 wasm_storage_write_base                       64_196_736_000, compute:      200_000_000_000
@@ -235,6 +249,7 @@ max_number_input_data_dependencies                       128
 max_receipt_total_input_size                       4_194_944
 max_functions_number_per_contract                     10_000
 max_locals_per_contract                            1_000_000
+min_contract_size_per_local                                2
 account_id_validity_rules_version                          2
 yield_timeout_length_in_blocks                           200
 max_yield_payload_size                                 1_024
@@ -253,7 +268,8 @@ fix_contract_loading_cost               false
 fix_contract_loading_error              true
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
-fix_ml_dsa_cost_charging                false
+universal_accounts                      false
+fix_ml_dsa_cost_charging                true
 discard_custom_sections                 true
 reftypes_bulk_memory                    true
 max_congestion_incoming_gas             400_000_000_000_000_000
@@ -296,7 +312,7 @@ gas_key_host_fns                        true
 one_yocto_on_promise                    true
 p256_verify_host_fn                     true
 ml_dsa_verify_host_fn                   true
-sha3_host_fns                           false
+sha3_host_fns                           true
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
 bls12381_not_in_group_fix               false

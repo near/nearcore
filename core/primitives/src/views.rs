@@ -10,8 +10,8 @@ use crate::action::delegate::{
 };
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -33,6 +33,7 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
+use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -40,13 +41,15 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
+    StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
+use crate::universal_state_init::RawStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -54,7 +57,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKeyInfo};
+use near_primitives_core::account::{AccountContract, AccountState, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -91,6 +94,17 @@ pub struct AccountView {
     /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
+    /// Whether the account is initialized. Only a universal account can be
+    /// uninitialized: it has no access keys, code or data until a
+    /// `UniversalStateInit` arrives. Omitted for initialized accounts.
+    #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
+    pub state: AccountState,
+    /// The nonce an uninitialized account's own transactions must use, present
+    /// only while it is uninitialized. A self-signed state init is the one
+    /// transaction such an account can send, and this is the only way for a
+    /// client to learn the nonce it must carry: there is no access key to query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_nonce: Option<Nonce>,
 }
 
 /// A view of the contract code.
@@ -121,6 +135,8 @@ impl From<&Account> for AccountView {
             storage_paid_at: 0,
             global_contract_hash,
             global_contract_account_id,
+            state: account.state(),
+            bootstrap_nonce: account.bootstrap_nonce(),
         }
     }
 }
@@ -128,25 +144,6 @@ impl From<&Account> for AccountView {
 impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         (&account).into()
-    }
-}
-
-impl From<&AccountView> for Account {
-    fn from(view: &AccountView) -> Self {
-        let contract = match &view.global_contract_account_id {
-            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
-            None => match view.global_contract_hash {
-                Some(hash) => AccountContract::Global(hash),
-                None => AccountContract::from_local_code_hash(view.code_hash),
-            },
-        };
-        Account::new(view.amount, view.locked, contract, view.storage_usage)
-    }
-}
-
-impl From<AccountView> for Account {
-    fn from(view: AccountView) -> Self {
-        (&view).into()
     }
 }
 
@@ -701,12 +698,12 @@ impl From<&Tip> for BlockStatusView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PartElapsedTimeView {
-    pub part_id: u64,
+    pub part_id: StatePartIndex,
     pub elapsed_ms: u128,
 }
 
 impl PartElapsedTimeView {
-    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+    pub fn new(part_id: &StatePartIndex, elapsed_ms: u128) -> PartElapsedTimeView {
         Self { part_id: *part_id, elapsed_ms }
     }
 }
@@ -1569,6 +1566,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    UniversalStateInit {
+        state_init: RawStateInit,
+        deposit: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1638,6 +1639,10 @@ impl From<Action> for ActionView {
             Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
                 public_key: action.public_key,
                 amount: action.amount,
+            },
+            Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
+                state_init: action.state_init,
+                deposit: action.deposit,
             },
         }
     }
@@ -1720,6 +1725,12 @@ impl TryFrom<ActionView> for Action {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
+                }))
+            }
+            ActionView::UniversalStateInit { state_init, deposit } => {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init,
+                    deposit,
                 }))
             }
         })
@@ -2766,6 +2777,74 @@ impl LightClientBlockLiteView {
             &combine_hash(&hash(&inner_lite_bytes), &self.inner_rest_hash),
             &self.prev_block_hash,
         )
+    }
+}
+
+/// Proof that a chunk's certified execution roots are committed by a spice block
+/// that a light client can trust via its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;
+/// `certifying_block_proof` places the certifying block into the head's block merkle tree.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionProofView {
+    pub roots: ChunkExecutionRoots,
+    pub roots_proof: MerklePath,
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    pub certifying_block_proof: MerklePath,
+}
+
+/// A value read from a shard's state, with the trie nodes that prove it against the
+/// chunk's `state_root`. An absent `value` is proved the same way.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct StateProofView {
+    pub value: Option<StoreValue>,
+    #[serde_as(as = "Vec<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub nodes: Vec<Arc<[u8]>>,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+///
+/// An account that runs a global contract has no local code, so `LocalContractCode` is
+/// absent for it. `Account::contract()` says which case applies.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    LocalContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            StateProofTarget::Account { account_id }
+            | StateProofTarget::LocalContractCode { account_id }
+            | StateProofTarget::ContractData { account_id, .. }
+            | StateProofTarget::AccessKey { account_id, .. } => account_id,
+        }
+    }
+
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::LocalContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => {
+                TrieKey::access_key(account_id.clone(), public_key.clone())
+            }
+        }
     }
 }
 

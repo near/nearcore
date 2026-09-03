@@ -19,14 +19,14 @@ use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_encode, reed_solomon_part_length};
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV3,
-    ShardChunkWithEncoding, TransactionReceipt,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, PartialEncodedChunkV3, ReceiptProof,
+    ShardChunkHeader, ShardChunkHeaderV3, ShardChunkWithEncoding, TransactionReceipt,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -54,11 +54,14 @@ pub struct ChunkTestFixture {
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
     pub mock_chain_head: Tip,
     pub rs: ReedSolomon,
+    pub protocol_version: ProtocolVersion,
+    pub mock_grandparent_hash: CryptoHash,
+    pub mock_epoch_id: EpochId,
 }
 
 impl Default for ChunkTestFixture {
     fn default() -> Self {
-        Self::new(false, 3, 6, 6, true)
+        Self::new(false, 3, 6, 6, true, PROTOCOL_VERSION)
     }
 }
 
@@ -69,6 +72,7 @@ impl ChunkTestFixture {
         num_block_producers: usize,
         num_chunk_only_producers: usize,
         track_all_shards: bool,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         if num_shards > num_block_producers as u64 {
             panic!("Invalid setup: there must be at least as many block producers as shards");
@@ -86,6 +90,7 @@ impl ChunkTestFixture {
                 .collect(),
             num_shards,
             2,
+            protocol_version,
         );
         let epoch_manager = epoch_manager.into_handle();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
@@ -108,10 +113,11 @@ impl ChunkTestFixture {
         // generate a random block hash for the block at height 1
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
+        let mock_grandparent_hash =
+            if orphan_chunk { CryptoHash::hash_bytes(&[1]) } else { CryptoHash::default() };
 
         // No ChunkProducers DB seeding needed: the fixture's height-1 chunks have
-        // no real grandparent, so anchored resolution falls back to the canonical
-        // sampler (and the orphan fixture exercises the MissingBlock path).
+        // no real grandparent, so anchored resolution falls back to the canonical sampler.
         let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
@@ -175,7 +181,7 @@ impl ChunkTestFixture {
             None,
             &signer,
             &rs,
-            PROTOCOL_VERSION,
+            protocol_version,
         );
 
         let mock_encoded_chunk = mock_chunk.into_parts().1;
@@ -220,6 +226,9 @@ impl ChunkTestFixture {
                 next_epoch_id: EpochId::default(),
             },
             rs,
+            protocol_version,
+            mock_grandparent_hash,
+            mock_epoch_id,
         }
     }
 
@@ -230,11 +239,26 @@ impl ChunkTestFixture {
             .filter_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
-        PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: self.mock_chunk_header.clone(),
-            parts,
-            prev_outgoing_receipts: Vec::new(),
-        })
+        self.wrap_partial_encoded_chunk(self.mock_chunk_header.clone(), parts, Vec::new())
+    }
+
+    pub fn wrap_partial_encoded_chunk(
+        &self,
+        header: ShardChunkHeader,
+        parts: Vec<PartialEncodedChunkPart>,
+        prev_outgoing_receipts: Vec<ReceiptProof>,
+    ) -> PartialEncodedChunk {
+        if ProtocolFeature::EarlyKickout.enabled(self.protocol_version) {
+            PartialEncodedChunk::V3(PartialEncodedChunkV3 {
+                header,
+                parts,
+                prev_outgoing_receipts,
+                prev_prev_block_hash: self.mock_grandparent_hash,
+                epoch_id: self.mock_epoch_id,
+            })
+        } else {
+            PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts })
+        }
     }
 
     fn make_malicious_chunk_with_content(
@@ -277,7 +301,7 @@ impl ChunkTestFixture {
             BandwidthRequests::empty(),
             None,
             &signer,
-            PROTOCOL_VERSION,
+            self.protocol_version,
         ));
         let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
         let all_part_ords: Vec<u64> = (0..self.rs.total_shard_count()).map(|p| p as u64).collect();

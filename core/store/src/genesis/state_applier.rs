@@ -325,7 +325,7 @@ impl GenesisStateApplier {
                 let mut account: Account = get_account(state_update, account_id)
                     .expect("Genesis storage error")
                     .expect("account must exist");
-                account.set_locked(*amount);
+                account.set_locked(*amount).expect("genesis validator account must be initialized");
                 set_account(state_update, account_id.clone(), &account);
             });
         }
