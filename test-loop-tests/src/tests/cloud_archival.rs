@@ -977,6 +977,33 @@ fn test_cloud_archival_two_nodes_archive_the_same_bytes() {
     h.shutdown();
 }
 
+/// The same agreement over a chain that skips blocks and drops chunks, so the rows a block
+/// implies and the rows a node stored can come apart. `ChunkHashesByHeight` is derived from
+/// the block rather than copied, and a wrong derivation shows here and not on a full chain.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_two_nodes_agree_across_gaps() {
+    assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let mut chunk_pattern = vec![true; 10];
+    chunk_pattern[3] = false;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .disable_gc()
+        .dont_take_over_rpc()
+        .drop_blocks_at(&[13])
+        .drop_chunks(all_shard_ids[0], chunk_pattern)
+        .build();
+    h.run_until_epoch(3);
+    h.assert_heads_ok_before_gc();
+
+    let end = h.local_min_head();
+    assert_writer_agrees_with_rpc_node(&h.env, &h.writer_id, &h.rpc_id(), 0, end);
+
+    h.shutdown();
+}
+
 /// The blob carries the shard's stats in the archive's form, whatever the archiving node
 /// holds in its own row.
 #[test]

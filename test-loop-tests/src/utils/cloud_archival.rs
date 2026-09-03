@@ -595,10 +595,8 @@ pub fn assert_writer_inverse_deltas(
     // one that is new is a child of the split.
     let base_shards: HashSet<ShardUId> = info.base_shard_uids.iter().copied().collect();
 
-    // TODO(cloud_archival): reach a child block above the ceiling, so the no-inverse-changes
-    // assertion below runs on one. The walk stops at the ceiling because the writer has not
-    // archived past it when this runs, which leaves that branch covered only by carried-over
-    // shards.
+    // TODO(cloud_archival): assert a child block above the ceiling carries none; the writer
+    // has not archived that far when this runs.
     let mut checked = 0;
     for height in info.new_epoch_first_height..=inverse_ceiling {
         let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
