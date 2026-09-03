@@ -201,14 +201,18 @@ impl HeaderSync {
         peers: &[PeerAdvertisedHead],
         peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
-        let Some(peer) = peer_selector.pick(peers, self.clock.now_utc()).cloned() else {
+        let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
+        // Candidates are filtered against the chain head. A peer at or below the
+        // header head has nothing to send, so it must not be selected at all.
+        let Some(peer) = peer_selector
+            .pick_matching(peers, self.clock.now_utc(), |peer| {
+                peer.highest_block_height.min(shutdown_height) > header_head.height
+            })
+            .cloned()
+        else {
             return Ok(());
         };
-        let shutdown_height = self.shutdown_height.get().unwrap_or(u64::MAX);
         let peer_advertised_height = peer.highest_block_height.min(shutdown_height);
-        if peer_advertised_height <= header_head.height {
-            return Ok(());
-        }
         self.request_headers(chain, &peer)?;
         self.syncing_peer = Some(peer);
         self.stalling_ts = None;
@@ -329,7 +333,90 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 
 #[cfg(test)]
 mod test {
-    use crate::sync::header::get_locator_ordinals;
+    use crate::sync::header::{HeaderSync, get_locator_ordinals};
+    use crate::sync::peers::{PEER_FAILURE_COOLDOWN_SECONDS, PeerAdvertisedHead, PeerSelector};
+    use near_async::messaging::IntoMultiSender;
+    use near_async::time::{Duration, FakeClock};
+    use near_chain::test_utils::setup;
+    use near_chain_configs::MutableConfigValue;
+    use near_crypto::{KeyType, SecretKey};
+    use near_epoch_manager::EpochManagerAdapter;
+    use near_network::test_utils::MockPeerManagerAdapter;
+    use near_network::types::{NetworkRequests, PeerInfo, PeerManagerMessageRequest};
+    use near_primitives::network::PeerId;
+    use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::types::BlockHeight;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use std::sync::Arc;
+
+    fn advertised_head(seed: &str, height: BlockHeight) -> PeerAdvertisedHead {
+        PeerAdvertisedHead {
+            peer_info: PeerInfo {
+                id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key()),
+                addr: None,
+                account_id: None,
+            },
+            highest_block_height: height,
+            highest_block_hash: Default::default(),
+            archival: false,
+        }
+    }
+
+    #[test]
+    fn start_header_batch_asks_a_peer_above_the_header_head_while_the_others_cool_down() {
+        let clock = FakeClock::default();
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+        let mut header_sync = HeaderSync::new(
+            clock.clock(),
+            network_adapter.as_multi_sender(),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
+            1,
+            MutableConfigValue::new(None, "expected_shutdown"),
+        );
+
+        // Header sync runs with the header head ahead of the chain head, which is
+        // what puts peers with nothing to send in the candidate list.
+        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &genesis, signer)
+            .epoch_sync_data_hash(
+                epoch_manager.compute_epoch_sync_data_hash(genesis.hash()).unwrap(),
+            )
+            .build();
+        chain.sync_block_headers(vec![block.header().clone().into()]).unwrap();
+        let header_head = chain.header_head().unwrap().height;
+        assert_eq!((header_head, chain.head().unwrap().height), (1, 0));
+
+        let above = [advertised_head("above0", 100), advertised_head("above1", 100)];
+        let peers = [above[0].clone(), above[1].clone(), advertised_head("level", header_head)];
+
+        let mut selector = PeerSelector::new(
+            Duration::seconds(PEER_FAILURE_COOLDOWN_SECONDS),
+            StdRng::seed_from_u64(1),
+        );
+        for peer in &above {
+            selector.record_failed_to_serve(&peer.peer_info.id, clock.now_utc());
+        }
+
+        header_sync.run(&chain, 100, &peers, false, &mut selector).unwrap();
+
+        let requests = network_adapter.requests.write().drain(..).collect::<Vec<_>>();
+        assert_eq!(requests.len(), 1, "the tick must spend a request");
+        let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockHeadersRequest {
+            peer_id,
+            ..
+        }) = &requests[0]
+        else {
+            panic!("unexpected network request {:?}", requests[0]);
+        };
+        assert!(
+            above.iter().any(|peer| &peer.peer_info.id == peer_id),
+            "a peer at or below the header head has nothing to send",
+        );
+    }
 
     #[test]
     fn test_get_locator_ordinals() {
