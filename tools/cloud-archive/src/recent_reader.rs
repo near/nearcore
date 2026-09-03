@@ -7,7 +7,12 @@ use std::path::Path;
 use tokio::signal::ctrl_c;
 
 #[derive(clap::Parser)]
-pub(crate) struct FollowCmd {}
+pub(crate) struct FollowCmd {
+    /// Copy from the bucket without answering queries. Removing the `rpc` section does not
+    /// do this: the config falls back to its default address.
+    #[clap(long)]
+    no_serve: bool,
+}
 
 impl FollowCmd {
     pub fn run(
@@ -47,6 +52,9 @@ impl FollowCmd {
             tracing::info!(target: "cloud_archival", "follow stopped");
             Ok(())
         };
+        if self.no_serve {
+            return follow();
+        }
         // One process and one store handle. Two cannot do it: the reading side opens a
         // snapshot fixed at open time, so it never sees what the follow loop appends.
         serve_store_while(home_dir, &handles.near_config, handles.store.clone(), runtime, follow)

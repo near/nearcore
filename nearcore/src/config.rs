@@ -1743,11 +1743,13 @@ pub fn load_config(
         }
     };
 
+    // A writer would archive its own chunk rows under an inclusion height the chain has not
+    // given them yet, and a reader has no use for a key either.
     if validator_signer.is_some() && config.cloud_archival.is_some() {
         validation_errors.push_cross_file_semantics_error(
-            "cloud archival requires a node that produces no chunks, since a producer stores \
-             its own chunks under an inclusion height the chain has not given them yet. \
-             Remove the validator key file, or unset cloud_archival."
+            "a cloud archival node must not produce chunks: a writer would archive its own \
+             chunk rows under an inclusion height the chain has not given them yet. Remove the \
+             validator key file, or unset cloud_archival."
                 .to_string(),
         );
     }

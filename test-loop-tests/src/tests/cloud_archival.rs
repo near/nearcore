@@ -1362,6 +1362,22 @@ fn test_cloud_archival_fully_skipped_batch() {
     // block of its own, above the last block of one epoch and below the first of the next.
     h.bootstrap_historical_reader(dropped_heights[0], gap_target);
     h.assert_reader_writer_parity(Reader::Historical, dropped_heights[0], gap_target);
+    // Only the anchor install writes the block below the range, and the chain head names it
+    // until the walk reaches a present height, so a query resolving against that head has to
+    // find the block itself and reach it by height.
+    let anchor_height = dropped_heights[0] - 1;
+    let anchor_hash =
+        h.writer_store().chain_store().get_block_hash_by_height(anchor_height).unwrap();
+    let store = h.historical_reader_store();
+    store
+        .chain_store()
+        .get_block(&anchor_hash)
+        .expect("the anchor below the range is a block the store holds");
+    assert_eq!(
+        store.chain_store().get_block_hash_by_height(anchor_height).unwrap(),
+        anchor_hash,
+        "the anchor below the range is not reachable by its own height"
+    );
     h.kill_historical_reader();
 
     h.shutdown();

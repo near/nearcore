@@ -1,7 +1,7 @@
 use crate::archive::cloud_archival_utils::{
     CloudArchivalReaderError, apply_batch_state_changes, find_present_block_below,
     find_snapshot_at_or_before, pull_block_batch, pull_epoch_data, pull_shard_batch,
-    save_reader_position, shard_state_anchor, shards_tracked_in_batch,
+    save_block_data, save_reader_position, shard_state_anchor, shards_tracked_in_batch,
 };
 use crate::archive::cloud_reader_trie_utils::{build_shard_tries, install_state_snapshot};
 use near_chain_configs::TrackedShardsConfig;
@@ -17,7 +17,8 @@ use near_store::{ShardTries, ShardUId, Store};
 /// end_height]` from cloud storage and writes it into the local store. Each shard's state
 /// is reconstructed as the walk goes, unless `skip_state` leaves it out.
 ///
-/// Rows reach past `end_height`, since each batch is written to its own end.
+/// Rows reach past `end_height`, since each batch is written to its own end, so the last
+/// height covered is reported rather than assumed to be `end_height`.
 ///
 /// `start_height` must be above the first archived block, since the walk is anchored on
 /// the block below it.
@@ -89,6 +90,8 @@ pub async fn bootstrap_range(
         }
     }
 
+    let covered_to = height - 1;
+    tracing::info!(start_height, end_height, covered_to, "bootstrap complete",);
     Ok(())
 }
 
@@ -118,11 +121,10 @@ async fn install_anchors(
 
     let prev_block_hash = *prev_block.block().header().hash();
     let mut update = store.store_update();
-    // `get_epoch_id_from_prev_block` starts by reading this row.
-    update.epoch_store_update().set_block_info(prev_block.block_info());
-    // The reader head names this block whenever the range opens on skipped heights, so
-    // the store has to be able to describe it.
-    update.chain_store_update().set_block_header_only(prev_block.block().header());
+    // `get_epoch_id_from_prev_block` reads this block's info, and the reader head names it
+    // whenever the range opens on skipped heights, so every row a query resolving against
+    // that head reads has to be here too.
+    save_block_data(&mut update, &prev_block);
     update.commit();
 
     let start_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
