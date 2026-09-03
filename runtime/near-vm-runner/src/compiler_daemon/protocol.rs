@@ -108,8 +108,7 @@ fn read_frame_with_limit(r: &mut impl Read, max_size: usize) -> io::Result<Vec<u
 }
 
 /// Append one frame directly to `destination`, avoiding an intermediate frame
-/// allocation. Allocation remains incremental so an untrusted announced total
-/// artifact size cannot make the parent reserve it all at once.
+/// allocation. The caller reserves capacity for the complete artifact first.
 fn read_frame_into(
     r: &mut impl Read,
     destination: &mut Vec<u8>,
@@ -129,9 +128,6 @@ fn read_frame_into(
             ),
         ));
     }
-    destination
-        .try_reserve(frame_len)
-        .map_err(|err| io::Error::other(format!("failed to allocate artifact buffer: {err}")))?;
     destination.resize(new_len, 0);
     if let Err(err) = r.read_exact(&mut destination[old_len..]) {
         destination.truncate(old_len);
@@ -169,6 +165,9 @@ pub fn read_compile_response(r: &mut impl Read) -> io::Result<Result<Vec<u8>, St
         CompileResponse::Ok { artifact_size } => {
             let artifact_size = artifact_size as usize;
             let mut artifact = Vec::new();
+            artifact.try_reserve_exact(artifact_size).map_err(|err| {
+                io::Error::other(format!("failed to allocate artifact buffer: {err}"))
+            })?;
             loop {
                 let chunk_len =
                     read_frame_into(r, &mut artifact, ARTIFACT_CHUNK_SIZE, artifact_size)?;
