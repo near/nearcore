@@ -452,10 +452,15 @@ pub(crate) fn apply_writer_settings(
     snapshot_every_n_epochs: u64,
     catch_up_throttle: Duration,
 ) {
+    // A poll per block, so a bounded run archives every height the chain produced. The
+    // production default is slower, and a writer allowed to lag would make each test's
+    // archived range depend on how long the run happened to be.
+    let polling_interval = config.min_block_production_delay.get();
     config.cloud_archival_writer = Some(CloudArchivalWriterConfig {
         archive_block_data,
         snapshot_every_n_epochs,
         catch_up_throttle,
+        polling_interval,
         ..Default::default()
     });
     config.tracked_shards_config = if tracked_shards.is_empty() {
@@ -772,6 +777,7 @@ pub fn bootstrap_historical_reader(
             &shard_tracker,
             start_height,
             target_block_height,
+            false,
         ))
         .expect("bootstrap_range should succeed");
     }

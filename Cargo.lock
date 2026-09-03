@@ -4133,12 +4133,17 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "near-async",
+ "near-chain",
  "near-chain-configs",
  "near-client",
  "near-epoch-manager",
+ "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-primitives",
  "near-store",
  "nearcore",
+ "parking_lot 0.12.1",
  "tokio",
  "tracing",
 ]

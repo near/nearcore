@@ -2,7 +2,7 @@ use crate::archive::cloud_reader_trie_utils::BatchTrieUpdate;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, Tip};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -267,17 +267,22 @@ pub(crate) fn shards_tracked_in_batch(
     Ok(shard_uids)
 }
 
-/// Stores how far the reader has taken the archive, and returns that head.
-pub(crate) fn save_reader_head(
+/// Stores how far the reader has taken the archive together with the heads a query
+/// resolves against, and returns that reader head. One commit, so a chain head never
+/// names a block whose rows a stopped run left unwritten.
+pub(crate) fn save_reader_position(
     store: &Store,
     height: BlockHeight,
     last_present_block_hash: CryptoHash,
-) -> CloudReaderHead {
+) -> Result<CloudReaderHead, CloudArchivalReaderError> {
     let head = CloudReaderHead { height, last_present_block_hash };
+    let header = store.chain_store().get_block_header(&last_present_block_hash)?;
+    let tip = Tip::from_header(&header);
     let mut update = store.store_update();
     update.cloud_archival_store_update().set_reader_head(&head);
+    update.cloud_archival_store_update().set_chain_heads(&tip);
     update.commit();
-    head
+    Ok(head)
 }
 
 /// Writes one epoch's cloud data into `update`.

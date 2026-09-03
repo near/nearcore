@@ -73,6 +73,7 @@ dump-test-contract = ["near-dump-test-contract"]
 
 test_features = [
   "nearcore/test_features",
+  "near-cloud-archive-tool/test_features",
   "near-dump-test-contract/test_features",
 ]
 rosetta_rpc = ["nearcore/rosetta_rpc"]

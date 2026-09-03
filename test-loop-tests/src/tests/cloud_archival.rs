@@ -2477,6 +2477,45 @@ fn test_cloud_archival_resharding_gap_without_the_sync_hash_row() {
     h.shutdown();
 }
 
+/// The recent reader points the heads a query resolves against at its own position, so a
+/// query on the store it took over answers there and not at the stopped node's head.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+
+    let stopped_node_head = h.rpc_store().chain_store().head().unwrap().last_block_hash;
+    let reader = h.start_recent_reader();
+    h.run_until_epoch(3);
+
+    let store = h.recent_reader_store();
+    let reader_head = store.cloud_archival_store().reader_head().expect("the reader holds a head");
+    let chain_store = store.chain_store();
+    // By hash rather than height, since a reader head can name a height carrying no block.
+    let heads = [
+        ("HEAD", chain_store.head()),
+        ("FINAL_HEAD", chain_store.final_head()),
+        ("HEADER_HEAD", chain_store.header_head()),
+    ];
+    for (name, tip) in heads {
+        let tip = tip.unwrap_or_else(|error| panic!("{name} missing from the store: {error}"));
+        assert_eq!(
+            tip.last_block_hash, reader_head.last_present_block_hash,
+            "{name} does not name the block the reader head continues from"
+        );
+    }
+    assert_ne!(
+        store.chain_store().head().unwrap().last_block_hash,
+        stopped_node_head,
+        "the reader left the heads where the stopped node had them"
+    );
+
+    reader.stop();
+    h.shutdown();
+}
+
 /// The recent reader holds its head at a shard the bucket carries no further, even
 /// though blocks and the other shards reach past it, and moves on once that shard is
 /// published again.

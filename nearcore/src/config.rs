@@ -1743,6 +1743,15 @@ pub fn load_config(
         }
     };
 
+    if validator_signer.is_some() && config.cloud_archival.is_some() {
+        validation_errors.push_cross_file_semantics_error(
+            "cloud archival requires a node that produces no chunks, since a producer stores \
+             its own chunks under an inclusion height the chain has not given them yet. \
+             Remove the validator key file, or unset cloud_archival."
+                .to_string(),
+        );
+    }
+
     let node_key_path = dir.join(&config.node_key_file);
     let network_signer_result = NodeKeyFile::from_file(&node_key_path);
     let network_signer = match network_signer_result {
