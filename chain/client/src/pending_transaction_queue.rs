@@ -863,12 +863,22 @@ mod tests {
         let signer = test_signer();
         let tx1 = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
+        let expected_usage = AccessKeyTxUsage {
+            count: 2,
+            bytes: tx1.size_for_limits(PROTOCOL_VERSION) + tx2.size_for_limits(PROTOCOL_VERSION),
+            conversion_gas: tx_cost(&config, &tx1.transaction, TEST_GAS_PRICE)
+                .unwrap()
+                .gas_burnt
+                .saturating_add(
+                    tx_cost(&config, &tx2.transaction, TEST_GAS_PRICE).unwrap().gas_burnt,
+                ),
+        };
         let block_hash = CryptoHash::hash_bytes(&[1]);
         add_chunk_txs(&sharded, block_hash, &[tx1, tx2], &config, TEST_GAS_PRICE);
 
         with_shard_ptq(&sharded, |ptq| {
             let account = ptq.pending_accounts.get(&signer.get_account_id()).unwrap();
-            assert_eq!(account.access_key_tx_usage.count, 2);
+            assert_eq!(account.access_key_tx_usage, expected_usage);
             assert!(!account.paid_from_balance.is_zero());
         });
         with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&block_hash));
@@ -957,27 +967,6 @@ mod tests {
             session.check_pending(&next_tx, test_usage(&next_tx)),
             PendingTxCheckResult::Skip
         );
-    }
-
-    #[test]
-    fn test_pending_usage_tracks_bytes_and_conversion_gas() {
-        let config = RuntimeConfig::test();
-        let sharded = make_sharded_ptq();
-        let signer = test_signer();
-        let tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        let expected = AccessKeyTxUsage {
-            count: 1,
-            bytes: tx.size_for_limits(PROTOCOL_VERSION),
-            conversion_gas: tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap().gas_burnt,
-        };
-        let block_hash = CryptoHash::hash_bytes(&[1]);
-        add_chunk_txs(&sharded, block_hash, &[tx], &config, TEST_GAS_PRICE);
-        with_shard_ptq(&sharded, |ptq| {
-            let account = ptq.pending_accounts.get(&signer.get_account_id()).unwrap();
-            assert_eq!(account.access_key_tx_usage, expected);
-        });
-        with_shard_ptq(&sharded, |ptq| ptq.remove_certified_chunk_by_block_hash(&block_hash));
-        with_shard_ptq(&sharded, |ptq| assert!(ptq.is_empty()));
     }
 
     #[test]
