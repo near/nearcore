@@ -1,7 +1,8 @@
 use crate::archive::cloud_archival_utils::{
-    CloudArchivalReaderError, pull_block_batch, pull_shard_batch, save_reader_head,
-    shards_tracked_in_batch,
+    CloudArchivalReaderError, apply_batch_state_changes, pull_block_batch, pull_shard_batch,
+    save_reader_head, shard_state_anchor, shards_tracked_in_batch,
 };
+use crate::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::InterruptHandle;
 use near_epoch_manager::EpochManagerAdapter;
@@ -11,7 +12,7 @@ use near_primitives::types::BlockHeight;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::{ShardUId, Store};
+use near_store::{ShardTries, ShardUId, Store};
 use std::mem;
 use std::sync::Arc;
 
@@ -62,6 +63,7 @@ pub struct CloudArchivalRecentReader {
     polling_interval: Duration,
     interrupt: InterruptHandle,
     pending_window: Option<PendingWindow>,
+    tries: ShardTries,
 }
 
 impl CloudArchivalRecentReader {
@@ -73,6 +75,7 @@ impl CloudArchivalRecentReader {
         shard_tracker: ShardTracker,
         polling_interval: Duration,
     ) -> Self {
+        let tries = build_shard_tries(&store);
         Self {
             clock,
             store,
@@ -82,6 +85,7 @@ impl CloudArchivalRecentReader {
             polling_interval,
             interrupt: InterruptHandle::new(),
             pending_window: None,
+            tries,
         }
     }
 
@@ -115,9 +119,29 @@ impl CloudArchivalRecentReader {
         self.interrupt.stop();
     }
 
+    /// Reads the root every shard the reader tracks at its head stands at, so a store
+    /// holding no state for one of them stops the reader here instead of on a poll it
+    /// would go on repeating.
+    fn check_state_anchors(
+        &self,
+        reader_head: &CloudReaderHead,
+    ) -> Result<(), CloudArchivalReaderError> {
+        let shard_uids = shards_tracked_in_batch(
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            &reader_head.last_present_block_hash,
+            None,
+        )?;
+        for shard_uid in shard_uids {
+            shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+        }
+        Ok(())
+    }
+
     /// Follows the bucket, copying what it holds into the local store, until interrupted.
     pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
         let mut reader_head = self.ensure_reader_head()?;
+        self.check_state_anchors(&reader_head)?;
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {
@@ -163,8 +187,14 @@ impl CloudArchivalRecentReader {
             return Ok(PullOutcome::WaitingForShard { shard_uid });
         };
         for shard_uid in shard_uids {
-            pull_shard_batch(&self.store, &self.cloud_storage, shard_uid, reader_head.height + 1)
-                .await?;
+            let shard_batch = pull_shard_batch(
+                &self.store,
+                &self.cloud_storage,
+                shard_uid,
+                reader_head.height + 1,
+            )
+            .await?;
+            apply_batch_state_changes(&self.tries, shard_uid, &shard_batch, reader_head)?;
         }
         let head = save_reader_head(&self.store, window.end_height, window.last_present_block_hash);
         Ok(PullOutcome::Pulled { head })

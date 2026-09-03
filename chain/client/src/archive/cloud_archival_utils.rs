@@ -1,16 +1,17 @@
+use crate::archive::cloud_reader_trie_utils::BatchTrieUpdate;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::errors::EpochError;
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
-use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{
-    BlockData, CloudRetrievalError, CloudStorage, EpochData, NewChunkData, ShardData,
+    BlockData, CloudRetrievalError, CloudStorage, EpochData, NewChunkData, ShardBatch, ShardData,
 };
-use near_store::{DBCol, KeyForStateChanges, ShardUId, Store, StoreUpdate};
+use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -22,10 +23,23 @@ pub enum CloudArchivalReaderError {
     Chain(#[from] Error),
     #[error(transparent)]
     Epoch(#[from] EpochError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
     #[error("no block below {start_height}, which must be above the first archived block")]
     NoAnchorBelow { start_height: BlockHeight },
+    #[error("no state root for shard {shard_uid} under block {block_hash}")]
+    NoStateAnchor { shard_uid: ShardUId, block_hash: CryptoHash },
+    #[error(
+        "state root at block {block_hash} shard {shard_id}: applied {applied}, recorded {recorded}"
+    )]
+    StateRootMismatch {
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        applied: CryptoHash,
+        recorded: CryptoHash,
+    },
 }
 
 /// Writes one block's cloud data into the block-level columns a reader reproduces.
@@ -125,7 +139,7 @@ pub(crate) async fn pull_shard_batch(
     cloud_storage: &CloudStorage,
     shard_uid: ShardUId,
     from_height: BlockHeight,
-) -> Result<(), CloudArchivalReaderError> {
+) -> Result<ShardBatch, CloudArchivalReaderError> {
     let shard_batch = cloud_storage.get_shard_batch(from_height, shard_uid.shard_id()).await?;
     // A shard the reader still tracks at `from_height` cannot have a batch that ended
     // below it: a retired shard's batch ends where the epoch it belonged to does.
@@ -155,7 +169,58 @@ pub(crate) async fn pull_shard_batch(
         }
     }
     update.commit();
+    Ok(shard_batch)
+}
+
+/// Applies the state changes `shard_batch` carries from just above `reader_head` to its
+/// own end, in one commit.
+pub(crate) fn apply_batch_state_changes(
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    shard_batch: &ShardBatch,
+    reader_head: &CloudReaderHead,
+) -> Result<(), CloudArchivalReaderError> {
+    // A reader that joined mid-batch has its head inside the batch, and the heights below
+    // that head are applied already.
+    let start_height = (reader_head.height + 1).max(shard_batch.start_height());
+    // TODO(cloud_archival): anchor a shard a resharding added above the head.
+    let prev_state_root =
+        shard_state_anchor(tries, &reader_head.last_present_block_hash, shard_uid)?;
+    let mut update = BatchTrieUpdate::new(tries, shard_uid, prev_state_root);
+    for height in start_height..=shard_batch.end_height() {
+        let Some(shard_data) = shard_batch.get_data_at_height(height) else {
+            continue;
+        };
+        let applied = update.apply(shard_data.state_changes())?;
+        let recorded = *shard_data.chunk_extra().state_root();
+        if applied != recorded {
+            return Err(CloudArchivalReaderError::StateRootMismatch {
+                block_hash: *shard_data.block_hash(),
+                shard_id: shard_uid.shard_id(),
+                applied,
+                recorded,
+            });
+        }
+    }
+    // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
+    update.commit();
     Ok(())
+}
+
+/// The state root `shard_uid` stands at under `block_hash`, which is the root the height
+/// above that block applies onto.
+pub(crate) fn shard_state_anchor(
+    tries: &ShardTries,
+    block_hash: &CryptoHash,
+    shard_uid: ShardUId,
+) -> Result<CryptoHash, CloudArchivalReaderError> {
+    match tries.store().store_ref().chunk_store().get_chunk_extra(block_hash, &shard_uid) {
+        Ok(chunk_extra) => Ok(*chunk_extra.state_root()),
+        Err(Error::DBNotFoundErr(_)) => {
+            Err(CloudArchivalReaderError::NoStateAnchor { shard_uid, block_hash: *block_hash })
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Seeds the store with what the epoch manager needs to answer for `height`, and
@@ -245,7 +310,6 @@ pub(crate) fn save_shard_data(
     shard_uid: ShardUId,
     shard_data: &ShardData,
 ) {
-    // TODO(cloud_archival): apply each block's recorded changes to the shard's state.
     let block_hash = shard_data.block_hash();
     let shard_id = shard_uid.shard_id();
     let mut chunk_store_update = update.chunk_store_update();
