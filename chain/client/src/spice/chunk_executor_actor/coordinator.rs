@@ -213,9 +213,6 @@ impl ChunkExecutorActor {
     /// Runs the boundary bootstrap of the activation parent `block_hash` on every
     /// tracked shard's executor. Reconciles with `block_hash` as the parent first,
     /// so the executors exist even when this is the first spice work on the chain.
-    /// TODO(spice-boundary): the executor set is keyed on tracking at the first
-    /// spice epoch; a shard tracked only at the activation parent is bootstrapped
-    /// by nobody.
     fn bootstrap_boundary_source_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         self.reconcile_tracked_shards(block_hash)?;

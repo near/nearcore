@@ -6,14 +6,17 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_spice_activation_parent;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::test_utils::pre_spice_protocol_version;
+use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::ShardId;
-use near_primitives::types::{Balance, Gas};
+use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
@@ -394,4 +397,83 @@ fn test_restart_mid_boundary() {
     // Catching up re-ran the activation seeding: both execution heads must be present.
     restarted.client().chain.chain_store.spice_execution_head().unwrap();
     restarted.client().chain.chain_store.spice_final_execution_head().unwrap();
+}
+
+/// The upgrade with chunk-producer shard assignments shuffled every epoch, so shard
+/// tracking rotates exactly at the boundary: a producer that applied the activation
+/// parent's chunk of a shard need not track that shard under spice, and vice versa.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_with_shard_rotation() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let num_producers = 4;
+    let accounts: Vec<AccountId> =
+        (0..num_producers).map(|i| format!("validator{i}").parse().unwrap()).collect();
+    let validators: Vec<AccountInfo> = accounts
+        .iter()
+        .map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id.as_str()).public_key(),
+            account_id: account_id.clone(),
+            amount: Balance::from_near(100),
+        })
+        .collect();
+    let validators_spec =
+        ValidatorsSpec::raw(validators, num_producers, num_producers, num_producers);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout(ShardLayout::multi_shard(2, 0))
+        .validators_spec(validators_spec)
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_genesis_protocol_version();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .build();
+
+    // Cross the boundary, then locate the activation parent under the head.
+    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
+    let activation_parent = {
+        let node = env.node(0);
+        let chain_store = node.client().chain.chain_store();
+        let mut header = node.head_block().header().clone();
+        while header.is_spice() {
+            header = BlockHeader::clone(&chain_store.get_block_header(header.prev_hash()).unwrap());
+        }
+        header
+    };
+    let boundary_height = activation_parent.height();
+
+    // The shuffle must actually rotate tracking at the boundary, or this test shows
+    // nothing: some shard's chunk-producer set has to change across it.
+    {
+        let node = env.node(0);
+        let epoch_manager = node.client().epoch_manager.clone();
+        assert!(
+            is_spice_activation_parent(epoch_manager.as_ref(), activation_parent.hash()).unwrap()
+        );
+        let pre_spice_epoch_id = activation_parent.epoch_id();
+        let spice_epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(activation_parent.hash()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(pre_spice_epoch_id).unwrap();
+        let rotated = shard_layout.shard_ids().any(|shard_id| {
+            epoch_manager.get_epoch_chunk_producers_for_shard(pre_spice_epoch_id, shard_id).unwrap()
+                != epoch_manager
+                    .get_epoch_chunk_producers_for_shard(&spice_epoch_id, shard_id)
+                    .unwrap()
+        });
+        assert!(rotated, "the shuffle left every shard's chunk-producer set unchanged");
+    }
+
+    // Certification must cross the boundary: the rotated-in producers bootstrap and
+    // distribute the activation parent's receipts and witnesses.
+    env.node_runner(0).run_until_certified(boundary_height + 2);
 }
