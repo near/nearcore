@@ -39,7 +39,7 @@ pub const MIN_MEMORY_USAGE_PER_PART_ENTRY: u64 = 50;
 const PART_ENTRY_LIMIT: u32 =
     (2 * STATE_PART_MEMORY_LIMIT.0 / MIN_MEMORY_USAGE_PER_PART_ENTRY) as u32;
 
-// to specify a part we always specify both part_id and num_parts together
+/// Index of a state part, in the range `0..num_parts`.
 #[derive(Copy, Clone, Debug)]
 pub struct StatePartId {
     pub index: StatePartIndex,
