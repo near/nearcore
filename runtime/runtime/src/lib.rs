@@ -1884,9 +1884,7 @@ impl Runtime {
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
-        // TODO(cloud_archival): decide whether to drop the negation. Every node records a
-        // new chunk as `false`, so the column has always held the inverse.
-        processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
+        processing_state.stats.is_new_chunk = apply_state.is_new_chunk;
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
