@@ -298,6 +298,11 @@ impl TrieUpdate {
     pub fn record_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_deploy(code);
     }
+
+    /// Records deployment of a global contract
+    pub fn record_global_contract_deploy(&self, code: ContractCode) {
+        self.contract_storage.record_global_contract_deploy(code);
+    }
 }
 
 impl TrieAccess for TrieUpdate {

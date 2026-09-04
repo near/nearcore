@@ -256,11 +256,21 @@ pub struct PendingConstraints {
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
     pub max_nonce: Nonce,
+    /// Maximum nonce seen among pending self-signed universal state inits from
+    /// this account. Their nonce lives on the account rather than on a key, so
+    /// it is tracked apart from `max_nonce` and read only while the account is
+    /// still uninitialized, where it is the only nonce there is.
+    pub max_bootstrap_nonce: Nonce,
 }
 
 impl Default for PendingConstraints {
     fn default() -> Self {
-        Self { paid_from_balance: Balance::ZERO, paid_from_gas_key: Balance::ZERO, max_nonce: 0 }
+        Self {
+            paid_from_balance: Balance::ZERO,
+            paid_from_gas_key: Balance::ZERO,
+            max_nonce: 0,
+            max_bootstrap_nonce: 0,
+        }
     }
 }
 
@@ -584,17 +594,12 @@ impl Runtime {
             account.as_ref().map(|a| a.contract().into_owned()).unwrap_or(AccountContract::None);
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
-        let is_the_only_action = actions.len() == 1;
-        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+        let receipt_shape = ReceiptShape { is_refund, is_the_only_action: actions.len() == 1 };
 
         // Account validation
-        if let Err(e) = check_account_existence(
-            action,
-            account,
-            account_id,
-            &apply_state.config,
-            implicit_account_creation_eligible,
-        ) {
+        if let Err(e) =
+            check_account_existence(action, account, account_id, &apply_state.config, receipt_shape)
+        {
             result.result = Err(e);
             return Ok(result);
         }
@@ -723,7 +728,6 @@ impl Runtime {
                     receipt,
                     state_update,
                     apply_state,
-                    actor_id,
                     epoch_info_provider,
                 )?;
             }
@@ -3017,7 +3021,6 @@ fn action_transfer_or_implicit_account_creation(
     receipt: &Receipt,
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
-    actor_id: &mut AccountId,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
@@ -3050,7 +3053,6 @@ fn action_transfer_or_implicit_account_creation(
             &apply_state,
             &apply_state.config.fees,
             account,
-            actor_id,
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,

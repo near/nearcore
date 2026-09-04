@@ -5,7 +5,9 @@ pub use crate::archive::cloud_storage::blocks::{BlockBatch, BlockData, read_chun
 pub use crate::archive::cloud_storage::bucket_config::BucketConfig;
 pub use crate::archive::cloud_storage::epoch_data::EpochData;
 pub use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-pub use crate::archive::cloud_storage::shards::{InverseStateChanges, ShardBatch, ShardData};
+pub use crate::archive::cloud_storage::shards::{
+    InverseStateChanges, NewChunkData, ShardBatch, ShardData, archived_chunk_apply_stats,
+};
 use near_external_storage::ExternalConnection;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
@@ -133,6 +135,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             | DBCol::ReceiptToTx
             | DBCol::IncomingReceipts
             | DBCol::OutgoingReceipts
+            | DBCol::ProcessedReceiptIds
             | DBCol::ChunkExtra
             | DBCol::ChunkApplyStats
             | DBCol::StateChanges
@@ -142,7 +145,9 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
 
             // From EpochData.
             | DBCol::EpochInfo
+            | DBCol::EpochLightClientBlocks
             | DBCol::EpochStart
+            | DBCol::EpochValidatorInfo
 
             // From a state snapshot.
             | DBCol::State
@@ -183,11 +188,6 @@ fn is_cloud_archive_reader_skipped(col: DBCol) -> bool {
             // Read only by epoch sync and one migration, and a reader is refused by a
             // running node, so nothing that reads this column runs against its store.
             | DBCol::EpochSyncProof
-
-            // TODO(cloud_archival): `next_light_client_block` and `validators` read these
-            // two, so reproduce them; the second needs a field on `EpochData`.
-            | DBCol::EpochLightClientBlocks
-            | DBCol::EpochValidatorInfo
     )
 }
 

@@ -845,15 +845,9 @@ fn test_self_signed_state_init() {
 /// A relayer creating a universal account from nothing: one transaction that
 /// creates the account, installs its state and keys, and funds it.
 ///
-/// The state init has to come first, because it is what creates the account, so
-/// the transfer that follows lands on an account that exists.
-///
-/// TODO(universal-accounts): Test the opposite action order when it's supported.
-/// `[Transfer, UniversalStateInit]` against an account that does not exist yet
-/// needs `implicit_account_creation_eligible` relaxed, which has to happen
-/// together with removing the `actor_id = account_id` mutation in
-/// `action_implicit_account_creation_transfer` that the gate currently keeps
-/// inert.
+/// Here the state init leads and the transfer lands on the account it created.
+/// [`test_relayer_creates_funds_and_calls_in_one_tx`] covers the other order,
+/// where the transfer is what brings the account into existence.
 #[test]
 fn create_and_fund_universal_account_in_one_tx() {
     init_test_logger();
@@ -922,8 +916,9 @@ fn test_relayer_transfer_then_init_then_call() {
     });
     let account = state_init.derive_account_id();
 
-    // The account must already exist for a Transfer to lead the batch: implicit
-    // creation by transfer requires the transfer to be the only action.
+    // Deliberately pre-created, so this covers the batch landing on an account
+    // funded by some earlier transaction. Creation by the batch's own leading
+    // transfer is test_relayer_creates_funds_and_calls_in_one_tx.
     env.transfer(&account, Balance::from_yoctonear(1));
 
     let signer_id = env.user_account.clone();
@@ -957,4 +952,180 @@ fn test_relayer_transfer_then_init_then_call() {
         Some(&env.global_contract_account),
         "the batched state init must have installed the contract"
     );
+}
+
+/// The same batch against an id that holds nothing yet: the leading transfer is
+/// what brings the account into existence, so the relayer needs no prior
+/// transaction and the account no prior funding. This is the pattern the `0u`
+/// scheme is meant to serve, and the one implicit-creation case where a transfer
+/// may be followed by other actions.
+#[test]
+fn test_relayer_creates_funds_and_calls_in_one_tx() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let account = state_init.derive_account_id();
+    assert!(env.try_view_account(&account).is_err(), "nothing at the id before the batch runs");
+
+    let funded = Balance::from_near(1);
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: funded }),
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_owned(),
+                args: vec![],
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        env.block_hash(),
+    );
+    env.run_tx(tx);
+
+    let view = env.view_account(&account);
+    assert_eq!(view.state, AccountState::Initialized, "the account must be created and set up");
+    assert_eq!(view.amount, funded, "the transfer that created it must also leave it funded");
+    assert_eq!(
+        view.global_contract_account_id.as_ref(),
+        Some(&env.global_contract_account),
+        "the batched state init must have installed the contract"
+    );
+}
+
+/// The third batch shape the UA design notes name: the init leads, so it is what
+/// creates the account, and the transfer and call that follow both land on an
+/// account that is already set up. Nothing here needs the implicit-creation gate;
+/// this pins the composition, since the pieces are only covered separately by
+/// [`create_and_fund_universal_account_in_one_tx`] and
+/// [`test_universal_state_init_then_function_call`].
+#[test]
+fn test_relayer_init_funds_then_calls_in_one_tx() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+    let code = env.deploy_global_contract();
+
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(code),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let account = state_init.derive_account_id();
+    let funded = Balance::from_near(2);
+
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            // No deposit on the init: it only backstops storage staking and is
+            // refunded when the account needs none, so the transfer below is the
+            // whole of the account's balance.
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })),
+            Action::Transfer(TransferAction { deposit: funded }),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "log_something".to_owned(),
+                args: vec![],
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        env.block_hash(),
+    );
+    env.run_tx(tx);
+
+    let view = env.view_account(&account);
+    assert_eq!(view.state, AccountState::Initialized);
+    assert_eq!(
+        view.global_contract_account_id.as_ref(),
+        Some(&env.global_contract_account),
+        "the leading state init must have installed the contract"
+    );
+    assert_eq!(view.amount, funded, "the transfer after the init must land too");
+}
+
+/// The relayer may fund and initialize the account, but not make itself an owner
+/// of it. `AddKey` after the init runs against an account the init has already
+/// initialized, so the only thing left refusing it is `actor_id`: creating an
+/// account by transfer must not claim the account's own authority for the rest of
+/// the receipt.
+#[test]
+fn test_relayer_cannot_add_key_to_account_it_creates() {
+    init_test_logger();
+    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+        return;
+    }
+    let mut env = Env::setup();
+
+    let owner_key = SecretKey::from_seed(KeyType::ED25519, "rightful-owner").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(owner_key)]),
+    });
+    let account = state_init.derive_account_id();
+    let relayer_key = SecretKey::from_seed(KeyType::ED25519, "relayer-key").public_key();
+
+    let signer_id = env.user_account.clone();
+    let signer = create_user_test_signer(&signer_id);
+    let tx = SignedTransaction::from_actions(
+        env.next_nonce(),
+        signer_id,
+        account.clone(),
+        &signer,
+        vec![
+            Action::Transfer(TransferAction { deposit: Balance::from_near(1) }),
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: relayer_key,
+                access_key: AccessKey::full_access(),
+            })),
+        ],
+        env.block_hash(),
+    );
+    let outcome = env.env.rpc_runner().execute_tx(tx, Duration::seconds(5)).expect("valid tx");
+    let FinalExecutionStatus::Failure(TxExecutionError::ActionError(err)) = outcome.status else {
+        panic!("expected an action error, got {:?}", outcome.status);
+    };
+    assert_matches!(
+        err.kind,
+        ActionErrorKind::ActorNoPermission { .. },
+        "a relayer must not inherit the authority of the account it created"
+    );
+
+    // The receipt rolled back, so the account was never created either.
+    assert!(env.try_view_account(&account).is_err(), "the failed batch must leave nothing behind");
 }

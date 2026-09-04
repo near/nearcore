@@ -19,7 +19,10 @@ use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
-use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
+use near_primitives::action::{
+    Action, DeleteAccountAction, GlobalContractIdentifier, TransferToGasKeyAction,
+    UseGlobalContractAction,
+};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
@@ -31,7 +34,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
+    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
+    ReceiptEnum, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -57,7 +61,7 @@ use near_store::{
     get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
     set_access_key, set_account,
 };
-use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
+use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use std::collections::{HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
@@ -5811,6 +5815,91 @@ fn test_gas_key_transfer_send_fee_uses_wire_length() {
     );
 }
 
+/// Reproduces the problem fixed by `GlobalContractSameChunkCallFix`.
+/// Deploying a global contract and calling it in the same chunk should work, even without contract
+/// cache.
+#[test]
+fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
+    let owner: AccountId = "global_owner.near".parse().unwrap();
+    let user = alice_account();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![user.clone(), owner.clone()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let user_signer = signers[0].clone();
+    // A cache that never serves the artifact, forcing the same-chunk call to
+    // depend on the recorded deploy (or on committed storage, which is absent).
+    apply_state.cache = Some(Box::new(NoContractRuntimeCache));
+
+    let code = ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None);
+
+    // 1) Distribute the global contract (AccountId identifier mode).
+    let distribution_receipt = Receipt::new_global_contract_distribution(
+        owner.clone(),
+        GlobalContractDistributionReceipt::new(
+            GlobalContractIdentifier::AccountId(owner.clone()),
+            apply_state.shard_id,
+            vec![],
+            code.code().to_vec().into(),
+            0,
+        ),
+    );
+
+    // 2) Point the user account at the global contract.
+    let use_receipt = create_receipt_with_actions(
+        user.clone(),
+        user_signer.clone(),
+        vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::AccountId(owner),
+        }))],
+    );
+
+    // 3) Call the global contract from the user account, in the same chunk.
+    let call_receipt = create_receipt_with_actions(
+        user,
+        user_signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: Gas::from_teragas(10),
+            deposit: Balance::ZERO,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[distribution_receipt, use_receipt, call_receipt.clone()],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // The same-chunk call must execute, not degrade to a CodeDoesNotExist no-op.
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == *call_receipt.receipt_id())
+        .expect("function call outcome should be present");
+    assert_matches!(
+        call_outcome.outcome.status,
+        ExecutionStatus::SuccessValue(_),
+        "same-chunk call to a just-distributed global contract must succeed with a cold cache"
+    );
+
+    // The body is fetched from the contract tracker so the call succeeds, but the global contract
+    // is deliberately not broadcast to chunk validators as a deploy: the global contract
+    // distribution protocol already delivers the code network-wide.
+    assert!(
+        apply_result.contract_updates.contract_deploy_hashes().is_empty(),
+        "global contracts must not be re-broadcast as deploys"
+    );
+}
 /// Self-signed `UniversalStateInit`: the one transaction an account can send
 /// before it holds any access key.
 ///
@@ -6759,6 +6848,399 @@ mod self_signed_state_init {
             ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
                 InvalidTxError::InvalidSignerId { .. } | InvalidTxError::SignerDoesNotExist { .. }
             ))
+        );
+    }
+}
+
+/// A relayer creating a `0u` account from nothing: the transfer that funds the
+/// account is also what creates it, so the rest of the batch runs against an
+/// account nobody had to set up first.
+///
+/// This is the one implicit kind whose creating transfer may be followed by other
+/// actions, so most of these tests are about what such a batch still may *not*
+/// do. They run at the `Runtime::apply` level to keep the receipt's action list
+/// exact.
+mod relayer_funded_state_init {
+    use super::*;
+    use near_crypto::PublicKeyHandle;
+    use near_primitives::action::UniversalStateInitAction;
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::{
+        derive_eth_implicit_account_id, derive_near_implicit_account_id,
+        derive_universal_account_id,
+    };
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn funding() -> Balance {
+        Balance::from_near(5)
+    }
+
+    /// What the relayer starts with, so a test can check the funding came out of
+    /// its balance rather than out of nowhere.
+    fn relayer_start() -> Balance {
+        Balance::from_near(100)
+    }
+
+    fn skip() -> bool {
+        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
+            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
+            return true;
+        }
+        false
+    }
+
+    fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: keys.iter().cloned().map(PublicKeyHandle::from).collect::<BTreeSet<_>>(),
+        })
+    }
+
+    fn state_init_action(state_init: &UniversalStateInit) -> Action {
+        Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit: Balance::ZERO,
+        }))
+    }
+
+    fn add_key_action(public_key: &PublicKey) -> Action {
+        Action::AddKey(Box::new(AddKeyAction {
+            public_key: public_key.clone(),
+            access_key: AccessKey::full_access(),
+        }))
+    }
+
+    /// Apply one relayer-signed transaction of `actions` addressed to `receiver`
+    /// and drain the receipts it produces, handing back the state it all left
+    /// behind. The signer is not the receiver, so the action receipt is buffered
+    /// rather than local and only runs in the round after the transaction.
+    fn apply_relayer_batch(
+        receiver: &AccountId,
+        actions: Vec<Action>,
+    ) -> (ShardTries, CryptoHash, Vec<ExecutionOutcomeWithId>) {
+        let (runtime, tries, mut root, mut apply_state, signers, epoch) = setup_runtime(
+            vec![alice_account()],
+            relayer_start(),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+        let shard_uid = ShardUId::single_shard();
+        let tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            receiver.clone(),
+            &signers[0],
+            actions,
+            CryptoHash::default(),
+        );
+
+        let mut outcomes = vec![];
+        let mut incoming = vec![];
+        let mut settled = false;
+        // The relayer is not the receiver, so the action receipt is buffered rather
+        // than run locally: round 0 converts the transaction, round 1 runs the
+        // batch, round 2 delivers the refunds. The fourth is slack, and the loop
+        // exits as soon as nothing is left in flight.
+        for round in 0..4 {
+            let result = runtime
+                .apply(
+                    tries.get_trie_for_shard(shard_uid, root),
+                    &None,
+                    &apply_state,
+                    &incoming,
+                    if round == 0 {
+                        SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true])
+                    } else {
+                        SignedValidPeriodTransactions::empty()
+                    },
+                    &epoch,
+                    Default::default(),
+                )
+                .unwrap();
+            let delayed = result.delayed_receipts_count;
+            root = commit_apply_result(&result, &mut apply_state, &tries, shard_uid);
+            outcomes.extend(result.outcomes);
+            incoming = result.outgoing_receipts;
+            apply_state.block_height += 1;
+            if round > 0 && incoming.is_empty() && delayed == 0 {
+                settled = true;
+                break;
+            }
+        }
+        // Every assertion downstream reads the state the cascade left behind, so a
+        // run that stopped with a receipt still queued would be measuring a
+        // half-finished one, and could mask a failure or invent one.
+        assert!(settled, "receipt cascade did not settle within the round budget");
+        (tries, root, outcomes)
+    }
+
+    /// The outcome of the action receipt the batch ran as, looked up by the id the
+    /// transaction's own outcome points at. Taking the first outcome that is not a
+    /// `SuccessReceiptId` would be ambiguous: a refund receipt is an ordinary action
+    /// receipt and gets a full outcome of its own, with status `SuccessValue`.
+    fn receipt_outcome(outcomes: &[ExecutionOutcomeWithId]) -> &ExecutionOutcome {
+        let receipt_id = outcomes
+            .iter()
+            .find_map(|outcome| match outcome.outcome.status {
+                ExecutionStatus::SuccessReceiptId(receipt_id) => Some(receipt_id),
+                _ => None,
+            })
+            .expect("the transaction must produce an action receipt");
+        outcomes
+            .iter()
+            .find(|outcome| outcome.id == receipt_id)
+            .map(|outcome| &outcome.outcome)
+            .expect("the action receipt must have an outcome")
+    }
+
+    /// The flow this relaxation is for: one relayer-signed transaction brings a
+    /// `0u` account into existence, funds it, and installs the state its id is
+    /// the hash of.
+    #[test]
+    fn batch_creates_funds_and_initializes_account() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let key = SecretKey::from_seed(KeyType::ED25519, "relayer-funded").public_key();
+        let state_init = state_init_for(from_ref(&key));
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![
+                Action::Transfer(TransferAction { deposit: funding() }),
+                state_init_action(&state_init),
+            ],
+        );
+
+        assert_matches!(receipt_outcome(&outcomes).status, ExecutionStatus::SuccessValue(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized(), "the batched state init must have run");
+        assert_eq!(account.amount(), funding(), "the transfer that created it must also fund it");
+        assert!(
+            get_access_key(&state, &account_id, &key).unwrap().is_some(),
+            "the committed key must be installed",
+        );
+        let relayer = get_account(&state, &alice_account()).unwrap().unwrap();
+        assert!(
+            relayer.amount() <= relayer_start().saturating_sub(funding()),
+            "the funding must leave the relayer's balance, not appear out of nowhere",
+        );
+    }
+
+    /// A lone transfer still creates a `0u` account, uninitialized. The relaxation
+    /// only adds a case, so the shape that worked before must keep working, and
+    /// this is the only test here that pins the `is_the_only_action` term.
+    #[test]
+    fn lone_transfer_creates_universal_account() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let key = SecretKey::from_seed(KeyType::ED25519, "lone-transfer").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() })],
+        );
+
+        assert_matches!(receipt_outcome(&outcomes).status, ExecutionStatus::SuccessValue(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "a transfer alone must not install any state");
+        assert_eq!(account.amount(), funding());
+    }
+
+    /// The relaxation is about implicit ids, not about account creation in general:
+    /// a transfer to a name that does not exist must still fail, however lonely it
+    /// is. Pins the `is_implicit` term of the gate.
+    #[test]
+    fn lone_transfer_may_not_create_named_account() {
+        init_test_logger();
+        let account_id: AccountId = "not-there.near".parse().unwrap();
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() })],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a transfer must never create a named account",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, &account_id).unwrap().is_none());
+    }
+
+    /// The trap the `is_the_only_action` gate used to close. The state init lifts
+    /// the uninitialized guard, so the only thing between a relayer and somebody
+    /// else's `0u` address is `actor_id`: creating the account must leave it
+    /// pointing at the relayer. Without that, a relayer could add a key the id
+    /// does not commit to, or delete the account and take its balance.
+    #[test]
+    fn batch_may_not_take_over_account_it_creates() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let owner = SecretKey::from_seed(KeyType::ED25519, "rightful-owner").public_key();
+        let relayer_key = SecretKey::from_seed(KeyType::ED25519, "relayer-hijack").public_key();
+        let state_init = state_init_for(&[owner]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let takeovers = [
+            add_key_action(&relayer_key),
+            // Last position is the only one `DeleteActionMustBeFinal` allows,
+            // and it is where the account is already initialized.
+            Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+        ];
+
+        for takeover in takeovers {
+            let (tries, root, outcomes) = apply_relayer_batch(
+                &account_id,
+                vec![
+                    Action::Transfer(TransferAction { deposit: funding() }),
+                    state_init_action(&state_init),
+                    takeover.clone(),
+                ],
+            );
+
+            assert_matches!(
+                &receipt_outcome(&outcomes).status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                    if matches!(err.kind, ActionErrorKind::ActorNoPermission { .. }),
+                "a relayer must not inherit the authority of the account it created ({takeover:?})",
+            );
+            // The receipt rolled back, so not even the account survives.
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
+            assert!(get_account(&state, &account_id).unwrap().is_none());
+        }
+    }
+
+    /// Without a state init in front of it, the account the transfer creates is
+    /// uninitialized, which is inert for everything but its own init and a further
+    /// transfer.
+    #[test]
+    fn owner_only_action_without_init_is_refused() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let key = SecretKey::from_seed(KeyType::ED25519, "no-init-first").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() }), add_key_action(&key)],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountNotInitialized { .. }),
+            "an uninitialized account must stay inert for an owner-only action",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, &account_id).unwrap().is_none());
+    }
+
+    /// The relaxation is for `0u` ids only. Every other implicit kind is fully
+    /// usable the moment it exists, so a transfer that creates one still has to
+    /// be the whole receipt: the batch does not create the account at all, which
+    /// leaves nothing for the actions after it to take over.
+    ///
+    /// Stable behaviour rather than a universal-accounts one, so the two tests
+    /// below run at every protocol version.
+    fn assert_batch_may_not_create(account_id: &AccountId, key: &PublicKey) {
+        let (tries, root, outcomes) = apply_relayer_batch(
+            account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() }), add_key_action(key)],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a batched transfer must not create {account_id}",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, account_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn batch_may_not_create_near_implicit_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "near-implicit").public_key();
+        assert_batch_may_not_create(
+            &derive_near_implicit_account_id(key.unwrap_as_ed25519()),
+            &key,
+        );
+    }
+
+    #[test]
+    fn batch_may_not_create_eth_implicit_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::SECP256K1, "eth-implicit").public_key();
+        assert_batch_may_not_create(
+            &derive_eth_implicit_account_id(key.unwrap_as_secp256k1()),
+            &key,
+        );
+    }
+
+    /// The other half of the old gate, untouched by the relaxation: refunds are
+    /// free, so they must not create an account, a `0u` one included.
+    #[test]
+    fn refund_may_not_create_universal_account() {
+        init_test_logger();
+        if skip() {
+            return;
+        }
+        let key = SecretKey::from_seed(KeyType::ED25519, "refund-target").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(&[key]).to_raw());
+        let (runtime, tries, root, apply_state, _signers, epoch) = setup_runtime(
+            vec![alice_account()],
+            Balance::from_near(100),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                from_ref(&Receipt::new_balance_refund(&account_id, funding())),
+                SignedValidPeriodTransactions::empty(),
+                &epoch,
+                Default::default(),
+            )
+            .unwrap();
+        let mut store_update = tries.store_update();
+        let new_root =
+            tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Assert on the reason, not just the absence: without this the test would
+        // also pass if the refund receipt were dropped instead of refused.
+        let [outcome] = &result.outcomes[..] else {
+            panic!("the refund receipt must produce exactly one outcome, got {:?}", result.outcomes)
+        };
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a refund to a missing `0u` id must fail with AccountDoesNotExist",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        assert!(
+            get_account(&state, &account_id).unwrap().is_none(),
+            "a refund must not bring a `0u` account into existence",
         );
     }
 }
