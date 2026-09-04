@@ -1,19 +1,25 @@
 use crate::NearConfig;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Error, LatestKnown};
 use near_chain_configs::GenesisConfig;
+use near_crypto::Signature;
 use near_epoch_manager::epoch_sync;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{BlockHeightDelta, EpochId, ShardId, StateChangeCause};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, ShardId, StateChangeCause};
+use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 use near_store::db::{ColdDB, DBTransaction, Database};
 use near_store::flat::FlatStorageManager;
+use near_store::light_client_block::{
+    StoredBlockHeaderInnerLiteV1, StoredLightClientBlock, StoredLightClientBlockV1,
+};
 use near_store::{
     DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
     TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
@@ -71,6 +77,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 is_snapshot,
             ),
             49 => Ok(()), // DBCol::ChunkProducers column added, no need to perform a migration
+            50 => migrate_50_to_51(hot_store),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -160,6 +167,154 @@ fn recover_shard_1_at_block_height_115185108(
         ));
     }
     Ok(trie_changes)
+}
+
+/// A `DBCol::EpochLightClientBlocks` row as written at database version 50, when the
+/// column held a bare `LightClientBlockView`.
+///
+/// `InnerLite` varies because the view changed shape inside version 50: released
+/// binaries wrote [`InnerLiteWithoutRoot`], and unreleased ones that carried
+/// `chunk_execution_root` wrote [`InnerLiteWithRoot`].
+#[derive(BorshSerialize, BorshDeserialize)]
+struct UnversionedRow<InnerLite> {
+    prev_block_hash: CryptoHash,
+    next_block_inner_hash: CryptoHash,
+    inner_lite: InnerLite,
+    inner_rest_hash: CryptoHash,
+    next_bps: Option<Vec<ValidatorStakeView>>,
+    approvals_after_next: Vec<Option<Box<Signature>>>,
+}
+
+/// `BlockHeaderInnerLiteView` as every released binary wrote it.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct InnerLiteWithoutRoot {
+    height: BlockHeight,
+    epoch_id: CryptoHash,
+    next_epoch_id: CryptoHash,
+    prev_state_root: CryptoHash,
+    outcome_root: CryptoHash,
+    timestamp: u64,
+    timestamp_nanosec: u64,
+    next_bp_hash: CryptoHash,
+    block_merkle_root: CryptoHash,
+}
+
+/// `BlockHeaderInnerLiteView` after `chunk_execution_root` was appended to it. Written
+/// only by binaries built between that change and this migration.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct InnerLiteWithRoot {
+    height: BlockHeight,
+    epoch_id: CryptoHash,
+    next_epoch_id: CryptoHash,
+    prev_state_root: CryptoHash,
+    outcome_root: CryptoHash,
+    timestamp: u64,
+    timestamp_nanosec: u64,
+    next_bp_hash: CryptoHash,
+    block_merkle_root: CryptoHash,
+    chunk_execution_root: Option<CryptoHash>,
+}
+
+impl From<InnerLiteWithoutRoot> for StoredBlockHeaderInnerLiteV1 {
+    fn from(inner_lite: InnerLiteWithoutRoot) -> Self {
+        Self {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id,
+            next_epoch_id: inner_lite.next_epoch_id,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            timestamp_nanosec: inner_lite.timestamp_nanosec,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
+            chunk_execution_root: None,
+        }
+    }
+}
+
+impl From<InnerLiteWithRoot> for StoredBlockHeaderInnerLiteV1 {
+    fn from(inner_lite: InnerLiteWithRoot) -> Self {
+        Self {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id,
+            next_epoch_id: inner_lite.next_epoch_id,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            timestamp_nanosec: inner_lite.timestamp_nanosec,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
+            chunk_execution_root: inner_lite.chunk_execution_root,
+        }
+    }
+}
+
+/// Parses `value` as an unversioned row, if it is one, and converts it.
+fn read_unversioned_row<InnerLite>(value: &[u8]) -> Option<StoredLightClientBlock>
+where
+    InnerLite: BorshDeserialize,
+    StoredBlockHeaderInnerLiteV1: From<InnerLite>,
+{
+    let row = UnversionedRow::<InnerLite>::try_from_slice(value).ok()?;
+    Some(StoredLightClientBlock::V1(StoredLightClientBlockV1 {
+        prev_block_hash: row.prev_block_hash,
+        next_block_inner_hash: row.next_block_inner_hash,
+        inner_lite: row.inner_lite.into(),
+        inner_rest_hash: row.inner_rest_hash,
+        next_bps: row.next_bps,
+        approvals_after_next: row.approvals_after_next,
+    }))
+}
+
+/// Migrates the database from version 50 to 51.
+///
+/// `DBCol::EpochLightClientBlocks` held a bare `LightClientBlockView`, an RPC response
+/// shape with a borsh derive. Appending `chunk_execution_root` to its `inner_lite`
+/// changed the row layout, and the column is never rewritten and never garbage
+/// collected, so rows written by earlier binaries could no longer be read.
+///
+/// This rewrites every row as [`StoredLightClientBlock`], which core/store owns and
+/// versions, so a later change to the view adds a variant instead of a migration.
+///
+/// Hot store only: the column is not copied to cold storage.
+fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
+    tracing::info!(target: "migrations", "starting migration from DB version 50 to 51");
+
+    let rows: Vec<_> = hot_store.iter(DBCol::EpochLightClientBlocks).collect();
+    let mut store_update = hot_store.store_update();
+    let mut rewritten = 0;
+    let mut already_versioned = 0;
+    for (key, value) in rows {
+        let epoch_id = CryptoHash::try_from(key.as_ref())
+            .map(EpochId)
+            .map_err(|err| anyhow::anyhow!("epoch light client block key is not a hash: {err}"))?;
+
+        // A row is unambiguous only if exactly one layout reads it whole. Borsh rejects
+        // trailing bytes, so a wrong layout almost always fails, but say so rather than
+        // guess on the rows where it would not.
+        let candidates = [
+            read_unversioned_row::<InnerLiteWithoutRoot>(&value),
+            read_unversioned_row::<InnerLiteWithRoot>(&value),
+            StoredLightClientBlock::try_from_slice(&value).ok(),
+        ];
+        let matched = candidates.iter().filter(|candidate| candidate.is_some()).count();
+        if matched > 1 {
+            anyhow::bail!("epoch light client block {epoch_id:?} reads in more than one layout");
+        }
+        let [without_root, with_root, versioned] = candidates;
+        if let Some(stored) = without_root.or(with_root) {
+            store_update.set_ser(DBCol::EpochLightClientBlocks, &key, &stored);
+            rewritten += 1;
+        } else if versioned.is_some() {
+            already_versioned += 1;
+        } else {
+            anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout");
+        }
+    }
+    store_update.commit();
+
+    tracing::info!(target: "migrations", rewritten, already_versioned, "completed migration from DB version 50 to 51");
+    Ok(())
 }
 
 /// This migration does three things:
@@ -493,6 +648,142 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+mod migrate_50_to_51_tests {
+    use super::{InnerLiteWithRoot, InnerLiteWithoutRoot, UnversionedRow, migrate_50_to_51};
+    use borsh::BorshDeserialize;
+    use near_primitives::hash::CryptoHash;
+    use near_store::light_client_block::StoredLightClientBlock;
+    use near_store::test_utils::create_test_store;
+    use near_store::{DBCol, Store};
+
+    fn inner_lite_without_root() -> InnerLiteWithoutRoot {
+        InnerLiteWithoutRoot {
+            height: 42,
+            epoch_id: CryptoHash::hash_bytes(b"epoch"),
+            next_epoch_id: CryptoHash::hash_bytes(b"next_epoch"),
+            prev_state_root: CryptoHash::hash_bytes(b"state"),
+            outcome_root: CryptoHash::hash_bytes(b"outcome"),
+            timestamp: 1,
+            timestamp_nanosec: 1,
+            next_bp_hash: CryptoHash::hash_bytes(b"bp"),
+            block_merkle_root: CryptoHash::hash_bytes(b"merkle"),
+        }
+    }
+
+    fn inner_lite_with_root(chunk_execution_root: Option<CryptoHash>) -> InnerLiteWithRoot {
+        let without_root = inner_lite_without_root();
+        InnerLiteWithRoot {
+            height: without_root.height,
+            epoch_id: without_root.epoch_id,
+            next_epoch_id: without_root.next_epoch_id,
+            prev_state_root: without_root.prev_state_root,
+            outcome_root: without_root.outcome_root,
+            timestamp: without_root.timestamp,
+            timestamp_nanosec: without_root.timestamp_nanosec,
+            next_bp_hash: without_root.next_bp_hash,
+            block_merkle_root: without_root.block_merkle_root,
+            chunk_execution_root,
+        }
+    }
+
+    fn unversioned_row<InnerLite: borsh::BorshSerialize>(
+        inner_lite: InnerLite,
+        seed: u32,
+    ) -> Vec<u8> {
+        borsh::to_vec(&UnversionedRow {
+            prev_block_hash: CryptoHash::hash_bytes(b"prev"),
+            next_block_inner_hash: CryptoHash::hash_bytes(b"next"),
+            inner_lite,
+            // The byte that a reader of the other layout would misread comes from
+            // here, so vary it across rows.
+            inner_rest_hash: CryptoHash::hash_bytes(&seed.to_le_bytes()),
+            next_bps: None,
+            approvals_after_next: vec![None, None],
+        })
+        .unwrap()
+    }
+
+    fn write_row(store: &Store, key: &CryptoHash, value: &[u8]) {
+        let mut store_update = store.store_update();
+        store_update.set(DBCol::EpochLightClientBlocks, key.as_ref(), value);
+        store_update.commit();
+    }
+
+    fn read_row(store: &Store, key: &CryptoHash) -> StoredLightClientBlock {
+        store.get_ser(DBCol::EpochLightClientBlocks, key.as_ref()).unwrap()
+    }
+
+    fn key_for(seed: u32) -> CryptoHash {
+        CryptoHash::hash_bytes(&seed.to_le_bytes())
+    }
+
+    #[test]
+    fn rewrites_rows_written_by_a_released_binary() {
+        let store = create_test_store();
+        for seed in 0u32..2000 {
+            write_row(&store, &key_for(seed), &unversioned_row(inner_lite_without_root(), seed));
+        }
+
+        // The row a released binary wrote is not readable as the versioned type. That
+        // is what the migration repairs.
+        let stored = store.get(DBCol::EpochLightClientBlocks, key_for(0).as_ref()).unwrap();
+        assert!(StoredLightClientBlock::try_from_slice(&stored).is_err());
+
+        migrate_50_to_51(&store).unwrap();
+
+        for seed in 0u32..2000 {
+            let StoredLightClientBlock::V1(row) = read_row(&store, &key_for(seed));
+            assert_eq!(row.inner_lite.chunk_execution_root, None);
+            assert_eq!(row.inner_lite.height, 42);
+            assert_eq!(row.inner_rest_hash, CryptoHash::hash_bytes(&seed.to_le_bytes()));
+            assert_eq!(row.approvals_after_next.len(), 2);
+        }
+    }
+
+    #[test]
+    fn rewrites_rows_written_by_an_unreleased_binary_keeping_the_root() {
+        let store = create_test_store();
+        let root = CryptoHash::hash_bytes(b"root");
+        for (seed, chunk_execution_root) in [(0u32, None), (1, Some(root))] {
+            let inner_lite = inner_lite_with_root(chunk_execution_root);
+            write_row(&store, &key_for(seed), &unversioned_row(inner_lite, seed));
+        }
+
+        migrate_50_to_51(&store).unwrap();
+
+        let StoredLightClientBlock::V1(absent) = read_row(&store, &key_for(0));
+        assert_eq!(absent.inner_lite.chunk_execution_root, None);
+        let StoredLightClientBlock::V1(present) = read_row(&store, &key_for(1));
+        assert_eq!(present.inner_lite.chunk_execution_root, Some(root));
+    }
+
+    #[test]
+    fn leaves_rows_already_versioned_alone() {
+        let store = create_test_store();
+        let key = key_for(0);
+        write_row(&store, &key, &unversioned_row(inner_lite_without_root(), 0));
+        migrate_50_to_51(&store).unwrap();
+        let migrated = read_row(&store, &key);
+
+        migrate_50_to_51(&store).unwrap();
+        assert_eq!(read_row(&store, &key), migrated);
+    }
+
+    #[test]
+    fn rejects_a_row_in_no_known_layout() {
+        let store = create_test_store();
+        write_row(&store, &key_for(0), b"not a light client block");
+        let err = migrate_50_to_51(&store).unwrap_err().to_string();
+        assert!(err.contains("reads in no known layout"), "got: {err}");
+    }
+
+    #[test]
+    fn migrates_an_empty_column() {
+        migrate_50_to_51(&create_test_store()).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::Migrator;
     use crate::config::load_test_config;
@@ -596,8 +887,8 @@ mod tests {
         let migrated_storage = migrated_opener.open_in_mode(Mode::ReadWriteExisting).unwrap();
         let migrated_store = migrated_storage.get_hot_store();
         assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
-        // The checkpoint really was at 49 and the `49 => Ok(())` arm really ran.
-        assert_eq!(migrator.migrated.borrow().as_slice(), &[49]);
+        // The checkpoint really was at 49, and every arm from there ran in order.
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50]);
         // The column family now exists and is readable. It is empty until EarlyKickout
         // activates.
         assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);

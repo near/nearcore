@@ -39,6 +39,7 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::light_client_block::StoredLightClientBlock;
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -1927,7 +1928,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(
                 DBCol::EpochLightClientBlocks,
                 epoch_hash.as_ref(),
-                light_client_block,
+                &StoredLightClientBlock::from(LightClientBlockView::clone(light_client_block)),
             );
         }
         {

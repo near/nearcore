@@ -1,5 +1,6 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY};
+use crate::light_client_block::StoredLightClientBlock;
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -327,7 +328,9 @@ impl ChainStoreAdapter {
         hash: &CryptoHash,
     ) -> Result<Arc<LightClientBlockView>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::EpochLightClientBlocks, hash.as_ref()),
+            self.store
+                .get_ser::<StoredLightClientBlock>(DBCol::EpochLightClientBlocks, hash.as_ref())
+                .map(|stored| Arc::new(LightClientBlockView::from(stored))),
             format_args!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
         )
     }
