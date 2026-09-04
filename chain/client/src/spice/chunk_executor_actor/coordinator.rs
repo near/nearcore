@@ -415,10 +415,32 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
         let to_shard_id = receipt_proof.1.to_shard_id;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
+        // A receipt for a shard this node does track can arrive before anything
+        // created the executor: on startup, during catch-up, and at the spice
+        // activation boundary, where the bootstrap pushes receipts the moment the
+        // activation parent is processed, possibly before this node saw any spice
+        // work at all. The push is not retried, so reconcile the tracked set and
+        // retry the lookup before treating the shard as untracked.
+        // TODO(spice-resharding): anchoring the reconcile on the source block (or
+        // the head when it is not received yet) is not enough when the source block
+        // is in a different shard layout.
+        if self.executor_for_shard_id(to_shard_id).is_none() {
+            let anchor = if self.chain_store.get_block_header(&block_hash).is_ok() {
+                block_hash
+            } else {
+                match self.chain_store.head() {
+                    Ok(head) => head.last_block_hash,
+                    Err(err) => {
+                        tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read head reconciling executors for a receipt");
+                        return;
+                    }
+                }
+            };
+            if let Err(err) = self.reconcile_tracked_shards(&anchor) {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to reconcile executors for a receipt");
+                return;
+            }
+        }
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
