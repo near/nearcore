@@ -20,7 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
-use crate::sync::peers::SyncPeers;
+use crate::sync::peers::{PeerAdvertisedHead, SyncPeers};
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
@@ -84,8 +84,7 @@ use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -300,7 +299,7 @@ pub struct SyncJobsSenderForClient {
 }
 
 pub struct ClientActor {
-    clock: Clock,
+    pub(crate) clock: Clock,
 
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
@@ -459,7 +458,6 @@ impl ClientActor {
                 tier1_connections: vec![],
                 num_connected_peers: 0,
                 peer_max_count: 0,
-                highest_height_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
@@ -989,7 +987,7 @@ enum HighestHeightSource {
 impl fmt::Display for HighestHeightSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Peer(peer_id) => write!(f, "highest height peer: {peer_id}"),
+            Self::Peer(peer_id) => write!(f, "height advertised by peer: {peer_id}"),
             Self::OwnHeaderHead => write!(f, "own header head"),
         }
     }
@@ -1373,8 +1371,9 @@ impl ClientActor {
 
         let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
+            let sync_wait_period = self.sync_wait_period();
             self.sync_timer_next_attempt = self.run_timer(
-                self.sync_wait_period(),
+                sync_wait_period,
                 self.sync_timer_next_attempt,
                 ctx,
                 |act, _| act.run_sync_step(),
@@ -1694,7 +1693,7 @@ impl ClientActor {
 
     /// Check whether need to (continue) sync.
     /// Also return the height to sync to, from a peer or from our own header head.
-    fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
+    fn syncing_info(&mut self) -> Result<SyncRequirement, near_chain::Error> {
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
@@ -1747,21 +1746,45 @@ impl ClientActor {
         Ok(now - head_time >= one_epoch)
     }
 
-    /// Sync decision from the unvalidated `highest_height_peers`. Used only once
-    /// our own clock already shows we are behind.
+    fn peers_with_invalid_head(&self) -> usize {
+        self.network_info
+            .connected_peers
+            .iter()
+            .filter(|peer| {
+                peer.full_peer_info
+                    .chain_info
+                    .last_block
+                    .as_ref()
+                    .is_some_and(|block| self.client.chain.is_block_invalid(&block.hash))
+            })
+            .count()
+    }
+
+    /// Peers we may ask: connected, advertising a head above ours, and not known
+    /// to be on an invalid one. Which of them to ask is `PeerSelector`'s to say.
+    fn peers_advertising_above(&self, head_height: BlockHeight) -> Vec<PeerAdvertisedHead> {
+        self.network_info
+            .connected_peers
+            .iter()
+            .filter_map(|peer| PeerAdvertisedHead::from_full_peer_info(&peer.full_peer_info))
+            .filter(|peer| {
+                peer.highest_block_height > head_height
+                    && !self.client.chain.is_block_invalid(&peer.highest_block_hash)
+            })
+            .collect()
+    }
+
+    /// Sync decision from unverified advertised heights. Used only once our own
+    /// clock already shows we are behind.
     fn sync_requirement_from_claimed_peers(
-        &self,
+        &mut self,
         head: Tip,
     ) -> Result<SyncRequirement, near_chain::Error> {
-        let eligible_peers: Vec<_> = self
-            .network_info
-            .highest_height_peers
-            .iter()
-            .filter(|p| !self.client.chain.is_block_invalid(&p.highest_block_hash))
-            .collect();
-        metrics::PEERS_WITH_INVALID_HASH
-            .set(self.network_info.highest_height_peers.len() as i64 - eligible_peers.len() as i64);
-        let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) else {
+        metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
+        let eligible_peers = self.peers_advertising_above(head.height);
+        let now = self.clock.now_utc();
+        let selector = &mut self.client.sync_handler.peer_selector;
+        let Some(peer_info) = selector.pick(&eligible_peers, now) else {
             return Ok(SyncRequirement::NoPeers);
         };
         let peer_id = peer_info.peer_info.id.clone();
@@ -1777,19 +1800,7 @@ impl ClientActor {
         &self,
         head: Tip,
     ) -> Result<SyncRequirement, near_chain::Error> {
-        let invalid_peers = self
-            .network_info
-            .connected_peers
-            .iter()
-            .filter(|peer| {
-                peer.full_peer_info
-                    .chain_info
-                    .last_block
-                    .as_ref()
-                    .is_some_and(|block| self.client.chain.is_block_invalid(&block.hash))
-            })
-            .count();
-        metrics::PEERS_WITH_INVALID_HASH.set(invalid_peers as i64);
+        metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let best_peer = self
             .network_info
             .connected_peers
@@ -1906,7 +1917,7 @@ impl ClientActor {
         now + delay
     }
 
-    fn sync_wait_period(&self) -> Duration {
+    fn sync_wait_period(&mut self) -> Duration {
         if let Ok(sync) = self.syncing_info() {
             if !sync.sync_needed() {
                 // If we don't need syncing - retry the sync call rarely.
@@ -1971,10 +1982,11 @@ impl ClientActor {
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64) {
+        let head_height = self.client.chain.head().map_or(0, |tip| tip.height);
         let peers = SyncPeers {
             highest_height,
             verified_highest_height: self.client.verified_peer_heights.max_height_across_peers(),
-            highest_height_peers: &self.network_info.highest_height_peers,
+            peers_ahead: self.peers_advertising_above(head_height),
         };
         let sync_step_result = match self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,

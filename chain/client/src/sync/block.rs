@@ -1,13 +1,13 @@
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
 use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use rand::seq::IteratorRandom;
 use tracing::instrument;
 
 /// Expect to receive the requested block in this time.
@@ -100,7 +100,8 @@ impl BlockSync {
     pub fn block_sync(
         &mut self,
         chain: &Chain,
-        highest_height_peers: &[PeerAdvertisedHead],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
         // Update last request now because we want to update it whether or not
         // the rest of the logic succeeds.
@@ -154,15 +155,14 @@ impl BlockSync {
 
             let next_height = chain.get_block_header(&next_hash)?.height();
             let request_from_archival = self.archive && next_height < gc_stop_height;
-            // Assume that heads of `highest_height_peers` are ahead of the blocks we're requesting.
+            // Assume that heads of `peers_ahead` are ahead of the blocks we are requesting.
+            let now = self.clock.now_utc();
             let peer = if request_from_archival {
                 // Normal peers are unlikely to have old blocks, request from an archival node.
-                let archival_peer_iter = highest_height_peers.iter().filter(|p| p.archival);
-                archival_peer_iter.choose(&mut rand::thread_rng())
+                peer_selector.pick_matching(peers_ahead, now, |peer| peer.archival)
             } else {
                 // All peers are likely to have this block.
-                let peer_iter = highest_height_peers.iter();
-                peer_iter.choose(&mut rand::thread_rng())
+                peer_selector.pick(peers_ahead, now)
             };
 
             if let Some(peer) = peer {
@@ -172,7 +172,7 @@ impl BlockSync {
                     block_height = next_height,
                     request_from_archival,
                     peer = ?peer.peer_info.id,
-                    num_peers = highest_height_peers.len(),
+                    num_peers = peers_ahead.len(),
                     "requested block"
                 );
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -200,13 +200,14 @@ impl BlockSync {
     pub fn run(
         &mut self,
         chain: &Chain,
-        highest_height_peers: &[PeerAdvertisedHead],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), near_chain::Error> {
         let head = chain.head()?;
-        if self.block_request_due(&head) {
-            self.block_sync(chain, highest_height_peers)?;
+        if !self.block_request_due(&head) {
+            return Ok(());
         }
-        Ok(())
+        self.block_sync(chain, peers_ahead, peer_selector)
     }
 
     /// Returns whether a new block request is due based on head freshness

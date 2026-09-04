@@ -27,10 +27,10 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, KnownProducer, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerAdvertisedHead, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
-    SnapshotHostEvent, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
-    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
+    PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -281,25 +281,6 @@ impl messaging::Actor for PeerManagerActor {
     }
 }
 
-/// Project a `ConnectedPeerState` to a `PeerAdvertisedHead`, keyed by
-/// the T2 peer's latest block. Returns `None` if the peer hasn't
-/// reported a block yet (the height info is what makes the projection
-/// interesting).
-fn to_highest_height_peer_info(
-    peer_state: &ConnectedPeerState,
-    genesis_id: &GenesisId,
-) -> Option<PeerAdvertisedHead> {
-    let block = peer_state.block_info.as_ref()?;
-    Some(PeerAdvertisedHead {
-        peer_info: peer_state.peer_info.clone(),
-        genesis_id: genesis_id.clone(),
-        highest_block_height: block.height,
-        highest_block_hash: block.hash,
-        tracked_shards: peer_state.tracked_shards.clone(),
-        archival: peer_state.archival,
-    })
-}
-
 /// Joins `ConnectedPeerState` (business metadata) with per-peer stats
 /// from `transport_info()` (bandwidth, last-seen timestamps) and the
 /// routing graph (edge nonce) into a single `ConnectedPeerInfo` for
@@ -474,32 +455,6 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height.
-    fn highest_height_peers(&self) -> Vec<PeerAdvertisedHead> {
-        let genesis_id = self.state.genesis_id.clone();
-        let infos: Vec<PeerAdvertisedHead> = self
-            .state
-            .peers
-            .tier2()
-            .values()
-            .filter_map(|peer_state| to_highest_height_peer_info(peer_state, &genesis_id))
-            .collect();
-
-        // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
-            Some(height) => height,
-            None => return vec![],
-        };
-        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
-        infos
-            .into_iter()
-            .filter(|i| {
-                i.highest_block_height.saturating_add(self.state.config.highest_peer_horizon)
-                    >= max_height
-            })
-            .collect()
-    }
-
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
@@ -513,8 +468,7 @@ impl PeerManagerActor {
             return HashSet::new();
         };
         let my_height = chain_info.block.header().height();
-        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-        // or the ones we don't have height information yet
+        // Peers more than `UNRELIABLE_PEER_HORIZON` below our own height.
         self.state
             .peers
             .tier2()
@@ -787,7 +741,6 @@ impl PeerManagerActor {
             tier1_connections: t1_infos,
             num_connected_peers: num_connected,
             peer_max_count: self.state.config.max_num_peers,
-            highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec: sent_total,
             received_bytes_per_sec: recv_total,
             known_producers: self
