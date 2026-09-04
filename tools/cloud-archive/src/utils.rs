@@ -90,7 +90,7 @@ impl ReaderHandles {
 
         let shard_tracker = ShardTracker::new(
             near_config.client_config.tracked_shards_config.clone(),
-            epoch_manager.clone(),
+            epoch_manager,
             near_config.validator_signer.clone(),
         );
 
@@ -193,7 +193,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Reade
             },
             validator_account_id: None,
             validator_public_key: None,
-            node_public_key: self.near_config.network_config.node_key.public_key().clone(),
+            node_public_key: self.near_config.network_config.node_key.public_key(),
             node_key: None,
             uptime_sec: (Clock::real().now_utc() - self.started_at).whole_seconds(),
             genesis_hash: self.genesis_hash,
