@@ -1,6 +1,14 @@
-//! This contract is used for congestion control tests that are sensitive to contract size.
-//! For some tests large contract size causes less congestion, and the checks fail.
-//! Let's use a separate small contract for these tests.
+//! Small contract for tests that are sensitive to contract size.
+//!
+//! Contract code is loaded, and charged for, on every function call, so the
+//! contract's byte size feeds into how much work fits in a chunk. Congestion
+//! control tests were the first to care: a large contract causes less congestion
+//! and their checks fail. The bandwidth scheduler tests care for the same reason.
+//! They used to deploy `rs_contract`, which every new host function grows, and one
+//! such addition moved their `link_imbalance_ratio` from 1.53 to 1.81 and broke
+//! them.
+//!
+//! Keep it small, and only add methods these tests need.
 
 #![allow(clippy::all)]
 
@@ -200,4 +208,53 @@ extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe fn loop_forever() {
     loop {}
+}
+
+/// The method the emitted receipts call on the receiver. Does nothing; the point
+/// is the receipt, not its effect.
+#[unsafe(no_mangle)]
+pub unsafe fn noop() {}
+
+/// Send a receipt of a caller-chosen size to another account.
+///
+/// Arguments are a fixed binary layout rather than JSON, so that the contract
+/// needs no deserializer and stays small:
+///
+/// ```text
+/// [0..8]                    args_size, little-endian u64
+/// [8]                       account_id length in bytes
+/// [9..9 + account_id_len]   account_id
+/// [9 + account_id_len..]    method name to call on the receiver
+/// ```
+///
+/// It attaches a fixed 1 gas so the receipt keeps congestion low, and no gas
+/// weight, so the receiver does no work beyond existing.
+#[unsafe(no_mangle)]
+pub unsafe fn do_function_call_with_args_of_size() {
+    input(0);
+    let mut params = vec![0u8; register_len(0) as usize];
+    read_register(0, params.as_mut_ptr() as u64);
+
+    let args_size = u64::from_le_bytes(params[0..8].try_into().unwrap());
+    let account_id_len = params[8] as usize;
+    let account_id = &params[9..9 + account_id_len];
+    let method_name = &params[9 + account_id_len..];
+
+    // The receipt's size is what the test controls; the bytes themselves are padding.
+    let args = vec![0u8; args_size as usize];
+    let amount = 0u128;
+    let gas_fixed = 1;
+    let gas_weight = 0;
+
+    let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+    promise_batch_action_function_call_weight(
+        promise_idx,
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        args_size,
+        args.as_ptr() as u64,
+        &amount as *const u128 as u64,
+        gas_fixed,
+        gas_weight,
+    );
 }

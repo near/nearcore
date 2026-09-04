@@ -563,7 +563,7 @@ impl WorkloadGenerator {
                 SignedTransaction::deploy_contract(
                     nonce,
                     account,
-                    near_test_contracts::bandwidth_scheduler_test_contract().into(),
+                    near_test_contracts::congestion_control_test_contract().into(),
                     &create_user_test_signer(account).into(),
                     last_block_hash,
                 )
