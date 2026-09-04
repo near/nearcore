@@ -5,6 +5,7 @@ use crate::spice::boundary::is_spice_activation_parent;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 #[cfg(feature = "test_features")]
 use std::collections::HashMap;
@@ -46,6 +47,30 @@ pub fn spice_enabled_for_block(
 /// fallback in [`SpiceMessageGate::should_process`].
 pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Error> {
     Ok(chain_store.head_header()?.is_spice())
+}
+
+/// Whether the epoch after the head's is a spice epoch: the head is in the last
+/// pre-spice epoch, so a message about a block this node has not received yet can
+/// concern the activation boundary and must not be dropped for pre-spice-ness.
+fn spice_activation_imminent_at_head(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<bool, Error> {
+    let head = chain_store.head()?;
+    let next_epoch_protocol_version =
+        epoch_manager.get_next_epoch_protocol_version(&head.last_block_hash)?;
+    Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
+}
+
+/// Whether spice work exists for `block_hash`: any spice block, and an activation
+/// parent, which spice certifies through the boundary bootstrap.
+pub fn spice_relevant_block(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<bool, Error> {
+    Ok(spice_enabled_for_block(chain_store, block_hash)?
+        || is_spice_activation_parent(epoch_manager, block_hash)?)
 }
 
 /// Whether spice is active at the head, for actor startup, where there is no caller to
@@ -98,13 +123,7 @@ impl SpiceMessageGate {
     /// doing that all reference its hash, and there is no resend — dropping them
     /// while heads are still pre-spice would starve certification. When the block
     /// is not on disk we cannot ask it, and we must not simply drop: spice legitimately
-    /// receives data ahead of its block and buffers it. So fall back to the head — a
-    /// node whose head is still pre-spice has no legitimate spice sender and drops,
-    /// while a node past activation keeps buffering exactly as before.
-    ///
-    /// TODO(spice): around the activation boundary this drops data about the first spice
-    /// block that arrives before we hold that block's header, because the head is
-    /// still pre-spice.
+    /// receives data ahead of its block and buffers it. So fall back to the head.
     pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -153,7 +172,9 @@ impl SpiceMessageGate {
                     false
                 }
             },
-            Err(_) => match spice_enabled_at_head(chain_store) {
+            Err(_) => match spice_enabled_at_head(chain_store).and_then(|enabled| {
+                Ok(enabled || spice_activation_imminent_at_head(chain_store, epoch_manager)?)
+            }) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
                 // this chain, so we cannot claim spice is active on it.

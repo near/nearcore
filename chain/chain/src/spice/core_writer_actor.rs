@@ -1,6 +1,6 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
-use crate::spice::boundary::check_pre_spice_execution_result;
+use crate::spice::boundary::{check_pre_spice_execution_result, is_spice_activation_parent};
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -584,8 +584,19 @@ impl SpiceCoreWriterActor {
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
         // A pre-spice block carries no core statements and needs no certification,
-        // so there is nothing to record for it.
+        // so there is nothing to record for it — except an activation parent, whose
+        // chunks' endorsements can arrive before the block and wait as pending.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), &block_hash)? {
+                let block = self.chain_store.get_block(&block_hash)?;
+                let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
+                if !pending_endorsements.is_empty() {
+                    let store_update =
+                        self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
+                    store_update.commit();
+                    self.try_sending_execution_result_endorsed(&block_hash)?;
+                }
+            }
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();

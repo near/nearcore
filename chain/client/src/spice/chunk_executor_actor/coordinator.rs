@@ -199,14 +199,6 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
-        // Second bootstrap trigger, on a first spice block: receipts pushed at the
-        // activation parent's trigger can reach a node before it has created its
-        // executors and are dropped with no retry, so that trigger alone is not safe.
-        // TODO(spice-boundary): collapse to the activation-parent trigger alone once
-        // receive-side buffering of boundary receipts lands.
-        if is_spice_activation_parent(self.epoch_manager.as_ref(), &prev_block_hash)? {
-            self.bootstrap_boundary_source_block(&prev_block_hash)?;
-        }
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }

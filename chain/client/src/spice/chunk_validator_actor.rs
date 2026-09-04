@@ -3,7 +3,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
 use near_chain::spice::boundary::boundary_source_results_for_target;
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
@@ -184,8 +184,9 @@ impl SpiceChunkValidatorActor {
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         // Pre-spice chunks are validated as part of block processing; no witness
-        // can be waiting on a pre-spice block.
-        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+        // can be waiting on a pre-spice block — except an activation parent, whose
+        // boundary witness can arrive before the block itself.
+        match spice_relevant_block(&self.chain_store, self.epoch_manager.as_ref(), &block_hash) {
             Ok(true) => {}
             Ok(false) => return,
             Err(err) => {

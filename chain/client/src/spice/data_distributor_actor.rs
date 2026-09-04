@@ -21,11 +21,12 @@ use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
-    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
+    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_relevant_block,
 };
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
+use near_chain::spice::boundary::is_spice_activation_parent;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -448,8 +449,10 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         // A pre-spice block distributes no receipts or witnesses and produces no
-        // endorsements, so there is nothing to wait on or contribute for it.
-        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+        // endorsements, so there is nothing to wait on or contribute for it — except
+        // an activation parent, whose boundary witness and receipts flow through the
+        // distributor like any spice block's.
+        match spice_relevant_block(&self.chain_store, self.epoch_manager.as_ref(), &block_hash) {
             Ok(true) => {}
             Ok(false) => return,
             Err(err) => {
@@ -618,17 +621,22 @@ impl SpiceDataDistributorActor {
         data_id: &SpiceDataIdentifier,
         block: &Block,
     ) -> Result<(HashSet<AccountId>, Vec<AccountId>), Error> {
+        let producers_epoch_id =
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), block.hash())? {
+                self.epoch_manager.get_epoch_id_from_prev_block(block.hash())?
+            } else {
+                *block.header().epoch_id()
+            };
         let (recipients, producers) = match data_id {
             SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, block_hash } => {
                 debug_assert_eq!(block.hash(), block_hash);
-                let epoch_id = block.header().epoch_id();
                 let next_block_epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(block_hash)?;
                 // TODO(spice-resharding): validate whether from_shard_id and to_shard_id would be
                 // correct when resharding.
                 let producers = self
                     .epoch_manager
-                    .get_epoch_chunk_producers_for_shard(&epoch_id, *from_shard_id)?;
+                    .get_epoch_chunk_producers_for_shard(&producers_epoch_id, *from_shard_id)?;
                 let recipients = self
                     .epoch_manager
                     .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, *to_shard_id)?;
@@ -637,8 +645,9 @@ impl SpiceDataDistributorActor {
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 debug_assert_eq!(block.hash(), block_hash);
                 let epoch_id = block.header().epoch_id();
-                let producers =
-                    self.epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, *shard_id)?;
+                let producers = self
+                    .epoch_manager
+                    .get_epoch_chunk_producers_for_shard(&producers_epoch_id, *shard_id)?;
                 let validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
                     epoch_id,
                     *shard_id,
@@ -1296,13 +1305,18 @@ impl SpiceDataDistributorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
 
+        let self_produced_prev_hash =
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
+                block_hash
+            } else {
+                block.header().prev_hash()
+            };
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
-                let prev_hash = block.header().prev_hash();
                 self.shard_tracker.should_apply_chunk(
                     ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
+                    self_produced_prev_hash,
                     *shard_id,
                 )
             })
