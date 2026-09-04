@@ -2249,3 +2249,115 @@ fn fork_seeded_rows_reflect_each_branch_blacklist() {
     fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 1, 0);
     fx.assert_branch_seeds_own_blacklist(fx.genesis, 0, 2, 1);
 }
+
+/// Height of the epoch-sync first block in the activation-edge tests below.
+const EPOCH_SYNC_FIRST_BLOCK_HEIGHT: u64 = 42;
+
+/// Seeds the first block of an epoch after epoch sync. Production reaches this seeder through
+/// `seed_chunk_producers_after_epoch_sync` from `EpochSync::apply_validated_proof`.
+///
+/// Callers put `header_protocol_version` on the opposite side of activation from
+/// `epoch_protocol_version`. Gating on the header instead of the epoch would therefore fail both
+/// tests. The header version also selects the `BlockInfo` variant, but versions 86 and 87 both
+/// select V4.
+///
+/// Returns the manager and the hash used to store the seeded rows.
+fn seed_epoch_sync_first_block(
+    epoch_protocol_version: ProtocolVersion,
+    header_protocol_version: ProtocolVersion,
+) -> (EpochManager, CryptoHash) {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    let em = setup_default_epoch_manager_at_version(
+        validators,
+        10,
+        2,
+        3,
+        90,
+        60,
+        epoch_protocol_version,
+    );
+    assert_eq!(
+        em.get_epoch_info(&EpochId::default()).unwrap().protocol_version(),
+        epoch_protocol_version,
+        "fixture failed to pin the epoch's protocol version",
+    );
+
+    let block_hash = hash(b"epoch sync first block");
+    let mut block_info = BlockInfo::new(
+        block_hash,
+        EPOCH_SYNC_FIRST_BLOCK_HEIGHT,
+        EPOCH_SYNC_FIRST_BLOCK_HEIGHT - 2,
+        CryptoHash::default(),
+        hash(b"block before the synced epoch"),
+        vec![],
+        vec![true, true],
+        DEFAULT_TOTAL_SUPPLY,
+        header_protocol_version,
+        header_protocol_version,
+        EPOCH_SYNC_FIRST_BLOCK_HEIGHT * NUM_NS_IN_SECOND,
+        ChunkEndorsementsBitmap::new(2),
+        None,
+    );
+    // Match `apply_validated_proof`: this block starts its epoch.
+    *block_info.epoch_id_mut() = EpochId::default();
+    *block_info.epoch_first_block_mut() = block_hash;
+
+    let mut store_update = em.store.store_update();
+    em.seed_chunk_producers_for_first_block(&mut store_update, &block_info).unwrap();
+    store_update.commit();
+    (em, block_hash)
+}
+
+// The reader gates `DBCol::ChunkProducers` lookups on the chunk epoch. The epoch-sync writer
+// must use the same activation boundary.
+#[test]
+fn epoch_sync_seeder_writes_no_rows_below_activation() {
+    let (em, block_hash) = seed_epoch_sync_first_block(
+        PV_BEFORE_EARLY_KICKOUT,
+        ProtocolFeature::EarlyKickout.protocol_version(),
+    );
+    let rows = em.store.store_ref().iter_prefix(DBCol::ChunkProducers, block_hash.as_ref()).count();
+    assert_eq!(
+        rows, 0,
+        "a synced epoch below activation must seed no ChunkProducers rows, found {rows}",
+    );
+}
+
+// The first EarlyKickout epoch must seed every shard. A missing same-epoch anchor makes the
+// anchored reader return `ChunkProducerNotInDB`. The epoch's first block has no in-epoch stats,
+// so each row must contain the canonical sample with an empty blacklist.
+#[test]
+fn epoch_sync_seeder_seeds_canonical_rows_at_activation() {
+    let (em, block_hash) = seed_epoch_sync_first_block(
+        ProtocolFeature::EarlyKickout.protocol_version(),
+        PV_BEFORE_EARLY_KICKOUT,
+    );
+    let epoch_info = em.get_epoch_info(&EpochId::default()).unwrap();
+    let shard_layout = em.get_shard_layout(&EpochId::default()).unwrap();
+
+    let mut checked = 0;
+    for shard_id in shard_layout.shard_ids() {
+        let key = get_block_shard_id(&block_hash, shard_id);
+        let seeded = em
+            .store
+            .store_ref()
+            .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            .unwrap_or_else(|| {
+                panic!("no ChunkProducers row seeded for shard {shard_id} at the activation edge")
+            });
+        let canonical = epoch_info
+            .sample_chunk_producer(
+                &shard_layout,
+                shard_id,
+                EPOCH_SYNC_FIRST_BLOCK_HEIGHT + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET,
+            )
+            .unwrap();
+        assert_eq!(
+            seeded,
+            epoch_info.get_validator(canonical),
+            "shard {shard_id} must be seeded with the canonical sample",
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 2, "the fixture must cover both shards, checked {checked}");
+}
