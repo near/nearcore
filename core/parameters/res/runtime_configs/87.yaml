@@ -36,3 +36,7 @@ fix_ml_dsa_cost_charging: { old: false, new: true }
 
 # Enable the sha3_256, sha3_384 and sha3_512 (FIPS-202) host functions.
 sha3_host_fns: { old: false, new: true }
+
+# Universal accounts: make `0u` account ids implicit, so a transfer can create
+# the account before its state init is applied.
+universal_accounts: { old: false, new: true }
