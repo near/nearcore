@@ -357,9 +357,7 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
 /// must be idempotent, and the executor's `start_actor` recovery must re-bootstrap
 /// the boundary so the node follows the chain across it without panicking.
 #[test]
-#[ignore = "TODO(spice-boundary): restarting between the activation parent and the first \
-            certification needs the executor's start_actor boundary recovery; un-ignore \
-            when it lands"]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_restart_mid_boundary() {
     init_test_logger();
 

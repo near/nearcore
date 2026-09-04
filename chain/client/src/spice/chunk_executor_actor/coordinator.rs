@@ -364,6 +364,21 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
+    /// Recover after a crash with the head at an activation parent: the boundary
+    /// bootstrap's endorsement and receipt sends are not persisted, so re-run it.
+    /// A no-op when the head is any other block.
+    fn recover_boundary_bootstrap(&mut self) -> Result<(), Error> {
+        let head = match self.chain_store.head() {
+            Ok(head) => head,
+            Err(Error::DBNotFoundErr(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        if is_spice_activation_parent(self.epoch_manager.as_ref(), &head.last_block_hash)? {
+            self.bootstrap_boundary_source_block(&head.last_block_hash)?;
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn pending_receipts_count(&self) -> usize {
         // Sum across per-shard trackers. Matches the old coordinator-side count
@@ -377,6 +392,15 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
+        }
+        // The head can be an activation parent, which is still pre-spice, so this
+        // must run before the spice-at-head gate below.
+        if let Err(err) = self.recover_boundary_bootstrap() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to re-run boundary bootstrap on startup",
+            );
         }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active
