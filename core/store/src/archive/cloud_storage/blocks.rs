@@ -1,7 +1,6 @@
 use crate::DBCol;
 use crate::Store;
 use crate::adapter::StoreAdapter;
-use crate::adapter::chain_store::ChainStoreAdapter;
 use crate::archive::cloud_storage::batch::BatchRange;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
@@ -9,23 +8,20 @@ use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::sharding::ChunkHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::HashSet;
 
 /// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BlockData {
-    V1(BlockDataV1),
+    V1(BlockDataV1) = 0,
 }
 
-// TODO(cloud_archival): remove this note once the cloud blob format is stabilized.
-// Pre-stabilization there is no committed blob-format contract, so adding a field
-// to `V1` is fine: no stable blobs exist to break. Once the format freezes, add a
-// `BlockData::V2` variant instead of changing `V1`.
+// The format is frozen: add a `BlockData::V2` variant instead of changing `V1`.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BlockDataV1 {
     /// Read from `DBCol::Block`.
@@ -39,9 +35,6 @@ pub struct BlockDataV1 {
     /// Rows of `DBCol::ChunkProducers` for this block, keyed by shard_id; empty
     /// until EarlyKickout activates.
     chunk_producers: Vec<(ShardId, ValidatorStake)>,
-    /// Read from `DBCol::ChunkHashesByHeight`, for this block's height and for each
-    /// height below it that produced no block of its own.
-    chunk_hashes: Vec<(BlockHeight, HashSet<ChunkHash>)>,
 }
 
 /// Builds a `BlockData` object for the given block height by reading data
@@ -67,44 +60,9 @@ pub fn build_block_data(
     // `read_chunk_producers` needs the base `Store`, not the chain-store adapter
     // that shadows `store` above.
     let chunk_producers = read_chunk_producers(store.store_ref(), &block_hash)?;
-    let chunk_hashes = read_chunk_hashes(&store, &block)?;
-    let block_data = BlockDataV1 {
-        block,
-        block_info,
-        next_block_hash,
-        block_merkle_tree,
-        chunk_producers,
-        chunk_hashes,
-    };
+    let block_data =
+        BlockDataV1 { block, block_info, next_block_hash, block_merkle_tree, chunk_producers };
     Ok(Some(BlockData::V1(block_data)))
-}
-
-/// The `DBCol::ChunkHashesByHeight` rows no other block carries: this block's own height,
-/// and every height below it back to the previous block, which produced none of its own.
-///
-/// A chunk created at a height that produced no block reaches the chain in the next block
-/// that does, so those rows belong to this one.
-pub fn read_chunk_hashes(
-    store: &ChainStoreAdapter,
-    block: &Block,
-) -> Result<Vec<(BlockHeight, HashSet<ChunkHash>)>, Error> {
-    let block_height = block.header().height();
-    // Genesis has no previous block, and owns its own height alone.
-    let first_height = if block.header().is_genesis() {
-        block_height
-    } else {
-        store.get_block_header(block.header().prev_hash())?.height() + 1
-    };
-    let chunk_store = store.store_ref().chunk_store();
-    let mut rows = Vec::new();
-    for height in first_height..=block_height {
-        let chunk_hashes = chunk_store.get_all_chunk_hashes_by_height(height);
-        if chunk_hashes.is_empty() {
-            continue;
-        }
-        rows.push((height, chunk_hashes));
-    }
-    Ok(rows)
 }
 
 fn read_chunk_producers(
@@ -149,12 +107,6 @@ impl BlockData {
         }
     }
 
-    pub fn chunk_hashes(&self) -> &[(BlockHeight, HashSet<ChunkHash>)] {
-        match self {
-            BlockData::V1(data) => &data.chunk_hashes,
-        }
-    }
-
     pub fn chunk_producers(&self) -> &[(ShardId, ValidatorStake)] {
         match self {
             BlockData::V1(data) => &data.chunk_producers,
@@ -164,8 +116,10 @@ impl BlockData {
 
 /// Versioned container for a batch of block data spanning consecutive heights.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BlockBatch {
-    V1(BlockBatchV1),
+    V1(BlockBatchV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]

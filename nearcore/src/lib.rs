@@ -289,6 +289,7 @@ fn spawn_spice_actors(
     spice_core_writer_adapter.bind(spice_core_writer_addr);
 
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        Clock::real(),
         epoch_manager.clone(),
         runtime.store().chain_store(),
         validator_signer.clone(),
