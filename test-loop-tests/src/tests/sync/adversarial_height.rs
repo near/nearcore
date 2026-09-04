@@ -327,3 +327,60 @@ fn test_state_syncing_node_ignores_unverified_far_ahead_height() {
     assert_eq!(state_sync_status.sync_hash, victim_sync_hash);
     assert!(!env.test_loop.is_denylisted("victim"), "victim must not be wiped");
 }
+
+// Scenario: a node bootstrapping from genesis is fed a fabricated far-ahead peer
+// height before it starts. Peer selection must not collapse onto that one peer:
+// every sync request would go to it, and the node would never sync.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards, network past the epoch sync horizon
+//   - Advertise a height many epochs ahead, from a peer id nobody vouches for
+//   - Add a fresh node and let the full pipeline run
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let syncer_account = create_account_id("syncer");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&syncer_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+            // The node learns the attacker's advertised height before any honest
+            // peer relays a block, so it asks the attacker first. This timeout is
+            // what lets it notice and move on inside the test's deadline.
+            config.epoch_sync.timeout_for_epoch_sync = Duration::seconds(2);
+        })
+        .build();
+    env.add_node("syncer", node_state);
+    let syncer_idx = env.node_datas.len() - 1;
+
+    let head = env.node(0).head();
+    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let fake_block = block_with_raised_height(&head_block, head.height + 10 * epoch_length);
+    let attacker = PeerInfo {
+        id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, "attacker").public_key()),
+        addr: None,
+        account_id: None,
+    };
+    env.shared_state.network_shared_state.mark_unresponsive(&attacker.id);
+    relay_block_from_peer(&env.node_datas[syncer_idx], &attacker, fake_block);
+
+    run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
+    assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
+}
