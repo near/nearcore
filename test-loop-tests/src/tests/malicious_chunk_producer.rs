@@ -26,6 +26,8 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
+use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -315,6 +317,80 @@ fn test_partial_witness_inflated_encoded_length_rejected_at_validation() {
     assert!(
         !inflated_forward_seen.load(Ordering::Relaxed),
         "node 1 should reject inflated witness at validation and not forward it",
+    );
+}
+
+/// Verifies that a chunk validator does not re-broadcast a producer-signed witness part it is not
+/// the designated owner of.
+#[test]
+// Spice distributes witnesses through `SpiceDataDistributorActor` instead, so
+// `NetworkRequests::PartialEncodedStateWitness` is never emitted and the gate under test is
+// unreachable.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_partial_witness_foreign_part_not_forwarded() {
+    init_test_logger();
+
+    let mut env = TestLoopBuilder::new().validators(3, 0).build();
+
+    let recipient_account = create_validator_id(1);
+    // Parts handed to node 1 that it does not own. Keyed by chunk as well as ordinal because the
+    // assignment order is resampled per height, so a bare ordinal could collide with node 1's own.
+    let injected_parts: Arc<Mutex<HashSet<(ChunkProductionKey, usize)>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+    let injected_parts_clone = Arc::clone(&injected_parts);
+    let producer_pm_handle = env.node_datas[0].peer_manager_sender.actor_handle();
+    let producer_pm_actor = env.test_loop.data.get_mut(&producer_pm_handle);
+    producer_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        match request {
+            NetworkRequests::PartialEncodedStateWitness(mut parts) => {
+                let foreign_part = parts
+                    .iter()
+                    .find(|(account_id, _)| account_id != &recipient_account)
+                    .map(|(_, witness)| witness.clone());
+                if let Some(witness) = foreign_part {
+                    injected_parts_clone
+                        .lock()
+                        .insert((witness.chunk_production_key(), witness.part_ord()));
+                    parts.push((recipient_account.clone(), witness));
+                }
+                HandlerResult::Unhandled(NetworkRequests::PartialEncodedStateWitness(parts))
+            }
+            _ => HandlerResult::Unhandled(request),
+        }
+    }));
+
+    let foreign_forward_seen = Arc::new(AtomicBool::new(false));
+    let foreign_forward_seen_clone = Arc::clone(&foreign_forward_seen);
+    let own_forward_seen = Arc::new(AtomicBool::new(false));
+    let own_forward_seen_clone = Arc::clone(&own_forward_seen);
+    let injected_parts_watch = Arc::clone(&injected_parts);
+    let recipient_pm_handle = env.node_datas[1].peer_manager_sender.actor_handle();
+    let recipient_pm_actor = env.test_loop.data.get_mut(&recipient_pm_handle);
+    recipient_pm_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        if let NetworkRequests::PartialEncodedStateWitnessForward(_, witness) = &request {
+            let part = (witness.chunk_production_key(), witness.part_ord());
+            if injected_parts_watch.lock().contains(&part) {
+                foreign_forward_seen_clone.store(true, Ordering::Relaxed);
+            } else {
+                own_forward_seen_clone.store(true, Ordering::Relaxed);
+            }
+        }
+        HandlerResult::Unhandled(request)
+    }));
+
+    env.node_runner(0).run_for_number_of_blocks(15);
+
+    assert!(
+        !injected_parts.lock().is_empty(),
+        "test setup invariant: node 1 should have been sent a part it does not own",
+    );
+    assert!(
+        !foreign_forward_seen.load(Ordering::Relaxed),
+        "node 1 should not forward a witness part it is not the designated owner of",
+    );
+    assert!(
+        own_forward_seen.load(Ordering::Relaxed),
+        "node 1 should still forward the part it does own",
     );
 }
 

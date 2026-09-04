@@ -200,8 +200,10 @@ impl PartialWitnessActor {
         witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker = Arc::new(PartialEncodedStateWitnessTracker::new(
+            clock.clone(),
             chunk_validation_sender,
             epoch_manager.clone(),
+            runtime.store().clone(),
         ));
         Self {
             network_adapter,
@@ -529,11 +531,17 @@ impl PartialWitnessActor {
             Err(err) => return Err(err.into()),
         };
 
-        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
-        let target_chunk_validators = self
+        let ordered_chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
-            .ordered_chunk_validators()
+            .ordered_chunk_validators();
+        // `generate_state_witness_parts` assigns part `i` to `ordered_chunk_validators[i]`, so
+        // this is the ordinal of the part we are the designated owner of
+        let my_part_ord = ordered_chunk_validators
+            .iter()
+            .position(|validator| validator == &validator_account_id);
+        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
+        let target_chunk_validators = ordered_chunk_validators
             .into_iter()
             .filter(|validator| validator != &chunk_producer)
             .collect_vec();
@@ -550,19 +558,32 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    // Forward to other validators (excluding ourselves to avoid duplicate processing).
-                    let other_validators: Vec<_> = target_chunk_validators
-                        .into_iter()
-                        .filter(|validator| validator != &validator_account_id)
-                        .collect();
+                    // Only the part's designated owner re-broadcasts it. Producer-signed parts for
+                    // other ordinals are still valid and worth storing, but forwarding them would
+                    // let a single injected message fan out across the whole validator set.
+                    if my_part_ord == Some(partial_witness.part_ord()) {
+                        // Forward to other validators (excluding ourselves to avoid duplicate processing).
+                        let other_validators: Vec<_> = target_chunk_validators
+                            .into_iter()
+                            .filter(|validator| validator != &validator_account_id)
+                            .collect();
 
-                    if !other_validators.is_empty() {
-                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedStateWitnessForward(
-                                other_validators,
-                                partial_witness.clone(),
-                            ),
-                        ));
+                        if !other_validators.is_empty() {
+                            network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::PartialEncodedStateWitnessForward(
+                                    other_validators,
+                                    partial_witness.clone(),
+                                ),
+                            ));
+                        }
+                    } else {
+                        tracing::debug!(
+                            target: "client",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            part_ord = partial_witness.part_ord(),
+                            ?my_part_ord,
+                            "not forwarding partial witness part we do not own",
+                        );
                     }
                     // Store the part locally (as part owner) to avoid need for self-forwarding.
                     if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
@@ -928,8 +949,11 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        self.partial_witness_tracker.store_accessed_contract_hashes(
+            key.clone(),
+            accesses.prev_prev_block_hash(),
+            missing_contract_hashes.clone(),
+        )?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
