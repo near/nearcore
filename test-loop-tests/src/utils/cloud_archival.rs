@@ -761,6 +761,7 @@ pub fn bootstrap_historical_reader(
     reader_id: &AccountId,
     start_height: BlockHeight,
     target_block_height: BlockHeight,
+    skip_state: bool,
 ) {
     add_reader_node(env, reader_id);
 
@@ -777,9 +778,15 @@ pub fn bootstrap_historical_reader(
             &shard_tracker,
             start_height,
             target_block_height,
-            false,
+            skip_state,
         ))
         .expect("bootstrap_range should succeed");
+    }
+
+    // The checks below read the trie the walk built, which a run that skipped state does
+    // not have.
+    if skip_state {
+        return;
     }
 
     // Resolve the target's epoch for the shard layout. A skipped-slot target

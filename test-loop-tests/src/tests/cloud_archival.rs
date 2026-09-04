@@ -389,7 +389,7 @@ impl CloudArchiveHarness {
         target_height: BlockHeight,
     ) {
         let reader_id: AccountId = "reader".parse().unwrap();
-        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height);
+        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height, false);
         self.historical_reader_id = Some(reader_id);
     }
 
@@ -2529,6 +2529,42 @@ fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
     );
 
     reader.stop();
+    h.shutdown();
+}
+
+/// A store bootstrapped without the trie carries the row naming each shard's state root and
+/// nothing behind it, so the recent reader has to refuse it at the door rather than run and
+/// fail on the first height it applies.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_refuses_a_store_without_state() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().dont_take_over_rpc().build();
+    h.run_until_epoch(3);
+    let start = h.epoch_length + 1;
+    let target = h.epoch_length * 2;
+    let reader_id: AccountId = "reader".parse().unwrap();
+    bootstrap_historical_reader(&mut h.env, &reader_id, start, target, true);
+    h.historical_reader_id = Some(reader_id.clone());
+
+    let client = h.env.node_for_account(&reader_id).client();
+    let reader = CloudArchivalRecentReader::new(
+        h.env.test_loop.clock(),
+        h.historical_reader_store(),
+        h.open_cloud_storage(&reader_id),
+        client.epoch_manager.clone(),
+        client.shard_tracker.clone(),
+        CloudArchiveHarness::RECENT_READER_POLLING_INTERVAL,
+    );
+    let Err(error) = exec(reader.cloud_archival_loop()) else {
+        panic!("the reader ran on a store holding no state");
+    };
+    assert!(
+        format!("{error:?}").contains("MissingTrieValue"),
+        "refused for the wrong reason: {error:?}"
+    );
+
+    h.kill_historical_reader();
     h.shutdown();
 }
 

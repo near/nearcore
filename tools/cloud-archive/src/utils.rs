@@ -83,7 +83,7 @@ impl ReaderHandles {
     }
 }
 
-/// Answers read-only JSON-RPC from a store nothing is writing.
+/// Answers read-only JSON-RPC from a store no other process holds.
 #[derive(clap::Parser)]
 pub(crate) struct ServeCmd {}
 
@@ -94,7 +94,8 @@ impl ServeCmd {
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
         // Serving reaches no bucket, so this opens the store alone rather than through
-        // `ReaderHandles`.
+        // `ReaderHandles`. The view client writes the genesis congestion infos as it
+        // starts, and the write lock keeps a second process off the store.
         let near_config =
             load_config(home_dir, genesis_validation).context("failed to load config")?;
         let runtime = Runtime::new().expect("failed to create the tokio runtime");
@@ -106,7 +107,7 @@ impl ServeCmd {
                 near_config.config.cold_store.as_ref(),
                 near_config.cloud_storage_context(),
             )
-            .open_in_mode(Mode::ReadOnly)
+            .open_in_mode(Mode::ReadWrite)
             .context("failed to open storage")?
         };
         let store = storage.get_hot_store();

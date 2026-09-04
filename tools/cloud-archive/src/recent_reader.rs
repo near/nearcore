@@ -41,7 +41,6 @@ impl FollowCmd {
         let interrupt = reader.clone();
         handles.runtime.spawn(async move {
             if ctrl_c().await.is_ok() {
-                tracing::info!(target: "cloud_archival", "stopping after the poll in flight");
                 interrupt.stop();
             }
         });

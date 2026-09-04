@@ -40,11 +40,17 @@ pub async fn bootstrap_range(
     // `tracked_shards_config` defaults to `NoShards`, so a config that never named a
     // shard bootstraps block data alone.
     if matches!(shard_tracker.tracked_shards_config(), TrackedShardsConfig::NoShards) {
-        tracing::warn!("tracked_shards_config selects no shards; bootstrapping block data only");
+        tracing::warn!(
+            target: "cloud_archival",
+            "tracked_shards_config selects no shards; bootstrapping block data only"
+        );
     }
 
     if skip_state {
-        tracing::warn!("skipping state; a query against this store answers no state request");
+        tracing::info!(
+            target: "cloud_archival",
+            "skipping state; a query against this store answers no state request"
+        );
     }
 
     let tries = build_shard_tries(store);
@@ -86,12 +92,24 @@ pub async fn bootstrap_range(
         if done >= next_log_at || height > end_height {
             next_log_at = done + log_interval;
             let percent_done = done * 100 / range_length;
-            tracing::info!(height, end_height, percent_done, "bootstrap progress");
+            tracing::info!(
+                target: "cloud_archival",
+                height,
+                end_height,
+                percent_done,
+                "bootstrap progress"
+            );
         }
     }
 
     let covered_to = height - 1;
-    tracing::info!(start_height, end_height, covered_to, "bootstrap complete",);
+    tracing::info!(
+        target: "cloud_archival",
+        start_height,
+        end_height,
+        covered_to,
+        "bootstrap complete",
+    );
     Ok(())
 }
 

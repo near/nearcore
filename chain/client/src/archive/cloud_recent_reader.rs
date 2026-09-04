@@ -133,7 +133,11 @@ impl CloudArchivalRecentReader {
             None,
         )?;
         for shard_uid in shard_uids {
-            shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+            let state_root =
+                shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+            // The row naming the root is written even where the state behind it is not, so
+            // the root has to be read to tell the two apart.
+            self.tries.get_trie_for_shard(shard_uid, state_root).retrieve_root_node()?;
         }
         Ok(())
     }

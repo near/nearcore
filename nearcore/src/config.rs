@@ -1744,12 +1744,16 @@ pub fn load_config(
     };
 
     // A writer would archive its own chunk rows under an inclusion height the chain has not
-    // given them yet, and a reader has no use for a key either.
-    if validator_signer.is_some() && config.cloud_archival.is_some() {
+    // given them yet.
+    let archives_as_writer = config
+        .cloud_archival
+        .as_ref()
+        .is_some_and(|cloud_archival| cloud_archival.writer.is_some());
+    if validator_signer.is_some() && archives_as_writer {
         validation_errors.push_cross_file_semantics_error(
-            "a cloud archival node must not produce chunks: a writer would archive its own \
-             chunk rows under an inclusion height the chain has not given them yet. Remove the \
-             validator key file, or unset cloud_archival."
+            "a cloud archival writer must not produce chunks: it would archive its own chunk \
+             rows under an inclusion height the chain has not given them yet. Remove the \
+             validator key file, or unset cloud_archival.writer."
                 .to_string(),
         );
     }
