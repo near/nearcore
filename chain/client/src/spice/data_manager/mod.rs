@@ -10,6 +10,7 @@ pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, Item, PartInsertResult};
 use near_async::time::Clock;
 use near_chain::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
@@ -17,6 +18,7 @@ use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
@@ -63,8 +65,12 @@ pub(crate) struct Policies {
 }
 
 impl Policies {
-    pub(crate) fn new(chain_store: ChainStoreAdapter, shard_tracker: ShardTracker) -> Self {
-        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, shard_tracker) }
+    pub(crate) fn new(
+        chain_store: ChainStoreAdapter,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+    ) -> Self {
+        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
     }
 
     fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
@@ -74,10 +80,11 @@ impl Policies {
     }
 }
 
-/// Dispatches each call to the policy of `id`'s data type.
+/// Fans out per-block queries over every policy; dispatches per-id calls to the policy
+/// of `id`'s data type.
 impl DataPolicy for Policies {
-    fn should_fetch(&self, id: &DataId, block: &BlockHeader) -> Result<bool, Error> {
-        self.for_id(id).should_fetch(id, block)
+    fn needed_ids(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
+        self.receipt_proofs.needed_ids(block)
     }
 
     fn is_done(&self, id: &DataId) -> Result<bool, Error> {
@@ -121,22 +128,20 @@ impl SpiceDataManager {
         self.items.contains_key(id)
     }
 
-    /// Starts tracking `id` if this node needs it and doesn't already have or track it.
-    /// Idempotent. `block` is the id's block header.
-    pub(crate) fn track_if_needed(&mut self, id: DataId, block: &BlockHeader) -> Result<(), Error> {
-        if self.items.contains_key(&id) {
-            return Ok(());
-        }
+    /// Starts tracking every item this node needs from `block` and doesn't already have or track. Idempotent.
+    pub(crate) fn on_block(&mut self, block: &BlockHeader) -> Result<(), Error> {
         let height = block.height();
-        // The chain is past the block, so the data can never be applied.
+        // The chain is past the block, so its data can never be applied.
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
-        if !self.policies.should_fetch(&id, block)? || self.policies.is_done(&id)? {
-            return Ok(());
+        for id in self.policies.needed_ids(block)? {
+            if self.items.contains_key(&id) || self.policies.is_done(&id)? {
+                continue;
+            }
+            self.items_by_height.entry(height).or_default().push(id.clone());
+            self.items.insert(id, Item::Fetch(FetchItem::waiting_for_push(height)));
         }
-        self.items_by_height.entry(height).or_default().push(id.clone());
-        self.items.insert(id, Item::Fetch(FetchItem::waiting_for_push(height)));
         Ok(())
     }
 
@@ -200,7 +205,7 @@ impl SpiceDataManager {
     }
 
     /// The final execution head advanced: the chain is past every item at or below it,
-    /// so their data can no longer be applied. Removes them, and [`Self::track_if_needed`] refuses
+    /// so their data can no longer be applied. Removes them, and [`Self::on_block`] refuses
     /// them from now on.
     pub(crate) fn on_final_execution_head(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));

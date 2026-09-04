@@ -531,7 +531,7 @@ impl SpiceDataDistributorActor {
         let data_manager = SpiceDataManager::new(
             clock,
             DATA_PARTS_RATIO,
-            Policies::new(chain_store.clone(), shard_tracker.clone()),
+            Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         Self {
             data_manager,
@@ -1444,15 +1444,7 @@ impl SpiceDataDistributorActor {
             self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
 
-        // TODO(spice-resharding): Handle resharding
-        // TODO(perf): this is O(shards²) and runs on every incoming partial-data message;
-        // consider memoizing the per-block tracking pass if shards count grow.
-        for from_shard_id in shard_layout.shard_ids() {
-            for to_shard_id in shard_layout.shard_ids() {
-                let id = DataId::receipt_proof(*block_hash, from_shard_id, to_shard_id);
-                self.data_manager.track_if_needed(id, block.header())?;
-            }
-        }
+        self.data_manager.on_block(block.header())?;
         Ok(())
     }
 

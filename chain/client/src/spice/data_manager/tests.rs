@@ -661,8 +661,8 @@ mod manager {
         (chain, blocks)
     }
 
-    /// Manager whose policy tracks shard 1 only: an id is needed iff it is `(0 -> 1)`
-    /// and its proof is not on disk.
+    /// Manager whose policy applies shard 1 only: of a block's four proofs it needs
+    /// `(0 -> 1)`, unless that proof is on disk.
     fn manager(chain: &Chain) -> SpiceDataManager {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(1), &shard_layout);
@@ -674,7 +674,11 @@ mod manager {
         SpiceDataManager::new(
             FakeClock::default().clock(),
             0.6,
-            Policies::new(chain.chain_store.store().chain_store(), shard_tracker),
+            Policies::new(
+                chain.chain_store.store().chain_store(),
+                chain.epoch_manager.clone(),
+                shard_tracker,
+            ),
         )
     }
 
@@ -710,16 +714,20 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn track_if_needed_tracks_a_needed_item_once() {
+    fn on_block_tracks_exactly_the_needed_items_once() {
         let (chain, blocks) = chain_with_blocks(5);
         let block = &blocks[4];
-        let id = receipt_id(block, 0, 1);
         let mut manager = manager(&chain);
 
-        manager.track_if_needed(id.clone(), block.header()).unwrap();
-        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
 
-        assert!(manager.is_tracking(&id));
+        assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
+        // Proofs from the shard we apply are produced locally; proofs into the shard we
+        // don't apply are never needed.
+        assert!(!manager.is_tracking(&receipt_id(block, 1, 0)));
+        assert!(!manager.is_tracking(&receipt_id(block, 1, 1)));
+        assert!(!manager.is_tracking(&receipt_id(block, 0, 0)));
         assert_eq!(manager.items.len(), 1);
         // The second call did not duplicate the height index entry.
         assert_eq!(manager.items_by_height[&5].len(), 1);
@@ -727,13 +735,9 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn track_if_needed_skips_not_needed_and_done_items() {
+    fn on_block_skips_items_already_on_disk() {
         let (chain, blocks) = chain_with_blocks(1);
         let block = &blocks[0];
-        // We apply source shard 1 ourselves, so this proof is produced locally.
-        let not_needed = receipt_id(block, 1, 0);
-        // The proof is already on disk.
-        let done = receipt_id(block, 0, 1);
         let mut store_update = chain.chain_store.store().store_update();
         save_receipt_proof(
             &mut store_update,
@@ -750,23 +754,21 @@ mod manager {
         store_update.commit();
         let mut manager = manager(&chain);
 
-        manager.track_if_needed(not_needed.clone(), block.header()).unwrap();
-        manager.track_if_needed(done.clone(), block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
 
-        assert!(!manager.is_tracking(&not_needed));
-        assert!(!manager.is_tracking(&done));
+        assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
         assert!(manager.items_by_height.is_empty());
     }
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn track_if_needed_refuses_items_at_or_below_the_final_execution_head() {
+    fn on_block_refuses_blocks_at_or_below_the_final_execution_head() {
         let (chain, blocks) = chain_with_blocks(2);
         let mut manager = manager(&chain);
         manager.on_final_execution_head(1);
 
-        manager.track_if_needed(receipt_id(&blocks[0], 0, 1), blocks[0].header()).unwrap();
-        manager.track_if_needed(receipt_id(&blocks[1], 0, 1), blocks[1].header()).unwrap();
+        manager.on_block(blocks[0].header()).unwrap();
+        manager.on_block(blocks[1].header()).unwrap();
 
         assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
         assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
@@ -780,7 +782,7 @@ mod manager {
         let blocks = &all_blocks[1..];
         let mut manager = manager(&chain);
         for block in blocks {
-            manager.track_if_needed(receipt_id(block, 0, 1), block.header()).unwrap();
+            manager.on_block(block.header()).unwrap();
         }
 
         manager.on_final_execution_head(3);
@@ -812,7 +814,7 @@ mod manager {
         let block = &blocks[0];
         let id = receipt_id(block, 0, 1);
         let mut manager = manager(&chain);
-        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
         let encoder = encoder();
         let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
         let late_part = parts.split_off(DATA_PARTS);
@@ -846,7 +848,7 @@ mod manager {
         let block = &blocks[0];
         let id = receipt_id(block, 0, 1);
         let mut manager = manager(&chain);
-        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
         let encoder = encoder();
         let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
         let late_part = parts.split_off(DATA_PARTS);
@@ -876,7 +878,7 @@ mod manager {
         let block = &blocks[0];
         let id = receipt_id(block, 0, 1);
         let mut manager = manager(&chain);
-        manager.track_if_needed(id.clone(), block.header()).unwrap();
+        manager.on_block(block.header()).unwrap();
         let encoder = encoder();
         // The decoded proof's destination doesn't match the id's `to_shard`.
         let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));
