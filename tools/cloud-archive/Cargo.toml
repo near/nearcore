@@ -22,7 +22,10 @@ parking_lot.workspace = true
 near-async.workspace = true
 near-chain.workspace = true
 near-client.workspace = true
+near-client-primitives.workspace = true
 near-epoch-manager.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
 

@@ -1,17 +1,26 @@
 use anyhow::Context;
 use near_async::ActorSystem;
-use near_async::messaging::{IntoMultiSender, noop};
-use near_async::time::Clock;
+use near_async::messaging::{Actor, Handler, IntoMultiSender, noop};
+use near_async::time::{Clock, Utc};
 use near_chain::ChainGenesis;
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{ClientConfig, GenesisValidationMode};
 use near_client::ViewClientActor;
 use near_client::adversarial::Controls;
+use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
+use near_client_primitives::types::{
+    GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status, StatusError,
+};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::start_http;
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
+use near_network::client::{ProcessTxRequest, ProcessTxResponse};
+use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::{FINAL_HEAD_KEY, HEAD_KEY};
@@ -118,6 +127,101 @@ impl ServeCmd {
     }
 }
 
+/// The genesis block's hash, or the default when the store starts above genesis.
+fn genesis_hash(store: &Store, near_config: &NearConfig) -> CryptoHash {
+    store
+        .chain_store()
+        .get_block_hash_by_height(near_config.genesis.config.genesis_height)
+        .unwrap_or_default()
+}
+
+/// Answers the node-level questions a reader can answer from its own store.
+struct ReaderNodeActor {
+    store: Store,
+    near_config: NearConfig,
+    genesis_hash: CryptoHash,
+    started_at: Utc,
+}
+
+impl Actor for ReaderNodeActor {}
+
+impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for ReaderNodeActor {
+    fn handle(&mut self, _msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
+        let head: Tip = self.store.get_ser(DBCol::BlockMisc, HEAD_KEY).ok_or_else(|| {
+            StatusError::InternalError { error_message: "the store has no head".to_string() }
+        })?;
+        let header = self
+            .store
+            .chain_store()
+            .get_block_header(&head.last_block_hash)
+            .map_err(|error| StatusError::InternalError { error_message: error.to_string() })?;
+        Ok(StatusResponse {
+            version: self.near_config.client_config.version.clone(),
+            chain_id: self.near_config.genesis.config.chain_id.clone(),
+            protocol_version: header.latest_protocol_version(),
+            latest_protocol_version: PROTOCOL_VERSION,
+            rpc_addr: self.near_config.rpc_config.as_ref().map(|rpc| rpc.addr.to_string()),
+            validators: vec![],
+            sync_info: StatusSyncInfo {
+                latest_block_hash: *header.hash(),
+                latest_block_height: header.height(),
+                latest_state_root: *header.prev_state_root(),
+                latest_block_time: header.timestamp(),
+                // The head is what the reader copied, so it is behind the chain by design
+                // and reporting it as syncing would keep a probe waiting forever.
+                syncing: false,
+                earliest_block_hash: None,
+                earliest_block_height: None,
+                earliest_block_time: None,
+                epoch_id: Some(*header.epoch_id()),
+                epoch_start_height: None,
+            },
+            validator_account_id: None,
+            validator_public_key: None,
+            node_public_key: self.near_config.network_config.node_key.public_key().clone(),
+            node_key: None,
+            uptime_sec: (Clock::real().now_utc() - self.started_at).whole_seconds(),
+            genesis_hash: self.genesis_hash,
+            detailed_debug_status: None,
+        })
+    }
+}
+
+impl Handler<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>
+    for ReaderNodeActor
+{
+    fn handle(
+        &mut self,
+        _msg: SpanWrapped<GetClientConfig>,
+    ) -> Result<ClientConfig, GetClientConfigError> {
+        Ok(self.near_config.client_config.clone())
+    }
+}
+
+impl Handler<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>> for ReaderNodeActor {
+    fn handle(&mut self, _msg: SpanWrapped<GetNetworkInfo>) -> Result<NetworkInfoResponse, String> {
+        Err("a cloud archive reader joins no network".to_string())
+    }
+}
+
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ReaderNodeActor {
+    fn handle(&mut self, _msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
+        Err(StatusError::InternalError {
+            error_message: "a cloud archive reader runs no client to report on".to_string(),
+        })
+    }
+}
+
+impl Handler<ProcessTxRequest, ProcessTxResponse> for ReaderNodeActor {
+    fn handle(&mut self, _msg: ProcessTxRequest) -> ProcessTxResponse {
+        ProcessTxResponse::DoesNotTrackShard
+    }
+}
+
+impl Handler<ProcessTxRequest> for ReaderNodeActor {
+    fn handle(&mut self, _msg: ProcessTxRequest) {}
+}
+
 /// Answers read-only JSON-RPC from `store`, then runs `block_until_done` on the caller's
 /// thread, because `neard` installs a subcommand's log subscriber thread-locally.
 pub(crate) fn serve_store_while(
@@ -166,6 +270,13 @@ pub(crate) fn serve_store_while(
         near_config.validator_signer.clone(),
     );
 
+    let reader_node = actor_system.spawn_tokio_actor(ReaderNodeActor {
+        store: store.clone(),
+        near_config: near_config.clone(),
+        genesis_hash: genesis_hash(&store, &near_config),
+        started_at: Clock::real().now_utc(),
+    });
+
     let sharded_rpc_pool = Arc::new(RwLock::new(ShardedRpcPool::new(
         rpc_config.sharded_rpc.clone(),
         shard_tracker,
@@ -177,9 +288,9 @@ pub(crate) fn serve_store_while(
             Clock::real(),
             rpc_config,
             near_config.genesis.config.clone(),
-            noop().into_multi_sender(),
+            reader_node.clone().into_multi_sender(),
             view_client_addr.into_multi_sender(),
-            noop().into_multi_sender(),
+            reader_node.into_multi_sender(),
             noop().into_multi_sender(),
             watch::channel(None).1,
             #[cfg(feature = "test_features")]
