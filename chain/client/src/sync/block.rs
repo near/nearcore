@@ -4,7 +4,7 @@ use near_chain::Chain;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
 use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_network::types::{NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use rand::seq::IteratorRandom;
@@ -100,7 +100,7 @@ impl BlockSync {
     pub fn block_sync(
         &mut self,
         chain: &Chain,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
     ) -> Result<(), near_chain::Error> {
         // Update last request now because we want to update it whether or not
         // the rest of the logic succeeds.
@@ -200,7 +200,7 @@ impl BlockSync {
     pub fn run(
         &mut self,
         chain: &Chain,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
     ) -> Result<(), near_chain::Error> {
         let head = chain.head()?;
         if self.block_request_due(&head) {

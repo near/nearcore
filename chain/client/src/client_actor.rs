@@ -20,6 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
+use crate::sync::peers::SyncPeers;
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
@@ -1970,11 +1971,15 @@ impl ClientActor {
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64) {
+        let peers = SyncPeers {
+            highest_height,
+            verified_highest_height: self.client.verified_peer_heights.max_height_across_peers(),
+            highest_height_peers: &self.network_info.highest_height_peers,
+        };
         let sync_step_result = match self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,
             &self.client.shard_tracker,
-            highest_height,
-            &self.network_info.highest_height_peers,
+            &peers,
             Some(self.client.myself_sender.apply_chunks_done.clone()),
         ) {
             Ok(Some(request)) => request,
@@ -1994,11 +1999,6 @@ impl ClientActor {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
-            }
-            SyncHandlerRequest::EpochSyncDataReset => {
-                if let Some(tx) = self.shutdown_signal.take() {
-                    let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-                }
             }
         }
     }

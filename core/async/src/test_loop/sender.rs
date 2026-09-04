@@ -116,7 +116,9 @@ where
             Box::new(callback),
             self.sender_delay,
         );
-        async move { Ok(receiver.await.unwrap()) }.boxed()
+        // A sender whose callback is never run drops the channel. That models a
+        // receiver that ignores the message, which `AsyncSendError::Dropped` names.
+        async move { receiver.await.map_err(|_| AsyncSendError::Dropped) }.boxed()
     }
 }
 

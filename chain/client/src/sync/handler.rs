@@ -1,6 +1,7 @@
 use super::block::BlockSync;
 use super::epoch::EpochSync;
 use super::header::HeaderSync;
+use super::peers::SyncPeers;
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
 use near_chain::chain::ApplyChunksDoneSender;
@@ -8,7 +9,6 @@ use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::adapter::StoreAdapter;
@@ -33,10 +33,6 @@ pub enum SyncHandlerRequest {
     NeedRequestBlocks(Vec<(CryptoHash, PeerId)>),
     /// Need to process block artifact unlocked by state sync.
     NeedProcessBlockArtifact(BlockProcessingArtifact),
-    /// Sync hash is stale — the network has moved past the epoch we are syncing
-    /// from. Write the data reset marker and shut down so the supervisor can
-    /// wipe and restart.
-    EpochSyncDataReset,
 }
 
 impl SyncHandler {
@@ -78,10 +74,10 @@ impl SyncHandler {
         &mut self,
         chain: &mut Chain,
         shard_tracker: &ShardTracker,
-        highest_height: u64,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        peers: &SyncPeers,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<Option<SyncHandlerRequest>, near_chain::Error> {
+        let SyncPeers { highest_height, highest_height_peers, .. } = *peers;
         if matches!(self.sync_status, SyncStatus::NoSync | SyncStatus::AwaitingPeers) {
             self.decide_initial_phase(chain, highest_height)?;
         }
@@ -127,8 +123,7 @@ impl SyncHandler {
                     state_sync_status,
                     shard_tracker,
                     chain,
-                    highest_height,
-                    highest_height_peers,
+                    peers,
                     apply_chunks_done_sender,
                 )? {
                     StateSyncResult::NeedBlocks(blocks) => {
@@ -148,7 +143,10 @@ impl SyncHandler {
                         return Ok(Some(SyncHandlerRequest::NeedProcessBlockArtifact(artifacts)));
                     }
                     StateSyncResult::StaleSyncHash => {
-                        return Ok(Some(SyncHandlerRequest::EpochSyncDataReset));
+                        // Back to epoch sync. The proof it gets decides whether the
+                        // store is wiped, at one place in `EpochSync`, rather than
+                        // this branch asking for the wipe itself.
+                        self.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
                     }
                 }
             }

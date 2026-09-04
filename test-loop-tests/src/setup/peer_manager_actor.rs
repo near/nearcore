@@ -31,8 +31,8 @@ use near_network::state_witness::{
     PartialWitnessSenderForNetwork,
 };
 use near_network::types::{
-    BlockInfo, ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerAdvertisedHead, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo, SnapshotHostEvent,
     StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
 };
@@ -233,7 +233,7 @@ impl TestLoopPeerManagerActor {
                 highest_height_peers: self
                     .last_block_headers
                     .iter()
-                    .map(|(peer_info, header)| HighestHeightPeerInfo {
+                    .map(|(peer_info, header)| PeerAdvertisedHead {
                         archival: self.shared_state.is_peer_archival(&peer_info.id),
                         genesis_id: self.genesis_id.clone(),
                         highest_block_hash: *header.hash(),
@@ -300,6 +300,10 @@ struct TestLoopNetworkSharedStateInner {
     disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
     suppressed_block_recipients: BTreeMap<AccountId, SuppressedBlockDelivery>,
     archival_peer_ids: BTreeSet<PeerId>,
+    /// Peers that accept every message and never answer, the way a peer
+    /// advertising a false height does. No node stands behind them, so any peer
+    /// id outside this set that reaches `senders_for_peer` is a test bug.
+    unresponsive_peer_ids: BTreeSet<PeerId>,
     /// Per-account tracked-shards config, populated when a client is added.
     tracked_shards_config: BTreeMap<AccountId, TrackedShardsConfig>,
     /// Per-shard set of accounts advertising a state snapshot; ordered for
@@ -365,6 +369,7 @@ impl TestLoopNetworkSharedState {
             disallowed_peer_links: BTreeMap::new(),
             suppressed_block_recipients: BTreeMap::new(),
             archival_peer_ids: BTreeSet::new(),
+            unresponsive_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
             snapshot_hosts: BTreeMap::new(),
             snapshot_host_selection_counter: 0,
@@ -540,6 +545,9 @@ impl TestLoopNetworkSharedState {
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();
         }
+        if guard.unresponsive_peer_ids.contains(peer_id) {
+            return guard.drop_events_senders.clone();
+        }
         guard.senders.get(peer_id).unwrap().clone()
     }
 
@@ -548,6 +556,9 @@ impl TestLoopNetworkSharedState {
     /// traverse multiple hops and bypass direct connectivity restrictions.
     fn senders_for_peer_direct(&self, peer_id: &PeerId) -> Arc<OneClientSenders> {
         let guard = self.0.lock();
+        if guard.unresponsive_peer_ids.contains(peer_id) {
+            return guard.drop_events_senders.clone();
+        }
         guard.senders.get(peer_id).unwrap().clone()
     }
 
@@ -570,6 +581,10 @@ impl TestLoopNetworkSharedState {
             return guard.drop_events_senders.clone();
         }
         guard.senders.get(peer_id).unwrap().clone()
+    }
+
+    pub fn mark_unresponsive(&self, peer_id: &PeerId) {
+        self.0.lock().unresponsive_peer_ids.insert(peer_id.clone());
     }
 
     pub fn mark_archival(&self, peer_id: &PeerId) {
@@ -827,7 +842,10 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
-                let response = future.await.unwrap().unwrap();
+                // An unresponsive peer never answers, so the response is canceled.
+                // In production the requester receives nothing and retries elsewhere.
+                let Ok(response) = future.await else { return };
+                let response = response.unwrap();
                 let future =
                     responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
@@ -843,12 +861,11 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let Some(response) = future.await.unwrap() else {
-                    // The peer may have GC'd this block. In production, the
-                    // requester would simply not receive a response and retry
-                    // with another peer. Mimic that by silently dropping.
-                    return;
-                };
+                // No response at all when the peer is unresponsive; `None` when the
+                // peer GC'd the block. In production the requester receives nothing
+                // either way and retries with another peer.
+                let Ok(response) = future.await else { return };
+                let Some(response) = response else { return };
                 let future = responder.send_async(
                     BlockResponse { block: response, peer_id, was_requested: true }.span_wrap(),
                 );
