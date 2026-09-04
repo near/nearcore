@@ -1,17 +1,16 @@
 use crate::setup::env::TestLoopEnv;
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, from_slice, to_vec};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_utils::{
-    find_present_block_below, find_snapshot_at_or_before,
-};
+use near_client::archive::cloud_archival_utils::find_present_block_below;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_primitives::block::Block;
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::gas::Gas;
@@ -19,20 +18,20 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, ReceiptSource};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
-use near_primitives::state_part::StatePartId;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{
-    CloudStorage, is_cloud_archive_reader_bootstrapped, read_chunk_hashes,
+    CloudStorage, archived_chunk_apply_stats, is_cloud_archive_reader_bootstrapped,
+    read_chunk_hashes,
 };
 use near_store::trie::AccessOptions;
-use near_store::{COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, Store, Trie};
+use near_store::{COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, Store};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
@@ -44,6 +43,80 @@ pub(crate) struct WriterConfig {
     pub archive_block_data: bool,
     pub tracked_shards: Vec<ShardUId>,
     pub snapshot_every_n_epochs: u64,
+}
+
+/// Records a non-zero run time for the bandwidth scheduler on one chunk's stats row.
+pub(crate) fn set_scheduler_run_time(store: &Store, height: BlockHeight, shard_id: ShardId) {
+    let block_hash = store.chain_store().get_block_hash_by_height(height).unwrap();
+    let mut stats = store.chunk_store().get_chunk_apply_stats(&block_hash, &shard_id).unwrap();
+    match &mut stats {
+        ChunkApplyStats::V0(v0) => v0.bandwidth_scheduler.time_to_run_ms = 7,
+        ChunkApplyStats::V1(v1) => v1.bandwidth_scheduler.time_to_run_ms = 7,
+    }
+    let mut update = store.store_update();
+    update.chunk_store_update().set_chunk_apply_stats(&block_hash, shard_id, &stats);
+    update.commit();
+}
+
+/// Asserts the blob at `height` carries the shard's stats in the form
+/// `archived_chunk_apply_stats` defines.
+pub(crate) fn assert_blob_stats_are_archived(
+    cloud_storage: &CloudStorage,
+    writer_store: &Store,
+    height: BlockHeight,
+    shard_id: ShardId,
+) {
+    let shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap();
+    let block_hash = writer_store.chain_store().get_block_hash_by_height(height).unwrap();
+    let node_stats =
+        writer_store.chunk_store().get_chunk_apply_stats(&block_hash, &shard_id).unwrap();
+    let archived = to_vec(&archived_chunk_apply_stats(node_stats.clone())).unwrap();
+    assert_ne!(
+        to_vec(&node_stats).unwrap(),
+        archived,
+        "the writer's own row at h={height} shard={shard_id} is already in archived form, so \
+         matching it proves nothing"
+    );
+    assert_eq!(
+        to_vec(shard_data.chunk_apply_stats()).unwrap(),
+        archived,
+        "the blob at h={height} shard={shard_id} carries the node's own stats"
+    );
+}
+
+/// Asserts the writer's store and `rpc_id`'s hold the same rows over `[start, end]`, as the
+/// archive would carry them. The writer must track every shard the node tracks. A failure
+/// names a column two nodes disagree on; where that value is one a node measured for
+/// itself, the archive has to drop it where the blob is built.
+pub(crate) fn assert_writer_agrees_with_rpc_node(
+    env: &TestLoopEnv,
+    writer_id: &AccountId,
+    rpc_id: &AccountId,
+    start: BlockHeight,
+    end: BlockHeight,
+) {
+    let writer_store = get_hot_store(env, writer_id);
+    let block_hash = writer_store.chain_store().get_block_hash_by_height(end).unwrap();
+    let epoch_id = *writer_store.epoch_store().get_block_info(&block_hash).unwrap().epoch_id();
+    let tracked_shards = |account_id: &AccountId| -> HashSet<ShardUId> {
+        env.node_for_account(account_id)
+            .client()
+            .shard_tracker
+            .get_tracked_shards_for_non_validator_in_epoch(&epoch_id)
+            .unwrap()
+            .into_iter()
+            .collect()
+    };
+    // A shard only one of them tracks has rows only that one holds, and the walk below runs
+    // in both directions, so the two must track the same set.
+    let (writer_shards, rpc_shards) = (tracked_shards(writer_id), tracked_shards(rpc_id));
+    assert_eq!(
+        writer_shards, rpc_shards,
+        "the writer tracks {writer_shards:?} and the node {rpc_shards:?}; the walk needs them equal"
+    );
+    let rpc_store = get_hot_store(env, rpc_id);
+    assert_store_parity(&rpc_store, &writer_store, start, end);
+    assert_store_parity(&writer_store, &rpc_store, start, end);
 }
 
 /// Runs a workload producing a receipt of every kind the archive records, and asserts it
@@ -68,7 +141,8 @@ pub(crate) fn run_receipts_of_every_kind(
     let deploy_tx = env.validator().tx_deploy_test_contract(user_account);
     env.validator().submit_tx(deploy_tx);
     let epoch_length = env.validator().client().config.epoch_length;
-    run_node_until(env, writer_id, epoch_length);
+    let genesis_height = env.validator().client().chain.genesis().height();
+    run_node_until(env, writer_id, genesis_height + epoch_length);
 
     // Each call's local receipt burns more than half a chunk's gas, so the third one does
     // not fit and lands on the delayed-receipt queue instead.
@@ -94,13 +168,13 @@ pub(crate) fn run_receipts_of_every_kind(
         gas_limit,
     );
     env.validator().submit_tx(yield_tx);
-    run_node_until(env, writer_id, 3 * epoch_length);
+    run_node_until(env, writer_id, genesis_height + 3 * epoch_length);
 
     // Without a receipt of each kind in the window, a walk over it passes vacuously.
     // `verify_store` must be a node that tracks every shard: the account above may live in
     // a shard the writer does not.
     let (mut local, mut delayed, mut instant, mut receipt_to_tx_gc) = (0, 0, 0, 0);
-    for height in epoch_length / 2..=2 * epoch_length {
+    for height in genesis_height + epoch_length / 2..=genesis_height + 2 * epoch_length {
         let Ok(block_hash) = verify_store.chain_store().get_block_hash_by_height(height) else {
             continue;
         };
@@ -636,8 +710,8 @@ pub(crate) fn add_reader_node(env: &mut TestLoopEnv, reader_id: &AccountId) -> S
     env.node_for_account(reader_id).client().chain.chain_store().store()
 }
 
-/// Bootstraps a reader node by downloading blocks from cloud and applying
-/// state sync to reconstruct the state at `target_block_height`.
+/// Bootstraps a reader node from cloud storage and checks it reconstructed every
+/// shard's state through `target_block_height`.
 pub fn bootstrap_historical_reader(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
@@ -647,8 +721,6 @@ pub fn bootstrap_historical_reader(
     add_reader_node(env, reader_id);
 
     let cloud_storage = get_cloud_storage(env, reader_id);
-
-    // Download all blocks in the range into the reader's store.
     {
         let client = env.node_for_account(reader_id).client();
         let store = client.chain.chain_store.store();
@@ -679,55 +751,25 @@ pub fn bootstrap_historical_reader(
 
     // TODO(cloud_archival): support resharding; the shard layout can change
     // between the snapshot epoch and the target, which this loop assumes constant.
-    for shard_id in target_epoch_data.shard_layout().shard_ids() {
-        let shard_uid =
-            ShardUId::from_shard_id_and_layout(shard_id, target_epoch_data.shard_layout());
-
-        // Reconstruct from the nearest snapshot at or below the bootstrap start,
-        // loaded from cloud state parts, then apply deltas forward to the target.
-        let (snapshot_epoch_height, snapshot_epoch_id) =
-            exec(find_snapshot_at_or_before(&cloud_storage, start_height, shard_id)).unwrap();
-        // Both values come off the header's single chunk, so the state root and
-        // the height it applies at cannot disagree.
-        let state_header = cloud_storage
-            .get_state_header(snapshot_epoch_height, snapshot_epoch_id, shard_id)
-            .unwrap();
-        let state_sync_state_root = state_header.chunk_prev_state_root();
-        let reconstruction_start_height = state_header.chunk_height_included();
-
-        assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        exec(download_and_apply_state_snapshot(
-            &tries,
-            &cloud_storage,
-            &snapshot_epoch_id,
-            snapshot_epoch_height,
-            shard_uid,
-            &state_header,
-        ));
-        assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
-
+    for shard_uid in target_epoch_data.shard_layout().shard_uids() {
         let target_state_root = *cloud_storage
-            .get_shard_data(target_block_height, shard_id)
+            .get_shard_data(target_block_height, shard_uid.shard_id())
             .unwrap()
             .unwrap()
             .chunk_extra()
             .state_root();
-        assert!(!has_state_root(&tries, shard_uid, target_state_root));
-        apply_state_changes(
-            &cloud_storage,
-            &store,
-            &tries,
-            state_sync_state_root,
-            reconstruction_start_height,
-            target_block_height,
-            shard_uid,
+        assert!(
+            has_state_root(&tries, shard_uid, target_state_root),
+            "shard {shard_uid} state at h={target_block_height} unreachable in the reader trie"
         );
-        assert!(has_state_root(&tries, shard_uid, target_state_root));
 
-        // Validate the restored state by reading from the trie.
         let trie = tries.get_trie_for_shard(shard_uid, target_state_root);
-        let item_count = trie.disk_iter().unwrap().count();
-        assert!(item_count > 0, "trie for shard {shard_id} should not be empty after bootstrap");
+        let items = trie
+            .disk_iter()
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_else(|error| panic!("shard {shard_uid} trie is incomplete: {error}"));
+        assert!(!items.is_empty(), "trie for shard {shard_uid} holds no state after bootstrap");
     }
 }
 
@@ -739,82 +781,6 @@ pub(crate) fn has_state_root(
 ) -> bool {
     let trie = tries.get_trie_for_shard(shard_uid, state_root);
     trie.retrieve_root_node().is_ok()
-}
-
-/// Loads a shard's state snapshot by downloading its state parts from cloud and
-/// applying them straight into the trie.
-async fn download_and_apply_state_snapshot(
-    tries: &ShardTries,
-    cloud_storage: &CloudStorage,
-    epoch_id: &EpochId,
-    epoch_height: EpochHeight,
-    shard_uid: ShardUId,
-    state_header: &ShardStateSyncResponseHeader,
-) {
-    let shard_id = shard_uid.shard_id();
-    let state_root = state_header.chunk_prev_state_root();
-    let num_parts = state_header.num_state_parts();
-    for part_index in 0..num_parts {
-        let part_id = StatePartId::new(part_index, num_parts);
-        let state_part = cloud_storage
-            .retrieve_state_part(epoch_height, *epoch_id, shard_id, part_id)
-            .await
-            .unwrap();
-        let partial_state = state_part.to_partial_state().unwrap();
-        let apply_result = Trie::apply_state_part(&state_root, part_id, partial_state);
-        let mut store_update = tries.store_update();
-        tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-        store_update.commit();
-    }
-}
-
-/// Applies per-block state deltas from cloud storage to advance the trie from
-/// `start_block_height` to `target_block_height`. Both endpoints must be
-/// present; `start_block_height` must additionally have a new chunk for
-/// `shard_uid` (initial `state_root` is verified against the chunk's
-/// `prev_state_root`).
-fn apply_state_changes(
-    cloud_storage: &CloudStorage,
-    store: &Store,
-    tries: &ShardTries,
-    mut state_root: CryptoHash,
-    start_block_height: BlockHeight,
-    target_block_height: BlockHeight,
-    shard_uid: ShardUId,
-) {
-    let shard_id = shard_uid.shard_id();
-    let start_block_shard_data =
-        cloud_storage.get_shard_data(start_block_height, shard_id).unwrap().unwrap();
-    assert_eq!(
-        state_root,
-        start_block_shard_data.new_chunk().unwrap().chunk().prev_state_root(),
-        "initial state_root must match prev_state_root of the start block"
-    );
-    for block_height in start_block_height..=target_block_height {
-        let Some(shard_data) = cloud_storage.get_shard_data(block_height, shard_id).unwrap() else {
-            continue;
-        };
-        let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        let trie_changes = trie
-            .update(
-                shard_data.state_changes().iter().map(|raw_state_changes_with_trie_key| {
-                    let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
-                    // Take the final value — each key may have multiple changes within a block.
-                    let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
-                    (raw_key, data)
-                }),
-                AccessOptions::NO_SIDE_EFFECTS,
-            )
-            .unwrap();
-        let mut store_update = store.trie_store().store_update();
-        state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit();
-        assert!(has_state_root(&tries, shard_uid, state_root));
-    }
-    let target_block_shard_data =
-        cloud_storage.get_shard_data(target_block_height, shard_id).unwrap().unwrap();
-    let expected_final_state_root = target_block_shard_data.chunk_extra().state_root();
-    assert_eq!(state_root, *expected_final_state_root);
 }
 
 /// Asserts `store` holds every row `writer` has over `[start, end]`, with the value the
@@ -839,8 +805,8 @@ pub(crate) fn assert_store_parity(
 }
 
 /// Compares the writer's rows in `col` against `store`. Every in-scope writer row is
-/// present there with the same value; extra rows are allowed, e.g. because of a batch
-/// being written whole.
+/// present there with the value the archive would carry; extra rows are allowed, e.g.
+/// because of a batch being written whole.
 fn assert_keyed_parity(store: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>, Vec<u8>>) {
     let store_kvs: BTreeMap<Vec<u8>, Vec<u8>> =
         store.iter(col).map(|(k, v)| (k.into_vec(), v.into_vec())).collect();
@@ -848,8 +814,22 @@ fn assert_keyed_parity(store: &Store, col: DBCol, writer_kvs: &BTreeMap<Vec<u8>,
         let store_value = store_kvs
             .get(key)
             .unwrap_or_else(|| panic!("{col} row missing from the store: {key:?}"));
-        assert_eq!(store_value, writer_value, "{col} value mismatch for {key:?}");
+        assert_eq!(
+            archived_row(col, store_value),
+            archived_row(col, writer_value),
+            "{col} value mismatch for {key:?}"
+        );
     }
+}
+
+/// A row as the archive would carry it, through `archived_chunk_apply_stats`, so a field
+/// the archive drops and a node keeps cannot pass unnoticed.
+fn archived_row(col: DBCol, value: &[u8]) -> Vec<u8> {
+    if col != DBCol::ChunkApplyStats {
+        return value.to_vec();
+    }
+    let stats: ChunkApplyStats = from_slice(value).expect("a ChunkApplyStats row deserializes");
+    to_vec(&archived_chunk_apply_stats(stats)).expect("a ChunkApplyStats row serializes")
 }
 
 /// Collects the writer's `BlockOrdinal` row for one block into `kvs`.
@@ -876,7 +856,7 @@ fn collect_chunk_hashes_kvs(
 ) {
     for (created_height, chunk_hashes) in read_chunk_hashes(writer_store, block).unwrap() {
         let key = index_to_bytes(created_height).to_vec();
-        let value = borsh::to_vec(&chunk_hashes).unwrap();
+        let value = to_vec(&chunk_hashes).unwrap();
         kvs.get_mut(&DBCol::ChunkHashesByHeight).unwrap().insert(key, value);
     }
 }
