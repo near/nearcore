@@ -15,6 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::ShardId;
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -481,15 +482,25 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
     env.node_runner(0).run_until_certified(boundary_height + 2);
 }
 
-/// A cross-shard transfer in flight at the boundary: a transaction included in a
-/// pre-spice chunk whose receipt executes in the first spice epoch. Its deposit
-/// must land exactly once — the boundary hands the receipt over exactly one way,
-/// through the bootstrap's persisted receipt proofs.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_protocol_upgrade_to_spice_receipt_in_flight() {
-    init_test_logger();
-    let mut env = setup_upgrading_chain(2, 2);
+/// The deposit each trickled transfer carries.
+const TRICKLE_AMOUNT: Balance = Balance::from_yoctonear(1);
+
+/// What [`cross_boundary_with_transfer_trickle`] observed.
+struct BoundaryTrickle {
+    boundary_height: u64,
+    head_height: u64,
+    initial_receiver_balance: Balance,
+    /// Inclusion height per submitted transfer; each was included exactly once,
+    /// at least one of them at the activation parent.
+    inclusion_heights: HashMap<CryptoHash, u64>,
+}
+
+/// Runs the upgrade submitting a cross-shard "user" -> "receiver" transfer of
+/// [`TRICKLE_AMOUNT`] every block until the chain crosses the boundary, then lets
+/// certification catch up past every transfer's receipt. Asserts each transfer was
+/// included exactly once and at least one at the activation parent itself, whose
+/// receipt can then only execute under spice.
+fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickle {
     let sender = create_account_id("user");
     let receiver = create_account_id("receiver");
     {
@@ -502,16 +513,12 @@ fn test_protocol_upgrade_to_spice_receipt_in_flight() {
             "the transfers must cross shards",
         );
     }
-    let initial_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+    let initial_receiver_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
 
-    // A 1-yocto transfer every block until the chain crosses the boundary, so some
-    // transaction is included in a chunk at the activation parent itself: its
-    // receipt can only execute under spice.
-    let amount = Balance::from_yoctonear(1);
     let mut submitted = Vec::new();
     let mut crossed = false;
     for _ in 0..10 * EPOCH_LENGTH {
-        let tx = env.rpc_node().tx_send_money(&sender, &receiver, amount);
+        let tx = env.rpc_node().tx_send_money(&sender, &receiver, TRICKLE_AMOUNT);
         submitted.push(tx.get_hash());
         env.rpc_node().submit_tx(tx);
         env.rpc_runner().run_for_number_of_blocks(1);
@@ -537,11 +544,10 @@ fn test_protocol_upgrade_to_spice_receipt_in_flight() {
     let head_height = env.rpc_node().head().height;
     env.rpc_runner().run_until_certified(head_height);
 
-    // Scan every block's new chunks for the submitted transactions: each must be
-    // included exactly once, and at least one at the activation parent itself.
+    // Scan every block's new chunks for the submitted transactions.
     let node = env.rpc_node();
     let submitted: HashSet<CryptoHash> = submitted.into_iter().collect();
-    let mut inclusion_heights: HashMap<CryptoHash, Vec<u64>> = HashMap::new();
+    let mut multi_inclusions: HashMap<CryptoHash, Vec<u64>> = HashMap::new();
     let genesis_height = node.client().chain.chain_store.get_genesis_height();
     for height in genesis_height + 1..=head_height {
         let Ok(block_hash) = node.client().chain.chain_store.get_block_hash_by_height(height)
@@ -556,27 +562,105 @@ fn test_protocol_upgrade_to_spice_receipt_in_flight() {
             let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
             for tx in chunk.to_transactions() {
                 if submitted.contains(&tx.get_hash()) {
-                    inclusion_heights.entry(tx.get_hash()).or_default().push(height);
+                    multi_inclusions.entry(tx.get_hash()).or_default().push(height);
                 }
             }
         }
     }
-    for (tx_hash, heights) in &inclusion_heights {
+    let mut inclusion_heights = HashMap::new();
+    for (tx_hash, heights) in multi_inclusions {
         assert_eq!(heights.len(), 1, "transaction {tx_hash} included more than once: {heights:?}");
+        inclusion_heights.insert(tx_hash, heights[0]);
     }
     assert_eq!(inclusion_heights.len(), submitted.len(), "every transfer must be included");
     assert!(
-        inclusion_heights.values().any(|heights| heights == &vec![boundary_height]),
+        inclusion_heights.values().any(|height| *height == boundary_height),
         "some transfer must be included at the activation parent, so its receipt is \
          in flight across the boundary",
     );
+    BoundaryTrickle { boundary_height, head_height, initial_receiver_balance, inclusion_heights }
+}
+
+/// A cross-shard transfer in flight at the boundary: a transaction included in a
+/// pre-spice chunk whose receipt executes in the first spice epoch. Its deposit
+/// must land exactly once — the boundary hands the receipt over exactly one way,
+/// through the bootstrap's persisted receipt proofs.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_receipt_in_flight() {
+    init_test_logger();
+    let mut env = setup_upgrading_chain(2, 2);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
 
     // Exactly-once execution: the receiver gained exactly one deposit per transfer.
+    let receiver = create_account_id("receiver");
     let final_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
-    let expected = amount.checked_mul(submitted.len() as u128).unwrap();
+    let expected = TRICKLE_AMOUNT.checked_mul(trickle.inclusion_heights.len() as u128).unwrap();
     assert_eq!(
-        final_balance.checked_sub(initial_balance).unwrap(),
+        final_balance.checked_sub(trickle.initial_receiver_balance).unwrap(),
         expected,
         "every in-flight deposit must land exactly once",
+    );
+}
+
+/// View queries addressed at blocks on both sides of the boundary, on a node that
+/// crossed it: balances as of pre-spice blocks, the activation parent, and spice
+/// blocks must each reflect exactly the transfers whose receipts had executed by
+/// that block. Also spans an execution outcome pair across the boundary: a
+/// transaction included at the activation parent with its receipt executed under
+/// spice.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_view_queries() {
+    init_test_logger();
+    let mut env = setup_upgrading_chain(2, 2);
+    let trickle = cross_boundary_with_transfer_trickle(&mut env);
+    let receiver = create_account_id("receiver");
+    let boundary_height = trickle.boundary_height;
+
+    // The receiver's balance as of block at height h: the deposit of a transfer
+    // included at height i rides a cross-shard receipt applied at i + 1, so it is
+    // visible exactly from state at h >= i + 1.
+    let node = env.rpc_node();
+    for queried_height in [
+        boundary_height - 2,
+        boundary_height - 1,
+        boundary_height,
+        boundary_height + 1,
+        boundary_height + 2,
+        trickle.head_height - 1,
+    ] {
+        let block_hash =
+            node.client().chain.chain_store.get_block_hash_by_height(queried_height).unwrap();
+        let balance = node.view_account_balance_at(block_hash, &receiver).unwrap_or_else(|err| {
+            panic!("view query at height {queried_height} must work: {err:?}")
+        });
+        let executed_deposits =
+            trickle.inclusion_heights.values().filter(|height| **height < queried_height).count();
+        assert_eq!(
+            balance.checked_sub(trickle.initial_receiver_balance).unwrap(),
+            TRICKLE_AMOUNT.checked_mul(executed_deposits as u128).unwrap(),
+            "balance as of height {queried_height} must reflect exactly the receipts \
+             executed by then",
+        );
+    }
+
+    // An outcome pair spanning the boundary: the transaction's outcome sits in a
+    // pre-spice block, its receipt's outcome in a spice block.
+    let (boundary_tx, _) = trickle
+        .inclusion_heights
+        .iter()
+        .find(|(_, height)| **height == boundary_height)
+        .expect("the trickle asserted an inclusion at the activation parent");
+    let tx_outcome = node.execution_outcome_with_proof(*boundary_tx);
+    let receipt_id = node.tx_receipt_id(*boundary_tx);
+    let receipt_outcome = node.execution_outcome_with_proof(receipt_id);
+    let outcome_height = |outcome: &ExecutionOutcomeWithIdAndProof| {
+        node.client().chain.get_block_header(&outcome.block_hash).unwrap().height()
+    };
+    assert_eq!(outcome_height(&tx_outcome), boundary_height);
+    assert!(
+        outcome_height(&receipt_outcome) > boundary_height,
+        "the boundary transaction's receipt must have executed under spice",
     );
 }
