@@ -4,7 +4,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
-use near_chain::spice::boundary::boundary_source_results_for_target;
+use near_chain::spice::boundary::{boundary_source_results_for_target, is_spice_activation_parent};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -617,13 +617,23 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err.into()),
         };
-        let producers =
-            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+        // An activation parent's accesses come from the boundary bootstrap, which runs
+        // on the nodes tracking the shard under spice, so its producers are keyed on
+        // the next block's epoch — the same rule data distribution uses.
+        let producers_epoch_id =
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), &chunk_id.block_hash)? {
+                self.epoch_manager.get_epoch_id_from_prev_block(&chunk_id.block_hash)?
+            } else {
+                epoch_id
+            };
+        let producers = self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&producers_epoch_id, chunk_id.shard_id)?;
         // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
         // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
         let sender = producers.iter().find(|account_id| {
             let Ok(validator) =
-                self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+                self.epoch_manager.get_validator_by_account_id(&producers_epoch_id, account_id)
             else {
                 return false;
             };
