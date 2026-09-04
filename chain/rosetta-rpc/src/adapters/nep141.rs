@@ -2,7 +2,10 @@ use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
-use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
+use near_primitives::{
+    types::BlockId,
+    views::{ExecutionOutcomeWithIdView, ExecutionStatusView},
+};
 use std::{collections::HashMap, str::FromStr};
 pub(crate) fn collect_nep141_events(
     receipt_execution_outcomes: &Vec<ExecutionOutcomeWithIdView>,
@@ -11,6 +14,14 @@ pub(crate) fn collect_nep141_events(
 ) -> crate::errors::Result<Vec<FungibleTokenEvent>> {
     let mut res = Vec::new();
     for outcome in receipt_execution_outcomes {
+        // Logs are kept when a receipt's state is rolled back, so an outcome
+        // that did not commit can still carry an EVENT_JSON log. Only committed
+        // outcomes produce events. SuccessReceiptId counts as committed because
+        // the receipt's state is written before the receipt it spawned runs.
+        match outcome.outcome.status {
+            ExecutionStatusView::SuccessValue(_) | ExecutionStatusView::SuccessReceiptId(_) => {}
+            ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => continue,
+        }
         let events = extract_events(outcome);
         for event in events {
             res.extend(compose_rosetta_nep141_events(&event, outcome, block_header, currencies)?);
@@ -208,4 +219,151 @@ fn get_status(status: &near_primitives::views::ExecutionStatusView) -> String {
         near_primitives::views::ExecutionStatusView::SuccessReceiptId(_) => "SUCCESS",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::CurrencyMetadata;
+    use crate::utils::SignedDiff;
+    use near_primitives::errors::{
+        ActionError, ActionErrorKind, FunctionCallError, MethodResolveError,
+    };
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::{Balance, Gas};
+    use near_primitives::views::{BlockHeaderView, ExecutionMetadataView, ExecutionOutcomeView};
+
+    const FT_CONTRACT: &str = "ft.near";
+
+    fn ft_transfer_log(sender: &str, receiver: &str, amount: u128) -> String {
+        format!(
+            r#"EVENT_JSON:{{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":[{{"old_owner_id":"{sender}","new_owner_id":"{receiver}","amount":"{amount}"}}]}}"#
+        )
+    }
+
+    fn outcome(
+        id: CryptoHash,
+        executor: &str,
+        status: ExecutionStatusView,
+    ) -> ExecutionOutcomeWithIdView {
+        ExecutionOutcomeWithIdView {
+            proof: vec![],
+            block_hash: CryptoHash::default(),
+            id,
+            outcome: ExecutionOutcomeView {
+                logs: vec![ft_transfer_log("bob.near", "alice.near", 10)],
+                receipt_ids: vec![],
+                gas_burnt: Gas::ZERO,
+                tokens_burnt: Balance::ZERO,
+                executor_id: executor.parse().unwrap(),
+                status,
+                metadata: ExecutionMetadataView::default(),
+            },
+        }
+    }
+
+    fn ft_currencies() -> Option<Vec<Currency>> {
+        Some(vec![Currency {
+            symbol: "FT".to_string(),
+            decimals: 18,
+            metadata: Some(CurrencyMetadata { contract_address: FT_CONTRACT.to_string() }),
+        }])
+    }
+
+    fn failure() -> ExecutionStatusView {
+        ExecutionStatusView::Failure(
+            ActionError {
+                index: Some(1),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound,
+                )),
+            }
+            .into(),
+        )
+    }
+
+    fn collect(
+        outcomes: Vec<ExecutionOutcomeWithIdView>,
+        currencies: &Option<Vec<Currency>>,
+    ) -> Vec<FungibleTokenEvent> {
+        collect_nep141_events(&outcomes, &BlockHeaderView::default(), currencies).unwrap()
+    }
+
+    #[test]
+    fn committed_statuses_produce_debit_and_credit() {
+        for status in [
+            ExecutionStatusView::SuccessValue(vec![]),
+            ExecutionStatusView::SuccessReceiptId(CryptoHash::default()),
+        ] {
+            let id = CryptoHash::hash_bytes(b"receipt");
+            let events = collect(vec![outcome(id, FT_CONTRACT, status.clone())], &ft_currencies());
+
+            assert_eq!(events.len(), 2, "status {status:?}");
+            for event in &events {
+                assert_eq!(event.receipt_id, id);
+                assert_eq!(event.contract_account_id, FT_CONTRACT);
+                assert_eq!(event.symbol, "FT");
+                assert_eq!(event.decimals, 18);
+                assert_eq!(event.cause, "TRANSFER");
+            }
+
+            let debit = &events[0];
+            assert_eq!(debit.affected_account_id, "bob.near");
+            assert_eq!(debit.involved_account_id.as_deref(), Some("alice.near"));
+            assert_eq!(debit.delta_amount, SignedDiff::cmp(10, 0));
+
+            let credit = &events[1];
+            assert_eq!(credit.affected_account_id, "alice.near");
+            assert_eq!(credit.involved_account_id.as_deref(), Some("bob.near"));
+            assert_eq!(credit.delta_amount, SignedDiff::from(10u128));
+        }
+    }
+
+    #[test]
+    fn rolled_back_statuses_produce_no_events() {
+        for status in [failure(), ExecutionStatusView::Unknown] {
+            let outcomes = vec![outcome(CryptoHash::hash_bytes(b"receipt"), FT_CONTRACT, status)];
+            assert_eq!(collect(outcomes, &ft_currencies()), vec![]);
+        }
+    }
+
+    #[test]
+    fn filter_is_per_outcome_not_per_block() {
+        let failed_id = CryptoHash::hash_bytes(b"failed");
+        let succeeded_id = CryptoHash::hash_bytes(b"succeeded");
+        let unknown_id = CryptoHash::hash_bytes(b"unknown");
+        let events = collect(
+            vec![
+                outcome(failed_id, FT_CONTRACT, failure()),
+                outcome(succeeded_id, FT_CONTRACT, ExecutionStatusView::SuccessValue(vec![])),
+                outcome(unknown_id, FT_CONTRACT, ExecutionStatusView::Unknown),
+            ],
+            &ft_currencies(),
+        );
+
+        assert_eq!(events.len(), 2);
+        for event in &events {
+            assert_eq!(event.receipt_id, succeeded_id);
+        }
+    }
+
+    #[test]
+    fn no_currencies_configured_produces_no_events() {
+        let outcomes = vec![outcome(
+            CryptoHash::hash_bytes(b"receipt"),
+            FT_CONTRACT,
+            ExecutionStatusView::SuccessValue(vec![]),
+        )];
+        assert_eq!(collect(outcomes, &None), vec![]);
+    }
+
+    #[test]
+    fn contract_not_in_currencies_produces_no_events() {
+        let outcomes = vec![outcome(
+            CryptoHash::hash_bytes(b"receipt"),
+            "other.near",
+            ExecutionStatusView::SuccessValue(vec![]),
+        )];
+        assert_eq!(collect(outcomes, &ft_currencies()), vec![]);
+    }
 }
