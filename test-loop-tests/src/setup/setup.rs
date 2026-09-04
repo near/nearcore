@@ -30,6 +30,7 @@ use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
     RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
+    ViewClientRequestManager,
 };
 use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
@@ -251,6 +252,7 @@ pub fn setup_client(
         client_config.clone(),
         near_client::adversarial::Controls::default(),
         validator_signer.clone(),
+        Arc::new(RwLock::new(ViewClientRequestManager::new())),
     )
     .unwrap();
     let state_request_actor = StateRequestActor::new(

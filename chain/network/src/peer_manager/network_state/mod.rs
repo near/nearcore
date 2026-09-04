@@ -25,7 +25,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
 use crate::recv_permit::RecvMessagePermit;
-use crate::routing::route_back_cache::RouteBackCache;
+use crate::routing::route_back_cache::{ExpectedResponse, RouteBackCache};
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::spice::data_distribution::{
@@ -229,6 +229,7 @@ impl EdgesWithSource {
 /// Action to take after processing an incoming routed message.
 /// Returned by `NetworkState::process_incoming_routed` for the caller
 /// (PeerActor or TestLoopTransport) to execute.
+#[derive(Debug)]
 pub(crate) enum RoutedAction {
     /// Message is for us — caller should handle (Ping/Pong synchronously,
     /// others via `handle_peer_message`).
@@ -657,6 +658,37 @@ impl NetworkState {
         }
     }
 
+    /// The reply the node will accept for a request it is about to send, recorded on the
+    /// route back entry so the answer can be matched against it. `None` when the request
+    /// names no single responder, which leaves the entry unbound as before.
+    fn expected_response_for_own_request(&self, msg: &RoutedMessage) -> Option<ExpectedResponse> {
+        let kind = msg.body().requested_response_kind()?;
+        let PeerIdOrHash::PeerId(responder) = msg.target() else {
+            return None;
+        };
+        Some(ExpectedResponse { responder: responder.clone(), kind })
+    }
+
+    /// Why a routed response is not an answer to a request this node sent, or `None` when it
+    /// is. The route back hash alone does not say that much: `build_hash` covers only the
+    /// target, the author and the body, so any peer that can guess those can address a
+    /// response to it, and one hash serves every request kind.
+    fn unsolicited_response_reason(&self, msg: &RoutedMessage) -> Option<&'static str> {
+        let PeerIdOrHash::Hash(hash) = msg.target() else {
+            return Some("addressed to our peer id instead of a route back hash");
+        };
+        let Some(expected) = self.tier2_route_back.lock().expected_response(hash).cloned() else {
+            return Some("no request of ours is recorded for the route back hash");
+        };
+        if msg.body().response_kind() != Some(expected.kind) {
+            return Some("the recorded request asks for a response of another kind");
+        }
+        if msg.author() != &expected.responder {
+            return Some("not signed by the peer the request was sent to");
+        }
+        None
+    }
+
     /// Determine if the given target is referring to us.
     pub fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         let my_peer_id = self.config.node_id();
@@ -752,7 +784,13 @@ impl NetworkState {
                     // Remember if we expect a response for this message.
                     if *msg.author() == my_peer_id && msg.expect_response() {
                         tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                        let expected_response = self.expected_response_for_own_request(&msg);
+                        self.tier2_route_back.lock().insert(
+                            clock,
+                            msg.hash(),
+                            my_peer_id,
+                            expected_response,
+                        );
                     }
                     return transport.send_message(
                         tcp::Tier::T2,
@@ -1125,6 +1163,23 @@ impl NetworkState {
         mut msg: Box<RoutedMessage>,
     ) -> RoutedAction {
         let for_me = self.message_for_me(msg.target());
+        if for_me && msg.body().must_arrive_on_route_back() {
+            if let Some(reason) = self.unsolicited_response_reason(&msg) {
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+                // A peer supplies the body, and a `TxStatusResponse` carries a whole
+                // `FinalExecutionOutcomeView`, so log the sender and the variant, not the body.
+                tracing::debug!(
+                    target: "network",
+                    from = ?from,
+                    author = ?msg.author(),
+                    addressed_to = ?msg.target(),
+                    body = msg.body_variant(),
+                    reason,
+                    "dropping a routed response that answers no request this node sent",
+                );
+                return RoutedAction::Dropped;
+            }
+        }
         if for_me {
             // Network-wide dedup: check if we already received this message
             // (could arrive via both T1 and T2).

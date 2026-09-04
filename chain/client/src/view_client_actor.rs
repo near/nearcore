@@ -84,7 +84,9 @@ const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
 const REQUEST_WAIT_TIME: i64 = 1000;
 
-/// Request and response manager across all instances of ViewClientActor.
+/// Request and response manager shared by every ViewClientActor thread. All threads read one
+/// queue, so the thread that records a `TxStatusRequest` is not the one that handles its
+/// `TxStatusResponse`.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
     pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
@@ -130,6 +132,7 @@ impl ViewClientActor {
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
     ) -> MultithreadRuntimeHandle<ViewClientActor> {
+        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
             ViewClientActor::new(
                 clock.clone(),
@@ -141,6 +144,7 @@ impl ViewClientActor {
                 config.clone(),
                 adv.clone(),
                 validator_signer.clone(),
+                request_manager.clone(),
             )
             .unwrap()
         })
@@ -156,6 +160,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        request_manager: Arc<RwLock<ViewClientRequestManager>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -182,7 +187,7 @@ impl ViewClientActor {
             runtime,
             network_adapter,
             config,
-            request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            request_manager,
             spice_chain_reader,
         })
     }
