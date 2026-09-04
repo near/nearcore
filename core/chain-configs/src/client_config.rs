@@ -188,7 +188,13 @@ fn default_state_parts_compression_level() -> i32 {
 }
 
 pub fn default_archival_writer_polling_interval() -> Duration {
-    Duration::seconds(1)
+    Duration::seconds(5)
+}
+
+/// The reader is allowed to lag the chain, and it polls only while it has nothing to
+/// pull.
+pub fn default_archival_reader_polling_interval() -> Duration {
+    Duration::seconds(5)
 }
 
 pub fn default_archival_writer_catch_up_throttle() -> Duration {
@@ -203,10 +209,21 @@ pub fn default_snapshot_every_n_epochs() -> u64 {
     10
 }
 
-// TODO(cloud_archival): the reader has no settings of its own yet.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudArchivalReaderConfig {}
+pub struct CloudArchivalReaderConfig {
+    /// Interval at which the reader checks the bucket for data past its own head.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_reader_polling_interval")]
+    pub polling_interval: Duration,
+}
+
+impl Default for CloudArchivalReaderConfig {
+    fn default() -> Self {
+        Self { polling_interval: default_archival_reader_polling_interval() }
+    }
+}
 
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival

@@ -1,7 +1,7 @@
 use crate::archive::cloud_archival_utils::{
     CloudArchivalReaderError, apply_batch_state_changes, find_present_block_below,
     find_snapshot_at_or_before, pull_block_batch, pull_epoch_data, pull_shard_batch,
-    save_reader_head, shard_state_anchor, shards_tracked_in_batch,
+    save_block_data, save_reader_position, shard_state_anchor, shards_tracked_in_batch,
 };
 use crate::archive::cloud_reader_trie_utils::{build_shard_tries, install_state_snapshot};
 use near_chain_configs::TrackedShardsConfig;
@@ -14,10 +14,11 @@ use near_store::archive::cloud_storage::{CloudRetrievalError, CloudStorage};
 use near_store::{ShardTries, ShardUId, Store};
 
 /// Downloads block, epoch, and per-shard chunk data covering `[start_height,
-/// end_height]` from cloud storage and writes it into the local store,
-/// reconstructing each shard's state as it goes.
+/// end_height]` from cloud storage and writes it into the local store. Each shard's state
+/// is reconstructed as the walk goes, unless `skip_state` leaves it out.
 ///
-/// Rows reach past `end_height`, since each batch is written to its own end.
+/// Rows reach past `end_height`, since each batch is written to its own end, so the last
+/// height covered is reported rather than assumed to be `end_height`.
 ///
 /// `start_height` must be above the first archived block, since the walk is anchored on
 /// the block below it.
@@ -28,6 +29,7 @@ pub async fn bootstrap_range(
     shard_tracker: &ShardTracker,
     start_height: BlockHeight,
     end_height: BlockHeight,
+    skip_state: bool,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
         start_height <= end_height,
@@ -38,12 +40,22 @@ pub async fn bootstrap_range(
     // `tracked_shards_config` defaults to `NoShards`, so a config that never named a
     // shard bootstraps block data alone.
     if matches!(shard_tracker.tracked_shards_config(), TrackedShardsConfig::NoShards) {
-        tracing::warn!("tracked_shards_config selects no shards; bootstrapping block data only");
+        tracing::warn!(
+            target: "cloud_archival",
+            "tracked_shards_config selects no shards; bootstrapping block data only"
+        );
+    }
+
+    if skip_state {
+        tracing::info!(
+            target: "cloud_archival",
+            "skipping state; a query against this store answers no state request"
+        );
     }
 
     let tries = build_shard_tries(store);
     let mut prev_block_hash =
-        install_anchors(cloud_storage, &tries, shard_tracker, start_height).await?;
+        install_anchors(cloud_storage, &tries, shard_tracker, start_height, skip_state).await?;
 
     let range_length = end_height - start_height + 1;
     let log_interval = std::cmp::max(cloud_storage.batch_size() as u64, range_length / 100);
@@ -62,6 +74,9 @@ pub async fn bootstrap_range(
         )?;
         for shard_uid in shard_uids {
             let shard_batch = pull_shard_batch(store, cloud_storage, shard_uid, height).await?;
+            if skip_state {
+                continue;
+            }
             // TODO(cloud_archival): install a shard a resharding adds inside the range,
             // which the walk did not open on.
             let state_root = shard_state_anchor(&tries, &prev_block_hash, shard_uid)?;
@@ -71,27 +86,43 @@ pub async fn bootstrap_range(
             prev_block_hash = block_hash;
         }
         height = batch_pull.end_height + 1;
-        save_reader_head(store, batch_pull.end_height, prev_block_hash);
+        save_reader_position(store, batch_pull.end_height, prev_block_hash)?;
         // Capped: a batch runs to its own end, which can be past `end_height`.
         let done = std::cmp::min(height - start_height, range_length);
         if done >= next_log_at || height > end_height {
             next_log_at = done + log_interval;
             let percent_done = done * 100 / range_length;
-            tracing::info!(height, end_height, percent_done, "bootstrap progress");
+            tracing::info!(
+                target: "cloud_archival",
+                height,
+                end_height,
+                percent_done,
+                "bootstrap progress"
+            );
         }
     }
 
+    let covered_to = height - 1;
+    tracing::info!(
+        target: "cloud_archival",
+        start_height,
+        end_height,
+        covered_to,
+        "bootstrap complete",
+    );
     Ok(())
 }
 
-/// Seeds the store with what the epoch manager needs to answer for `start_height` and with
-/// each tracked shard's state, and returns the hash of the nearest present block below it.
-/// `start_height` must therefore be above the first archived block.
+/// Seeds the store with what the epoch manager needs to answer for `start_height`, with
+/// the anchor block's own header, and, unless `skip_state`, with each tracked shard's
+/// state. Returns the hash of the nearest present block below `start_height`, which must
+/// therefore be above the first archived block.
 async fn install_anchors(
     cloud_storage: &CloudStorage,
     tries: &ShardTries,
     shard_tracker: &ShardTracker,
     start_height: BlockHeight,
+    skip_state: bool,
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
     let trie_store = tries.store();
     let store = trie_store.store_ref();
@@ -108,8 +139,10 @@ async fn install_anchors(
 
     let prev_block_hash = *prev_block.block().header().hash();
     let mut update = store.store_update();
-    // `get_epoch_id_from_prev_block` starts by reading this row.
-    update.epoch_store_update().set_block_info(prev_block.block_info());
+    // `get_epoch_id_from_prev_block` reads this block's info, and the reader head names it
+    // whenever the range opens on skipped heights, so every row a query resolving against
+    // that head reads has to be here too.
+    save_block_data(&mut update, &prev_block);
     update.commit();
 
     let start_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
@@ -117,6 +150,9 @@ async fn install_anchors(
         pull_epoch_data(store, cloud_storage, &start_epoch_id).await?;
     }
 
+    if skip_state {
+        return Ok(prev_block_hash);
+    }
     let shard_uids = shards_tracked_in_batch(epoch_manager, shard_tracker, &prev_block_hash, None)?;
     for shard_uid in shard_uids {
         install_shard_state(cloud_storage, tries, shard_uid, prev_block_height, start_height)

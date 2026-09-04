@@ -73,6 +73,7 @@ dump-test-contract = ["near-dump-test-contract"]
 
 test_features = [
   "nearcore/test_features",
+  "near-cloud-archive-tool/test_features",
   "near-dump-test-contract/test_features",
 ]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
@@ -106,7 +107,7 @@ actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 # with this flag and then enable it at runtime with `--record-io-trace=path` option.
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
-sandbox = ["near-o11y/sandbox", "nearcore/sandbox"]
+sandbox = ["near-o11y/sandbox", "near-cloud-archive-tool/sandbox", "nearcore/sandbox"]
 
 [package.metadata.workspaces]
 independent = true

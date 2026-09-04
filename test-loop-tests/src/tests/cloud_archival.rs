@@ -389,7 +389,7 @@ impl CloudArchiveHarness {
         target_height: BlockHeight,
     ) {
         let reader_id: AccountId = "reader".parse().unwrap();
-        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height);
+        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height, false);
         self.historical_reader_id = Some(reader_id);
     }
 
@@ -1362,6 +1362,22 @@ fn test_cloud_archival_fully_skipped_batch() {
     // block of its own, above the last block of one epoch and below the first of the next.
     h.bootstrap_historical_reader(dropped_heights[0], gap_target);
     h.assert_reader_writer_parity(Reader::Historical, dropped_heights[0], gap_target);
+    // Only the anchor install writes the block below the range, and the chain head names it
+    // until the walk reaches a present height, so a query resolving against that head has to
+    // find the block itself and reach it by height.
+    let anchor_height = dropped_heights[0] - 1;
+    let anchor_hash =
+        h.writer_store().chain_store().get_block_hash_by_height(anchor_height).unwrap();
+    let store = h.historical_reader_store();
+    store
+        .chain_store()
+        .get_block(&anchor_hash)
+        .expect("the anchor below the range is a block the store holds");
+    assert_eq!(
+        store.chain_store().get_block_hash_by_height(anchor_height).unwrap(),
+        anchor_hash,
+        "the anchor below the range is not reachable by its own height"
+    );
     h.kill_historical_reader();
 
     h.shutdown();
@@ -2474,6 +2490,81 @@ fn test_cloud_archival_resharding_gap_without_the_sync_hash_row() {
         "shard {shard_id} just above the sync block archives differently once it is gone"
     );
 
+    h.shutdown();
+}
+
+/// The recent reader points the heads a query resolves against at its own position, so a
+/// query on the store it took over answers there and not at the stopped node's head.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+
+    let stopped_node_head = h.rpc_store().chain_store().head().unwrap().last_block_hash;
+    let reader = h.start_recent_reader();
+    h.run_until_epoch(3);
+
+    let store = h.recent_reader_store();
+    let reader_head = store.cloud_archival_store().reader_head().expect("the reader holds a head");
+    let chain_store = store.chain_store();
+    // By hash rather than height, since a reader head can name a height carrying no block.
+    let heads = [
+        ("HEAD", chain_store.head()),
+        ("FINAL_HEAD", chain_store.final_head()),
+        ("HEADER_HEAD", chain_store.header_head()),
+    ];
+    for (name, tip) in heads {
+        let tip = tip.unwrap_or_else(|error| panic!("{name} missing from the store: {error}"));
+        assert_eq!(
+            tip.last_block_hash, reader_head.last_present_block_hash,
+            "{name} does not name the block the reader head continues from"
+        );
+    }
+    assert_ne!(
+        store.chain_store().head().unwrap().last_block_hash,
+        stopped_node_head,
+        "the reader left the heads where the stopped node had them"
+    );
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A store bootstrapped without the trie carries the row naming each shard's state root and
+/// nothing behind it, so the recent reader has to refuse it at the door rather than run and
+/// fail on the first height it applies.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_refuses_a_store_without_state() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().dont_take_over_rpc().build();
+    h.run_until_epoch(3);
+    let start = h.epoch_length + 1;
+    let target = h.epoch_length * 2;
+    let reader_id: AccountId = "reader".parse().unwrap();
+    bootstrap_historical_reader(&mut h.env, &reader_id, start, target, true);
+    h.historical_reader_id = Some(reader_id.clone());
+
+    let client = h.env.node_for_account(&reader_id).client();
+    let reader = CloudArchivalRecentReader::new(
+        h.env.test_loop.clock(),
+        h.historical_reader_store(),
+        h.open_cloud_storage(&reader_id),
+        client.epoch_manager.clone(),
+        client.shard_tracker.clone(),
+        CloudArchiveHarness::RECENT_READER_POLLING_INTERVAL,
+    );
+    let Err(error) = exec(reader.cloud_archival_loop()) else {
+        panic!("the reader ran on a store holding no state");
+    };
+    assert!(
+        format!("{error:?}").contains("MissingTrieValue"),
+        "refused for the wrong reason: {error:?}"
+    );
+
+    h.kill_historical_reader();
     h.shutdown();
 }
 
