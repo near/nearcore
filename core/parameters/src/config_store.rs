@@ -57,9 +57,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
     (129, include_config!("129.yaml")),
-    // Make `0u` ids implicit, so a transfer can fund a universal account
-    // before its state init is applied.
-    (154, include_config!("154.yaml")),
     (155, include_config!("155.yaml")),
     // Cap the number of defined globals per contract.
     (157, include_config!("157.yaml")),
@@ -459,7 +456,11 @@ mod tests {
     #[test]
     fn test_universal_accounts_enabled() {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
-        let config = store.get_config(ProtocolFeature::UniversalAccounts.protocol_version());
-        assert!(config.wasm_config.universal_accounts)
+        let version = ProtocolFeature::UniversalAccounts.protocol_version();
+        assert!(store.get_config(version).wasm_config.universal_accounts);
+        // Checking the version before is what actually pins the two together. Diffs
+        // accumulate, so if the feature moved to a later version and the diff stayed
+        // put, the flag would still read as on at the feature's own version.
+        assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
     }
 }
