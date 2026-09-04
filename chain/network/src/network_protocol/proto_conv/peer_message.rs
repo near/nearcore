@@ -1,5 +1,6 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
+use crate::network_protocol::proto::epoch_sync_batch_response::Segment as ProtoSegment;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
@@ -14,6 +15,7 @@ use bytesize::MIB;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::epoch_sync::EpochSyncProofSegment;
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::utils::compression::CompressedData;
 use proto::peer_id_or_hash::Target_type::*;
@@ -339,6 +341,33 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::EpochSyncRequest => {
                     ProtoMT::EpochSyncRequest(proto::EpochSyncRequest { ..Default::default() })
                 }
+                PeerMessage::EpochSyncBatchRequest(batch_index) => {
+                    ProtoMT::EpochSyncBatchRequest(proto::EpochSyncBatchRequest {
+                        batch_index: *batch_index,
+                        special_fields: Default::default(),
+                    })
+                }
+                PeerMessage::EpochSyncBatchResponse(segment) => {
+                    let segment = match segment {
+                        EpochSyncProofSegment::Batch { batch_index, batch } => {
+                            ProtoSegment::Batch(proto::EpochSyncProofBatchSegment {
+                                batch_index: *batch_index,
+                                compressed_batch: batch.as_slice().to_vec(),
+                                special_fields: Default::default(),
+                            })
+                        }
+                        EpochSyncProofSegment::Tail(tail) => {
+                            ProtoSegment::Tail(proto::EpochSyncProofTailSegment {
+                                compressed_tail: tail.as_slice().to_vec(),
+                                special_fields: Default::default(),
+                            })
+                        }
+                    };
+                    ProtoMT::EpochSyncBatchResponse(proto::EpochSyncBatchResponse {
+                        segment: Some(segment),
+                        special_fields: Default::default(),
+                    })
+                }
                 PeerMessage::EpochSyncResponse(esp) => {
                     ProtoMT::EpochSyncResponse(proto::EpochSyncResponse {
                         compressed_proof: esp.as_slice().to_vec(),
@@ -359,6 +388,8 @@ pub type ParseRoutedError = std::io::Error;
 pub enum ParsePeerMessageError {
     #[error("empty message")]
     Empty,
+    #[error("epoch_sync_batch_response: missing segment")]
+    EpochSyncBatchResponseSegmentMissing,
     #[error("handshake: {0}")]
     Handshake(ParseHandshakeError),
     #[error("handshake_failure: {0}")]
@@ -526,6 +557,24 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 srh.try_into().map_err(Self::Error::SyncSnapshotHosts)?,
             ),
             ProtoMT::EpochSyncRequest(_) => PeerMessage::EpochSyncRequest,
+            ProtoMT::EpochSyncBatchRequest(r) => PeerMessage::EpochSyncBatchRequest(r.batch_index),
+            ProtoMT::EpochSyncBatchResponse(r) => {
+                let segment = match r.segment.as_ref() {
+                    Some(ProtoSegment::Batch(batch)) => EpochSyncProofSegment::Batch {
+                        batch_index: batch.batch_index,
+                        batch: CompressedData::from_boxed_slice(
+                            batch.compressed_batch.clone().into_boxed_slice(),
+                        ),
+                    },
+                    Some(ProtoSegment::Tail(tail)) => {
+                        EpochSyncProofSegment::Tail(CompressedData::from_boxed_slice(
+                            tail.compressed_tail.clone().into_boxed_slice(),
+                        ))
+                    }
+                    None => return Err(Self::Error::EpochSyncBatchResponseSegmentMissing),
+                };
+                PeerMessage::EpochSyncBatchResponse(segment)
+            }
             ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(
                 CompressedData::from_boxed_slice(esr.compressed_proof.clone().into_boxed_slice()),
             ),

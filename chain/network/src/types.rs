@@ -19,7 +19,9 @@ use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
-use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::epoch_sync::{
+    CompressedEpochSyncProof, EpochSyncBatchIndex, EpochSyncProofSegment,
+};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -301,6 +303,10 @@ pub enum NetworkRequests {
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
     EpochSyncResponse { peer_id: PeerId, proof: CompressedEpochSyncProof },
+    /// Requests a single batch of an epoch sync proof
+    EpochSyncBatchRequest { peer_id: PeerId, batch_index: EpochSyncBatchIndex },
+    /// Response carrying one piece of an epoch sync proof
+    EpochSyncBatchResponse { peer_id: PeerId, segment: EpochSyncProofSegment },
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
     /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),

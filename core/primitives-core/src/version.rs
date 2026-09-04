@@ -353,6 +353,8 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    /// Serve and download epoch sync proofs one batch at a time.
+    BatchedEpochSync,
     /// Fix `action_delete_account` not subtracting the global contract
     /// identifier storage usage. Previously only local contract code was
     /// subtracted, overstating storage usage for accounts with global
@@ -633,6 +635,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::UniversalAccounts => 154,
+            ProtocolFeature::BatchedEpochSync => 155,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
