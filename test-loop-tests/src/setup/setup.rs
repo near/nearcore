@@ -458,6 +458,7 @@ pub fn setup_client(
     );
 
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+        test_loop.clock(),
         epoch_manager.clone(),
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),

@@ -2,8 +2,10 @@ use crate::archive::cloud_reader_trie_utils::BatchTrieUpdate;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::block::Block;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::StatePartId;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 use near_primitives::utils::index_to_bytes;
@@ -13,7 +15,7 @@ use near_store::archive::cloud_storage::{
     BlockData, CloudRetrievalError, CloudStorage, EpochData, NewChunkData, ShardBatch, ShardData,
 };
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, Store, StoreUpdate};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 
 /// Errors from reader-side custom logic on top of cloud retrieval.
@@ -46,6 +48,31 @@ pub enum CloudArchivalReaderError {
     },
 }
 
+/// The chunks this block is the first to include, keyed by the height each was created at:
+/// this block's own height, and every height below it back to the previous block, which
+/// produced none of its own.
+///
+/// A chunk created at a height that produced no block reaches the chain in the next block
+/// that does, so those rows belong to this one.
+pub fn chunk_hashes_by_height(block: &Block) -> Vec<(BlockHeight, HashSet<ChunkHash>)> {
+    let block_height = block.header().height();
+    // Genesis has no previous block, and owns its own height alone. Headers below V3 do
+    // not carry the previous height; the archive never holds blocks that old.
+    let first_height = match block.header().prev_height() {
+        Some(prev_height) if !block.header().is_genesis() => prev_height + 1,
+        _ => block_height,
+    };
+    let mut rows: BTreeMap<BlockHeight, HashSet<ChunkHash>> = BTreeMap::new();
+    for chunk in block.chunks().iter_raw() {
+        let height_created = chunk.height_created();
+        if height_created < first_height {
+            continue;
+        }
+        rows.entry(height_created).or_default().insert(chunk.chunk_hash().clone());
+    }
+    rows.into_iter().collect()
+}
+
 /// Writes one block's cloud data into the block-level columns a reader reproduces.
 pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     let block = block_data.block();
@@ -62,8 +89,8 @@ pub fn save_block_data(update: &mut StoreUpdate, block_data: &BlockData) {
     // ordinal, which is the key the block-merkle-proof walk looks the hash up by.
     chain_store_update.set_block_ordinal(block_data.block_merkle_tree().size(), &block_hash);
     update.set_ser(DBCol::NextBlockHashes, block_hash.as_ref(), block_data.next_block_hash());
-    for (created_height, chunk_hashes) in block_data.chunk_hashes() {
-        update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(*created_height), chunk_hashes);
+    for (created_height, chunk_hashes) in chunk_hashes_by_height(block) {
+        update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(created_height), &chunk_hashes);
     }
     // The archive holds the canonical chain alone, so this block is the whole set of
     // blocks at its height.

@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{EpochHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
@@ -46,14 +46,9 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
         return false;
     }
 
-    let done = num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
+    let done = every_shard_has_enough_new_chunks(&num_new_chunks);
 
-    for (num_new_chunks, new_chunk) in num_new_chunks.iter_mut().zip(header.chunk_mask().iter()) {
-        // Only need to reach 2, so don't bother adding more than that
-        if *new_chunk && *num_new_chunks < 2 {
-            *num_new_chunks += 1;
-        }
-    }
+    count_new_chunks(&mut num_new_chunks, header);
 
     store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
     done
@@ -122,13 +117,31 @@ fn maybe_get_block_header<T: ChainStoreAccess>(
     }
 }
 
+/// A shard's state at the sync block is reachable once the epoch holds this many new chunks
+/// in it, which is what makes the sync block the one to sync from.
+const NEW_CHUNKS_PER_SHARD: u8 = 2;
+
+/// Adds a header's new chunks to a running per-shard count, which stops at the threshold.
+fn count_new_chunks(num_new_chunks: &mut [u8], header: &BlockHeader) {
+    for (num_new_chunks, new_chunk) in num_new_chunks.iter_mut().zip(header.chunk_mask().iter()) {
+        if *new_chunk && *num_new_chunks < NEW_CHUNKS_PER_SHARD {
+            *num_new_chunks += 1;
+        }
+    }
+}
+
+/// Whether every shard reached the threshold.
+fn every_shard_has_enough_new_chunks(num_new_chunks: &[u8]) -> bool {
+    num_new_chunks.iter().all(|num_chunks| *num_chunks >= NEW_CHUNKS_PER_SHARD)
+}
+
 fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<bool> {
     let Some(num_new_chunks) = get_state_sync_new_chunks(store, block_hash) else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
         return None;
     };
-    Some(num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2))
+    Some(every_shard_has_enough_new_chunks(&num_new_chunks))
 }
 
 /// Save num new chunks info and store the state sync hash if it has been found. We store it only
@@ -190,6 +203,58 @@ fn on_new_header<T: ChainStoreAccess>(
         }
         sync = sync_prev;
     }
+}
+
+/// The epoch's sync block derived from its own blocks, for a store that never recorded it.
+/// `update_sync_hashes` skips a header whose prev is absent, so a node that took the epoch's
+/// headers out of order carries no row however far its final head runs.
+///
+/// Applies the same rule as `save_epoch_new_chunks`, counting from the epoch's first block to
+/// its last, and stops at the final head, above which a block can still be dropped. `None`
+/// while the chain cannot name the block yet.
+pub fn derive_epoch_sync_hash(
+    chain_store: &ChainStoreAdapter,
+    old_epoch_end: &CryptoHash,
+) -> Result<Option<CryptoHash>, Error> {
+    let final_height = chain_store.final_head()?.height;
+    let Some(mut block_hash) = next_final_block(chain_store, old_epoch_end, final_height)? else {
+        return Ok(None);
+    };
+    let first_header = chain_store.get_block_header(&block_hash)?;
+    let epoch_id = *first_header.epoch_id();
+    // The epoch's first block counts as none, whatever its own mask says, which is what
+    // `on_new_epoch` stores for it.
+    let mut num_new_chunks = vec![0u8; first_header.chunk_mask().len()];
+    while let Some(next_hash) = next_final_block(chain_store, &block_hash, final_height)? {
+        block_hash = next_hash;
+        let header = chain_store.get_block_header(&block_hash)?;
+        // The count belongs to one epoch, so an epoch that ends without covering every
+        // shard has no sync block, the same as `on_new_epoch` resetting the count.
+        if header.epoch_id() != &epoch_id {
+            return Ok(None);
+        }
+        count_new_chunks(&mut num_new_chunks, &header);
+        if every_shard_has_enough_new_chunks(&num_new_chunks) {
+            // This block is the first to reach the threshold, and the sync block is the
+            // one after it.
+            return next_final_block(chain_store, &block_hash, final_height);
+        }
+    }
+    Ok(None)
+}
+
+/// The block after `block_hash`, while `block_hash` is below the final head. The chain always
+/// holds the block after a final one, and above the final head a block can still be dropped, so
+/// two nodes would read different ones.
+fn next_final_block(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    final_height: BlockHeight,
+) -> Result<Option<CryptoHash>, Error> {
+    if chain_store.get_block_height(block_hash)? >= final_height {
+        return Ok(None);
+    }
+    Ok(Some(chain_store.get_next_block_hash(block_hash)?))
 }
 
 /// Updates information in the DB related to calculating the correct "sync_hash" for this header's epoch,
