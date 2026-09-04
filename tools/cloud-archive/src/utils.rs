@@ -4,6 +4,8 @@ use near_async::messaging::{Actor, Handler, IntoMultiSender, noop};
 use near_async::time::{Clock, Utc};
 use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, GenesisValidationMode};
+#[cfg(feature = "test_features")]
+use near_client::NetworkAdversarialMessage;
 use near_client::ViewClientActor;
 use near_client::adversarial::Controls;
 use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
@@ -103,8 +105,10 @@ impl ServeCmd {
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
         // Serving reaches no bucket, so this opens the store alone rather than through
-        // `ReaderHandles`. The view client writes the genesis congestion infos as it
-        // starts, and the write lock keeps a second process off the store.
+        // `ReaderHandles`, and without a cloud storage context, which only builds a client
+        // the serve path never calls and refuses a location it cannot support. The view
+        // client writes the genesis congestion infos as it starts, and the write lock
+        // keeps a second process off the store.
         let near_config =
             load_config(home_dir, genesis_validation).context("failed to load config")?;
         let runtime = Runtime::new().expect("failed to create the tokio runtime");
@@ -114,7 +118,7 @@ impl ServeCmd {
                 home_dir,
                 &near_config.config.store,
                 near_config.config.cold_store.as_ref(),
-                near_config.cloud_storage_context(),
+                None,
             )
             .open_in_mode(Mode::ReadWrite)
             .context("failed to open storage")?
@@ -209,6 +213,18 @@ impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ReaderNo
         Err(StatusError::InternalError {
             error_message: "a cloud archive reader runs no client to report on".to_string(),
         })
+    }
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage> for ReaderNodeActor {
+    fn handle(&mut self, _msg: NetworkAdversarialMessage) {}
+}
+
+#[cfg(feature = "test_features")]
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ReaderNodeActor {
+    fn handle(&mut self, _msg: NetworkAdversarialMessage) -> Option<u64> {
+        None
     }
 }
 
