@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExecutionResults, ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::version::ProtocolFeature;
 use near_store::StoreUpdate;
@@ -187,25 +187,46 @@ pub fn execution_result_from_pre_spice_child(
     }))
 }
 
-/// The execution results of the pre-spice `block`'s previous chunks, one per shard,
-/// read off `block`'s own chunk headers.
-/// This is what validating a witness keyed to `block` needs in place of the previous
-/// block's certified results, which do not exist pre-spice. `None` when any shard's
-/// chunk is missing in `block` — its result is not on `block`'s headers.
-pub fn pre_spice_block_execution_results(
+/// What each source shard sent into the target shard's chunk at `anchor_block`,
+/// keyed by source shard: the result its receipt proof is verified against, and the
+/// block its receipts come from.
+pub fn boundary_source_results_for_target(
+    chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-) -> Result<Option<BlockExecutionResults>, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    anchor_block: &Block,
+    target_shard_id: ShardId,
+) -> Result<HashMap<ShardId, (Arc<ChunkExecutionResult>, Arc<Block>)>, Error> {
+    let anchor_prev_block = chain_store.get_block(anchor_block.header().prev_hash())?;
+    let prev_shard_layout =
+        epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
+    let prev_shard_index = prev_shard_layout.get_shard_index(target_shard_id)?;
+    let anchor_prev_chunks = anchor_prev_block.chunks();
+    let previous_inclusion_height = anchor_prev_chunks
+        .get(prev_shard_index)
+        .ok_or(Error::InvalidShardId(target_shard_id))?
+        .height_included();
+
     let mut results = HashMap::new();
-    for shard_id in shard_layout.shard_ids() {
-        let Some(result) = execution_result_from_pre_spice_child(epoch_manager, block, shard_id)?
-        else {
-            return Ok(None);
-        };
-        results.insert(shard_id, Arc::new(result));
+    let mut block = chain_store.get_block(anchor_block.header().hash())?;
+    while block.header().height() > previous_inclusion_height {
+        let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        for shard_id in shard_layout.shard_ids() {
+            let Some(result) =
+                execution_result_from_pre_spice_child(epoch_manager, &block, shard_id)?
+            else {
+                continue;
+            };
+            if results.insert(shard_id, (Arc::new(result), block.clone())).is_some() {
+                return Err(Error::Other(format!(
+                    "shard {} included more than once between the target shard's inclusions; \
+                     the boundary witness carries one proof per source shard",
+                    shard_id
+                )));
+            }
+        }
+        block = chain_store.get_block(block.header().prev_hash())?;
     }
-    Ok(Some(BlockExecutionResults(results)))
+    Ok(results)
 }
 
 /// Tripwire against the two sources of truth at the boundary: a certified execution

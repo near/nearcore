@@ -10,6 +10,7 @@ use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::pre_spice_protocol_version;
 use near_primitives::types::ShardId;
 use near_primitives::types::{Balance, Gas};
@@ -53,7 +54,7 @@ fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> T
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice() {
-    run_protocol_upgrade_to_spice(false);
+    run_protocol_upgrade_to_spice(BoundaryChunkDrops::None);
 }
 
 /// The upgrade with every chunk missing at the activation parent: certifying it then
@@ -63,10 +64,31 @@ fn test_protocol_upgrade_to_spice() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_missing_chunks_at_boundary() {
-    run_protocol_upgrade_to_spice(true);
+    run_protocol_upgrade_to_spice(BoundaryChunkDrops::AllAtParent);
 }
 
-fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
+/// The upgrade with staggered gaps straddling the anchor: one shard misses only the
+/// activation parent, the other misses the block before it too. The first shard's
+/// witness then anchors at a block where the second shard's chunk is missing — its
+/// receipts come from that shard's own earlier inclusion — and the second shard's
+/// witness replays two implicit transitions.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_staggered_missing_chunks_at_boundary() {
+    run_protocol_upgrade_to_spice(BoundaryChunkDrops::Staggered);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum BoundaryChunkDrops {
+    None,
+    /// Every shard's chunk missing at the activation parent.
+    AllAtParent,
+    /// One shard's chunk missing at the activation parent; the other's missing at
+    /// the parent and the block before it.
+    Staggered,
+}
+
+fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
     init_test_logger();
     let num_producers = 2;
     let mut env = setup_upgrading_chain(num_producers, 2);
@@ -77,8 +99,13 @@ fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
     // the supply identity below must subtract a real burn to mean anything.
     let mut crossed = false;
     let mut boundary_height = None;
-    let mut production_stopped = false;
-    let mut production_resumed = false;
+    // Per producer node: pause chunk production at the first head height, resume at
+    // the second. Chunks for a height are produced one block ahead, so pausing at
+    // head H skips chunks from height H + 2 on.
+    let mut drop_schedule: HashMap<usize, (u64, u64)> = HashMap::new();
+    let mut long_gap_shard_id = None;
+    let mut stops_sent = HashSet::new();
+    let mut resumes_sent = HashSet::new();
     for _ in 0..10 * EPOCH_LENGTH {
         let tx = env.rpc_node().tx_send_money(&user, &receiver, Balance::from_yoctonear(1));
         env.rpc_node().submit_tx(tx);
@@ -88,7 +115,7 @@ fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
             crossed = true;
             break;
         }
-        if drop_chunks_at_boundary && boundary_height.is_none() {
+        if drops != BoundaryChunkDrops::None && boundary_height.is_none() {
             let epoch_manager = env.rpc_node().client().epoch_manager.clone();
             let next_protocol_version =
                 epoch_manager.get_next_epoch_protocol_version(head_block.hash()).unwrap();
@@ -97,36 +124,68 @@ fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
                 // the activation parent.
                 let epoch_start_height =
                     epoch_manager.get_epoch_start_height(head_block.hash()).unwrap();
-                boundary_height = Some(epoch_start_height + EPOCH_LENGTH - 1);
+                let parent_height = epoch_start_height + EPOCH_LENGTH - 1;
+                boundary_height = Some(parent_height);
+                match drops {
+                    BoundaryChunkDrops::None => unreachable!(),
+                    BoundaryChunkDrops::AllAtParent => {
+                        for i in 0..num_producers {
+                            drop_schedule.insert(i, (parent_height - 2, parent_height - 1));
+                        }
+                    }
+                    BoundaryChunkDrops::Staggered => {
+                        // One producer per shard; the long-gap shard's producer
+                        // pauses one height earlier, so its shard also misses the
+                        // block before the activation parent.
+                        let epoch_id = epoch_manager.get_epoch_id(head_block.hash()).unwrap();
+                        let node_for_shard = |shard_id| {
+                            let account = epoch_manager
+                                .get_chunk_producer_info(&ChunkProductionKey {
+                                    shard_id,
+                                    epoch_id,
+                                    height_created: parent_height,
+                                })
+                                .unwrap()
+                                .take_account_id();
+                            env.node_datas
+                                .iter()
+                                .position(|data| data.account_id == account)
+                                .unwrap()
+                        };
+                        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+                        let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+                        let (short_gap, long_gap) = (shard_ids[0], shard_ids[1]);
+                        long_gap_shard_id = Some(long_gap);
+                        let short_node = node_for_shard(short_gap);
+                        let long_node = node_for_shard(long_gap);
+                        assert_ne!(
+                            short_node, long_node,
+                            "staggering needs one producer per shard",
+                        );
+                        drop_schedule.insert(short_node, (parent_height - 2, parent_height - 1));
+                        drop_schedule.insert(long_node, (parent_height - 3, parent_height - 1));
+                    }
+                }
             }
         }
-        if let Some(boundary_height) = boundary_height {
-            // Chunks for a height are produced one block ahead: pausing two below
-            // the boundary and resuming one below skips exactly the boundary's.
-            let head_height = head_block.header().height();
-            if !production_stopped && head_height == boundary_height - 2 {
-                for i in 0..num_producers {
-                    env.node_runner(i).send_adversarial_message(
-                        NetworkAdversarialMessage::AdvProduceChunks(
-                            AdvProduceChunksMode::StopProduce,
-                        ),
-                    );
-                }
-                production_stopped = true;
+        let head_height = head_block.header().height();
+        for (&node_index, &(stop_height, resume_height)) in &drop_schedule {
+            if head_height == stop_height && stops_sent.insert(node_index) {
+                env.node_runner(node_index).send_adversarial_message(
+                    NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::StopProduce),
+                );
             }
-            if production_stopped && !production_resumed && head_height == boundary_height - 1 {
-                for i in 0..num_producers {
-                    env.node_runner(i).send_adversarial_message(
-                        NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::Valid),
-                    );
-                }
-                production_resumed = true;
+            if head_height == resume_height && resumes_sent.insert(node_index) {
+                env.node_runner(node_index).send_adversarial_message(
+                    NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::Valid),
+                );
             }
         }
     }
     assert!(crossed, "chain never crossed the activation boundary");
-    if drop_chunks_at_boundary {
-        assert!(production_stopped && production_resumed);
+    if drops != BoundaryChunkDrops::None {
+        assert_eq!(stops_sent.len(), drop_schedule.len());
+        assert_eq!(resumes_sent.len(), drop_schedule.len());
     }
 
     // Locate the first spice block on the chain and its pre-spice parent.
@@ -155,21 +214,38 @@ fn run_protocol_upgrade_to_spice(drop_chunks_at_boundary: bool) {
             parent_burnt > Balance::ZERO,
             "the activation parent must burn gas for the supply identity to be meaningful",
         );
-        if drop_chunks_at_boundary {
-            assert_eq!(Some(parent.header().height()), boundary_height);
-            assert!(
-                parent.header().chunk_mask().iter().all(|mask| !*mask),
-                "every chunk must be missing at the activation parent",
-            );
-        } else {
-            // The witness of the activation parent replays its apply with the gas
-            // price of the parent's parent (the pre-spice convention); the spice
-            // convention would take the parent's own.
+        match drops {
+            BoundaryChunkDrops::None => {
+                // The witness of the activation parent replays its apply with the
+                // gas price of the parent's parent (the pre-spice convention); the
+                // spice convention would take the parent's own. Not meaningful with
+                // chunks dropped: a block with no new chunks leaves the price alone.
+                let grandparent =
+                    node.client().chain.get_block(parent.header().prev_hash()).unwrap();
+                assert_ne!(
+                    grandparent.header().next_gas_price(),
+                    parent.header().next_gas_price(),
+                    "gas price must move at the boundary for the era convention to matter",
+                );
+            }
+            BoundaryChunkDrops::AllAtParent | BoundaryChunkDrops::Staggered => {
+                assert_eq!(Some(parent.header().height()), boundary_height);
+                assert!(
+                    parent.header().chunk_mask().iter().all(|mask| !*mask),
+                    "every chunk must be missing at the activation parent",
+                );
+            }
+        }
+        if drops == BoundaryChunkDrops::Staggered {
+            // The staggering is real: at the block before the parent, the long-gap
+            // shard's chunk is missing while the other shard's is present.
             let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
-            assert_ne!(
-                grandparent.header().next_gas_price(),
-                parent.header().next_gas_price(),
-                "gas price must move at the boundary for the era convention to matter",
+            let long_gap_index = shard_layout.get_shard_index(long_gap_shard_id.unwrap()).unwrap();
+            let mask = grandparent.header().chunk_mask();
+            assert!(!mask[long_gap_index], "long-gap shard must be missing before the parent");
+            assert!(
+                mask.iter().enumerate().all(|(i, present)| *present || i == long_gap_index),
+                "only the long-gap shard may be missing before the parent",
             );
         }
         (

@@ -26,8 +26,8 @@ use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
-    Block, Chain, Error, collect_receipts, compute_transaction_validity,
-    get_chunk_clone_from_header,
+    Block, Chain, Error, ReceiptFilter, collect_receipts, compute_transaction_validity,
+    get_chunk_clone_from_header, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -639,12 +639,49 @@ impl PerShardChunkExecutor {
             });
         }
 
-        let source_receipt_proofs: HashMap<ShardId, ReceiptProof> = self
-            .chain_store
-            .get_incoming_receipts(anchor_block.hash(), shard_id)?
-            .iter()
-            .map(|proof| (proof.1.from_shard_id, proof.clone()))
-            .collect();
+        // The anchor's application consumed the incoming receipts of every block
+        // since the shard's previous inclusion; the witness carries one proof per
+        // source shard across that whole range.
+        let anchor_prev_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
+        let previous_inclusion_height = {
+            let prev_shard_layout =
+                self.epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
+            let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
+            let anchor_prev_chunks = anchor_prev_block.chunks();
+            anchor_prev_chunks
+                .get(prev_shard_index)
+                .ok_or(Error::InvalidShardId(shard_id))?
+                .height_included()
+        };
+        let anchor_shard_layout =
+            self.epoch_manager.get_shard_layout(anchor_block.header().epoch_id())?;
+        let mut range_receipt_proofs =
+            vec![self.chain_store.get_incoming_receipts(anchor_block.hash(), shard_id)?];
+        for response in get_incoming_receipts_for_shard(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            shard_id,
+            &anchor_shard_layout,
+            *anchor_block.header().prev_hash(),
+            previous_inclusion_height,
+            ReceiptFilter::TargetShard,
+        )? {
+            range_receipt_proofs.push(response.1);
+        }
+        let mut source_receipt_proofs: HashMap<ShardId, ReceiptProof> = HashMap::new();
+        for proof in range_receipt_proofs.iter().flat_map(|proofs| proofs.iter()) {
+            if source_receipt_proofs.insert(proof.1.from_shard_id, proof.clone()).is_some() {
+                tracing::warn!(
+                    target: "chunk_executor",
+                    block_hash = %block.hash(),
+                    anchor_block_hash = %anchor_block.hash(),
+                    %shard_id,
+                    from_shard_id = %proof.1.from_shard_id,
+                    "source shard included more than once between the shard's inclusions; the boundary witness cannot represent it",
+                );
+                return Ok(());
+            }
+        }
 
         let state_witness = SpiceChunkStateWitness::new(
             SpiceChunkId { block_hash: *block.hash(), shard_id },
