@@ -2,7 +2,8 @@ use anyhow::Context;
 use near_async::ActorSystem;
 use near_async::messaging::{Actor, Handler, IntoMultiSender, noop};
 use near_async::time::{Clock, Utc};
-use near_chain::ChainGenesis;
+use near_chain::types::RuntimeAdapter;
+use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, GenesisValidationMode};
 #[cfg(feature = "test_features")]
 use near_client::NetworkAdversarialMessage;
@@ -12,8 +13,10 @@ use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
 use near_client_primitives::types::{
     GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status, StatusError,
 };
-use near_epoch_manager::EpochManager;
+#[cfg(feature = "sandbox")]
+use near_client_primitives::types::{SandboxMessage, SandboxResponse};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_jsonrpc::start_http;
 use near_jsonrpc_primitives::types::entity_debug::DummyEntityDebugHandler;
@@ -26,6 +29,7 @@ use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::{FINAL_HEAD_KEY, HEAD_KEY};
+use near_store::get_genesis_state_roots;
 use near_store::{DBCol, Mode, NodeStorage, Store};
 use nearcore::config::load_config;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -131,12 +135,19 @@ impl ServeCmd {
     }
 }
 
-/// The genesis block's hash, or the default when the store starts above genesis.
-fn genesis_hash(store: &Store, near_config: &NearConfig) -> CryptoHash {
-    store
-        .chain_store()
-        .get_block_hash_by_height(near_config.genesis.config.genesis_height)
-        .unwrap_or_default()
+/// The genesis block's hash, built from the genesis config the way the view client builds
+/// it. Reading it off the store would answer with nothing on a reader whose range starts
+/// above genesis, and callers tell chains apart by this value.
+fn genesis_hash(
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
+    chain_genesis: &ChainGenesis,
+) -> anyhow::Result<CryptoHash> {
+    let state_roots = get_genesis_state_roots(runtime.store())
+        .context("the store carries no genesis state roots")?;
+    let (genesis_block, _) =
+        Chain::make_genesis_block(epoch_manager, runtime, chain_genesis, state_roots)?;
+    Ok(*genesis_block.hash())
 }
 
 /// Answers the node-level questions a reader can answer from its own store.
@@ -228,6 +239,13 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ReaderNodeActor {
     }
 }
 
+#[cfg(feature = "sandbox")]
+impl Handler<SandboxMessage, SandboxResponse> for ReaderNodeActor {
+    fn handle(&mut self, _msg: SandboxMessage) -> SandboxResponse {
+        SandboxResponse::SandboxNoResponse
+    }
+}
+
 impl Handler<ProcessTxRequest, ProcessTxResponse> for ReaderNodeActor {
     fn handle(&mut self, _msg: ProcessTxRequest) -> ProcessTxResponse {
         ProcessTxResponse::DoesNotTrackShard
@@ -269,6 +287,8 @@ pub(crate) fn serve_store_while(
     )?;
 
     let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
+    let genesis_hash =
+        genesis_hash(epoch_manager.as_ref(), nightshade_runtime.as_ref(), &chain_genesis)?;
     let actor_system = ActorSystem::new();
 
     // Only the view path is wired, so an endpoint reaching for the client sender answers
@@ -289,7 +309,7 @@ pub(crate) fn serve_store_while(
     let reader_node = actor_system.spawn_tokio_actor(ReaderNodeActor {
         store: store.clone(),
         near_config: near_config.clone(),
-        genesis_hash: genesis_hash(&store, &near_config),
+        genesis_hash,
         started_at: Clock::real().now_utc(),
     });
 
