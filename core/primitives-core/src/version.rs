@@ -485,6 +485,9 @@ pub enum ProtocolFeature {
     ///   verification, instead of on the signer shard, so it counts against the
     ///   right `compute_limit`.
     FixMlDsaCostCharging,
+    /// Fail a `FunctionCall` to an account whose global contract was never
+    /// deployed with `CodeDoesNotExist`.
+    FailCallToMissingGlobalContract,
     /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
@@ -626,6 +629,7 @@ impl ProtocolFeature {
             ProtocolFeature::EarlyKickout => 87,
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
+            ProtocolFeature::FailCallToMissingGlobalContract => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
