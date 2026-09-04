@@ -1,5 +1,6 @@
 use crate::Store;
 use crate::adapter::StoreAdapter;
+use crate::light_client_block::StoredLightClientBlock;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -36,7 +37,7 @@ pub struct EpochDataV1 {
     /// Read from `DBCol::EpochValidatorInfo`, under `prev_epoch_id`.
     prev_epoch_summary: Option<EpochSummary>,
     /// Read from `DBCol::EpochLightClientBlocks`, under `prev_epoch_id`.
-    prev_epoch_light_client_block: Option<LightClientBlockView>,
+    prev_epoch_light_client_block: Option<StoredLightClientBlock>,
     /// Read from `DBCol::EpochInfo`, under `next_epoch_id()`.
     next_epoch_info: EpochInfo,
 }
@@ -65,7 +66,7 @@ pub fn build_epoch_data(
     };
     let prev_epoch_light_client_block =
         match store.chain_store().get_epoch_light_client_block(&prev_epoch_id.0) {
-            Ok(view) => Some(LightClientBlockView::clone(&view)),
+            Ok(view) => Some(LightClientBlockView::clone(&view).into()),
             Err(Error::DBNotFoundErr(_)) => None,
             Err(err) => return Err(err),
         };
@@ -121,7 +122,7 @@ impl EpochData {
         }
     }
 
-    pub fn prev_epoch_light_client_block(&self) -> Option<&LightClientBlockView> {
+    pub fn prev_epoch_light_client_block(&self) -> Option<&StoredLightClientBlock> {
         match self {
             EpochData::V1(data) => data.prev_epoch_light_client_block.as_ref(),
         }

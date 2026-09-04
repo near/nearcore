@@ -33,6 +33,7 @@ pub mod db;
 mod deserialized_column;
 pub mod flat;
 pub mod genesis;
+pub mod light_client_block;
 pub mod merkle_proof;
 pub mod metrics;
 mod node_storage;
