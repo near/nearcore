@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn unconfigured_contract_produces_no_events() {
+    fn contract_not_in_currencies_produces_no_events() {
         let outcomes = vec![outcome(
             CryptoHash::hash_bytes(b"receipt"),
             "other.near",
