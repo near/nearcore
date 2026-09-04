@@ -95,6 +95,8 @@ fn as_written_by_an_older_release(row: &[u8]) -> Vec<u8> {
 
 /// Rewrites one row into the older layout, then asks for it over RPC.
 #[test]
+// The older layout has no chunk execution root, and a spice header carries one.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_next_light_client_block_on_an_older_row() {
     init_test_logger();
 
@@ -151,7 +153,10 @@ fn test_next_light_client_block_on_an_older_row() {
         Duration::seconds(10),
     );
 
-    response.expect("the node has to answer the query");
+    let Message::Response(response) = response.expect("the node has to answer the query") else {
+        panic!("a request has to come back as a response");
+    };
+    response.result.expect("the answer has to carry a result, not an error");
 
     assert!(
         store.chain_store().get_epoch_light_client_block(&row_key).is_err(),
