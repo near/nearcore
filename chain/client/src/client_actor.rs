@@ -1342,6 +1342,18 @@ impl ClientActor {
             );
 
             if update_result.validator_signer_updated {
+                // The startup check refuses this pairing, and a key arriving later has to meet
+                // the same refusal, since the writer would archive its own chunk rows under an
+                // inclusion height the chain has not given them yet.
+                if self.client.config.cloud_archival_writer.is_some()
+                    && self.client.validator_signer.get().is_some()
+                {
+                    tracing::error!(
+                        target: "client",
+                        "dropping a hot-loaded validator key: a cloud archival writer must not produce chunks"
+                    );
+                    self.client.update_validator_signer(None);
+                }
                 if let Some(validator_signer) = self.client.validator_signer.get() {
                     check_validator_tracked_shards(&self.client, validator_signer.validator_id())
                         .expect("Could not check validator tracked shards");
