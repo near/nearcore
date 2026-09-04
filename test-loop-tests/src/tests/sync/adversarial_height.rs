@@ -6,8 +6,6 @@
 //! many epochs ahead. The gate must ignore the unvalidated claim: the node
 //! keeps following the chain, never enters sync, and is never wiped.
 
-use std::sync::Arc;
-
 use super::util::{TEST_EPOCH_SYNC_HORIZON, run_until_synced, track_sync_status};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::peer_manager_actor::TestLoopNetworkBlockInfo;
@@ -24,6 +22,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::Balance;
+use std::sync::Arc;
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
