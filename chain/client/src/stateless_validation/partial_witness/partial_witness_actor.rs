@@ -84,6 +84,30 @@ pub(super) fn witness_version_mismatch(
     version_mismatch(version, matches!(witness, VersionedPartialEncodedStateWitness::V2(_)))
 }
 
+/// Label used for shard ids that are not in the epoch's shard layout.
+const UNKNOWN_SHARD_LABEL: &str = "unknown";
+
+/// Renders `shard_id` as a metric label, bucketing anything outside `epoch_id`'s shard
+/// layout as [`UNKNOWN_SHARD_LABEL`].
+///
+/// Both fields come straight off the wire and are only validated much later (see
+/// `validate_chunk_relevant`), so without this a peer could mint a fresh label value per
+/// message. Prometheus children are never evicted, so that grows the registry and the
+/// `/metrics` payload without bound. Cardinality here stays at layout size plus one.
+///
+/// The layout lookup is not new cost on this path: the callers already resolve the same
+/// unvalidated `epoch_id` through the epoch manager for the kickout gate.
+fn shard_id_metric_label(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    shard_id: ShardId,
+) -> String {
+    match epoch_manager.get_shard_layout(epoch_id) {
+        Ok(layout) if layout.shard_ids().contains(&shard_id) => shard_id.to_string(),
+        _ => UNKNOWN_SHARD_LABEL.to_string(),
+    }
+}
+
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
     network_adapter: PeerManagerAdapter,
@@ -200,8 +224,10 @@ impl PartialWitnessActor {
         witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker = Arc::new(PartialEncodedStateWitnessTracker::new(
+            clock.clone(),
             chunk_validation_sender,
             epoch_manager.clone(),
+            runtime.store().clone(),
         ));
         Self {
             network_adapter,
@@ -469,13 +495,14 @@ impl PartialWitnessActor {
         .entered();
         tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness");
 
-        let shard_id_label = partial_witness.chunk_production_key().shard_id.to_string();
+        let ChunkProductionKey { shard_id, epoch_id, height_created } =
+            partial_witness.chunk_production_key();
+
+        let shard_id_label =
+            shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
         metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
             .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
             .inc();
-
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            partial_witness.chunk_production_key();
 
         let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
         if witness_version_mismatch(version, &partial_witness) {
@@ -529,11 +556,17 @@ impl PartialWitnessActor {
             Err(err) => return Err(err.into()),
         };
 
-        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
-        let target_chunk_validators = self
+        let ordered_chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
-            .ordered_chunk_validators()
+            .ordered_chunk_validators();
+        // `generate_state_witness_parts` assigns part `i` to `ordered_chunk_validators[i]`, so
+        // this is the ordinal of the part we are the designated owner of
+        let my_part_ord = ordered_chunk_validators
+            .iter()
+            .position(|validator| validator == &validator_account_id);
+        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
+        let target_chunk_validators = ordered_chunk_validators
             .into_iter()
             .filter(|validator| validator != &chunk_producer)
             .collect_vec();
@@ -550,19 +583,32 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    // Forward to other validators (excluding ourselves to avoid duplicate processing).
-                    let other_validators: Vec<_> = target_chunk_validators
-                        .into_iter()
-                        .filter(|validator| validator != &validator_account_id)
-                        .collect();
+                    // Only the part's designated owner re-broadcasts it. Producer-signed parts for
+                    // other ordinals are still valid and worth storing, but forwarding them would
+                    // let a single injected message fan out across the whole validator set.
+                    if my_part_ord == Some(partial_witness.part_ord()) {
+                        // Forward to other validators (excluding ourselves to avoid duplicate processing).
+                        let other_validators: Vec<_> = target_chunk_validators
+                            .into_iter()
+                            .filter(|validator| validator != &validator_account_id)
+                            .collect();
 
-                    if !other_validators.is_empty() {
-                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedStateWitnessForward(
-                                other_validators,
-                                partial_witness.clone(),
-                            ),
-                        ));
+                        if !other_validators.is_empty() {
+                            network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::PartialEncodedStateWitnessForward(
+                                    other_validators,
+                                    partial_witness.clone(),
+                                ),
+                            ));
+                        }
+                    } else {
+                        tracing::debug!(
+                            target: "client",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            part_ord = partial_witness.part_ord(),
+                            ?my_part_ord,
+                            "not forwarding partial witness part we do not own",
+                        );
                     }
                     // Store the part locally (as part owner) to avoid need for self-forwarding.
                     if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
@@ -616,13 +662,16 @@ impl PartialWitnessActor {
         .entered();
         tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness forward message");
 
-        let shard_id_label = partial_witness.chunk_production_key().shard_id.to_string();
-        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
-            .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
-            .inc();
-
         {
-            let epoch_id = partial_witness.chunk_production_key().epoch_id;
+            let ChunkProductionKey { shard_id, epoch_id, .. } =
+                partial_witness.chunk_production_key();
+
+            let shard_id_label =
+                shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
+            metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+                .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
+                .inc();
+
             let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
             if witness_version_mismatch(version, &partial_witness) {
                 tracing::debug!(
@@ -928,8 +977,11 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        self.partial_witness_tracker.store_accessed_contract_hashes(
+            key.clone(),
+            accesses.prev_prev_block_hash(),
+            missing_contract_hashes.clone(),
+        )?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager

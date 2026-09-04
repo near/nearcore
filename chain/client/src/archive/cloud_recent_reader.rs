@@ -1,6 +1,6 @@
 use crate::archive::cloud_archival_utils::{
     CloudArchivalReaderError, apply_batch_state_changes, pull_block_batch, pull_shard_batch,
-    save_reader_head, shard_state_anchor, shards_tracked_in_batch,
+    save_reader_position, shard_state_anchor, shards_tracked_in_batch,
 };
 use crate::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_async::time::{Clock, Duration};
@@ -101,7 +101,7 @@ impl CloudArchivalRecentReader {
         let final_head = self.store.chain_store().final_head()?;
         let header_head = self.store.chain_store().header_head()?;
         self.clear_height_index_range(final_head.height, header_head.height);
-        Ok(save_reader_head(&self.store, final_head.height, final_head.last_block_hash))
+        save_reader_position(&self.store, final_head.height, final_head.last_block_hash)
     }
 
     /// Deletes the height index rows in `(final_height, header_height]`. Above the final
@@ -133,7 +133,11 @@ impl CloudArchivalRecentReader {
             None,
         )?;
         for shard_uid in shard_uids {
-            shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+            let state_root =
+                shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
+            // The row naming the root is written even where the state behind it is not, so
+            // the root has to be read to tell the two apart.
+            self.tries.get_trie_for_shard(shard_uid, state_root).retrieve_root_node()?;
         }
         Ok(())
     }
@@ -207,7 +211,8 @@ impl CloudArchivalRecentReader {
                 state_root,
             )?;
         }
-        let head = save_reader_head(&self.store, window.end_height, window.last_present_block_hash);
+        let head =
+            save_reader_position(&self.store, window.end_height, window.last_present_block_hash)?;
         Ok(PullOutcome::Pulled { head })
     }
 

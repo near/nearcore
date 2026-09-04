@@ -25,8 +25,11 @@ struct ExternalStatus {
 
 struct LocalStatus {
     last_archived_epoch_last_block: Option<CryptoHash>,
-    cloud_block_head: Option<BlockHeight>,
-    cloud_shard_heads: Vec<(ShardId, BlockHeight)>,
+    writer_block_head: Option<BlockHeight>,
+    writer_shard_heads: Vec<(ShardId, BlockHeight)>,
+    /// A reader's own position. `None` on a writer's store, which keeps a head per shard
+    /// and one for block data.
+    reader_head: Option<BlockHeight>,
     chain_head: BlockHeight,
     chain_final_head: BlockHeight,
 }
@@ -62,8 +65,9 @@ fn collect_external(cloud_storage: &Arc<CloudStorage>) -> anyhow::Result<Externa
 
 fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
     let last_archived_epoch_last_block = store.cloud_archival_store().writer_prev_epoch_end();
-    let cloud_block_head = store.cloud_archival_store().writer_block_head();
-    let cloud_shard_heads = store.cloud_archival_store().all_writer_shard_heads();
+    let writer_block_head = store.cloud_archival_store().writer_block_head();
+    let writer_shard_heads = store.cloud_archival_store().all_writer_shard_heads();
+    let reader_head = store.cloud_archival_store().reader_head().map(|head| head.height);
     let chain_head =
         store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).context("HEAD not found in DB")?.height;
     let chain_final_head = store
@@ -72,8 +76,9 @@ fn collect_local(store: &Store) -> anyhow::Result<LocalStatus> {
         .height;
     Ok(LocalStatus {
         last_archived_epoch_last_block,
-        cloud_block_head,
-        cloud_shard_heads,
+        writer_block_head,
+        writer_shard_heads,
+        reader_head,
         chain_head,
         chain_final_head,
     })
@@ -93,9 +98,10 @@ fn print_local(local: &LocalStatus) {
         "  last block of latest fully-archived epoch: {:?}",
         local.last_archived_epoch_last_block
     );
-    println!("  cloud block head: {:?}", local.cloud_block_head);
-    for (shard_id, height) in &local.cloud_shard_heads {
-        println!("  cloud shard {} head: {}", shard_id, height);
+    println!("  writer block head: {:?}", local.writer_block_head);
+    println!("  reader head: {:?}", local.reader_head);
+    for (shard_id, height) in &local.writer_shard_heads {
+        println!("  writer shard {} head: {}", shard_id, height);
     }
     println!();
     println!("  chain HEAD:       {}", local.chain_head);

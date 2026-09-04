@@ -3202,7 +3202,7 @@
             ],
             "default": {
               "nanos": 0,
-              "secs": 1
+              "secs": 5
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
           },
