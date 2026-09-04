@@ -4,6 +4,7 @@ use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
 };
+use borsh::BorshDeserialize;
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
@@ -326,10 +327,12 @@ impl ChainStoreAdapter {
         &self,
         hash: &CryptoHash,
     ) -> Result<Arc<LightClientBlockView>, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::EpochLightClientBlocks, hash.as_ref()),
-            format_args!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
-        )
+        // A row this build cannot decode counts as missing.
+        let view = self
+            .store
+            .get(DBCol::EpochLightClientBlocks, hash.as_ref())
+            .and_then(|bytes| LightClientBlockView::try_from_slice(&bytes).ok());
+        option_to_not_found(view.map(Arc::new), format_args!("EPOCH LIGHT CLIENT BLOCK: {hash}"))
     }
 
     pub fn is_height_processed(&self, height: BlockHeight) -> bool {

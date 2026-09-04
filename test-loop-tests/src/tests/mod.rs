@@ -46,6 +46,7 @@ mod in_memory_tries;
 mod indexer;
 mod jsonrpc;
 mod light_client;
+mod light_client_old_epoch_row;
 mod malicious_chunk_producer;
 mod max_gas_burnt_view;
 mod max_receipt_size;

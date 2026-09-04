@@ -62,6 +62,7 @@ use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives_core::types::NonceIndex;
+use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -1052,6 +1053,7 @@ impl From<BlockHeaderView> for BlockHeader {
     BorshSerialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
@@ -2734,6 +2736,7 @@ pub struct NextEpochValidatorInfo {
     BorshSerialize,
     serde::Serialize,
     serde::Deserialize,
+    ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockView {
