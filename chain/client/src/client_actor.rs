@@ -515,6 +515,7 @@ pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
     AdvInsertInvalidTransactions(bool),
+    AdvProduceMaxGasChunkHeader(bool),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -603,6 +604,11 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 tracing::info!(target: "adversary", on, "invalid transactions");
                 self.client.chunk_producer.adversarial.produce_invalid_tx_in_chunks = on;
+                None
+            }
+            NetworkAdversarialMessage::AdvProduceMaxGasChunkHeader(on) => {
+                tracing::info!(target: "adversary", on, "max gas chunk header");
+                self.client.chunk_producer.adversarial.produce_max_gas_chunk_header = on;
                 None
             }
         }

@@ -29,6 +29,8 @@ use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKey
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::transaction::SignedTransaction;
+#[cfg(feature = "test_features")]
+use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -76,6 +78,8 @@ pub struct ChunkProducerAdversarialControls {
     pub produce_mode: Option<AdvProduceChunksMode>,
     pub produce_invalid_chunks: bool,
     pub produce_invalid_tx_in_chunks: bool,
+    /// Forge `prev_gas_used` and `gas_limit` to `Gas::MAX`.
+    pub produce_max_gas_chunk_header: bool,
 }
 
 pub struct ProduceChunkResult {
@@ -132,6 +136,7 @@ impl ChunkProducer {
                 produce_mode: None,
                 produce_invalid_chunks: false,
                 produce_invalid_tx_in_chunks: false,
+                produce_max_gas_chunk_header: false,
             },
             clock,
             chunk_transactions_time_limit,
@@ -356,11 +361,15 @@ impl ChunkProducer {
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
+        let gas_limit = chunk_extra.gas_limit();
         #[cfg(feature = "test_features")]
-        let gas_used = if self.adversarial.produce_invalid_chunks {
-            gas_used.checked_add(near_primitives::types::Gas::from_gas(1)).unwrap()
+        let (gas_used, gas_limit) = if self.adversarial.produce_max_gas_chunk_header {
+            // gas_limit too: empty chunks have prev_gas_used == 0, which won't overflow.
+            (Gas::MAX, Gas::MAX)
+        } else if self.adversarial.produce_invalid_chunks {
+            (gas_used.checked_add(Gas::from_gas(1)).unwrap(), gas_limit)
         } else {
-            gas_used
+            (gas_used, gas_limit)
         };
 
         let congestion_info = chunk_extra.congestion_info();
@@ -391,7 +400,7 @@ impl ChunkProducer {
                 next_height,
                 shard_id,
                 gas_used,
-                chunk_extra.gas_limit(),
+                gas_limit,
                 chunk_extra.balance_burnt(),
                 chunk_extra.validator_proposals().collect(),
                 prepared_transactions.transactions,
