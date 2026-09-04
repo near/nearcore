@@ -150,6 +150,11 @@ epoch sync boundary and the sync point are not processed. This is fine for
 non-archival nodes, as that data would be garbage collected after a few epochs
 anyway.
 
+When state sync completes, the node deletes indexed block and chunk data below
+the new storage tails in the same database transaction that advances those
+tails. This keeps skipped heights reachable by cleanup until their data is
+removed.
+
 This step never runs on archival nodes — they need the complete history and
 cannot have gaps.
 
