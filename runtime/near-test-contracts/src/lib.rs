@@ -148,6 +148,13 @@ pub fn congestion_control_test_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
 }
 
+/// Small contract for the bandwidth scheduler tests, which are sensitive to
+/// contract size. See the contract's own docs for why they cannot use
+/// [`rs_contract`].
+pub fn bandwidth_scheduler_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_bandwidth_scheduler_test_contract"))
+}
+
 pub fn sharded_contract_test_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_sharded_contract"))
 }
@@ -162,6 +169,7 @@ fn smoke_test() {
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
     assert!(!congestion_control_test_contract().is_empty());
+    assert!(!bandwidth_scheduler_test_contract().is_empty());
     assert!(!sharded_contract_test_contract().is_empty());
 }
 

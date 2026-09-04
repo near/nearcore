@@ -57,6 +57,11 @@ fn try_main() -> Result<(), Error> {
     )?;
 
     build_contract("./sharded-contract", &[], "sharded_contract")?;
+    build_contract(
+        "./bandwidth-scheduler-test-contract",
+        &[],
+        "bandwidth_scheduler_test_contract",
+    )?;
 
     res_contract("legacy_backwards_compatible_rs_contract");
     res_contract("test_contract_ts");

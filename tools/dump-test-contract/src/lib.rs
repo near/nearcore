@@ -1,8 +1,8 @@
 use clap::Parser;
 use near_test_contracts::{
-    backwards_compatible_rs_contract, congestion_control_test_contract, estimator_contract,
-    ft_contract, fuzzing_contract, nightly_rs_contract, rs_contract, smallest_rs_contract,
-    trivial_contract, ts_contract,
+    backwards_compatible_rs_contract, bandwidth_scheduler_test_contract,
+    congestion_control_test_contract, estimator_contract, ft_contract, fuzzing_contract,
+    nightly_rs_contract, rs_contract, smallest_rs_contract, trivial_contract, ts_contract,
 };
 use std::io::Write;
 
@@ -33,6 +33,7 @@ impl DumpTestContractCommand {
             "smallest_rs_contract" => smallest_rs_contract(),
             "estimator_contract" => estimator_contract(),
             "congestion_control_test_contract" => congestion_control_test_contract(),
+            "bandwidth_scheduler_test_contract" => bandwidth_scheduler_test_contract(),
             _ => panic!("unknown contract {name}"),
         };
 
