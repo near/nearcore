@@ -5,7 +5,9 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_chain_configs::{ClientConfig, CloudArchivalWriterConfig, TrackedShardsConfig};
-use near_client::archive::cloud_archival_utils::find_present_block_below;
+use near_client::archive::cloud_archival_utils::{
+    chunk_hashes_by_height, find_present_block_below,
+};
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
@@ -28,7 +30,6 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{
     CloudStorage, archived_chunk_apply_stats, is_cloud_archive_reader_bootstrapped,
-    read_chunk_hashes,
 };
 use near_store::trie::AccessOptions;
 use near_store::{COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, Store};
@@ -55,6 +56,18 @@ pub(crate) fn set_scheduler_run_time(store: &Store, height: BlockHeight, shard_i
     }
     let mut update = store.store_update();
     update.chunk_store_update().set_chunk_apply_stats(&block_hash, shard_id, &stats);
+    update.commit();
+}
+
+/// Removes the epoch's sync-hash row, the shape a store carries when it took the epoch's
+/// headers out of order and never ran the walk that records one.
+pub(crate) fn delete_epoch_sync_hash(store: &Store, epoch_id: &EpochId) {
+    assert!(
+        store.get_ser::<CryptoHash>(DBCol::StateSyncHashes, epoch_id.as_ref()).is_some(),
+        "the row is already absent, so removing it proves nothing"
+    );
+    let mut update = store.store_update();
+    update.delete(DBCol::StateSyncHashes, epoch_id.as_ref());
     update.commit();
 }
 
@@ -225,6 +238,34 @@ pub struct ReshardingInfo {
     pub child_shard: ShardId,
     /// A shard the resharding leaves unchanged.
     pub carried_shard: ShardId,
+}
+
+/// Runs the chain into the resharding epoch's first blocks and stops there, so the epoch's
+/// last block is the chain's own tip and nothing above it exists to read.
+pub fn run_until_resharding_epoch_starts(
+    env: &mut TestLoopEnv,
+    writer_id: &AccountId,
+    new_layout: &ShardLayout,
+    epoch_length: BlockHeightDelta,
+) -> CryptoHash {
+    let timeout = Duration::seconds((5 * epoch_length) as i64);
+    env.runner_for_account(writer_id).run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
+        },
+        timeout,
+    );
+    let node = env.node_for_account(writer_id);
+    let head = node.head().last_block_hash;
+    let epoch_manager = &node.client().epoch_manager;
+    let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
+    let epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
+    // A few blocks in, so the final head reaches the epoch and a walk over it has somewhere
+    // to go before it runs out of chain.
+    run_node_until(env, writer_id, epoch_first_height + 3);
+    let node = env.node_for_account(writer_id);
+    *node.client().epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash()
 }
 
 /// Runs the chain one epoch past the resharding to `new_layout`.
@@ -587,19 +628,17 @@ pub fn assert_writer_inverse_deltas(
     let store = get_hot_store(env, writer_id);
     let tries = build_shard_tries(&store);
 
-    // Inverse changes cover the gap window up to sync_prev_prev, the resharding
-    // epoch's snapshot anchor; blocks above it carry none.
-    let sync_hash = store.chain_store().get_block_hash_by_height(info.sync_block_height).unwrap();
-    let sync_prev = *store.chain_store().get_block_header(&sync_hash).unwrap().prev_hash();
-    let sync_prev_prev = *store.chain_store().get_block_header(&sync_prev).unwrap().prev_hash();
-    let inverse_ceiling = store.chain_store().get_block_header(&sync_prev_prev).unwrap().height();
+    // Child shards carry inverse changes up to the sync hash.
+    let inverse_ceiling = info.sync_block_height;
 
     // A new-layout shard that also exists in the old layout is carried over;
     // one that is new is a child of the split.
     let base_shards: HashSet<ShardUId> = info.base_shard_uids.iter().copied().collect();
 
+    // TODO(cloud_archival): assert a child block above the ceiling carries none; the writer
+    // has not archived that far when this runs.
     let mut checked = 0;
-    for height in info.new_epoch_first_height..=info.sync_block_height {
+    for height in info.new_epoch_first_height..=inverse_ceiling {
         let Ok(block_hash) = store.chain_store().get_block_hash_by_height(height) else {
             continue;
         };
@@ -614,7 +653,7 @@ pub fn assert_writer_inverse_deltas(
             if !is_child || height > inverse_ceiling {
                 assert!(
                     shard_data.inverse_state_changes().is_none(),
-                    "only child shards below the anchor carry inverse changes \
+                    "only child shards at or below the sync hash carry inverse changes \
                      (shard {shard_uid}, height {height})"
                 );
                 continue;
@@ -848,13 +887,9 @@ fn collect_block_ordinal_kv(
     kvs.get_mut(&DBCol::BlockOrdinal).unwrap().insert(key, value.to_vec());
 }
 
-/// Collects the writer's `ChunkHashesByHeight` rows this block carries into `kvs`.
-fn collect_chunk_hashes_kvs(
-    writer_store: &ChainStoreAdapter,
-    kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>,
-    block: &Block,
-) {
-    for (created_height, chunk_hashes) in read_chunk_hashes(writer_store, block).unwrap() {
+/// Collects into `kvs` the `ChunkHashesByHeight` rows this block is the first to carry.
+fn collect_chunk_hashes_kvs(kvs: &mut HashMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>, block: &Block) {
+    for (created_height, chunk_hashes) in chunk_hashes_by_height(block) {
         let key = index_to_bytes(created_height).to_vec();
         let value = to_vec(&chunk_hashes).unwrap();
         kvs.get_mut(&DBCol::ChunkHashesByHeight).unwrap().insert(key, value);
@@ -1045,7 +1080,7 @@ fn writer_kvs(
             epoch_first_heights.push((epoch_id, h));
         }
         collect_block_ordinal_kv(&writer_store, kvs, &block);
-        collect_chunk_hashes_kvs(&writer_store, kvs, &block);
+        collect_chunk_hashes_kvs(kvs, &block);
         for chunk_header in block.chunks().iter_raw() {
             collect_new_chunk_kvs(writer, kvs, &block_hash, chunk_header, h);
         }
