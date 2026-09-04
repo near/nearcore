@@ -46,6 +46,9 @@ fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> T
         .gas_limit(Gas::from_gigagas(400))
         .gc_num_epochs_to_keep(20)
         .add_user_account(&create_account_id("user"), Balance::from_near(100))
+        // On the other shard than "user" (the layout splits at "test1"), so
+        // transfers between the two cross shards.
+        .add_user_account(&create_account_id("receiver"), Balance::from_near(100))
         .build()
 }
 
@@ -476,4 +479,104 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
     // Certification must cross the boundary: the rotated-in producers bootstrap and
     // distribute the activation parent's receipts and witnesses.
     env.node_runner(0).run_until_certified(boundary_height + 2);
+}
+
+/// A cross-shard transfer in flight at the boundary: a transaction included in a
+/// pre-spice chunk whose receipt executes in the first spice epoch. Its deposit
+/// must land exactly once — the boundary hands the receipt over exactly one way,
+/// through the bootstrap's persisted receipt proofs.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_receipt_in_flight() {
+    init_test_logger();
+    let mut env = setup_upgrading_chain(2, 2);
+    let sender = create_account_id("user");
+    let receiver = create_account_id("receiver");
+    {
+        let node = env.rpc_node();
+        let shard_layout =
+            node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+        assert_ne!(
+            shard_layout.account_id_to_shard_id(&sender),
+            shard_layout.account_id_to_shard_id(&receiver),
+            "the transfers must cross shards",
+        );
+    }
+    let initial_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+
+    // A 1-yocto transfer every block until the chain crosses the boundary, so some
+    // transaction is included in a chunk at the activation parent itself: its
+    // receipt can only execute under spice.
+    let amount = Balance::from_yoctonear(1);
+    let mut submitted = Vec::new();
+    let mut crossed = false;
+    for _ in 0..10 * EPOCH_LENGTH {
+        let tx = env.rpc_node().tx_send_money(&sender, &receiver, amount);
+        submitted.push(tx.get_hash());
+        env.rpc_node().submit_tx(tx);
+        env.rpc_runner().run_for_number_of_blocks(1);
+        if env.rpc_node().head_block().is_spice_block() {
+            crossed = true;
+            break;
+        }
+    }
+    assert!(crossed, "the chain must cross the boundary");
+
+    // Locate the activation parent, then run on and let execution catch up past
+    // every receipt of the submitted transfers.
+    let boundary_height = {
+        let node = env.rpc_node();
+        let chain_store = node.client().chain.chain_store();
+        let mut header = node.head_block().header().clone();
+        while header.is_spice() {
+            header = BlockHeader::clone(&chain_store.get_block_header(header.prev_hash()).unwrap());
+        }
+        header.height()
+    };
+    env.rpc_runner().run_until_head_height(boundary_height + 2 * EPOCH_LENGTH);
+    let head_height = env.rpc_node().head().height;
+    env.rpc_runner().run_until_certified(head_height);
+
+    // Scan every block's new chunks for the submitted transactions: each must be
+    // included exactly once, and at least one at the activation parent itself.
+    let node = env.rpc_node();
+    let submitted: HashSet<CryptoHash> = submitted.into_iter().collect();
+    let mut inclusion_heights: HashMap<CryptoHash, Vec<u64>> = HashMap::new();
+    let genesis_height = node.client().chain.chain_store.get_genesis_height();
+    for height in genesis_height + 1..=head_height {
+        let Ok(block_hash) = node.client().chain.chain_store.get_block_hash_by_height(height)
+        else {
+            continue;
+        };
+        let block = node.client().chain.get_block(&block_hash).unwrap();
+        for chunk_header in block.chunks().iter() {
+            if !chunk_header.is_new_chunk() {
+                continue;
+            }
+            let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+            for tx in chunk.to_transactions() {
+                if submitted.contains(&tx.get_hash()) {
+                    inclusion_heights.entry(tx.get_hash()).or_default().push(height);
+                }
+            }
+        }
+    }
+    for (tx_hash, heights) in &inclusion_heights {
+        assert_eq!(heights.len(), 1, "transaction {tx_hash} included more than once: {heights:?}");
+    }
+    assert_eq!(inclusion_heights.len(), submitted.len(), "every transfer must be included");
+    assert!(
+        inclusion_heights.values().any(|heights| heights == &vec![boundary_height]),
+        "some transfer must be included at the activation parent, so its receipt is \
+         in flight across the boundary",
+    );
+
+    // Exactly-once execution: the receiver gained exactly one deposit per transfer.
+    let final_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
+    let expected = amount.checked_mul(submitted.len() as u128).unwrap();
+    assert_eq!(
+        final_balance.checked_sub(initial_balance).unwrap(),
+        expected,
+        "every in-flight deposit must land exactly once",
+    );
 }
