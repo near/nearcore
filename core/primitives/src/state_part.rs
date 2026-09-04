@@ -16,9 +16,6 @@ use near_schema_checker_lib::ProtocolSchema;
 // TODO(#14340): Try to lower the upper bound, e.g. determine the maximum trie node size.
 const PART_SIZE_LIMIT: u64 = 512 * MIB;
 
-/// Index of a state part, in the range `0..num_parts`.
-pub type StatePartIndex = u64;
-
 /// Lower bound for the `memory_usage` a single part entry contributes.
 ///
 /// `memory_usage_direct` charges `TRIE_COSTS.node_cost` per node and
@@ -40,6 +37,9 @@ const PART_ENTRY_LIMIT: u32 =
     (2 * STATE_PART_MEMORY_LIMIT.0 / MIN_MEMORY_USAGE_PER_PART_ENTRY) as u32;
 
 /// Index of a state part, in the range `0..num_parts`.
+pub type StatePartIndex = u64;
+
+/// Identifies a state part.
 #[derive(Copy, Clone, Debug)]
 pub struct StatePartId {
     pub index: StatePartIndex,
