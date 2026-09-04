@@ -5435,10 +5435,6 @@ fn test_promise_input_size_limit_does_not_bloat_witness() {
 /// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let initial_balance = Balance::from_near(1_000_000);
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5551,10 +5547,6 @@ fn test_gas_key_add_key_conserves_supply() {
 /// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let config = RuntimeConfig::test();
     let receiver = alice_account();
     let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
