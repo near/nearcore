@@ -3,6 +3,7 @@
 use futures::FutureExt;
 use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
+use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
@@ -447,20 +448,20 @@ impl CloudArchivalWriter {
             return Ok(None);
         }
         let batch_start_epoch_id = self.epoch_manager.get_next_epoch_id(prev_epoch_end)?;
-        let (old_epoch_id, resharding_block_height, new_epoch_id) = if let Some(epoch_ending) =
-            epoch_ending_block_hash
-        {
-            let resharding_block_height =
-                self.epoch_manager.get_block_info(&epoch_ending)?.height();
-            let new_epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&epoch_ending)?;
-            (batch_start_epoch_id, resharding_block_height, new_epoch_id)
-        } else {
-            let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_epoch_end)?;
-            // In a fully-inside batch, prev_epoch_end is the old epoch's last block.
-            let resharding_block_height =
-                self.epoch_manager.get_block_info(prev_epoch_end)?.height();
-            (prev_epoch_id, resharding_block_height, batch_start_epoch_id)
-        };
+        let (old_epoch_id, old_epoch_end, resharding_block_height, new_epoch_id) =
+            if let Some(epoch_ending) = epoch_ending_block_hash {
+                let resharding_block_height =
+                    self.epoch_manager.get_block_info(&epoch_ending)?.height();
+                let new_epoch_id =
+                    self.epoch_manager.get_epoch_id_from_prev_block(&epoch_ending)?;
+                (batch_start_epoch_id, epoch_ending, resharding_block_height, new_epoch_id)
+            } else {
+                let prev_epoch_id = self.epoch_manager.get_epoch_id(prev_epoch_end)?;
+                // In a fully-inside batch, prev_epoch_end is the old epoch's last block.
+                let resharding_block_height =
+                    self.epoch_manager.get_block_info(prev_epoch_end)?.height();
+                (prev_epoch_id, *prev_epoch_end, resharding_block_height, batch_start_epoch_id)
+            };
         let new_layout = self.epoch_manager.get_shard_layout(&new_epoch_id)?;
         let old_layout = self.epoch_manager.get_shard_layout(&old_epoch_id)?;
         // A carried-over shard keeps its ShardUId across the boundary only when
@@ -471,7 +472,7 @@ impl CloudArchivalWriter {
                 new: new_layout.version(),
             });
         }
-        let sync_point = self.resharding_sync_point(&new_epoch_id)?;
+        let sync_point = self.resharding_sync_point(&new_epoch_id, &old_epoch_end)?;
         let info = ReshardingInfo {
             old_epoch_id,
             old_layout,
@@ -485,16 +486,23 @@ impl CloudArchivalWriter {
 
     /// The top of the resharding gap, the run of blocks where a new child shard has no
     /// snapshot of its own and the reader rebuilds it by walking inverse changes back from
-    /// the epoch's snapshot. `BlockHeight::MAX` until the epoch records its sync hash.
+    /// the epoch's snapshot.
     fn resharding_sync_point(
         &self,
         resharding_epoch_id: &EpochId,
+        old_epoch_end: &CryptoHash,
     ) -> Result<BlockHeight, near_chain_primitives::Error> {
         let chain_store = self.hot_store.chain_store();
-        let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(resharding_epoch_id) else {
+        let sync_hash = match chain_store.get_current_epoch_sync_hash(resharding_epoch_id) {
+            Some(sync_hash) => Some(sync_hash),
+            // A store that took the epoch's headers out of order never recorded the row,
+            // and every writer has to land on one ceiling whatever its store's history.
+            None => derive_epoch_sync_hash(&chain_store, old_epoch_end)?,
+        };
+        let Some(sync_hash) = sync_hash else {
             return Ok(BlockHeight::MAX);
         };
-        Ok(chain_store.get_block_header(&sync_hash)?.height())
+        chain_store.get_block_height(&sync_hash)
     }
 
     /// Uploads epoch data for the epoch that starts right after `prev_epoch_end`.

@@ -6,16 +6,18 @@ use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_blob_stats_are_archived, assert_resharding_epoch_snapshot_forced, assert_store_parity,
     assert_writer_agrees_with_rpc_node, assert_writer_inverse_deltas, bootstrap_historical_reader,
-    check_account_balance, check_data_at_height_for_shards, epoch_id_at, exec,
-    gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head, get_state_header_for_epoch,
-    get_writer_handle, has_state_root, run_node_until, run_receipts_of_every_kind,
-    run_until_one_epoch_after_resharding, set_scheduler_run_time, simulate_lagging_shard,
+    check_account_balance, check_data_at_height_for_shards, delete_epoch_sync_hash, epoch_id_at,
+    exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
+    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
+    run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
+    run_until_resharding_epoch_starts, set_scheduler_run_time, simulate_lagging_shard,
     snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -341,6 +343,17 @@ impl CloudArchiveHarness {
     /// Post-resharding shard layout. Requires `enable_resharding` on the builder.
     fn new_shard_layout(&self) -> &ShardLayout {
         self.new_shard_layout.as_ref().expect("enable_resharding required")
+    }
+
+    /// Runs into the resharding epoch's first blocks and returns the old epoch's last block.
+    fn run_until_resharding_epoch_starts(&mut self) -> CryptoHash {
+        let new_layout = self.new_shard_layout().clone();
+        run_until_resharding_epoch_starts(
+            &mut self.env,
+            &self.writer_id,
+            &new_layout,
+            self.epoch_length,
+        )
     }
 
     /// Runs the chain one epoch past the resharding.
@@ -2388,6 +2401,79 @@ fn test_cloud_archival_resharding_gap_inverse_walk() {
     }
 
     h.kill_historical_reader();
+    h.shutdown();
+}
+
+/// An epoch whose blocks are the newest the chain has cannot say where its sync block is yet,
+/// because that block has not been produced. Asking has to come back empty rather than fail.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_resharding_ceiling_at_the_chain_tip() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let last_block_of_prev_epoch = h.run_until_resharding_epoch_starts();
+    let store = h.writer_store();
+    let chain_store = store.chain_store();
+
+    let epoch_id = h.env.node_for_account(&h.writer_id).head().epoch_id;
+    assert!(
+        chain_store.get_current_epoch_sync_hash(&epoch_id).is_none(),
+        "the epoch already recorded its sync block, so there is nothing to work out"
+    );
+    assert_eq!(
+        derive_epoch_sync_hash(&chain_store, &last_block_of_prev_epoch).unwrap(),
+        None,
+        "the epoch named a sync block the chain has not produced"
+    );
+
+    h.shutdown();
+}
+
+/// A writer archives the same bytes whether it reads the epoch's sync block from its store or
+/// works it out from the chain. A store that received the epoch's headers out of order never
+/// records it, and it decides which blocks carry inverse state changes.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_resharding_gap_without_the_sync_hash_row() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let store = h.writer_store();
+    let chain_store = store.chain_store();
+    let epoch_header = chain_store
+        .get_block_header(&chain_store.get_block_hash_by_height(r.new_epoch_first_height).unwrap())
+        .unwrap();
+    let derived = derive_epoch_sync_hash(&chain_store, epoch_header.prev_hash()).unwrap().unwrap();
+    assert_eq!(
+        chain_store.get_block_height(&derived).unwrap(),
+        r.sync_block_height,
+        "the chain and the store disagree on where the epoch's sync block is"
+    );
+
+    // Blocks above the sync block are the ones that can differ: the sync block puts them
+    // outside the gap, and a writer that cannot find it treats every block as inside.
+    let shard_id = r.child_shard;
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
+    let with_sync_hash =
+        to_vec(&cloud_storage.get_shard_data(r.sync_block_height + 1, shard_id).unwrap().unwrap())
+            .expect("the writer archived the height while its store held the sync block");
+
+    // Take the sync block away and have the writer archive the same height again.
+    delete_epoch_sync_hash(&store, epoch_header.epoch_id());
+    h.rewind_cloud_shard_head(shard_id, r.sync_block_height);
+    h.restart_writer();
+    // One epoch past where `run_until_one_epoch_after_resharding` left the chain.
+    h.run_until(r.new_epoch_first_height + 2 * h.epoch_length);
+
+    let without_sync_hash =
+        to_vec(&cloud_storage.get_shard_data(r.sync_block_height + 1, shard_id).unwrap().unwrap())
+            .expect("the writer archived the height again with the sync block gone");
+    assert_eq!(
+        with_sync_hash, without_sync_hash,
+        "shard {shard_id} just above the sync block archives differently once it is gone"
+    );
+
     h.shutdown();
 }
 

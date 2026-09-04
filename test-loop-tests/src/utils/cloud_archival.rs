@@ -59,6 +59,18 @@ pub(crate) fn set_scheduler_run_time(store: &Store, height: BlockHeight, shard_i
     update.commit();
 }
 
+/// Removes the epoch's sync-hash row, the shape a store carries when it took the epoch's
+/// headers out of order and never ran the walk that records one.
+pub(crate) fn delete_epoch_sync_hash(store: &Store, epoch_id: &EpochId) {
+    assert!(
+        store.get_ser::<CryptoHash>(DBCol::StateSyncHashes, epoch_id.as_ref()).is_some(),
+        "the row is already absent, so removing it proves nothing"
+    );
+    let mut update = store.store_update();
+    update.delete(DBCol::StateSyncHashes, epoch_id.as_ref());
+    update.commit();
+}
+
 /// Asserts the blob at `height` carries the shard's stats in the form
 /// `archived_chunk_apply_stats` defines.
 pub(crate) fn assert_blob_stats_are_archived(
@@ -226,6 +238,34 @@ pub struct ReshardingInfo {
     pub child_shard: ShardId,
     /// A shard the resharding leaves unchanged.
     pub carried_shard: ShardId,
+}
+
+/// Runs the chain into the resharding epoch's first blocks and stops there, so the epoch's
+/// last block is the chain's own tip and nothing above it exists to read.
+pub fn run_until_resharding_epoch_starts(
+    env: &mut TestLoopEnv,
+    writer_id: &AccountId,
+    new_layout: &ShardLayout,
+    epoch_length: BlockHeightDelta,
+) -> CryptoHash {
+    let timeout = Duration::seconds((5 * epoch_length) as i64);
+    env.runner_for_account(writer_id).run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
+            node.client().epoch_manager.get_shard_layout(&epoch_id).unwrap() == *new_layout
+        },
+        timeout,
+    );
+    let node = env.node_for_account(writer_id);
+    let head = node.head().last_block_hash;
+    let epoch_manager = &node.client().epoch_manager;
+    let epoch_first = *epoch_manager.get_block_info(&head).unwrap().epoch_first_block();
+    let epoch_first_height = epoch_manager.get_block_info(&epoch_first).unwrap().height();
+    // A few blocks in, so the final head reaches the epoch and a walk over it has somewhere
+    // to go before it runs out of chain.
+    run_node_until(env, writer_id, epoch_first_height + 3);
+    let node = env.node_for_account(writer_id);
+    *node.client().epoch_manager.get_block_info(&epoch_first).unwrap().prev_hash()
 }
 
 /// Runs the chain one epoch past the resharding to `new_layout`.
