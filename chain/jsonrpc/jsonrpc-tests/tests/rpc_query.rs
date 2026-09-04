@@ -10,6 +10,7 @@ use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
 use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
+use near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 use near_network::test_utils::wait_or_timeout;
@@ -1212,6 +1213,109 @@ async fn test_experimental_view_access_key_unknown_key() {
         missing_key_signer.public_key().to_string(),
         "Error must mention missing access key"
     );
+}
+
+/// A missing account must report the account, not the key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key");
+}
+
+/// A missing account must report the account, not the gas key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_gas_key_nonces(RpcViewGasKeyNoncesRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_gas_key_nonces");
+}
+
+/// Gas-key queries have no legacy flat shape, so this stays a structured error.
+#[tokio::test]
+async fn test_query_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewGasKeyNonces {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_gas_key_nonces");
+}
+
+/// A missing account must report the account, not an empty key list. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: missing_account.clone(),
+                after_key: None,
+                limit: None,
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key_list");
+}
+
+#[tokio::test]
+async fn test_experimental_view_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key_list");
 }
 
 /// Test EXPERIMENTAL_view_access_key_list method
