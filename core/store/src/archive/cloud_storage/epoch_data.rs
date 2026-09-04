@@ -14,8 +14,10 @@ use near_schema_checker_lib::ProtocolSchema;
 
 /// Versioned container for epoch-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum EpochData {
-    V1(EpochDataV1),
+    V1(EpochDataV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]

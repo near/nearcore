@@ -8,10 +8,27 @@ use crate::archive::cloud_storage::epoch_data::build_epoch_data;
 use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
 use crate::archive::cloud_storage::shards::build_shard_batch;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
 use near_primitives::types::{BlockHeight, ShardId};
+
+/// The block head or a shard head, as stored in the archive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub(crate) enum CloudHead {
+    V1(BlockHeight) = 0,
+}
+
+impl CloudHead {
+    pub fn height(&self) -> BlockHeight {
+        match self {
+            Self::V1(height) => *height,
+        }
+    }
+}
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -162,7 +179,7 @@ impl CloudStorage {
         head: BlockHeight,
     ) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::BlockHead;
-        let blob = borsh::to_vec(&head).unwrap();
+        let blob = borsh::to_vec(&CloudHead::V1(head)).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -173,7 +190,7 @@ impl CloudStorage {
         head: BlockHeight,
     ) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::ShardHead(shard_id);
-        let blob = borsh::to_vec(&head).unwrap();
+        let blob = borsh::to_vec(&CloudHead::V1(head)).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -199,5 +216,21 @@ impl CloudStorage {
             .observe(value.len() as f64);
         timer.observe_duration();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloudHead;
+    use near_primitives::types::BlockHeight;
+
+    /// The head a writer uploads leads with its version tag.
+    #[test]
+    fn cloud_head_carries_its_version() {
+        let height: BlockHeight = 4242;
+        let blob = borsh::to_vec(&CloudHead::V1(height)).unwrap();
+        assert_eq!(blob.first(), Some(&0), "the V1 tag leads the head object");
+        assert_eq!(blob.len(), 1 + size_of::<BlockHeight>());
+        assert_eq!(borsh::from_slice::<CloudHead>(&blob).unwrap().height(), height);
     }
 }
