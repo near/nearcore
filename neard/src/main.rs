@@ -50,6 +50,11 @@ fn main() -> anyhow::Result<()> {
         unsafe { env::set_var("RUST_BACKTRACE", "1") };
     }
 
+    // If neard acts as compiler worker, enter the sandbox before creating a thread pool.
+    if env::args_os().nth(1).is_some_and(|arg| arg == "compile-wasm") {
+        near_vm_runner::compiler_daemon::daemon_main();
+    }
+
     rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
         .build_global()

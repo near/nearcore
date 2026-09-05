@@ -429,6 +429,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
+    /// Whether to use the isolated compiler-daemon subprocesses.
+    ///
+    /// Disabled by default.
+    pub enable_compiler_daemon: bool,
+
     /// Location where to store a cache of compiled contracts.
     ///
     /// This cache can be manually emptied occasionally to keep storage usage down and does not
@@ -525,6 +530,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
+            enable_compiler_daemon: false,
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,

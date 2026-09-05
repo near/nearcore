@@ -1,0 +1,686 @@
+//! Parent-side client for the out-of-process compiler daemon.
+//!
+//! A pool of worker subprocesses serves compilations in parallel, allowing
+//! independent shards to compile concurrently with independent memory limits.
+//! The pool spawns workers lazily up to a configured maximum and blocks callers
+//! when all workers are busy.
+//!
+//! Worker checkout is priority-ordered: when a worker frees up, the most urgent
+//! waiting caller is served first (see [`CompilePriority`]).
+
+use super::protocol::{
+    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
+    DaemonStatus, IsolationStatus, WorkerConfig, read_compile_response, read_frame, write_frame,
+};
+use super::watchdog::ProcessWatchdog;
+use crate::compile_priority::CompilePriority;
+use crate::compiler_daemon::{
+    DAEMON_STARTUP_TIMEOUT, DEFAULT_THREAD_STACK_SIZE_BYTES, DEFAULT_THREADS_PER_WORKER,
+    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS,
+    MIN_WORKER_MEMORY_LIMIT_BYTES,
+};
+use crate::logic::errors::{CompilationError, VMRunnerError};
+use crate::metrics::COMPILATION_PATH_TOTAL;
+use crate::wasmtime_runner::compiler_compatibility_hash;
+use near_parameters::vm::LimitConfig;
+use parking_lot::{Condvar, Mutex};
+use std::array::from_fn;
+use std::borrow::Cow;
+#[cfg(feature = "test_features")]
+use std::cell::Cell;
+use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, OnceLock};
+use std::thread::{Builder, JoinHandle, available_parallelism};
+use std::time::{Duration, Instant};
+
+static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
+static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
+static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
+static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
+
+#[cfg(feature = "test_features")]
+thread_local! {
+    static NEXT_TEST_ACTION: Cell<Option<super::protocol::TestAction>> = const { Cell::new(None) };
+}
+
+/// Set test-only behavior for the next compiler request made by the current
+/// thread.
+#[cfg(feature = "test_features")]
+pub fn set_test_action_for_next_request(action: super::protocol::TestAction) {
+    NEXT_TEST_ACTION.with(|next_action| {
+        assert!(
+            next_action.replace(Some(action)).is_none(),
+            "a compiler daemon test action is already pending"
+        );
+    });
+}
+
+/// Set the path to the binary that should be spawned as the compiler daemon.
+///
+/// Only works once, subsequent calls are ignored.
+pub fn set_daemon_binary(path: PathBuf) {
+    if DAEMON_BINARY.set(path).is_err() {
+        tracing::error!(target: "vm", "set_daemon_binary called more than once, ignoring");
+    }
+}
+
+/// Configure the maximum number of compiler-daemon worker subprocesses.
+/// Must be called before the first compilation; later calls are ignored.
+/// If never called, defaults to the smaller of CPU parallelism and
+/// `DEFAULT_TOTAL_MEMORY_BUDGET_BYTES` divided by the per-worker memory budget,
+/// clamped to `[1, MAX_POOL_SIZE]`.
+pub fn set_daemon_pool_size(size: usize) {
+    if DAEMON_POOL_SIZE.set(size).is_err() {
+        tracing::warn!(target: "vm", "set_daemon_pool_size called more than once, ignoring");
+    }
+}
+
+/// Returns true if a daemon binary has been configured via `set_daemon_binary`.
+pub fn is_daemon_configured() -> bool {
+    DAEMON_BINARY.get().is_some()
+}
+
+type CompileResult = Result<Vec<u8>, String>;
+
+fn default_worker_config() -> WorkerConfig {
+    WorkerConfig {
+        threads: DEFAULT_THREADS_PER_WORKER,
+        thread_stack_size_bytes: DEFAULT_THREAD_STACK_SIZE_BYTES,
+    }
+}
+
+struct DaemonProcess {
+    child: Arc<Mutex<Child>>,
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+    stderr_thread: Option<JoinHandle<()>>,
+    watchdog: ProcessWatchdog,
+    status: Option<DaemonStatus>,
+}
+
+impl DaemonProcess {
+    fn spawn(binary: &Path, config: WorkerConfig) -> std::io::Result<Self> {
+        // Do not inherit environment-based allocator, proxy, logging, or
+        // compiler configuration from neard. The two variables below are the
+        // explicit process-level configuration contract for the worker.
+        let mut command = Command::new(binary);
+        command
+            .arg("compile-wasm")
+            .env_clear()
+            .env(COMPILER_DAEMON_THREADS_ENV, config.threads.to_string())
+            .env(COMPILER_DAEMON_STACK_SIZE_ENV, config.thread_stack_size_bytes.to_string())
+            .current_dir("/")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn()?;
+        let stdin = child.stdin.take().expect("stdio configured as piped");
+        let stdout = child.stdout.take().expect("stdio configured as piped");
+        let child_stderr = child.stderr.take().expect("stdio configured as piped");
+        let worker_id = child.id();
+        let stderr_thread = match Builder::new()
+            .name("compiler-daemon-stderr".to_owned())
+            .spawn(move || relay_stderr(child_stderr, worker_id))
+        {
+            Ok(thread) => Some(thread),
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(err);
+            }
+        };
+        let child = Arc::new(Mutex::new(child));
+        let watchdog = match ProcessWatchdog::spawn(Arc::clone(&child)) {
+            Ok(watchdog) => watchdog,
+            Err(err) => {
+                let mut child = child.lock();
+                let _ = child.kill();
+                let _ = child.wait();
+                drop(child);
+                if let Some(stderr_thread) = stderr_thread {
+                    let _ = stderr_thread.join();
+                }
+                return Err(err);
+            }
+        };
+        let mut process = Self { child, stdin, stdout, stderr_thread, watchdog, status: None };
+        process.status = Some(process.wait_for_startup(config)?);
+        Ok(process)
+    }
+
+    fn wait_for_startup(&mut self, config: WorkerConfig) -> std::io::Result<DaemonStatus> {
+        let generation = self
+            .watchdog
+            .arm(DAEMON_STARTUP_TIMEOUT)
+            .map_err(|err| IoError::new(ErrorKind::BrokenPipe, err))?;
+        let result = read_frame(&mut self.stdout)
+            .map_err(|err| format!("failed to read startup response: {err}"))
+            .and_then(|bytes| {
+                let startup: DaemonStartup = borsh::from_slice(&bytes)
+                    .map_err(|err| format!("failed to deserialize startup response: {err}"))?;
+                match startup {
+                    DaemonStartup::Ready(status) => validate_daemon_status(status, config),
+                    DaemonStartup::Err(err) => Err(err),
+                }
+            });
+        self.watchdog
+            .finish(generation, DAEMON_STARTUP_TIMEOUT, "startup", result)
+            .map_err(IoError::other)
+    }
+
+    /// Send a compilation request and read the response. Returns:
+    /// - `Ok(Ok(bytes))` -- compilation succeeded
+    /// - `Ok(Err(msg))` -- daemon reported a compilation error (not retryable)
+    /// - `Err(msg)` -- IPC failure, daemon likely crashed (retryable)
+    fn compile_raw(&mut self, request: &CompileRequest<'_>) -> Result<CompileResult, String> {
+        let request_bytes =
+            borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
+        // The test-only `Timeout` action exercises watchdog recovery from an
+        // unresponsive worker. Normal compilation requests have no deadline
+        // right now, since we decided a hanging node is preferable to crashing
+        // or committing a potentially nondeterministic error.
+        let timeout = compilation_request_timeout(request);
+        let generation = timeout.map(|timeout| self.watchdog.arm(timeout)).transpose()?;
+        let result = write_frame(&mut self.stdin, &request_bytes)
+            .map_err(|e| format!("failed to send to compiler daemon: {e}"))
+            .and_then(|()| {
+                read_compile_response(&mut self.stdout)
+                    .map_err(|e| format!("failed to read from compiler daemon: {e}"))
+            });
+        if let (Some(generation), Some(timeout)) = (generation, timeout) {
+            self.watchdog.finish(generation, timeout, "compilation request", result)
+        } else {
+            result
+        }
+    }
+
+    fn status(&self) -> &DaemonStatus {
+        self.status.as_ref().expect("daemon startup status unavailable")
+    }
+
+    fn is_alive(&self) -> bool {
+        matches!(self.child.lock().try_wait(), Ok(None))
+    }
+
+    /// OS process ID for diagnostic logging.
+    ///
+    /// Note: Pool bookkeeping uses leases and does not depend on this ID.
+    fn id(&self) -> u32 {
+        self.child.lock().id()
+    }
+}
+
+fn validate_daemon_status(
+    status: DaemonStatus,
+    expected_config: WorkerConfig,
+) -> Result<DaemonStatus, String> {
+    let expected_hash = EXPECTED_COMPILER_COMPATIBILITY_HASH
+        .get_or_init(|| {
+            compiler_compatibility_hash()
+                .map_err(|err| format!("failed to create local compatibility engine: {err}"))
+        })
+        .clone()?;
+    if status.compiler_compatibility_hash != expected_hash {
+        return Err(format!(
+            "compiler compatibility mismatch: daemon reported {}, expected {expected_hash}",
+            status.compiler_compatibility_hash
+        ));
+    }
+    if status.worker_config != expected_config {
+        return Err(format!(
+            "compiler daemon configuration mismatch: daemon reported {} threads with {} byte stacks, expected {} threads with {} byte stacks",
+            status.worker_config.threads,
+            status.worker_config.thread_stack_size_bytes,
+            expected_config.threads,
+            expected_config.thread_stack_size_bytes,
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    if !matches!(status.isolation, IsolationStatus::LinuxLandlock { abi: 1.. }) {
+        return Err(format!(
+            "compiler daemon did not enable landlock isolation: {:?}; ensure the kernel is at least 5.13, CONFIG_SECURITY_LANDLOCK is enabled, landlock is in the active LSM list, and the container seccomp profile allows landlock syscalls, or disable enable_compiler_daemon",
+            status.isolation
+        ));
+    }
+    #[cfg(not(target_os = "linux"))]
+    if status.isolation != IsolationStatus::Unavailable {
+        return Err(format!("unexpected compiler daemon isolation: {:?}", status.isolation));
+    }
+    Ok(status)
+}
+
+fn compilation_request_timeout(_request: &CompileRequest<'_>) -> Option<Duration> {
+    #[cfg(feature = "test_features")]
+    if _request.test_action == Some(super::protocol::TestAction::Timeout) {
+        return Some(Duration::from_millis(100));
+    }
+    None
+}
+
+impl Drop for DaemonProcess {
+    fn drop(&mut self) {
+        self.watchdog.shutdown();
+        let mut child = self.child.lock();
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(child);
+        if let Some(stderr_thread) = self.stderr_thread.take() {
+            let _ = stderr_thread.join();
+        }
+    }
+}
+
+/// Drain worker stderr so it cannot block on a full pipe.
+///
+/// Limit the data sent to neard's structured logs per time interval, discarding
+/// excess output, to avoid unbounded memory usage on neard.
+fn relay_stderr(mut child_stderr: ChildStderr, worker_id: u32) {
+    let stderr_relay_interval = Duration::from_secs(60);
+    let stderr_relay_limit_bytes = bytesize::kib(256u64);
+
+    let mut buffer = [0; 4096];
+    let mut interval_start = Instant::now();
+    let mut relayed = 0;
+    let mut rate_limit_reported = false;
+
+    loop {
+        let count = match read_retrying_on_interrupt(&mut child_stderr, &mut buffer) {
+            Ok(0) => return,
+            Ok(count) => count as u64,
+            Err(err) => {
+                tracing::warn!(target: "vm", worker_id, %err, "failed to read compiler daemon stderr");
+                return;
+            }
+        };
+        if interval_start.elapsed() >= stderr_relay_interval {
+            interval_start = Instant::now();
+            relayed = 0;
+            rate_limit_reported = false;
+        }
+
+        let relay_count = count.min(stderr_relay_limit_bytes.saturating_sub(relayed));
+        if relay_count > 0 {
+            let output = String::from_utf8_lossy(&buffer[..relay_count as usize]);
+            tracing::warn!(target: "vm", worker_id, stderr = %output, "compiler daemon stderr");
+            relayed += relay_count;
+        }
+        if relay_count < count && !rate_limit_reported {
+            tracing::warn!(target: "vm", worker_id, "compiler daemon stderr rate limit exceeded");
+            rate_limit_reported = true;
+        }
+    }
+}
+
+fn read_retrying_on_interrupt(reader: &mut impl Read, buffer: &mut [u8]) -> IoResult<usize> {
+    loop {
+        match reader.read(buffer) {
+            Err(err) if err.kind() == ErrorKind::Interrupted => {}
+            result => return result,
+        }
+    }
+}
+
+struct PoolInner {
+    /// Workers that are spawned and currently idle, ready to be checked out.
+    idle: Vec<DaemonProcess>,
+    /// Number of workers currently "live": idle + checked-out + being-spawned.
+    /// This is the permit count; invariant: `idle.len() <= live <= max_workers`.
+    live: usize,
+    /// Number of callers blocked waiting for a worker, per priority class.
+    waiters: [usize; CompilePriority::COUNT],
+    /// Maximum `live` ever reached. Diagnostic witness that parallelism
+    /// occurred (used by tests).
+    #[cfg(feature = "test_features")]
+    high_water: usize,
+}
+
+struct DaemonPool {
+    binary: PathBuf,
+    worker_config: WorkerConfig,
+    max_workers: usize,
+    inner: Mutex<PoolInner>,
+    /// One wait queue per priority class; index by `CompilePriority::index`.
+    avail: [Condvar; CompilePriority::COUNT],
+}
+
+impl DaemonPool {
+    /// Block until a worker is available.
+    fn checkout(&self, priority: CompilePriority) -> Result<DaemonProcess, String> {
+        let idx = priority.index();
+        let mut inner = self.inner.lock();
+        // Register before inspecting capacity so a newly arriving lower-priority
+        // caller cannot steal a worker from an already-waiting higher-priority
+        // caller while the latter is waking up.
+        inner.waiters[idx] += 1;
+
+        loop {
+            if !priority_may_checkout(priority, &inner.waiters) {
+                self.avail[idx].wait(&mut inner);
+                continue;
+            }
+
+            // 1. Reuse an idle worker, draining any that have died. Reap dead
+            // workers without holding the pool lock because their destructors
+            // join threads and wait for processes.
+            let mut dead_workers = Vec::new();
+            while let Some(worker) = inner.idle.pop() {
+                if worker.is_alive() {
+                    inner.waiters[idx] -= 1;
+                    if !dead_workers.is_empty() || !inner.idle.is_empty() {
+                        self.wake_one(&inner);
+                    }
+                    drop(inner);
+                    drop(dead_workers);
+                    return Ok(worker);
+                }
+                inner.live -= 1;
+                dead_workers.push(worker);
+            }
+            if !dead_workers.is_empty() {
+                // The current caller can consume one freed permit. Wake
+                // another waiter so it can consume the remaining capacity.
+                self.wake_one(&inner);
+                drop(inner);
+                drop(dead_workers);
+                inner = self.inner.lock();
+                continue;
+            }
+
+            // 2. No idle worker: spawn one if we have headroom. Reserve the
+            //    permit first, then spawn WITHOUT holding the lock (fork/exec
+            //    can block and must not stall other callers).
+            if inner.live < self.max_workers {
+                inner.live += 1;
+                inner.waiters[idx] -= 1;
+                #[cfg(feature = "test_features")]
+                {
+                    inner.high_water = inner.high_water.max(inner.live);
+                }
+                if inner.live < self.max_workers {
+                    self.wake_one(&inner);
+                }
+                drop(inner);
+                return match DaemonProcess::spawn(&self.binary, self.worker_config) {
+                    Ok(worker) => Ok(worker),
+                    Err(e) => {
+                        let mut inner = self.inner.lock();
+                        inner.live -= 1;
+                        self.wake_one(&inner);
+                        Err(format!("failed to spawn compiler daemon: {e}"))
+                    }
+                };
+            }
+
+            // 3. All permits in use and none idle: wait on our priority.
+            self.avail[idx].wait(&mut inner);
+        }
+    }
+
+    fn wake_one(&self, inner: &PoolInner) {
+        if let Some(idx) = highest_priority_waiter(&inner.waiters) {
+            self.avail[idx].notify_one();
+        }
+    }
+}
+
+/// Index of the highest-priority class with at least one waiter.
+///
+/// Pure helper so the selection is unit-testable without spawning processes or
+/// relying on timing.
+fn highest_priority_waiter(waiters: &[usize; CompilePriority::COUNT]) -> Option<usize> {
+    (0..CompilePriority::COUNT).find(|&idx| waiters[idx] > 0)
+}
+
+/// Whether a registered caller may claim currently available capacity.
+fn priority_may_checkout(
+    priority: CompilePriority,
+    waiters: &[usize; CompilePriority::COUNT],
+) -> bool {
+    highest_priority_waiter(waiters) == Some(priority.index())
+}
+
+/// RAII handle for a worker checked out of the pool.
+struct Lease {
+    pool: &'static DaemonPool,
+    worker: Option<DaemonProcess>,
+}
+
+impl Lease {
+    /// Return a healthy worker to the idle set, releasing it for reuse.
+    fn check_in(mut self) {
+        if let Some(worker) = self.worker.take() {
+            let mut inner = self.pool.inner.lock();
+            inner.idle.push(worker);
+            self.pool.wake_one(&mut inner);
+        }
+    }
+
+    /// Drop crashed worker and free its permit.
+    fn discard(mut self) {
+        if let Some(worker) = self.worker.take() {
+            drop(worker);
+            let mut inner = self.pool.inner.lock();
+            inner.live -= 1;
+            self.pool.wake_one(&mut inner);
+        }
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        // Fail-safe reached only if neither check_in nor discard ran (e.g. a
+        // panic mid compile). Drop the worker and free the permit.
+        if let Some(worker) = self.worker.take() {
+            drop(worker);
+            let mut inner = self.pool.inner.lock();
+            inner.live -= 1;
+            self.pool.wake_one(&mut inner);
+        }
+    }
+}
+/// Default worker count when not configured: the smaller of two bounds, then
+/// clamped to `[1, MAX_POOL_SIZE]`.
+///
+/// - CPU: `available_parallelism()`. Each worker compiles with the full rayon
+///   pool, so more workers than cores only adds contention.
+/// - Memory: `DEFAULT_TOTAL_MEMORY_BUDGET_BYTES /
+///   MIN_WORKER_MEMORY_LIMIT_BYTES`. Keeping `workers × per_worker_limit`
+///   within the configured RAM budget is what stops a burst of compilations
+///   from tripping the kernel OOM killer and taking neard with it.
+fn default_pool_size() -> usize {
+    let by_cpu = available_parallelism().map_or(4, |n| n.get());
+    let by_memory = (DEFAULT_TOTAL_MEMORY_BUDGET_BYTES / MIN_WORKER_MEMORY_LIMIT_BYTES) as usize;
+    by_cpu.min(by_memory).clamp(1, MAX_POOL_SIZE)
+}
+
+fn get_or_init_pool() -> &'static DaemonPool {
+    DAEMON_POOL.get_or_init(|| {
+        let binary = DAEMON_BINARY.get().expect("daemon binary not configured").clone();
+        let max_workers = DAEMON_POOL_SIZE
+            .get()
+            .copied()
+            .unwrap_or_else(default_pool_size)
+            .clamp(1, MAX_POOL_SIZE);
+        DaemonPool {
+            binary,
+            worker_config: default_worker_config(),
+            max_workers,
+            inner: Mutex::new(PoolInner {
+                idle: Vec::new(),
+                live: 0,
+                waiters: [0; CompilePriority::COUNT],
+                #[cfg(feature = "test_features")]
+                high_water: 0,
+            }),
+            avail: from_fn(|_| Condvar::new()),
+        }
+    })
+}
+
+/// Eagerly start and validate one worker, leaving it idle in the pool.
+///
+/// This verifies IPC compatibility, compiler settings, and effective process
+/// isolation before the node starts serving requests.
+pub fn start_daemon() -> Result<DaemonStatus, String> {
+    let pool = get_or_init_pool();
+    let worker = pool.checkout(CompilePriority::Critical)?;
+    let status = worker.status().clone();
+    Lease { pool, worker: Some(worker) }.check_in();
+    Ok(status)
+}
+
+/// Compile prepared WASM code in an out-of-process daemon worker.
+///
+/// The inner result contains errors reported by the compiler. The outer result
+/// contains failures which prevented the compiler worker from returning a
+/// compilation result.
+///
+/// Blocks if all workers are busy and serves waiting callers by priority.
+/// Panics if no daemon binary has been configured via `set_daemon_binary`.
+pub fn compile_in_subprocess(
+    prepared_code: &[u8],
+    limit_config: &LimitConfig,
+    priority: CompilePriority,
+) -> Result<Result<Vec<u8>, CompilationError>, VMRunnerError> {
+    let request = CompileRequest {
+        prepared_code: Cow::Borrowed(prepared_code),
+        max_memory_pages: limit_config.max_memory_pages,
+        #[cfg(feature = "test_features")]
+        test_action: NEXT_TEST_ACTION.with(Cell::take),
+    };
+
+    let pool = get_or_init_pool();
+
+    let mut last_err = String::new();
+    for attempt in 0..MAX_REQUEST_ATTEMPTS {
+        COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
+        let mut lease = match pool.checkout(priority) {
+            Ok(worker) => Lease { pool, worker: Some(worker) },
+            Err(spawn_err) => {
+                tracing::warn!(
+                    target: "vm",
+                    attempt,
+                    err = %spawn_err,
+                    "failed to spawn compiler daemon worker"
+                );
+                last_err = spawn_err;
+                continue;
+            }
+        };
+        let worker_id = lease.worker.as_ref().unwrap().id();
+        match lease.worker.as_mut().unwrap().compile_raw(&request) {
+            Ok(Ok(bytes)) => {
+                lease.check_in();
+                return Ok(Ok(bytes));
+            }
+            Ok(Err(msg)) => {
+                // Compilation error: the worker is healthy, not retryable.
+                lease.check_in();
+                return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
+            }
+            Err(ipc_err) => {
+                tracing::warn!(
+                    target: "vm",
+                    attempt,
+                    worker_id,
+                    err = %ipc_err,
+                    "compiler daemon worker failed, re-spawning"
+                );
+                last_err = ipc_err;
+                lease.discard();
+            }
+        }
+    }
+    tracing::error!(
+        target: "vm",
+        attempts = MAX_REQUEST_ATTEMPTS,
+        err = %last_err,
+        "compiler daemon failed, giving up"
+    );
+    Err(VMRunnerError::WasmCompilationUnknownError { debug_message: last_err })
+}
+
+/// Maximum number of worker subprocesses ever spawned concurrently.
+///
+/// Diagnostic helper for tests to witness that parallel compilation actually occurred.
+#[cfg(feature = "test_features")]
+pub fn spawned_worker_high_water() -> usize {
+    get_or_init_pool().inner.lock().high_water
+}
+
+/// Current worker counts for tests checking that all pool leases were returned.
+#[cfg(feature = "test_features")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkerPoolState {
+    pub live: usize,
+    pub idle: usize,
+}
+
+#[cfg(feature = "test_features")]
+pub fn worker_pool_state() -> WorkerPoolState {
+    let inner = get_or_init_pool().inner.lock();
+    WorkerPoolState { live: inner.live, idle: inner.idle.len() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{highest_priority_waiter, priority_may_checkout, read_retrying_on_interrupt};
+    use crate::compile_priority::CompilePriority;
+    use std::io::{Cursor, Error, ErrorKind, Read, Result};
+
+    struct InterruptedOnce {
+        interrupted: bool,
+        input: Cursor<&'static [u8]>,
+    }
+
+    impl Read for InterruptedOnce {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(Error::from(ErrorKind::Interrupted));
+            }
+            self.input.read(buffer)
+        }
+    }
+
+    #[test]
+    fn stderr_read_retries_when_interrupted() {
+        let mut input =
+            InterruptedOnce { interrupted: false, input: Cursor::new(b"daemon output") };
+        let mut buffer = [0; 32];
+
+        let count = read_retrying_on_interrupt(&mut input, &mut buffer).unwrap();
+
+        assert_eq!(&buffer[..count], b"daemon output");
+    }
+
+    #[test]
+    fn wakes_highest_priority_class_first() {
+        let critical = CompilePriority::Critical.index();
+        let interactive = CompilePriority::Interactive.index();
+        let background = CompilePriority::Background.index();
+
+        // No waiters -> nobody to wake.
+        assert_eq!(highest_priority_waiter(&[0, 0, 0]), None);
+        // Only background waiting.
+        assert_eq!(highest_priority_waiter(&[0, 0, 5]), Some(background));
+        // Interactive beats background.
+        assert_eq!(highest_priority_waiter(&[0, 3, 5]), Some(interactive));
+        // Critical beats everything.
+        assert_eq!(highest_priority_waiter(&[2, 3, 5]), Some(critical));
+    }
+
+    #[test]
+    fn only_highest_priority_waiters_may_checkout() {
+        let waiters = [1, 1, 1];
+        assert!(priority_may_checkout(CompilePriority::Critical, &waiters));
+        assert!(!priority_may_checkout(CompilePriority::Interactive, &waiters));
+        assert!(!priority_may_checkout(CompilePriority::Background, &waiters));
+
+        let waiters = [0, 1, 1];
+        assert!(priority_may_checkout(CompilePriority::Interactive, &waiters));
+        assert!(!priority_may_checkout(CompilePriority::Background, &waiters));
+    }
+}
