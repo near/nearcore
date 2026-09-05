@@ -19,7 +19,9 @@ use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
-use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::epoch_sync::{
+    CompressedEpochSyncProof, CompressedEpochSyncProofBatch, CompressedEpochSyncProofManifest,
+};
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -237,17 +239,34 @@ pub enum SnapshotHostEvent {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Arc<Block> },
+    Block {
+        block: Arc<Block>,
+    },
     /// Sends optimistic block as soon as the production window for the height starts.
-    OptimisticBlock { chunk_producers: Arc<Vec<AccountId>>, optimistic_block: OptimisticBlock },
+    OptimisticBlock {
+        chunk_producers: Arc<Vec<AccountId>>,
+        optimistic_block: OptimisticBlock,
+    },
     /// Sends approval.
-    Approval { approval_message: ApprovalMessage },
+    Approval {
+        approval_message: ApprovalMessage,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state header for given shard and given sync hash.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, sync_prev_prev_hash: CryptoHash },
+    StateRequestHeader {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        sync_prev_prev_hash: CryptoHash,
+    },
     /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,
@@ -264,7 +283,10 @@ pub enum NetworkRequests {
         peer_id: PeerId,
     },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
@@ -277,14 +299,20 @@ pub enum NetworkRequests {
         create_time: time::Instant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunkResponse { route_back: CryptoHash, response: PartialEncodedChunkResponseMsg },
+    PartialEncodedChunkResponse {
+        route_back: CryptoHash,
+        response: PartialEncodedChunkResponseMsg,
+    },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
+    },
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
@@ -298,9 +326,31 @@ pub enum NetworkRequests {
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, VersionedPartialEncodedStateWitness),
     /// Requests an epoch sync
-    EpochSyncRequest { peer_id: PeerId },
+    EpochSyncRequest {
+        peer_id: PeerId,
+    },
     /// Response to an epoch sync request
-    EpochSyncResponse { peer_id: PeerId, proof: CompressedEpochSyncProof },
+    EpochSyncResponse {
+        peer_id: PeerId,
+        proof: CompressedEpochSyncProof,
+    },
+    EpochSyncManifestRequest {
+        peer_id: PeerId,
+    },
+    EpochSyncManifestResponse {
+        peer_id: PeerId,
+        manifest: CompressedEpochSyncProofManifest,
+    },
+    EpochSyncBatchRequest {
+        peer_id: PeerId,
+        batch_index: u64,
+    },
+    /// Response to a batched epoch sync proof chunk request.
+    EpochSyncBatchResponse {
+        peer_id: PeerId,
+        batch_index: u64,
+        batch: CompressedEpochSyncProofBatch,
+    },
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
     /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
@@ -314,11 +364,17 @@ pub enum NetworkRequests {
     /// containing the code of the newly-deployed contracts during the main state transition of the witness.
     PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
     /// Message containing spice partial data.
-    SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
+    SpicePartialData {
+        partial_data: SpicePartialData,
+        recipients: HashSet<AccountId>,
+    },
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
-    SpiceDataRequest { request: SpiceDataRequest, producer: AccountId },
+    SpiceDataRequest {
+        request: SpiceDataRequest,
+        producer: AccountId,
+    },
     /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
     SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
     /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
