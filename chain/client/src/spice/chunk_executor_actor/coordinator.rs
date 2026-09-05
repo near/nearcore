@@ -165,6 +165,33 @@ impl ChunkExecutorActor {
             .find(|executor| executor.shard_uid().shard_id() == shard_id)
     }
 
+    /// The executor that receipts from `source_block_hash` to `to_shard` route to.
+    /// They are applied in the block after the source block, so the shard is resolved
+    /// in that block's layout. A tracked shard whose executor reconcile has not created
+    /// yet (before the first processed block, or across an epoch boundary) gets one
+    /// here instead of the delivery being dropped. `None` if the shard is not tracked.
+    fn executor_for_incoming_receipt(
+        &mut self,
+        source_block_hash: &CryptoHash,
+        to_shard: ShardId,
+    ) -> Result<Option<&mut PerShardChunkExecutor>, Error> {
+        let existing =
+            self.per_shard_executors.keys().find(|uid| uid.shard_id() == to_shard).copied();
+        let shard_uid = match existing {
+            Some(shard_uid) => shard_uid,
+            None => {
+                let tracked =
+                    self.shard_tracker.tracked_shard_uids_this_or_next_epoch(source_block_hash)?;
+                let Some(shard_uid) = tracked.into_iter().find(|uid| uid.shard_id() == to_shard)
+                else {
+                    return Ok(None);
+                };
+                shard_uid
+            }
+        };
+        Ok(Some(self.get_or_create_per_shard_executor(shard_uid)))
+    }
+
     /// Spawn executors for shards tracked this or next epoch and evict ones no
     /// longer tracked. The this-or-next-epoch set matches the
     /// `should_apply_chunk(IsCaughtUp, ..)` gate the monolithic executor used:
@@ -382,6 +409,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
         let DataId::ReceiptProof { source, to_shard } = &data_id;
         let block_hash = source.block_hash;
+        let to_shard_id = *to_shard;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
@@ -390,18 +418,16 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = *to_shard;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
-        // TODO(spice-data-distribution): a dropped delivery leaves the data manager's item
-        // parked with no verification result until it expires; once pulls exist that is a
-        // proof never re-fetched. Create the executor for a shard tracked as of the source
-        // block instead of dropping (#16275).
-        let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
-            tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
-            return;
+        let executor = match self.executor_for_incoming_receipt(&block_hash, to_shard_id) {
+            Ok(Some(executor)) => executor,
+            Ok(None) => {
+                tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
+                return;
+            }
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, ?to_shard_id, "failed to resolve the executor for incoming receipts");
+                return;
+            }
         };
         if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");

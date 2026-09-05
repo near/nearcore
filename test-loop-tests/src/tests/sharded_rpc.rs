@@ -185,9 +185,6 @@ fn test_rpc_query_unknown_access_key_error_format() {
 
 /// Standard `query` ViewCode should be forwarded to the right shard.
 #[test]
-// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
-// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_code_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -219,7 +216,6 @@ fn test_rpc_query_view_code_forwarding() {
 
 /// Standard `query` ViewState should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_state_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -308,7 +304,6 @@ fn test_rpc_query_view_access_key_list_forwarding() {
 
 /// Standard `query` CallFunction should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_call_function_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -387,7 +382,6 @@ fn test_rpc_query_view_gas_key_nonces_forwarding() {
 
 /// Standard `query` ViewGlobalContractCodeByAccountId should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -440,7 +434,6 @@ fn test_rpc_query_view_global_contract_code_by_account_id_forwarding() {
 /// Cross-shard CallFunction that triggers a VM error should return the backward-compatible
 /// error format from `process_query_response`.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_query_call_function_error_format() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -550,7 +543,6 @@ fn test_rpc_receipt_forwarding() {
 
 /// EXPERIMENTAL_view_code queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_view_code_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -578,7 +570,6 @@ fn test_rpc_experimental_view_code_forwarding() {
 
 /// EXPERIMENTAL_view_state queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_view_state_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -729,7 +720,6 @@ fn test_rpc_experimental_view_gas_key_nonces_forwarding() {
 
 /// EXPERIMENTAL_call_function queries should be forwarded to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_call_function_forwarding() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -953,7 +943,6 @@ fn test_rpc_experimental_view_code_error_format() {
 
 /// Cross-shard EXPERIMENTAL_call_function on a nonexistent method should return a proper error.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_experimental_call_function_error_format() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1044,7 +1033,6 @@ fn test_rpc_view_account_finality_final() {
 /// Queries with Finality::DoomSlug should route correctly and reference a
 /// near-final block.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_view_account_finality_doomslug() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1085,7 +1073,6 @@ fn test_rpc_view_account_finality_doomslug() {
 /// Note: this test verifies routing, not that the result comes from the final
 /// block's state specifically.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_call_function_finality_final() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1408,7 +1395,6 @@ fn test_rpc_light_client_proof_unknown_outcome() {
 /// `block_effects` should scatter-gather across shards: an RPC node tracking
 /// only one shard should return changes for ALL shards by forwarding to peers.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_in_block_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1466,7 +1452,6 @@ fn test_rpc_changes_in_block_scatter_gather() {
 /// accounts on different shards from a node that only tracks one shard should
 /// return results for all requested accounts.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();
@@ -1628,7 +1613,6 @@ fn test_rpc_changes_empty_account_ids_scatter_gather() {
 /// `changes` with SingleAccessKeyChanges variant should scatter-gather
 /// correctly, routing by the access key's account_id to the right shard.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_changes_single_access_key_scatter_gather() {
     init_test_logger();
     let mut h = TwoShardHarness::new();

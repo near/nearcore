@@ -1,4 +1,5 @@
 use super::DataManagerError;
+use super::scheduler::{Backoff, TimingConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Clock, Instant};
 use near_primitives::hash::{CryptoHash, hash};
@@ -8,17 +9,19 @@ use near_primitives::reed_solomon::{
     ReedSolomonEncoderSerialize, ReedSolomonPartsTracker, reed_solomon_part_length,
 };
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
+use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataIdentifier};
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
-use std::mem::replace;
+use std::mem::{replace, take};
 use std::sync::Arc;
+use time::ext::InstantExt as _;
 
 /// Identity of one piece of distributed data the engine tracks.
 // TODO(spice-data-distribution): witnesses and contract code move here when their
 // paths switch to the engine (#16275).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataId {
     /// `source` is the chunk whose execution produced the receipts; `to_shard` is their
     /// destination. Produced by `source`'s producers, needed by next-block producers of
@@ -51,6 +54,18 @@ impl DataId {
             return Err(AssembledDataError::InvalidFromShardId);
         }
         Ok(())
+    }
+}
+
+impl From<&DataId> for SpiceDataIdentifier {
+    fn from(id: &DataId) -> Self {
+        match id {
+            DataId::ReceiptProof { source, to_shard } => SpiceDataIdentifier::ReceiptProof {
+                block_hash: source.block_hash,
+                from_shard_id: source.shard_id,
+                to_shard_id: *to_shard,
+            },
+        }
     }
 }
 
@@ -110,23 +125,30 @@ pub(crate) struct FetchItem {
     pub(crate) height: BlockHeight,
     /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace clock.
     pub(crate) first_unit_at: Option<Instant>,
+    pub(crate) pull: PullTiming,
 }
 
 impl FetchItem {
     pub(crate) fn waiting_for_push(height: BlockHeight) -> Self {
-        Self { state: FetchState::WaitingForPush, height, first_unit_at: None }
+        Self {
+            state: FetchState::WaitingForPush,
+            height,
+            first_unit_at: None,
+            pull: PullTiming::default(),
+        }
     }
 
     // TODO(spice-data-distribution): production callers land with the pull path (#16275).
     #[allow(dead_code)]
     pub(crate) fn collecting(encoder: Arc<ReedSolomonEncoder>, height: BlockHeight) -> Self {
-        Self { state: FetchState::Collecting(Assembly::new(encoder)), height, first_unit_at: None }
+        Self {
+            state: FetchState::Collecting(Assembly::new(encoder)),
+            ..Self::waiting_for_push(height)
+        }
     }
 
     /// Starts a speculative pull: a waiting item begins collecting before any part
     /// arrived. Does nothing unless the item is waiting for the push.
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
     pub(crate) fn start_pulling(&mut self, encoder: Arc<ReedSolomonEncoder>) -> bool {
         if !matches!(self.state, FetchState::WaitingForPush) {
             return false;
@@ -217,6 +239,78 @@ impl FetchItem {
             state => (state, Err(DataManagerError::NotDelivered)),
         })
     }
+}
+
+/// Timing state for one item's pulls.
+#[derive(Debug, Default)]
+pub(crate) struct PullTiming {
+    /// Outstanding pull requests
+    pub(crate) in_flight: Vec<InFlightRequest>,
+    /// Retry ladder position for this item's pulls.
+    pub(crate) backoff: Backoff,
+    /// The currently scheduled wake-up; a popped scheduler entry with any other instant is stale.
+    pub(crate) next_deadline: Option<Instant>,
+    /// Pull requests sent for this item so far; rotates the source, so a retry moves to
+    /// another producer even when the backoff ladder did not advance.
+    pub(crate) requests_sent: u64,
+}
+
+impl PullTiming {
+    /// True if an outstanding request already asks for `ordinal`.
+    pub(crate) fn has_in_flight_request_for(&self, ordinal: u64) -> bool {
+        self.in_flight.iter().any(|request| request.ordinals.contains(&ordinal))
+    }
+
+    /// Drops the outstanding requests to `source`: it responded, so it is neither
+    /// currently asked nor a timeout candidate.
+    pub(crate) fn clear_in_flight_from(&mut self, source: &AccountId) {
+        self.in_flight.retain(|request| &request.source != source);
+    }
+
+    /// Removes and returns the requests unanswered for at least `request_timeout`;
+    /// their ordinals may be requested again.
+    /// Leaves `backoff` untouched: timing out is not a retry decision.
+    pub(crate) fn take_timed_out_requests(
+        &mut self,
+        config: &TimingConfig,
+        now: Instant,
+    ) -> Vec<InFlightRequest> {
+        let (timed_out, live): (Vec<_>, Vec<_>) =
+            take(&mut self.in_flight).into_iter().partition(|request| {
+                now.signed_duration_since(request.sent_at) >= config.request_timeout
+            });
+        self.in_flight = live;
+        timed_out
+    }
+
+    /// Recomputes the next deadline: the sooner of the next backoff interval and the
+    /// oldest outstanding request's timeout. Sets and returns `next_deadline`.
+    #[must_use = "the returned deadline must be scheduled, or the item is never woken"]
+    pub(crate) fn reschedule(
+        &mut self,
+        config: &TimingConfig,
+        now: Instant,
+        rng: &mut impl Rng,
+    ) -> Instant {
+        let backoff_deadline = now.add_signed(self.backoff.next_interval(config, rng));
+        let timeout_deadline = self
+            .in_flight
+            .iter()
+            .map(|request| request.sent_at.add_signed(config.request_timeout))
+            .min();
+        let deadline = timeout_deadline.map_or(backoff_deadline, |at| at.min(backoff_deadline));
+        self.next_deadline = Some(deadline);
+        deadline
+    }
+}
+
+/// One outstanding pull request to one peer.
+#[derive(Debug)]
+pub(crate) struct InFlightRequest {
+    pub(crate) source: AccountId,
+    pub(crate) sent_at: Instant,
+    /// Requested part ordinals.
+    pub(crate) ordinals: Vec<u64>,
 }
 
 /// A coded part whose merkle proof was verified against its commitment's root;
@@ -337,15 +431,11 @@ impl Assembly {
         Ok(result)
     }
 
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
     pub(crate) fn is_complete(&self) -> bool {
         self.trackers.values().any(CodedTracker::is_complete)
     }
 
     /// Ordinals to ask for: an ordinal is skipped only if held under every commitment.
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
     pub(crate) fn missing_ordinals(&self) -> Vec<u64> {
         (0..self.encoder.total_parts())
             .filter(|ordinal| {
