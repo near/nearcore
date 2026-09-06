@@ -20,7 +20,10 @@ pub(crate) fn open_rocksdb(
         &home.join(nearcore::config::CONFIG_FILENAME),
     )?;
     let store_config = &config.store;
-    let db_path = store_config.path.as_ref().cloned().unwrap_or_else(|| home.join("data"));
+    // `StoreOpener` resolves a relative `store.path` against the home directory, so an
+    // archival node whose config says `hot-data` means `<home>/hot-data`. Joining an
+    // absolute path leaves it as it is.
+    let db_path = home.join(store_config.path.as_deref().unwrap_or_else(|| Path::new("data")));
     let rocksdb =
         near_store::db::RocksDB::open(&db_path, store_config, mode, near_store::Temperature::Hot)?;
     Ok(rocksdb)
