@@ -173,7 +173,7 @@ fn recover_shard_1_at_block_height_115185108(
 /// column held a bare `LightClientBlockView`.
 ///
 /// `InnerLite` and `ValidatorStake` vary because the view changed shape several times
-/// inside version 50. [`LightClientRowLayout`] names each shape.
+/// inside version 50. [`LightClientRowLayout`] names the shapes a stored row can be in.
 #[derive(BorshSerialize, BorshDeserialize)]
 struct UnversionedRow<InnerLite, ValidatorStake> {
     prev_block_hash: CryptoHash,
@@ -248,7 +248,6 @@ impl From<InnerLiteWithRoot> for StoredBlockHeaderInnerLiteV1 {
     }
 }
 
-/// Lifts the validator stake shape a row was written with into the current view.
 trait IntoValidatorStakeView {
     fn into_validator_stake_view(self) -> ValidatorStakeView;
 }
@@ -259,8 +258,7 @@ impl IntoValidatorStakeView for ValidatorStakeView {
     }
 }
 
-/// #4179 wrapped `ValidatorStakeView` in an enum. Before it, the bare struct that is
-/// now the `V1` payload was written on its own, with no discriminant byte.
+/// Before #4179 the struct now used as the `V1` payload was written with no discriminant byte.
 impl IntoValidatorStakeView for ValidatorStakeViewV1 {
     fn into_validator_stake_view(self) -> ValidatorStakeView {
         ValidatorStakeView::V1(self)
@@ -269,8 +267,8 @@ impl IntoValidatorStakeView for ValidatorStakeViewV1 {
 
 /// The shape a `DBCol::EpochLightClientBlocks` row was written with.
 ///
-/// The column holds one permanent row per epoch, so a database that has run since 2020
-/// holds rows from every era below.
+/// The column holds one permanent row per epoch and is never rewritten, so a long-lived
+/// database holds rows from every era below.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LightClientRowLayout {
     /// 2020-07-06 (#2929) to 2021-04-01 (#4179): `ValidatorStakeView` was a bare struct.
@@ -314,24 +312,13 @@ where
     Some(row.into_stored())
 }
 
-/// What [`read_light_client_row`] made of a row.
-#[derive(Debug)]
-enum LightClientRowReading {
-    /// Every layout that reads the row agrees on the value.
-    Agreed { layouts: Vec<LightClientRowLayout>, stored: Box<StoredLightClientBlock> },
-    /// Several layouts read the row and disagree on the value, so it cannot be converted.
-    Ambiguous(Vec<(LightClientRowLayout, StoredLightClientBlock)>),
-    /// No layout reads the row.
-    Unknown,
-}
-
-/// Reads a `DBCol::EpochLightClientBlocks` row in every layout that ever wrote one.
+/// Reads a `DBCol::EpochLightClientBlocks` row in the layout it was written in.
 ///
-/// Borsh rejects trailing bytes, so a row reads in one layout, or in several that all
-/// yield the same value. A row with no validators, for one, reads the same whether or
-/// not `ValidatorStakeView` was versioned when it was written.
-fn read_light_client_row(value: &[u8]) -> LightClientRowReading {
-    let readings: Vec<_> = [
+/// Borsh rejects trailing and missing bytes, so at most one layout reads a stored row
+/// whole. Only a row with no validators reads in two, and both yield the same value, so
+/// the layouts are tried oldest first.
+fn read_light_client_row(value: &[u8]) -> Option<(LightClientRowLayout, StoredLightClientBlock)> {
+    let candidates = [
         (
             LightClientRowLayout::WithUnversionedValidatorStake,
             read_unversioned_row::<InnerLiteWithoutRoot, ValidatorStakeViewV1>(value),
@@ -345,18 +332,8 @@ fn read_light_client_row(value: &[u8]) -> LightClientRowReading {
             read_unversioned_row::<InnerLiteWithRoot, ValidatorStakeView>(value),
         ),
         (LightClientRowLayout::Versioned, StoredLightClientBlock::try_from_slice(value).ok()),
-    ]
-    .into_iter()
-    .filter_map(|(layout, stored)| stored.map(|stored| (layout, stored)))
-    .collect();
-
-    let Some((_, first)) = readings.first() else { return LightClientRowReading::Unknown };
-    if readings.iter().any(|(_, stored)| stored != first) {
-        return LightClientRowReading::Ambiguous(readings);
-    }
-    let layouts = readings.iter().map(|(layout, _)| *layout).collect();
-    let stored = readings.into_iter().next().expect("readings is not empty").1;
-    LightClientRowReading::Agreed { layouts, stored: Box::new(stored) }
+    ];
+    candidates.into_iter().find_map(|(layout, stored)| Some((layout, stored?)))
 }
 
 /// Migrates the database from version 50 to 51.
@@ -369,9 +346,9 @@ fn read_light_client_row(value: &[u8]) -> LightClientRowReading {
 /// This rewrites every row as [`StoredLightClientBlock`], which core/store owns and
 /// versions, so a later change to the view adds a variant instead of a migration.
 ///
-/// The view changed shape several times before that too, so a row can predate the
-/// layout released binaries write. [`read_light_client_row`] reads every historical
-/// layout, and the rows it cannot read are reported rather than guessed at.
+/// The view also changed shape before that, so a row can predate the layout released
+/// binaries write. [`LightClientRowLayout`] lists the layouts a row can still be in,
+/// and a row in none of them is reported by its epoch id rather than guessed at.
 ///
 /// Hot store only: the column is not copied to cold storage.
 fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
@@ -387,23 +364,13 @@ fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
             .map_err(|err| anyhow::anyhow!("epoch light client block key is not a hash: {err}"))?;
 
         match read_light_client_row(&value) {
-            LightClientRowReading::Agreed { layouts, .. }
-                if layouts == [LightClientRowLayout::Versioned] =>
-            {
-                already_versioned += 1;
-            }
-            LightClientRowReading::Agreed { stored, .. } => {
-                store_update.set_ser(DBCol::EpochLightClientBlocks, &key, stored.as_ref());
+            Some((LightClientRowLayout::Versioned, _)) => already_versioned += 1,
+            Some((_, stored)) => {
+                store_update.set_ser(DBCol::EpochLightClientBlocks, &key, &stored);
                 rewritten += 1;
             }
-            LightClientRowReading::Ambiguous(readings) => {
-                let layouts: Vec<_> = readings.iter().map(|(layout, _)| *layout).collect();
-                anyhow::bail!(
-                    "epoch light client block {epoch_id:?} reads differently in {layouts:?}"
-                );
-            }
-            LightClientRowReading::Unknown => {
-                anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout");
+            None => {
+                anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout")
             }
         }
     }
@@ -918,9 +885,7 @@ mod migrate_50_to_51_tests {
     }
 
     #[test]
-    fn accepts_a_row_that_reads_the_same_in_several_layouts() {
-        // With no validators the bytes carry no `ValidatorStakeView`, so the versioned
-        // and unversioned stake layouts read the row identically.
+    fn rewrites_a_row_with_no_validators() {
         let store = create_test_store();
         let key = CryptoHash::default();
         let value = unversioned_row(inner_lite_without_root(), None::<Vec<ValidatorStakeView>>, 0);
