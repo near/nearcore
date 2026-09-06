@@ -270,7 +270,7 @@ impl IntoValidatorStakeView for ValidatorStakeViewV1 {
 /// The column holds one permanent row per epoch and is never rewritten, so a long-lived
 /// database holds rows from every era below.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum LightClientRowLayout {
+pub enum LightClientRowLayout {
     /// 2020-07-06 (#2929) to 2021-04-01 (#4179): `ValidatorStakeView` was a bare struct.
     WithUnversionedValidatorStake,
     /// 2021-04-01 (#4179) onwards: the layout every released binary writes.
@@ -318,7 +318,7 @@ where
 /// whole. Only a row with no validators reads in two, and both yield the same value, so
 /// the layouts are tried oldest first. A row that no layout reads, or that two layouts
 /// read differently, is one no binary wrote, and is reported by its epoch id.
-fn read_light_client_row(
+pub fn read_light_client_row(
     epoch_id: &EpochId,
     value: &[u8],
 ) -> anyhow::Result<(LightClientRowLayout, StoredLightClientBlock)> {

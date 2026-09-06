@@ -2,6 +2,7 @@ use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyze_contract_sizes::AnalyzeContractSizesCommand;
 use crate::analyze_data_size_distribution::AnalyzeDataSizeDistributionCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
+use crate::analyze_epoch_light_client_blocks::AnalyzeEpochLightClientBlocksCommand;
 use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
 use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::backfill_receipt_to_tx::BackfillReceiptToTxCommand;
@@ -31,6 +32,10 @@ pub struct DatabaseCommand {
 enum SubCommand {
     /// Analyze data size distribution in RocksDB
     AnalyzeDataSizeDistribution(AnalyzeDataSizeDistributionCommand),
+
+    /// Report which layout every EpochLightClientBlocks row is in, without writing.
+    /// This is the dry run of the version 50 to 51 migration.
+    AnalyzeEpochLightClientBlocks(AnalyzeEpochLightClientBlocksCommand),
 
     /// Analyze gas usage in a chosen sequence of blocks
     AnalyzeGasUsage(AnalyzeGasUsageCommand),
@@ -90,6 +95,7 @@ impl DatabaseCommand {
     ) -> anyhow::Result<()> {
         match &self.subcmd {
             SubCommand::AnalyzeDataSizeDistribution(cmd) => cmd.run(home),
+            SubCommand::AnalyzeEpochLightClientBlocks(cmd) => cmd.run(home),
             SubCommand::AnalyzeGasUsage(cmd) => cmd.run(home, genesis_validation),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),

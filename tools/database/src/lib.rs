@@ -2,6 +2,7 @@ mod adjust_database;
 mod analyze_contract_sizes;
 mod analyze_data_size_distribution;
 mod analyze_delayed_receipt;
+mod analyze_epoch_light_client_blocks;
 mod analyze_gas_usage;
 mod analyze_high_load;
 pub mod backfill_receipt_to_tx;
