@@ -10,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, ShardId, StateChangeCause};
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_primitives::views::validator_stake_view::{ValidatorStakeView, ValidatorStakeViewV1};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
@@ -172,17 +172,41 @@ fn recover_shard_1_at_block_height_115185108(
 /// A `DBCol::EpochLightClientBlocks` row as written at database version 50, when the
 /// column held a bare `LightClientBlockView`.
 ///
-/// `InnerLite` varies because the view changed shape inside version 50: released
-/// binaries wrote [`InnerLiteWithoutRoot`], and unreleased ones that carried
-/// `chunk_execution_root` wrote [`InnerLiteWithRoot`].
+/// `InnerLite` and `ValidatorStake` vary because the view changed shape several times
+/// inside version 50. [`LightClientRowLayout`] names each shape.
 #[derive(BorshSerialize, BorshDeserialize)]
-struct UnversionedRow<InnerLite> {
+struct UnversionedRow<InnerLite, ValidatorStake> {
     prev_block_hash: CryptoHash,
     next_block_inner_hash: CryptoHash,
     inner_lite: InnerLite,
     inner_rest_hash: CryptoHash,
-    next_bps: Option<Vec<ValidatorStakeView>>,
+    next_bps: Option<Vec<ValidatorStake>>,
     approvals_after_next: Vec<Option<Box<Signature>>>,
+}
+
+/// The same row while the view still carried `approvals_next`, which #2653 removed.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct UnversionedRowWithApprovalsNext<InnerLite, ValidatorStake> {
+    prev_block_hash: CryptoHash,
+    next_block_inner_hash: CryptoHash,
+    inner_lite: InnerLite,
+    inner_rest_hash: CryptoHash,
+    next_bps: Option<Vec<ValidatorStake>>,
+    approvals_next: Vec<Option<Box<Signature>>>,
+    approvals_after_next: Vec<Option<Box<Signature>>>,
+}
+
+/// `BlockHeaderInnerLiteView` before #2929 added `timestamp_nanosec` to it.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct InnerLiteWithoutTimestampNanosec {
+    height: BlockHeight,
+    epoch_id: CryptoHash,
+    next_epoch_id: CryptoHash,
+    prev_state_root: CryptoHash,
+    outcome_root: CryptoHash,
+    timestamp: u64,
+    next_bp_hash: CryptoHash,
+    block_merkle_root: CryptoHash,
 }
 
 /// `BlockHeaderInnerLiteView` as every released binary wrote it.
@@ -213,6 +237,24 @@ struct InnerLiteWithRoot {
     next_bp_hash: CryptoHash,
     block_merkle_root: CryptoHash,
     chunk_execution_root: Option<CryptoHash>,
+}
+
+impl From<InnerLiteWithoutTimestampNanosec> for StoredBlockHeaderInnerLiteV1 {
+    fn from(inner_lite: InnerLiteWithoutTimestampNanosec) -> Self {
+        Self {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id,
+            next_epoch_id: inner_lite.next_epoch_id,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            // #2929 added the second field and filled it from the same header value.
+            timestamp_nanosec: inner_lite.timestamp,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
+            chunk_execution_root: None,
+        }
+    }
 }
 
 impl From<InnerLiteWithoutRoot> for StoredBlockHeaderInnerLiteV1 {
@@ -249,21 +291,155 @@ impl From<InnerLiteWithRoot> for StoredBlockHeaderInnerLiteV1 {
     }
 }
 
-/// Parses `value` as an unversioned row, if it is one, and converts it.
-fn read_unversioned_row<InnerLite>(value: &[u8]) -> Option<StoredLightClientBlock>
+/// Lifts the validator stake shape a row was written with into the current view.
+trait IntoValidatorStakeView {
+    fn into_validator_stake_view(self) -> ValidatorStakeView;
+}
+
+impl IntoValidatorStakeView for ValidatorStakeView {
+    fn into_validator_stake_view(self) -> ValidatorStakeView {
+        self
+    }
+}
+
+/// #4179 wrapped `ValidatorStakeView` in an enum. Before it, the bare struct that is
+/// now the `V1` payload was written on its own, with no discriminant byte.
+impl IntoValidatorStakeView for ValidatorStakeViewV1 {
+    fn into_validator_stake_view(self) -> ValidatorStakeView {
+        ValidatorStakeView::V1(self)
+    }
+}
+
+/// The shape a `DBCol::EpochLightClientBlocks` row was written with.
+///
+/// The column holds one permanent row per epoch, so a database that has run since 2020
+/// holds rows from every era below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LightClientRowLayout {
+    /// 2020-04-26 (#2390) to 2020-05-19 (#2653): the view carried `approvals_next` and
+    /// `inner_lite` had no `timestamp_nanosec`.
+    WithApprovalsNext,
+    /// 2020-05-19 (#2653) to 2020-07-06 (#2929): `inner_lite` had no `timestamp_nanosec`.
+    WithoutTimestampNanosec,
+    /// 2020-07-06 (#2929) to 2021-04-01 (#4179): `ValidatorStakeView` was a bare struct.
+    WithUnversionedValidatorStake,
+    /// 2021-04-01 (#4179) onwards: the layout every released binary writes.
+    Released,
+    /// After #16115 appended `chunk_execution_root`: unreleased binaries only.
+    WithChunkExecutionRoot,
+    /// A [`StoredLightClientBlock`], written by this migration.
+    Versioned,
+}
+
+impl std::fmt::Display for LightClientRowLayout {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl<InnerLite, ValidatorStake> UnversionedRow<InnerLite, ValidatorStake>
 where
-    InnerLite: BorshDeserialize,
+    ValidatorStake: IntoValidatorStakeView,
     StoredBlockHeaderInnerLiteV1: From<InnerLite>,
 {
-    let row = UnversionedRow::<InnerLite>::try_from_slice(value).ok()?;
-    Some(StoredLightClientBlock::V1(StoredLightClientBlockV1 {
-        prev_block_hash: row.prev_block_hash,
-        next_block_inner_hash: row.next_block_inner_hash,
-        inner_lite: row.inner_lite.into(),
-        inner_rest_hash: row.inner_rest_hash,
-        next_bps: row.next_bps,
-        approvals_after_next: row.approvals_after_next,
-    }))
+    fn into_stored(self) -> StoredLightClientBlock {
+        let next_bps = self.next_bps.map(|next_bps| {
+            next_bps.into_iter().map(IntoValidatorStakeView::into_validator_stake_view).collect()
+        });
+        StoredLightClientBlock::V1(StoredLightClientBlockV1 {
+            prev_block_hash: self.prev_block_hash,
+            next_block_inner_hash: self.next_block_inner_hash,
+            inner_lite: self.inner_lite.into(),
+            inner_rest_hash: self.inner_rest_hash,
+            next_bps,
+            approvals_after_next: self.approvals_after_next,
+        })
+    }
+}
+
+impl<InnerLite, ValidatorStake> UnversionedRowWithApprovalsNext<InnerLite, ValidatorStake> {
+    /// Drops `approvals_next`, which the view no longer carries.
+    fn without_approvals_next(self) -> UnversionedRow<InnerLite, ValidatorStake> {
+        UnversionedRow {
+            prev_block_hash: self.prev_block_hash,
+            next_block_inner_hash: self.next_block_inner_hash,
+            inner_lite: self.inner_lite,
+            inner_rest_hash: self.inner_rest_hash,
+            next_bps: self.next_bps,
+            approvals_after_next: self.approvals_after_next,
+        }
+    }
+}
+
+/// Parses `value` as an unversioned row, if it is one, and converts it.
+fn read_unversioned_row<InnerLite, ValidatorStake>(value: &[u8]) -> Option<StoredLightClientBlock>
+where
+    InnerLite: BorshDeserialize,
+    ValidatorStake: BorshDeserialize + IntoValidatorStakeView,
+    StoredBlockHeaderInnerLiteV1: From<InnerLite>,
+{
+    let row = UnversionedRow::<InnerLite, ValidatorStake>::try_from_slice(value).ok()?;
+    Some(row.into_stored())
+}
+
+/// Parses `value` as a row from before #2653, if it is one, and converts it.
+fn read_row_with_approvals_next(value: &[u8]) -> Option<StoredLightClientBlock> {
+    let row = UnversionedRowWithApprovalsNext::<
+        InnerLiteWithoutTimestampNanosec,
+        ValidatorStakeViewV1,
+    >::try_from_slice(value)
+    .ok()?;
+    Some(row.without_approvals_next().into_stored())
+}
+
+/// What [`read_light_client_row`] made of a row.
+#[derive(Debug)]
+pub enum LightClientRowReading {
+    /// Every layout that reads the row agrees on the value.
+    Agreed { layouts: Vec<LightClientRowLayout>, stored: Box<StoredLightClientBlock> },
+    /// Several layouts read the row and disagree on the value, so it cannot be converted.
+    Ambiguous(Vec<(LightClientRowLayout, StoredLightClientBlock)>),
+    /// No layout reads the row.
+    Unknown,
+}
+
+/// Reads a `DBCol::EpochLightClientBlocks` row in every layout that ever wrote one.
+///
+/// Borsh rejects trailing bytes, so a row reads in one layout, or in several that all
+/// yield the same value. A row with no validators, for one, reads the same whether or
+/// not `ValidatorStakeView` was versioned when it was written.
+pub fn read_light_client_row(value: &[u8]) -> LightClientRowReading {
+    let readings: Vec<_> = [
+        (LightClientRowLayout::WithApprovalsNext, read_row_with_approvals_next(value)),
+        (
+            LightClientRowLayout::WithoutTimestampNanosec,
+            read_unversioned_row::<InnerLiteWithoutTimestampNanosec, ValidatorStakeViewV1>(value),
+        ),
+        (
+            LightClientRowLayout::WithUnversionedValidatorStake,
+            read_unversioned_row::<InnerLiteWithoutRoot, ValidatorStakeViewV1>(value),
+        ),
+        (
+            LightClientRowLayout::Released,
+            read_unversioned_row::<InnerLiteWithoutRoot, ValidatorStakeView>(value),
+        ),
+        (
+            LightClientRowLayout::WithChunkExecutionRoot,
+            read_unversioned_row::<InnerLiteWithRoot, ValidatorStakeView>(value),
+        ),
+        (LightClientRowLayout::Versioned, StoredLightClientBlock::try_from_slice(value).ok()),
+    ]
+    .into_iter()
+    .filter_map(|(layout, stored)| stored.map(|stored| (layout, stored)))
+    .collect();
+
+    let Some((_, first)) = readings.first() else { return LightClientRowReading::Unknown };
+    if readings.iter().any(|(_, stored)| stored != first) {
+        return LightClientRowReading::Ambiguous(readings);
+    }
+    let layouts = readings.iter().map(|(layout, _)| *layout).collect();
+    let stored = readings.into_iter().next().expect("readings is not empty").1;
+    LightClientRowReading::Agreed { layouts, stored: Box::new(stored) }
 }
 
 /// Migrates the database from version 50 to 51.
@@ -275,6 +451,10 @@ where
 ///
 /// This rewrites every row as [`StoredLightClientBlock`], which core/store owns and
 /// versions, so a later change to the view adds a variant instead of a migration.
+///
+/// The view changed shape several times before that too, so a row can predate the
+/// layout released binaries write. [`read_light_client_row`] reads every historical
+/// layout, and the rows it cannot read are reported rather than guessed at.
 ///
 /// Hot store only: the column is not copied to cold storage.
 fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
@@ -289,26 +469,25 @@ fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
             .map(EpochId)
             .map_err(|err| anyhow::anyhow!("epoch light client block key is not a hash: {err}"))?;
 
-        // A row is unambiguous only if exactly one layout reads it whole. Borsh rejects
-        // trailing bytes, so a wrong layout almost always fails, but say so rather than
-        // guess on the rows where it would not.
-        let candidates = [
-            read_unversioned_row::<InnerLiteWithoutRoot>(&value),
-            read_unversioned_row::<InnerLiteWithRoot>(&value),
-            StoredLightClientBlock::try_from_slice(&value).ok(),
-        ];
-        let matched = candidates.iter().filter(|candidate| candidate.is_some()).count();
-        if matched > 1 {
-            anyhow::bail!("epoch light client block {epoch_id:?} reads in more than one layout");
-        }
-        let [without_root, with_root, versioned] = candidates;
-        if let Some(stored) = without_root.or(with_root) {
-            store_update.set_ser(DBCol::EpochLightClientBlocks, &key, &stored);
-            rewritten += 1;
-        } else if versioned.is_some() {
-            already_versioned += 1;
-        } else {
-            anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout");
+        match read_light_client_row(&value) {
+            LightClientRowReading::Agreed { layouts, .. }
+                if layouts == [LightClientRowLayout::Versioned] =>
+            {
+                already_versioned += 1;
+            }
+            LightClientRowReading::Agreed { stored, .. } => {
+                store_update.set_ser(DBCol::EpochLightClientBlocks, &key, stored.as_ref());
+                rewritten += 1;
+            }
+            LightClientRowReading::Ambiguous(readings) => {
+                let layouts: Vec<_> = readings.iter().map(|(layout, _)| *layout).collect();
+                anyhow::bail!(
+                    "epoch light client block {epoch_id:?} reads differently in {layouts:?}"
+                );
+            }
+            LightClientRowReading::Unknown => {
+                anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout");
+            }
         }
     }
     store_update.commit();
@@ -649,9 +828,15 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod migrate_50_to_51_tests {
-    use super::{InnerLiteWithRoot, InnerLiteWithoutRoot, UnversionedRow, migrate_50_to_51};
+    use super::{
+        InnerLiteWithRoot, InnerLiteWithoutRoot, InnerLiteWithoutTimestampNanosec, UnversionedRow,
+        UnversionedRowWithApprovalsNext, migrate_50_to_51,
+    };
     use borsh::BorshDeserialize;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::types::Balance;
+    use near_primitives::views::validator_stake_view::{ValidatorStakeView, ValidatorStakeViewV1};
     use near_store::light_client_block::StoredLightClientBlock;
     use near_store::test_utils::create_test_store;
     use near_store::{DBCol, Store};
@@ -663,10 +848,24 @@ mod migrate_50_to_51_tests {
             next_epoch_id: CryptoHash::hash_bytes(b"next_epoch"),
             prev_state_root: CryptoHash::hash_bytes(b"state"),
             outcome_root: CryptoHash::hash_bytes(b"outcome"),
-            timestamp: 1,
-            timestamp_nanosec: 1,
+            timestamp: 7,
+            timestamp_nanosec: 9,
             next_bp_hash: CryptoHash::hash_bytes(b"bp"),
             block_merkle_root: CryptoHash::hash_bytes(b"merkle"),
+        }
+    }
+
+    fn inner_lite_without_timestamp_nanosec() -> InnerLiteWithoutTimestampNanosec {
+        let with_nanosec = inner_lite_without_root();
+        InnerLiteWithoutTimestampNanosec {
+            height: with_nanosec.height,
+            epoch_id: with_nanosec.epoch_id,
+            next_epoch_id: with_nanosec.next_epoch_id,
+            prev_state_root: with_nanosec.prev_state_root,
+            outcome_root: with_nanosec.outcome_root,
+            timestamp: with_nanosec.timestamp,
+            next_bp_hash: with_nanosec.next_bp_hash,
+            block_merkle_root: with_nanosec.block_merkle_root,
         }
     }
 
@@ -686,10 +885,23 @@ mod migrate_50_to_51_tests {
         }
     }
 
-    fn unversioned_row<InnerLite: borsh::BorshSerialize>(
+    fn validator_stake_v1(account_id: &str) -> ValidatorStakeViewV1 {
+        ValidatorStakeViewV1 {
+            account_id: account_id.parse().unwrap(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            stake: Balance::from_near(100),
+        }
+    }
+
+    fn unversioned_row<InnerLite, ValidatorStake>(
         inner_lite: InnerLite,
+        next_bps: Option<Vec<ValidatorStake>>,
         seed: u32,
-    ) -> Vec<u8> {
+    ) -> Vec<u8>
+    where
+        InnerLite: borsh::BorshSerialize,
+        ValidatorStake: borsh::BorshSerialize,
+    {
         borsh::to_vec(&UnversionedRow {
             prev_block_hash: CryptoHash::hash_bytes(b"prev"),
             next_block_inner_hash: CryptoHash::hash_bytes(b"next"),
@@ -697,10 +909,18 @@ mod migrate_50_to_51_tests {
             // The byte that a reader of the other layout would misread comes from
             // here, so vary it across rows.
             inner_rest_hash: CryptoHash::hash_bytes(&seed.to_le_bytes()),
-            next_bps: None,
+            next_bps,
             approvals_after_next: vec![None, None],
         })
         .unwrap()
+    }
+
+    fn released_row<InnerLite: borsh::BorshSerialize>(inner_lite: InnerLite, seed: u32) -> Vec<u8> {
+        unversioned_row(
+            inner_lite,
+            Some(vec![ValidatorStakeView::V1(validator_stake_v1("validator0"))]),
+            seed,
+        )
     }
 
     fn write_row(store: &Store, key: &CryptoHash, value: &[u8]) {
@@ -721,7 +941,7 @@ mod migrate_50_to_51_tests {
     fn rewrites_rows_written_by_a_released_binary() {
         let store = create_test_store();
         for seed in 0u32..2000 {
-            write_row(&store, &key_for(seed), &unversioned_row(inner_lite_without_root(), seed));
+            write_row(&store, &key_for(seed), &released_row(inner_lite_without_root(), seed));
         }
 
         // The row a released binary wrote is not readable as the versioned type. That
@@ -746,7 +966,7 @@ mod migrate_50_to_51_tests {
         let root = CryptoHash::hash_bytes(b"root");
         for (seed, chunk_execution_root) in [(0u32, None), (1, Some(root))] {
             let inner_lite = inner_lite_with_root(chunk_execution_root);
-            write_row(&store, &key_for(seed), &unversioned_row(inner_lite, seed));
+            write_row(&store, &key_for(seed), &released_row(inner_lite, seed));
         }
 
         migrate_50_to_51(&store).unwrap();
@@ -761,7 +981,7 @@ mod migrate_50_to_51_tests {
     fn leaves_rows_already_versioned_alone() {
         let store = create_test_store();
         let key = key_for(0);
-        write_row(&store, &key, &unversioned_row(inner_lite_without_root(), 0));
+        write_row(&store, &key, &released_row(inner_lite_without_root(), 0));
         migrate_50_to_51(&store).unwrap();
         let migrated = read_row(&store, &key);
 
@@ -775,6 +995,82 @@ mod migrate_50_to_51_tests {
         write_row(&store, &key_for(0), b"not a light client block");
         let err = migrate_50_to_51(&store).unwrap_err().to_string();
         assert!(err.contains("reads in no known layout"), "got: {err}");
+    }
+
+    #[test]
+    fn rewrites_rows_with_an_unversioned_validator_stake() {
+        let store = create_test_store();
+        let key = CryptoHash::default();
+        let value = unversioned_row(
+            inner_lite_without_root(),
+            Some(vec![validator_stake_v1("validator0")]),
+            0,
+        );
+        write_row(&store, &key, &value);
+
+        migrate_50_to_51(&store).unwrap();
+
+        let StoredLightClientBlock::V1(row) = read_row(&store, &key);
+        assert_eq!(row.inner_lite.height, 42);
+        assert_eq!(row.inner_lite.chunk_execution_root, None);
+        let next_bps = row.next_bps.unwrap();
+        assert_eq!(next_bps, vec![ValidatorStakeView::V1(validator_stake_v1("validator0"))]);
+    }
+
+    #[test]
+    fn rewrites_rows_without_a_timestamp_nanosec() {
+        let store = create_test_store();
+        let key = CryptoHash::default();
+        let value = unversioned_row(
+            inner_lite_without_timestamp_nanosec(),
+            Some(vec![validator_stake_v1("validator0")]),
+            0,
+        );
+        write_row(&store, &key, &value);
+
+        migrate_50_to_51(&store).unwrap();
+
+        let StoredLightClientBlock::V1(row) = read_row(&store, &key);
+        assert_eq!(row.inner_lite.timestamp, 7);
+        assert_eq!(row.inner_lite.timestamp_nanosec, 7);
+    }
+
+    #[test]
+    fn rewrites_rows_with_approvals_next() {
+        let store = create_test_store();
+        let key = CryptoHash::default();
+        let value = borsh::to_vec(&UnversionedRowWithApprovalsNext {
+            prev_block_hash: CryptoHash::hash_bytes(b"prev"),
+            next_block_inner_hash: CryptoHash::hash_bytes(b"next"),
+            inner_lite: inner_lite_without_timestamp_nanosec(),
+            inner_rest_hash: CryptoHash::hash_bytes(b"rest"),
+            next_bps: Some(vec![validator_stake_v1("validator0")]),
+            approvals_next: vec![None, None, None],
+            approvals_after_next: vec![None, None],
+        })
+        .unwrap();
+        write_row(&store, &key, &value);
+
+        migrate_50_to_51(&store).unwrap();
+
+        let StoredLightClientBlock::V1(row) = read_row(&store, &key);
+        assert_eq!(row.approvals_after_next.len(), 2);
+        assert_eq!(row.inner_lite.timestamp_nanosec, 7);
+    }
+
+    #[test]
+    fn accepts_a_row_that_reads_the_same_in_several_layouts() {
+        // With no validators the bytes carry no `ValidatorStakeView`, so the versioned
+        // and unversioned stake layouts read the row identically.
+        let store = create_test_store();
+        let key = CryptoHash::default();
+        let value = unversioned_row(inner_lite_without_root(), None::<Vec<ValidatorStakeView>>, 0);
+        write_row(&store, &key, &value);
+
+        migrate_50_to_51(&store).unwrap();
+
+        let StoredLightClientBlock::V1(row) = read_row(&store, &key);
+        assert_eq!(row.next_bps, None);
     }
 
     #[test]
