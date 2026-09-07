@@ -1,5 +1,6 @@
 //! IPC protocol: length-prefixed borsh frames over stdin/stdout.
 
+use crate::logic::errors::truncate_wasmtime_compilation_error_message;
 use borsh::{BorshDeserialize, BorshSerialize, from_slice, to_vec};
 use std::borrow::Cow;
 use std::io::{self, ErrorKind, Read, Write};
@@ -151,7 +152,12 @@ pub fn write_compile_response(w: &mut impl Write, response: Result<&[u8], &str>)
             }
             write_frame(w, &[])
         }
-        Err(err) => write_frame(w, &to_vec(&CompileResponse::Err(err.to_owned()))?),
+        Err(err) => write_frame(
+            w,
+            &to_vec(&CompileResponse::Err(
+                truncate_wasmtime_compilation_error_message(err).into_owned(),
+            ))?,
+        ),
     }
 }
 
@@ -194,6 +200,7 @@ mod tests {
         ARTIFACT_CHUNK_SIZE, CompileResponse, ErrorKind, MAX_COMPILE_ERROR_SIZE,
         read_compile_response, to_vec, write_compile_response, write_frame,
     };
+    use crate::logic::errors::MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE;
 
     #[test]
     fn compile_artifact_uses_multiple_frames() {
@@ -213,6 +220,19 @@ mod tests {
             read_compile_response(&mut wire.as_slice()).unwrap(),
             Err("compilation failed".to_owned())
         );
+    }
+
+    #[test]
+    fn compile_error_is_truncated_to_frame_limit() {
+        let mut wire = Vec::new();
+        let error = "x".repeat(MAX_COMPILE_ERROR_SIZE);
+        write_compile_response(&mut wire, Err(&error)).unwrap();
+
+        let Err(error) = read_compile_response(&mut wire.as_slice()).unwrap() else {
+            panic!("expected compilation error");
+        };
+        assert_eq!(error.len(), MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE);
+        assert!(error.ends_with("[compiler error truncated]"));
     }
 
     #[test]

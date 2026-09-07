@@ -3,7 +3,7 @@ use crate::compile_priority::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
-    VMRunnerError, WasmTrap,
+    VMRunnerError, WasmTrap, truncate_wasmtime_compilation_error_message,
 };
 use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
@@ -648,7 +648,10 @@ impl WasmtimeVM {
                         code_size = code.code().len(),
                         "wasmtime contract compilation failed",
                     );
-                    Err(CompilationError::WasmtimeCompileError { msg: err.to_string() })
+                    let message = err.to_string();
+                    Err(CompilationError::WasmtimeCompileError {
+                        msg: truncate_wasmtime_compilation_error_message(&message).into_owned(),
+                    })
                 }
             }
         };

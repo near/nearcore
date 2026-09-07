@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use std::any::Any;
+use std::borrow::Cow;
 use std::fmt::{self, Error, Formatter};
 use std::io;
 
@@ -120,6 +121,28 @@ pub enum MethodResolveError {
     MethodEmptyName,
     MethodNotFound,
     MethodInvalidSignature,
+}
+
+/// The maximum message size that fits in a daemon `CompileResponse::Err` frame.
+///
+/// The frame contains a one-byte enum discriminant and a four-byte Borsh string
+/// length in addition to the message itself.
+pub(crate) const MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE: usize = 1024 * 1024 - 5;
+const TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX: &str = "\n[compiler error truncated]";
+
+/// Limit a Wasmtime compiler error consistently between in-process and daemon
+/// compilation, so either path produces the same cache entry.
+pub(crate) fn truncate_wasmtime_compilation_error_message(message: &str) -> Cow<'_, str> {
+    if message.len() <= MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE {
+        return Cow::Borrowed(message);
+    }
+
+    let mut prefix_len = MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE
+        - TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX.len();
+    while !message.is_char_boundary(prefix_len) {
+        prefix_len -= 1;
+    }
+    Cow::Owned(format!("{}{}", &message[..prefix_len], TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, strum::IntoStaticStr)]
@@ -711,8 +734,47 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
 #[cfg(test)]
 mod tests {
     use crate::logic::errors::{
-        CompilationError, FunctionCallError, MethodResolveError, PrepareError,
+        CompilationError, FunctionCallError, MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE,
+        MethodResolveError, PrepareError, TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX,
+        truncate_wasmtime_compilation_error_message,
     };
+
+    /// Generate "{prefix}{é}{suffix}", then apply error truncation.
+    /// Assert the truncated output is exactly `expected_truncated_len` bytes.
+    ///
+    /// The generated input consists of `prefix_len` ascii characters plus one 2-byte
+    /// character plus `suffix_len` ascii characters, to test UTF-8 character boundaries.
+    #[track_caller]
+    fn check_wasmtime_compilation_error_message_truncation(
+        prefix_len: usize,
+        suffix_len: usize,
+        expected_truncated_len: usize,
+    ) {
+        let input = format!("{}é{}", "x".repeat(prefix_len), "x".repeat(suffix_len));
+        assert_eq!(
+            truncate_wasmtime_compilation_error_message(&input).len(),
+            expected_truncated_len
+        );
+    }
+
+    #[test]
+    fn test_wasmtime_compilation_error_message_truncation() {
+        let max_size = MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE;
+
+        // No truncation expected, the added é fits.
+        check_wasmtime_compilation_error_message_truncation(max_size - 2, 0, max_size);
+
+        // A two-byte character makes this message exceed the limit by one byte.
+        check_wasmtime_compilation_error_message_truncation(max_size - 1, 0, max_size);
+
+        // The initial truncation position is inside a UTF-8 character. Truncation must back up.
+        let suffix = TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX;
+        check_wasmtime_compilation_error_message_truncation(
+            max_size - suffix.len() - 1,
+            suffix.len() + 1,
+            max_size - 1,
+        );
+    }
 
     #[test]
     fn test_display() {
