@@ -91,6 +91,7 @@ fn default_worker_config() -> WorkerConfig {
     }
 }
 
+/// Parent-side handle to a spawned worker subprocess.
 struct DaemonProcess {
     child: Arc<Mutex<Child>>,
     stdin: ChildStdin,

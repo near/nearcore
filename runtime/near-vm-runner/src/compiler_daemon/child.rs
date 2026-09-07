@@ -183,6 +183,8 @@ fn set_memory_limit() {
     };
     if ret != 0 {
         eprintln!("warning: failed to set memory limit: {}", std::io::Error::last_os_error());
+        // TODO: Reconsider the behavior when failing to set a memory limit,
+        // especially if we add an async compilation sub-protocol.
     }
 }
 
