@@ -23,7 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 
 /// The shipped per-verification gas surcharge for the active protocol version.
 fn ml_dsa_verify_gas() -> u64 {
@@ -66,11 +66,6 @@ fn tx_gas_burnt(env: &TestLoopEnv, tx_hash: &CryptoHash) -> u64 {
 #[test]
 fn test_ml_dsa_outer_tx_verify_charged_as_gas() {
     init_test_logger();
-    if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: PostQuantumSignatures not enabled");
-        return;
-    }
-
     let sender_ed = create_account_id("sender-ed");
     let sender_pq = create_account_id("sender-pq");
     let receiver = create_account_id("receiver");
@@ -124,11 +119,6 @@ fn test_ml_dsa_outer_tx_verify_charged_as_gas() {
 #[test]
 fn test_ml_dsa_inner_delegate_verify_charged_as_gas() {
     init_test_logger();
-    if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: PostQuantumSignatures not enabled");
-        return;
-    }
-
     let relayer = create_account_id("relayer");
     let inner_ed = create_account_id("inner-ed");
     let inner_pq = create_account_id("inner-pq");
