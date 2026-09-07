@@ -31,6 +31,8 @@ struct GenesisValidator<'a> {
     account_ids: HashSet<AccountId>,
     access_key_account_ids: HashSet<AccountId>,
     contract_account_ids: HashSet<AccountId>,
+    data_account_ids: HashSet<AccountId>,
+    uninitialized_account_ids: HashSet<AccountId>,
     validation_errors: &'a mut ValidationErrors,
 }
 
@@ -46,6 +48,8 @@ impl<'a> GenesisValidator<'a> {
             account_ids: HashSet::new(),
             access_key_account_ids: HashSet::new(),
             contract_account_ids: HashSet::new(),
+            data_account_ids: HashSet::new(),
+            uninitialized_account_ids: HashSet::new(),
             validation_errors: validation_errors,
         }
     }
@@ -58,13 +62,11 @@ impl<'a> GenesisValidator<'a> {
                         format!("Duplicate account id {} in genesis records", account_id);
                     self.validation_errors.push_genesis_semantics_error(error_message)
                 }
+                // NOTE: Uninitialized accounts are intentionally accepted. They cannot appear
+                // in a real chain's genesis, but can appear in one created by a state dump.
+                // They must carry no state of their own, which is checked at the end.
                 if !account.is_initialized() {
-                    // An account only becomes uninitialized by being funded
-                    // before its state init is applied, which cannot have
-                    // happened before the chain exists.
-                    let error_message =
-                        format!("account {} in genesis records is uninitialized", account_id);
-                    self.validation_errors.push_genesis_semantics_error(error_message)
+                    self.uninitialized_account_ids.insert(account_id.clone());
                 }
                 self.total_supply = self
                     .total_supply
@@ -86,7 +88,13 @@ impl<'a> GenesisValidator<'a> {
                 }
                 self.contract_account_ids.insert(account_id.clone());
             }
-            _ => {}
+            StateRecord::Data { account_id, .. } | StateRecord::GasKeyNonce { account_id, .. } => {
+                self.data_account_ids.insert(account_id.clone());
+            }
+            // Receipts in flight are not part of an account's own state, so nothing to collect.
+            StateRecord::PostponedReceipt(_)
+            | StateRecord::ReceivedData { .. }
+            | StateRecord::DelayedReceipt(_) => {}
         }
     }
 
@@ -142,6 +150,27 @@ impl<'a> GenesisValidator<'a> {
         for account_id in &self.contract_account_ids {
             if !self.account_ids.contains(account_id) {
                 let error_message = format!("contract account {} does not exist,", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
+        }
+
+        // An uninitialized account holds no keys, code or data until its state init
+        // arrives, and genesis application relies on that: a `Contract` record for one
+        // trips the code-hash assertion in the genesis state applier.
+        for account_id in &self.uninitialized_account_ids {
+            if self.access_key_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have an access key", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
+            if self.contract_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have code", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
+            if self.data_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have data", account_id);
                 self.validation_errors.push_genesis_semantics_error(error_message)
             }
         }
@@ -337,9 +366,10 @@ mod test {
         validate_genesis(genesis).unwrap();
     }
 
+    /// A genesis dumped from a running chain carries whatever was in state,
+    /// uninitialized `0u` accounts included, so validation has to accept them.
     #[test]
-    #[should_panic(expected = "is uninitialized")]
-    fn test_uninitialized_account() {
+    fn test_uninitialized_account_is_accepted() {
         let mut config = GenesisConfig::default();
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
@@ -347,6 +377,7 @@ mod test {
             amount: Balance::from_yoctonear(10),
         }];
         config.total_supply = Balance::from_yoctonear(160);
+        config.epoch_length = 1;
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::Account {
@@ -356,6 +387,63 @@ mod test {
         ]);
         let genesis = &Genesis::new(config, records).unwrap();
         validate_genesis(genesis).unwrap();
+    }
+
+    /// An uninitialized account owns no state until its state init arrives.
+    /// A `Contract` record for one also trips a code-hash assertion in the
+    /// genesis state applier, so validation has to catch it first.
+    #[test]
+    #[should_panic(expected = "uninitialized account uninitialized must not have code")]
+    fn test_uninitialized_account_with_contract_is_refused() {
+        let genesis = uninitialized_account_genesis(vec![StateRecord::Contract {
+            account_id: "uninitialized".parse().unwrap(),
+            code: [1, 2, 3].to_vec(),
+        }]);
+        validate_genesis(&genesis).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "uninitialized account uninitialized must not have an access key")]
+    fn test_uninitialized_account_with_access_key_is_refused() {
+        let genesis = uninitialized_account_genesis(vec![StateRecord::access_key(
+            "uninitialized".parse().unwrap(),
+            &PublicKey::empty(KeyType::ED25519),
+            AccessKey::full_access(),
+        )]);
+        validate_genesis(&genesis).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "uninitialized account uninitialized must not have data")]
+    fn test_uninitialized_account_with_data_is_refused() {
+        let genesis = uninitialized_account_genesis(vec![StateRecord::Data {
+            account_id: "uninitialized".parse().unwrap(),
+            data_key: vec![1].into(),
+            value: vec![2].into(),
+        }]);
+        validate_genesis(&genesis).unwrap();
+    }
+
+    /// A valid genesis holding one uninitialized account, plus `extra_records`
+    /// attached to it.
+    fn uninitialized_account_genesis(extra_records: Vec<StateRecord>) -> Genesis {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
+            amount: Balance::from_yoctonear(10),
+        }];
+        config.total_supply = Balance::from_yoctonear(160);
+        config.epoch_length = 1;
+        let mut records = vec![
+            StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
+            StateRecord::Account {
+                account_id: "uninitialized".parse().unwrap(),
+                account: Account::new_uninitialized(Balance::from_yoctonear(50), 0, 1_000_000),
+            },
+        ];
+        records.extend(extra_records);
+        Genesis::new(config, GenesisRecords(records)).unwrap()
     }
 
     #[test]
