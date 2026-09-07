@@ -223,6 +223,7 @@
         "killpg",
         "kkuuue",
         "kmerge",
+        "landlock",
         "libc",
         "libclang",
         "libcore",
