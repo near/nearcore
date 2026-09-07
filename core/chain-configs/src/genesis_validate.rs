@@ -91,7 +91,10 @@ impl<'a> GenesisValidator<'a> {
             StateRecord::Data { account_id, .. } | StateRecord::GasKeyNonce { account_id, .. } => {
                 self.data_account_ids.insert(account_id.clone());
             }
-            _ => {}
+            // Receipts in flight are not part of an account's own state, so nothing to collect.
+            StateRecord::PostponedReceipt(_)
+            | StateRecord::ReceivedData { .. }
+            | StateRecord::DelayedReceipt(_) => {}
         }
     }
 
@@ -155,14 +158,19 @@ impl<'a> GenesisValidator<'a> {
         // arrives, and genesis application relies on that: a `Contract` record for one
         // trips the code-hash assertion in the genesis state applier.
         for account_id in &self.uninitialized_account_ids {
-            let has_own_state = self.access_key_account_ids.contains(account_id)
-                || self.contract_account_ids.contains(account_id)
-                || self.data_account_ids.contains(account_id);
-            if has_own_state {
-                let error_message = format!(
-                    "uninitialized account {} must have no access keys, code or data",
-                    account_id
-                );
+            if self.access_key_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have an access key", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
+            if self.contract_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have code", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
+            if self.data_account_ids.contains(account_id) {
+                let error_message =
+                    format!("uninitialized account {} must not have data", account_id);
                 self.validation_errors.push_genesis_semantics_error(error_message)
             }
         }
@@ -385,7 +393,7 @@ mod test {
     /// A `Contract` record for one also trips a code-hash assertion in the
     /// genesis state applier, so validation has to catch it first.
     #[test]
-    #[should_panic(expected = "uninitialized account uninitialized must have no access keys")]
+    #[should_panic(expected = "uninitialized account uninitialized must not have code")]
     fn test_uninitialized_account_with_contract_is_refused() {
         let genesis = uninitialized_account_genesis(vec![StateRecord::Contract {
             account_id: "uninitialized".parse().unwrap(),
@@ -395,7 +403,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "uninitialized account uninitialized must have no access keys")]
+    #[should_panic(expected = "uninitialized account uninitialized must not have an access key")]
     fn test_uninitialized_account_with_access_key_is_refused() {
         let genesis = uninitialized_account_genesis(vec![StateRecord::access_key(
             "uninitialized".parse().unwrap(),
@@ -406,7 +414,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "uninitialized account uninitialized must have no access keys")]
+    #[should_panic(expected = "uninitialized account uninitialized must not have data")]
     fn test_uninitialized_account_with_data_is_refused() {
         let genesis = uninitialized_account_genesis(vec![StateRecord::Data {
             account_id: "uninitialized".parse().unwrap(),
