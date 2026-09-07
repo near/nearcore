@@ -12,7 +12,6 @@ use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::gas::Gas;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, TransferAction};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{AccessKeyPermissionView, FinalExecutionStatus};
 
 /// Submit an `AddKey` action for `public_key` on `account` (signed by the account's default
@@ -41,11 +40,6 @@ fn add_key(
 #[test]
 fn test_ml_dsa_65_full_access_key() {
     init_test_logger();
-    if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: PostQuantumSignatures not enabled");
-        return;
-    }
-
     let sender = create_account_id("sender");
     let receiver = create_account_id("receiver");
     let initial_balance = Balance::from_near(1_000);
@@ -111,11 +105,6 @@ fn test_ml_dsa_65_full_access_key() {
 #[test]
 fn test_ml_dsa_65_function_call_key() {
     init_test_logger();
-    if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: PostQuantumSignatures not enabled");
-        return;
-    }
-
     let user = create_account_id("user");
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
