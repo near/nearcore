@@ -33,7 +33,6 @@ use std::sync::Arc;
 #[cfg(not(windows))]
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "wasmtime_vm")]
 // FIXME(ProtocolSchema): this isn't really part of the protocol schema??
 #[derive(Debug, Clone, BorshSerialize, near_schema_checker_lib::ProtocolSchema)]
 enum ContractCacheKey {
@@ -49,7 +48,6 @@ enum ContractCacheKey {
     },
 }
 
-#[cfg(feature = "wasmtime_vm")]
 pub(crate) fn get_contract_cache_key(
     code_hash: CryptoHash,
     config: &Config,
@@ -72,7 +70,6 @@ pub(crate) fn get_contract_cache_key(
 /// Use this to compare two configs without enumerating cache-key inputs by
 /// hand — adding a new field to [`ContractCacheKey`] flows through here
 /// automatically.
-#[cfg(feature = "wasmtime_vm")]
 pub fn config_cache_key_signature(config: Arc<Config>) -> CryptoHash {
     let vm_kind = config.vm_kind;
     let runtime = vm_kind

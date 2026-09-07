@@ -37,7 +37,6 @@ impl WasmFeatures {
     }
 }
 
-#[cfg(feature = "finite-wasm-6")]
 impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
     fn from(f: WasmFeatures) -> Self {
         finite_wasm_6::wasmparser::WasmFeaturesInflated {
@@ -78,7 +77,6 @@ impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
     }
 }
 
-#[cfg(feature = "wasmtime_vm")]
 impl From<WasmFeatures> for wasmtime::Config {
     fn from(_: WasmFeatures) -> Self {
         // preparation code did all the filtering necessary already. Default configuration supports

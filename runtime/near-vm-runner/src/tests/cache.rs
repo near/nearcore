@@ -131,7 +131,7 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 fn test_wasmtime_artifact_output_stability() {
     use crate::prepare;
     use crate::wasmtime_runner::WasmtimeVM;
@@ -206,7 +206,6 @@ fn test_wasmtime_artifact_output_stability() {
     // can be adjusted.
 }
 
-#[cfg(feature = "wasmtime_vm")]
 fn sparse_wasm_contract() -> Vec<u8> {
     // A tiny contract declaring 1 MiB of linear memory with data bytes at
     // the extremes. Without segment-by-segment initialization, the dense
@@ -222,7 +221,6 @@ fn sparse_wasm_contract() -> Vec<u8> {
 }
 
 #[test]
-#[cfg(feature = "wasmtime_vm")]
 fn test_wasmtime_sparse_contract_compiled_size() {
     use crate::wasmtime_runner::WasmtimeVM;
     let contract = ContractCode::new(sparse_wasm_contract(), None);
@@ -237,7 +235,7 @@ fn test_wasmtime_sparse_contract_compiled_size() {
 }
 
 #[test]
-#[cfg(all(feature = "wasmtime_vm", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 fn test_wasmtime_sparse_contract_stability() {
     use crate::prepare;
     use crate::wasmtime_runner::WasmtimeVM;
@@ -306,7 +304,6 @@ impl ContractRuntimeCache for FaultingContractRuntimeCache {
 
 /// Verify that two threads racing to compile the same contract only produce one
 /// compilation, and that no lock entries leak in the global map.
-#[cfg(feature = "wasmtime_vm")]
 #[test]
 fn test_no_duplicate_compilation() {
     use crate::cache::get_contract_cache_key;

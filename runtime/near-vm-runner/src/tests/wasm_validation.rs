@@ -1,7 +1,5 @@
 use super::test_builder::test_builder;
-#[cfg(feature = "prepare")]
 use super::test_vm_config;
-#[cfg(feature = "prepare")]
 use crate::{MEMORY_EXPORT, REMAINING_GAS_EXPORT, START_EXPORT};
 use expect_test::expect;
 use near_primitives_core::version::ProtocolFeature;
@@ -102,7 +100,6 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
 ];
 
 #[test]
-#[cfg(feature = "prepare")]
 fn ensure_fails_verification() {
     crate::tests::with_vm_variants(|kind| {
         let config = test_vm_config(Some(kind));
@@ -167,7 +164,6 @@ fn memory_export_method() {
         ]);
 }
 
-#[cfg(feature = "prepare")]
 #[test]
 fn memory_export_clash() {
     test_builder()
@@ -185,7 +181,6 @@ fn memory_export_clash() {
         ]);
 }
 
-#[cfg(feature = "prepare")]
 #[test]
 fn gas_export_clash() {
     test_builder()
@@ -203,7 +198,6 @@ fn gas_export_clash() {
         ]);
 }
 
-#[cfg(feature = "prepare")]
 #[test]
 fn start_export_clash() {
     test_builder()
@@ -221,7 +215,6 @@ fn start_export_clash() {
         ]);
 }
 
-#[cfg(feature = "prepare")]
 #[test]
 fn start_export_clash_duplicate() {
     test_builder()
@@ -240,7 +233,6 @@ fn start_export_clash_duplicate() {
         ]);
 }
 
-#[cfg(feature = "prepare")]
 #[test]
 fn memory_export_internal() {
     test_builder()

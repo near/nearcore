@@ -1,7 +1,6 @@
 mod cache;
 mod chain_id_integration;
 mod compile_errors;
-#[cfg(feature = "prepare")]
 mod fuzzers;
 mod ml_dsa_verify_integration;
 mod p256_verify_integration;
@@ -36,13 +35,11 @@ pub(crate) fn test_vm_config(vm_kind: Option<VMKind>) -> near_parameters::vm::Co
 }
 
 pub(crate) fn with_vm_variants(runner: impl Fn(VMKind) -> ()) {
-    #[allow(unused)]
     let run = move |kind| {
         println!("running test with {kind:?}");
         runner(kind)
     };
 
-    #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 }
 

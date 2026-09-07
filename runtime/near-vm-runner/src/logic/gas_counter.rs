@@ -220,7 +220,6 @@ impl GasCounter {
     /// structure into consideration could be added. But since that would have
     /// to happen after loading, we cannot pre-charge it. This is the main
     /// motivation to (only) have this simple fee.
-    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
         self.pay_base(ExtCosts::contract_loading_base)
@@ -231,7 +230,6 @@ impl GasCounter {
     /// Does VM independent checks that happen after the host state has been set
     /// up but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn before_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,
@@ -255,7 +253,6 @@ impl GasCounter {
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn after_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,

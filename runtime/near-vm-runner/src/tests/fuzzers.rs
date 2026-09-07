@@ -11,7 +11,6 @@ use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
-#[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
     use wasmparser_236::{Export, ExternalKind, Parser, Payload};
     let mut tys = Vec::new();
@@ -63,7 +62,6 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-#[cfg(feature = "prepare")]
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
@@ -94,7 +92,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 }
 
 #[test]
-#[cfg(feature = "prepare")]
 fn slow_test_current_vm_does_not_crash_fuzzer() {
     let config = test_vm_config(None);
     if config.vm_kind.is_available() {
@@ -108,7 +105,6 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 }
 
 #[test]
-#[cfg(feature = "wasmtime_vm")]
 fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
     use crate::wasmtime_runner::WasmtimeVM;
     use near_primitives_core::hash::CryptoHash;

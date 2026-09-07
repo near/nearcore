@@ -592,6 +592,7 @@ impl WasmtimeVM {
             "wasmtime compiled contract",
         );
 
+        #[cfg(feature = "metrics")]
         crate::metrics::compilation_duration(elapsed);
         Ok(serialized)
     }
@@ -809,6 +810,7 @@ impl WasmtimeVM {
             },
         )?;
 
+        #[cfg(feature = "metrics")]
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
         let config = Arc::clone(&self.config);
         let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
