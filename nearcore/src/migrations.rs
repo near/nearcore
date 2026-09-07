@@ -316,8 +316,12 @@ where
 ///
 /// Borsh rejects trailing and missing bytes, so at most one layout reads a stored row
 /// whole. Only a row with no validators reads in two, and both yield the same value, so
-/// the layouts are tried oldest first.
-fn read_light_client_row(value: &[u8]) -> Option<(LightClientRowLayout, StoredLightClientBlock)> {
+/// the layouts are tried oldest first. A row that no layout reads, or that two layouts
+/// read differently, is one no binary wrote, and is reported by its epoch id.
+fn read_light_client_row(
+    epoch_id: &EpochId,
+    value: &[u8],
+) -> anyhow::Result<(LightClientRowLayout, StoredLightClientBlock)> {
     let candidates = [
         (
             LightClientRowLayout::WithUnversionedValidatorStake,
@@ -333,7 +337,16 @@ fn read_light_client_row(value: &[u8]) -> Option<(LightClientRowLayout, StoredLi
         ),
         (LightClientRowLayout::Versioned, StoredLightClientBlock::try_from_slice(value).ok()),
     ];
-    candidates.into_iter().find_map(|(layout, stored)| Some((layout, stored?)))
+    let mut matched = candidates.into_iter().filter_map(|(layout, stored)| Some((layout, stored?)));
+    let Some((layout, stored)) = matched.next() else {
+        anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout");
+    };
+    if let Some((other, _)) = matched.find(|(_, candidate)| *candidate != stored) {
+        anyhow::bail!(
+            "epoch light client block {epoch_id:?} reads differently as {layout:?} and {other:?}"
+        );
+    }
+    Ok((layout, stored))
 }
 
 /// Migrates the database from version 50 to 51.
@@ -363,15 +376,12 @@ fn migrate_50_to_51(hot_store: &Store) -> anyhow::Result<()> {
             .map(EpochId)
             .map_err(|err| anyhow::anyhow!("epoch light client block key is not a hash: {err}"))?;
 
-        match read_light_client_row(&value) {
-            Some((LightClientRowLayout::Versioned, _)) => already_versioned += 1,
-            Some((_, stored)) => {
-                store_update.set_ser(DBCol::EpochLightClientBlocks, &key, &stored);
-                rewritten += 1;
-            }
-            None => {
-                anyhow::bail!("epoch light client block {epoch_id:?} reads in no known layout")
-            }
+        let (layout, stored) = read_light_client_row(&epoch_id, &value)?;
+        if layout == LightClientRowLayout::Versioned {
+            already_versioned += 1;
+        } else {
+            store_update.set_ser(DBCol::EpochLightClientBlocks, &key, &stored);
+            rewritten += 1;
         }
     }
     store_update.commit();
