@@ -1043,16 +1043,7 @@ impl From<BlockHeaderView> for BlockHeader {
 }
 
 /// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
@@ -2725,16 +2716,7 @@ pub struct NextEpochValidatorInfo {
 }
 
 /// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
@@ -2747,7 +2729,7 @@ pub struct LightClientBlockView {
     pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockLiteView {
     pub prev_block_hash: CryptoHash,
