@@ -58,14 +58,8 @@ impl<'a> GenesisValidator<'a> {
                         format!("Duplicate account id {} in genesis records", account_id);
                     self.validation_errors.push_genesis_semantics_error(error_message)
                 }
-                if !account.is_initialized() {
-                    // An account only becomes uninitialized by being funded
-                    // before its state init is applied, which cannot have
-                    // happened before the chain exists.
-                    let error_message =
-                        format!("account {} in genesis records is uninitialized", account_id);
-                    self.validation_errors.push_genesis_semantics_error(error_message)
-                }
+                // NOTE: Uninitialized accounts are intentionally accepted. They cannot appear
+                // in a real chain's genesis, but can appear in one created by a state dump.
                 self.total_supply = self
                     .total_supply
                     .checked_add(account.amount().checked_add(account.locked()).unwrap())
@@ -337,9 +331,10 @@ mod test {
         validate_genesis(genesis).unwrap();
     }
 
+    /// A genesis dumped from a running chain carries whatever was in state,
+    /// uninitialized `0u` accounts included, so validation has to accept them.
     #[test]
-    #[should_panic(expected = "is uninitialized")]
-    fn test_uninitialized_account() {
+    fn test_uninitialized_account_is_accepted() {
         let mut config = GenesisConfig::default();
         config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
@@ -347,6 +342,7 @@ mod test {
             amount: Balance::from_yoctonear(10),
         }];
         config.total_supply = Balance::from_yoctonear(160);
+        config.epoch_length = 1;
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::Account {
