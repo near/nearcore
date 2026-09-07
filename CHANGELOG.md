@@ -28,6 +28,7 @@
 * Raised the minimum supported Rust version to 1.95.0. Building `nearcore` from source now requires a Rust 1.95.0 toolchain.
 * `tools/debug-ui` now builds with Vite instead of the unmaintained Create React App (`react-scripts`). Build output layout and the port 3000 dev server are unchanged, so deployment needs no change. Building now requires Node `^20.19.0 || >=22.12.0`. ([#16175](https://github.com/near/nearcore/pull/16175))
 * Stabilized `EXPERIMENTAL_tx_status` and renamed it to `tx_status`. `EXPERIMENTAL_tx_status` keeps working as a deprecated alias, with the same request and response types. **Metrics change:** the `near_rpc_wait_until_count` metric now labels `tx`, `tx_status` and `EXPERIMENTAL_tx_status` separately; previously both `tx` and `EXPERIMENTAL_tx_status` were counted under the `tx_status` label. ([#16270](https://github.com/near/nearcore/pull/16270))
+* `DBCol::EpochLightClientBlocks` now holds a versioned `StoredLightClientBlock` instead of the `LightClientBlockView` RPC type, which raises `DB_VERSION` from 50 to 51. A node started read-write migrates its hot database in place on startup, rewriting one row per epoch; the column holds a few thousand rows in total. The column is never garbage collected, so its rows were written by binaries going back to 2020 and appear in several borsh layouts; the migration reads each of them and rewrites it as the versioned type. A row that no layout reads stops the migration and names its epoch id rather than being guessed at. ([#16394](https://github.com/near/nearcore/pull/16394))
 
 ## [2.13.0]
 
