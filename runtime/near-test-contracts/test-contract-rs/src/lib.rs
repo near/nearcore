@@ -131,9 +131,9 @@ extern "C" {
         account_id_ptr: u64,
         amount_ptr: u64,
     ) -> u64;
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_universal_state_init(
         promise_idx: u64,
         state_init_len: u64,
@@ -389,7 +389,7 @@ pub unsafe fn ext_used_gas() {
 ///
 /// A contract cannot derive a universal account id on its own, so it asks the
 /// host for it and points the promise at what comes back.
-#[cfg(feature = "nightly")]
+#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 pub unsafe fn universal_state_init() {
     input(0);

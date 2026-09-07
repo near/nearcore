@@ -2,6 +2,7 @@ use crate::metrics;
 use lru::LruCache;
 use near_async::time::Instant;
 use near_chain::Error;
+use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonPartsTracker,
 };
@@ -15,6 +16,24 @@ use time::ext::InstantExt as _;
 
 const DEPLOY_PARTS_CACHE_SIZE: usize = 20;
 const PROCESSED_DEPLOYS_CACHE_SIZE: usize = 50;
+
+/// Key under which contract deploy parts and processed deploys are tracked.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct DeploysCacheKey {
+    chunk: ChunkProductionKey,
+    /// Grandparent anchor the message was signed against, or `None` for V1, where the epoch
+    /// sampler already pins exactly one producer per chunk key.
+    anchor: Option<CryptoHash>,
+}
+
+impl DeploysCacheKey {
+    fn new(partial_deploys: &PartialEncodedContractDeploys) -> Self {
+        Self {
+            chunk: partial_deploys.chunk_production_key().clone(),
+            anchor: partial_deploys.prev_prev_block_hash().copied(),
+        }
+    }
+}
 
 struct CacheEntry {
     parts: ReedSolomonPartsTracker<ChunkContractDeploys>,
@@ -31,7 +50,7 @@ impl CacheEntry {
 
     fn process_part(
         &mut self,
-        key: &ChunkProductionKey,
+        key: &DeploysCacheKey,
         part: PartialEncodedContractDeploysPart,
     ) -> Option<std::io::Result<ChunkContractDeploys>> {
         let part_ord = part.part_ord;
@@ -71,8 +90,8 @@ impl CacheEntry {
 }
 
 pub struct PartialEncodedContractDeploysTracker {
-    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
-    processed_deploys: LruCache<ChunkProductionKey, ()>,
+    parts_cache: LruCache<DeploysCacheKey, CacheEntry>,
+    processed_deploys: LruCache<DeploysCacheKey, ()>,
 }
 
 impl PartialEncodedContractDeploysTracker {
@@ -86,7 +105,7 @@ impl PartialEncodedContractDeploysTracker {
     }
 
     pub fn already_processed(&self, partial_deploys: &PartialEncodedContractDeploys) -> bool {
-        let key = partial_deploys.chunk_production_key();
+        let key = &DeploysCacheKey::new(partial_deploys);
         if self.processed_deploys.contains(key) {
             return true;
         }
@@ -111,7 +130,8 @@ impl PartialEncodedContractDeploysTracker {
         partial_deploys: PartialEncodedContractDeploys,
         encoder: Arc<ReedSolomonEncoder>,
     ) -> Result<Option<ChunkContractDeploys>, Error> {
-        let (key, part) = partial_deploys.into();
+        let key = DeploysCacheKey::new(&partial_deploys);
+        let (_, part) = partial_deploys.into();
         if !self.parts_cache.contains(&key) {
             let new_entry = CacheEntry::new(encoder, part.encoded_length);
             if let Some((evicted_key, evicted_entry)) =
@@ -130,10 +150,9 @@ impl PartialEncodedContractDeploysTracker {
         if let Some(decode_result) = entry.process_part(&key, part) {
             let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
             metrics::PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART
-                .with_label_values(&[key.shard_id.to_string().as_str()])
+                .with_label_values(&[key.chunk.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
             self.parts_cache.pop(&key);
-            self.processed_deploys.push(key.clone(), ());
             let deploys = match decode_result {
                 Ok(deploys) => deploys,
                 Err(err) => {
@@ -146,6 +165,7 @@ impl PartialEncodedContractDeploysTracker {
                     return Ok(None);
                 }
             };
+            self.processed_deploys.push(key, ());
             return Ok(Some(deploys));
         }
         Ok(None)

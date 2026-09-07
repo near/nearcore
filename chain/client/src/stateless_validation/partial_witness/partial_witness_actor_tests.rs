@@ -2,6 +2,7 @@ use super::partial_witness_actor::{
     PartialWitnessActor, version_mismatch, witness_version_mismatch,
 };
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use itertools::Itertools;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
 use near_async::time::Clock;
@@ -12,6 +13,7 @@ use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;
 use near_network::types::PeerManagerAdapter;
+use near_o11y::metrics;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -476,4 +478,52 @@ fn deploys_v2_unprocessed_anchor_soft_drops() {
 
     let mut actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
     actor.handle_partial_encoded_contract_deploys(deploys).unwrap();
+}
+
+/// A peer that varies `shard_id` freely must not be able to mint a new metric label per
+/// message: the receive counters are bumped before any shard validation, and Prometheus
+/// children are never evicted, so an unbounded label would grow the registry without limit.
+#[test]
+fn out_of_layout_shard_ids_share_one_metric_label() {
+    let (_chain, epoch_manager, runtime, signer) = setup(Clock::real());
+    let bogus_epoch = EpochId(CryptoHash::hash_bytes(b"bogus_epoch"));
+    let unknown_prev = CryptoHash::hash_bytes(b"unknown_prev_block");
+    let unknown_prev_prev = CryptoHash::hash_bytes(b"unknown_prev_prev_block");
+    let actor = build_test_actor(epoch_manager, runtime, signer.clone(), Arc::new(InlineSpawner));
+
+    const FIRST_SHARD_ID: u64 = u64::MAX / 2;
+    const COUNT: u64 = 100;
+    for i in 0..COUNT {
+        let witness = build_v2_witness(
+            signer.as_ref(),
+            bogus_epoch,
+            unknown_prev,
+            unknown_prev_prev,
+            1,
+            ShardId::new(FIRST_SHARD_ID + i),
+        );
+        // Both receive paths count before validating, so both need the bucketed label.
+        let _ = actor.handle_partial_encoded_state_witness_forward(witness.clone());
+        let _ = actor.handle_partial_encoded_state_witness(witness);
+    }
+
+    // The registry is process-global and shared with the other tests in this binary, so
+    // look at the label values rather than the child count.
+    let shard_labels: HashSet<String> = metrics::gather()
+        .into_iter()
+        .find(|family| family.name() == "near_partial_witness_part_messages_received_total")
+        .expect("counter must have been registered")
+        .get_metric()
+        .iter()
+        .flat_map(|metric| metric.get_label())
+        .filter(|label| label.name() == "shard_id")
+        .map(|label| label.value().to_owned())
+        .collect();
+
+    let leaked = (0..COUNT)
+        .map(|i| (FIRST_SHARD_ID + i).to_string())
+        .filter(|shard_id| shard_labels.contains(shard_id))
+        .collect_vec();
+    assert!(leaked.is_empty(), "peer-supplied shard ids reached the registry: {leaked:?}");
+    assert!(shard_labels.contains("unknown"), "expected the bucketed label, got {shard_labels:?}");
 }

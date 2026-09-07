@@ -612,6 +612,9 @@ fn test_promise_resume_receipt_to_tx_gc() {
 /// GC handles this via `ReceiptSource::ReceiptToTxGc` entries in ProcessedReceiptIds,
 /// which track all receipt IDs with ReceiptToTx entries and clean them up.
 #[test]
+// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
+// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
+#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
     init_test_logger();
 

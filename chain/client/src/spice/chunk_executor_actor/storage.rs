@@ -1,6 +1,8 @@
 //! DB read/write helpers for SPICE per-chunk artifacts (receipt proofs,
 //! witnesses, contract accesses). Shared by the per-shard executor and, for the
 //! read helpers, by the data distributor.
+//!
+//! TODO(spice-cleanup): move these onto `ChainStoreAdapter` next to the other spice accessors.
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, ShardProof};

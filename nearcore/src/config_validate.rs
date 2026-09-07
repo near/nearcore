@@ -327,6 +327,16 @@ impl<'a> ConfigValidator<'a> {
                     .to_string();
                 self.validation_errors.push_config_semantics_error(error_message);
             }
+            // `ShardData::state_changes` is read straight from `StateChanges`, which is
+            // written only under this flag.
+            if self.config.save_state_changes == Some(false) {
+                let error_message = "`cloud_archival.writer` archives shards but \
+                    `save_state_changes` is set to false; the writer needs state changes to \
+                    populate `ShardData::state_changes`. Set `save_state_changes: true` or \
+                    omit it (defaults to true)."
+                    .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
             let save_receipt_to_tx =
                 self.config.save_receipt_to_tx.or(self.config.save_tx_outcomes).unwrap_or(true);
             if !save_receipt_to_tx {

@@ -6,16 +6,18 @@ use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_blob_stats_are_archived, assert_resharding_epoch_snapshot_forced, assert_store_parity,
     assert_writer_agrees_with_rpc_node, assert_writer_inverse_deltas, bootstrap_historical_reader,
-    check_account_balance, check_data_at_height_for_shards, epoch_id_at, exec,
-    gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head, get_state_header_for_epoch,
-    get_writer_handle, has_state_root, run_node_until, run_receipts_of_every_kind,
-    run_until_one_epoch_after_resharding, set_scheduler_run_time, simulate_lagging_shard,
+    check_account_balance, check_data_at_height_for_shards, delete_epoch_sync_hash, epoch_id_at,
+    exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
+    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
+    run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
+    run_until_resharding_epoch_starts, set_scheduler_run_time, simulate_lagging_shard,
     snapshots_sanity_check, stop_and_restart_node,
 };
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
@@ -343,6 +345,17 @@ impl CloudArchiveHarness {
         self.new_shard_layout.as_ref().expect("enable_resharding required")
     }
 
+    /// Runs into the resharding epoch's first blocks and returns the old epoch's last block.
+    fn run_until_resharding_epoch_starts(&mut self) -> CryptoHash {
+        let new_layout = self.new_shard_layout().clone();
+        run_until_resharding_epoch_starts(
+            &mut self.env,
+            &self.writer_id,
+            &new_layout,
+            self.epoch_length,
+        )
+    }
+
     /// Runs the chain one epoch past the resharding.
     fn run_until_one_epoch_after_resharding(&mut self) -> ReshardingInfo {
         let new_layout = self.new_shard_layout().clone();
@@ -376,7 +389,7 @@ impl CloudArchiveHarness {
         target_height: BlockHeight,
     ) {
         let reader_id: AccountId = "reader".parse().unwrap();
-        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height);
+        bootstrap_historical_reader(&mut self.env, &reader_id, start_height, target_height, false);
         self.historical_reader_id = Some(reader_id);
     }
 
@@ -977,13 +990,38 @@ fn test_cloud_archival_two_nodes_archive_the_same_bytes() {
     h.shutdown();
 }
 
+/// The same agreement over a chain that skips blocks and drops chunks, so the rows a block
+/// implies and the rows a node stored can come apart. `ChunkHashesByHeight` is derived from
+/// the block rather than copied, and a wrong derivation shows here and not on a full chain.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_two_nodes_agree_across_gaps() {
+    assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
+    let all_shard_ids = CloudArchiveHarness::all_shard_ids();
+    let mut chunk_pattern = vec![true; 10];
+    chunk_pattern[3] = false;
+    let mut h = CloudArchiveHarness::builder()
+        .validators(4)
+        .disable_gc()
+        .dont_take_over_rpc()
+        .drop_blocks_at(&[13])
+        .drop_chunks(all_shard_ids[0], chunk_pattern)
+        .build();
+    h.run_until_epoch(3);
+    h.assert_heads_ok_before_gc();
+
+    let end = h.local_min_head();
+    assert_writer_agrees_with_rpc_node(&h.env, &h.writer_id, &h.rpc_id(), 0, end);
+
+    h.shutdown();
+}
+
 /// The blob carries the shard's stats in the archive's form, whatever the archiving node
 /// holds in its own row.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-// TODO(cloud_archival): un-ignore once the blob drops the bandwidth scheduler's run time.
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_blob_drops_node_measurements() {
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
@@ -1008,9 +1046,6 @@ fn test_cloud_archival_blob_drops_node_measurements() {
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-// TODO(cloud_archival): un-ignore once the block-level blob stops carrying the writer's
-// own `ChunkHashesByHeight` rows, which two writers with different tracked shards differ on.
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_multi_writer_disjoint_shards() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
     let all_shard_ids = CloudArchiveHarness::all_shard_ids();
@@ -1327,6 +1362,22 @@ fn test_cloud_archival_fully_skipped_batch() {
     // block of its own, above the last block of one epoch and below the first of the next.
     h.bootstrap_historical_reader(dropped_heights[0], gap_target);
     h.assert_reader_writer_parity(Reader::Historical, dropped_heights[0], gap_target);
+    // Only the anchor install writes the block below the range, and the chain head names it
+    // until the walk reaches a present height, so a query resolving against that head has to
+    // find the block itself and reach it by height.
+    let anchor_height = dropped_heights[0] - 1;
+    let anchor_hash =
+        h.writer_store().chain_store().get_block_hash_by_height(anchor_height).unwrap();
+    let store = h.historical_reader_store();
+    store
+        .chain_store()
+        .get_block(&anchor_hash)
+        .expect("the anchor below the range is a block the store holds");
+    assert_eq!(
+        store.chain_store().get_block_hash_by_height(anchor_height).unwrap(),
+        anchor_hash,
+        "the anchor below the range is not reachable by its own height"
+    );
     h.kill_historical_reader();
 
     h.shutdown();
@@ -2113,9 +2164,6 @@ fn test_cloud_archival_writer_resharding_inverse_deltas() {
 /// archives the same bytes whether or not the epoch has recorded its sync hash.
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-// TODO(cloud_archival): un-ignore once the top of the resharding gap is the sync hash
-// itself, so a gap block archives the same bytes before and after the epoch records it.
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_cloud_archival_writer_resharding_inverse_deltas_batch_size_1() {
     let mut h = CloudArchiveHarness::builder().enable_resharding().batch_size(1).build();
 
@@ -2367,6 +2415,154 @@ fn test_cloud_archival_resharding_gap_inverse_walk() {
             );
         }
     }
+
+    h.kill_historical_reader();
+    h.shutdown();
+}
+
+/// An epoch whose blocks are the newest the chain has cannot say where its sync block is yet,
+/// because that block has not been produced. Asking has to come back empty rather than fail.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_resharding_ceiling_at_the_chain_tip() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let last_block_of_prev_epoch = h.run_until_resharding_epoch_starts();
+    let store = h.writer_store();
+    let chain_store = store.chain_store();
+
+    let epoch_id = h.env.node_for_account(&h.writer_id).head().epoch_id;
+    assert!(
+        chain_store.get_current_epoch_sync_hash(&epoch_id).is_none(),
+        "the epoch already recorded its sync block, so there is nothing to work out"
+    );
+    assert_eq!(
+        derive_epoch_sync_hash(&chain_store, &last_block_of_prev_epoch).unwrap(),
+        None,
+        "the epoch named a sync block the chain has not produced"
+    );
+
+    h.shutdown();
+}
+
+/// A writer archives the same bytes whether it reads the epoch's sync block from its store or
+/// works it out from the chain. A store that received the epoch's headers out of order never
+/// records it, and it decides which blocks carry inverse state changes.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_resharding_gap_without_the_sync_hash_row() {
+    let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
+    let r = h.run_until_one_epoch_after_resharding();
+
+    let store = h.writer_store();
+    let chain_store = store.chain_store();
+    let epoch_header = chain_store
+        .get_block_header(&chain_store.get_block_hash_by_height(r.new_epoch_first_height).unwrap())
+        .unwrap();
+    let derived = derive_epoch_sync_hash(&chain_store, epoch_header.prev_hash()).unwrap().unwrap();
+    assert_eq!(
+        chain_store.get_block_height(&derived).unwrap(),
+        r.sync_block_height,
+        "the chain and the store disagree on where the epoch's sync block is"
+    );
+
+    // Blocks above the sync block are the ones that can differ: the sync block puts them
+    // outside the gap, and a writer that cannot find it treats every block as inside.
+    let shard_id = r.child_shard;
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
+    let with_sync_hash =
+        to_vec(&cloud_storage.get_shard_data(r.sync_block_height + 1, shard_id).unwrap().unwrap())
+            .expect("the writer archived the height while its store held the sync block");
+
+    // Take the sync block away and have the writer archive the same height again.
+    delete_epoch_sync_hash(&store, epoch_header.epoch_id());
+    h.rewind_cloud_shard_head(shard_id, r.sync_block_height);
+    h.restart_writer();
+    // One epoch past where `run_until_one_epoch_after_resharding` left the chain.
+    h.run_until(r.new_epoch_first_height + 2 * h.epoch_length);
+
+    let without_sync_hash =
+        to_vec(&cloud_storage.get_shard_data(r.sync_block_height + 1, shard_id).unwrap().unwrap())
+            .expect("the writer archived the height again with the sync block gone");
+    assert_eq!(
+        with_sync_hash, without_sync_hash,
+        "shard {shard_id} just above the sync block archives differently once it is gone"
+    );
+
+    h.shutdown();
+}
+
+/// The recent reader points the heads a query resolves against at its own position, so a
+/// query on the store it took over answers there and not at the stopped node's head.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+
+    let stopped_node_head = h.rpc_store().chain_store().head().unwrap().last_block_hash;
+    let reader = h.start_recent_reader();
+    h.run_until_epoch(3);
+
+    let store = h.recent_reader_store();
+    let reader_head = store.cloud_archival_store().reader_head().expect("the reader holds a head");
+    let chain_store = store.chain_store();
+    // By hash rather than height, since a reader head can name a height carrying no block.
+    let heads = [
+        ("HEAD", chain_store.head()),
+        ("FINAL_HEAD", chain_store.final_head()),
+        ("HEADER_HEAD", chain_store.header_head()),
+    ];
+    for (name, tip) in heads {
+        let tip = tip.unwrap_or_else(|error| panic!("{name} missing from the store: {error}"));
+        assert_eq!(
+            tip.last_block_hash, reader_head.last_present_block_hash,
+            "{name} does not name the block the reader head continues from"
+        );
+    }
+    assert_ne!(
+        store.chain_store().head().unwrap().last_block_hash,
+        stopped_node_head,
+        "the reader left the heads where the stopped node had them"
+    );
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A store bootstrapped without the trie carries the row naming each shard's state root and
+/// nothing behind it, so the recent reader has to refuse it at the door rather than run and
+/// fail on the first height it applies.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_refuses_a_store_without_state() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().dont_take_over_rpc().build();
+    h.run_until_epoch(3);
+    let start = h.epoch_length + 1;
+    let target = h.epoch_length * 2;
+    let reader_id: AccountId = "reader".parse().unwrap();
+    bootstrap_historical_reader(&mut h.env, &reader_id, start, target, true);
+    h.historical_reader_id = Some(reader_id.clone());
+
+    let client = h.env.node_for_account(&reader_id).client();
+    let reader = CloudArchivalRecentReader::new(
+        h.env.test_loop.clock(),
+        h.historical_reader_store(),
+        h.open_cloud_storage(&reader_id),
+        client.epoch_manager.clone(),
+        client.shard_tracker.clone(),
+        CloudArchiveHarness::RECENT_READER_POLLING_INTERVAL,
+    );
+    let Err(error) = exec(reader.cloud_archival_loop()) else {
+        panic!("the reader ran on a store holding no state");
+    };
+    assert!(
+        format!("{error:?}").contains("MissingTrieValue"),
+        "refused for the wrong reason: {error:?}"
+    );
 
     h.kill_historical_reader();
     h.shutdown();

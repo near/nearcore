@@ -5670,10 +5670,6 @@ fn test_promise_input_size_limit_does_not_bloat_witness() {
 /// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let initial_balance = Balance::from_near(1_000_000);
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5786,10 +5782,6 @@ fn test_gas_key_add_key_conserves_supply() {
 /// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let config = RuntimeConfig::test();
     let receiver = alice_account();
     let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
@@ -6054,22 +6046,11 @@ mod self_signed_state_init {
         (new_root, result.outcomes)
     }
 
-    fn skip() -> bool {
-        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-            return true;
-        }
-        false
-    }
-
     /// The happy path: an account with no access key signs for itself, the state
     /// init installs its keys, and the account's pre-key nonce is consumed.
     #[test]
     fn self_signed_init_succeeds_and_consumes_nonce() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-ok");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6098,9 +6079,6 @@ mod self_signed_state_init {
     #[test]
     fn same_bootstrap_cannot_be_replayed() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-replay");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6128,9 +6106,6 @@ mod self_signed_state_init {
     #[test]
     fn only_one_nonce_is_admissible() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-strict");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6156,9 +6131,6 @@ mod self_signed_state_init {
     #[test]
     fn two_bootstraps_with_one_nonce_in_chunk() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-same-chunk");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6194,9 +6166,6 @@ mod self_signed_state_init {
     #[test]
     fn gas_key_nonce_index_is_not_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-nonce-index");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6231,9 +6200,6 @@ mod self_signed_state_init {
     #[test]
     fn uncommitted_key_cannot_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let committed = signer_for("bootstrap-committed");
         let outsider = signer_for("bootstrap-outsider");
         let state_init = state_init_for(&[committed.public_key()]);
@@ -6263,9 +6229,6 @@ mod self_signed_state_init {
     #[test]
     fn failed_init_still_consumes_nonce() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-too-big");
         // Well past the 770-byte zero-balance exemption, so a real stake is
         // required, and more of it than the account holds.
@@ -6327,9 +6290,6 @@ mod self_signed_state_init {
     #[test]
     fn added_key_can_still_send_idempotent_init() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let committed = signer_for("idempotent-committed");
         let added = signer_for("idempotent-added");
         let state_init = state_init_for(&[committed.public_key()]);
@@ -6368,9 +6328,6 @@ mod self_signed_state_init {
     #[test]
     fn funding_transfer_seeds_nonce_from_its_height() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-seeded");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6441,9 +6398,6 @@ mod self_signed_state_init {
     #[test]
     fn recreated_account_rejects_old_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-recreated");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6500,9 +6454,6 @@ mod self_signed_state_init {
     #[test]
     fn owner_only_actions_before_init_fail_gracefully() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-prefix");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6582,9 +6533,6 @@ mod self_signed_state_init {
     #[test]
     fn owner_only_actions_after_init_succeed() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-suffix");
         let other = signer_for("bootstrap-suffix-other");
         let state_init = state_init_for(&[signer.public_key()]);
@@ -6627,9 +6575,6 @@ mod self_signed_state_init {
     #[test]
     fn delete_after_init_removes_account() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-then-delete");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6680,9 +6625,6 @@ mod self_signed_state_init {
     #[test]
     fn revoked_key_cannot_re_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-revoked");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6718,9 +6660,6 @@ mod self_signed_state_init {
     #[test]
     fn victims_account_cannot_be_named_as_signer() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let attacker = signer_for("bootstrap-attacker");
         let victim_key = signer_for("bootstrap-victim");
         let attacker_init = state_init_for(&[attacker.public_key()]);
@@ -6761,9 +6700,6 @@ mod self_signed_state_init {
     #[test]
     fn second_key_cannot_repeat_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let first = signer_for("two-keys-first");
         let second = signer_for("two-keys-second");
         let state_init = state_init_for(&[first.public_key(), second.public_key()]);
@@ -6830,9 +6766,6 @@ mod self_signed_state_init {
     #[test]
     fn missing_account_is_not_bootstrap() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let signer = signer_for("bootstrap-missing");
         let state_init = state_init_for(&[signer.public_key()]);
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -6879,14 +6812,6 @@ mod relayer_funded_state_init {
     /// its balance rather than out of nowhere.
     fn relayer_start() -> Balance {
         Balance::from_near(100)
-    }
-
-    fn skip() -> bool {
-        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-            return true;
-        }
-        false
     }
 
     fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
@@ -7000,9 +6925,6 @@ mod relayer_funded_state_init {
     #[test]
     fn batch_creates_funds_and_initializes_account() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let key = SecretKey::from_seed(KeyType::ED25519, "relayer-funded").public_key();
         let state_init = state_init_for(from_ref(&key));
         let account_id = derive_universal_account_id(&state_init.to_raw());
@@ -7037,9 +6959,6 @@ mod relayer_funded_state_init {
     #[test]
     fn lone_transfer_creates_universal_account() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let key = SecretKey::from_seed(KeyType::ED25519, "lone-transfer").public_key();
         let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
 
@@ -7086,9 +7005,6 @@ mod relayer_funded_state_init {
     #[test]
     fn batch_may_not_take_over_account_it_creates() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let owner = SecretKey::from_seed(KeyType::ED25519, "rightful-owner").public_key();
         let relayer_key = SecretKey::from_seed(KeyType::ED25519, "relayer-hijack").public_key();
         let state_init = state_init_for(&[owner]);
@@ -7129,9 +7045,6 @@ mod relayer_funded_state_init {
     #[test]
     fn owner_only_action_without_init_is_refused() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let key = SecretKey::from_seed(KeyType::ED25519, "no-init-first").public_key();
         let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
 
@@ -7198,9 +7111,6 @@ mod relayer_funded_state_init {
     #[test]
     fn refund_may_not_create_universal_account() {
         init_test_logger();
-        if skip() {
-            return;
-        }
         let key = SecretKey::from_seed(KeyType::ED25519, "refund-target").public_key();
         let account_id = derive_universal_account_id(&state_init_for(&[key]).to_raw());
         let (runtime, tries, root, apply_state, _signers, epoch) = setup_runtime(

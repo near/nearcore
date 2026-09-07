@@ -629,6 +629,7 @@ impl ProtocolFeature {
             ProtocolFeature::EarlyKickout => 87,
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
+            ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::FailCallToMissingGlobalContract => 87,
 
             // Nightly features:
@@ -636,7 +637,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

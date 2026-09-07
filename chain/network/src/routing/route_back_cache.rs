@@ -1,3 +1,4 @@
+use crate::network_protocol::RoutedResponseKind;
 use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
@@ -53,9 +54,9 @@ pub struct RouteBackCache {
     evict_timeout: time::Duration,
     /// Minimum number of records to delete from offending peer when the cache is full.
     remove_frequent_min_size: usize,
-    /// Main map from message hash to time where it was created + target peer
+    /// Main map from message hash to the record describing where the reply goes.
     /// Size: O(capacity)
-    main: HashMap<CryptoHash, (time::Instant, PeerId)>,
+    main: HashMap<CryptoHash, Record>,
     /// Number of records allocated by each PeerId.
     /// The size is stored with negative sign, to order in PeerId in decreasing order.
     /// To avoid handling with negative number all sizes are added by capacity.
@@ -65,6 +66,22 @@ pub struct RouteBackCache {
     /// are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
     record_per_target: BTreeMap<PeerId, BTreeSet<(time::Instant, CryptoHash)>>,
+}
+
+/// The only reply a route back hash created for this node's own request will accept. Entries
+/// created while forwarding another peer's request carry none, because the node has no request
+/// of its own to match against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExpectedResponse {
+    /// The peer the request was addressed to.
+    pub responder: PeerId,
+    pub kind: RoutedResponseKind,
+}
+
+struct Record {
+    inserted_at: time::Instant,
+    target: PeerId,
+    expected_response: Option<ExpectedResponse>,
 }
 
 impl Default for RouteBackCache {
@@ -180,13 +197,17 @@ impl RouteBackCache {
     }
 
     pub fn get(&self, hash: &CryptoHash) -> Option<&PeerId> {
-        self.main.get(hash).map(|(_, target)| target)
+        self.main.get(hash).map(|record| &record.target)
+    }
+
+    pub fn expected_response(&self, hash: &CryptoHash) -> Option<&ExpectedResponse> {
+        self.main.get(hash)?.expected_response.as_ref()
     }
 
     pub fn remove(&mut self, clock: &time::Clock, hash: &CryptoHash) -> Option<PeerId> {
         self.remove_evicted(clock);
 
-        if let Some((time, target)) = self.main.remove(hash) {
+        if let Some(Record { inserted_at: time, target, .. }) = self.main.remove(hash) {
             // Number of elements associated with this target
             let mut size = self.record_per_target.get(&target).map(|x| x.len()).unwrap();
 
@@ -215,7 +236,13 @@ impl RouteBackCache {
         }
     }
 
-    pub fn insert(&mut self, clock: &time::Clock, hash: CryptoHash, target: PeerId) {
+    pub fn insert(
+        &mut self,
+        clock: &time::Clock,
+        hash: CryptoHash,
+        target: PeerId,
+        expected_response: Option<ExpectedResponse>,
+    ) {
         if self.main.contains_key(&hash) {
             return;
         }
@@ -224,7 +251,8 @@ impl RouteBackCache {
 
         let now = clock.now();
 
-        self.main.insert(hash, (now, target.clone()));
+        self.main
+            .insert(hash, Record { inserted_at: now, target: target.clone(), expected_response });
 
         let mut size = self.record_per_target.get(&target).map_or(0, |x| x.len());
 
@@ -261,7 +289,8 @@ mod test {
             total += records.len();
 
             for (time, record) in records {
-                assert_eq!(cache.main.get(record).unwrap(), &(*time, target.clone()));
+                let stored = cache.main.get(record).unwrap();
+                assert_eq!((stored.inserted_at, &stored.target), (*time, target));
             }
         }
 
@@ -280,7 +309,7 @@ mod test {
 
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), None);
-        cache.insert(&clock.clock(), hash0, peer0.clone());
+        cache.insert(&clock.clock(), hash0, peer0.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), Some(&peer0));
         assert_eq!(cache.remove(&clock.clock(), &hash0), Some(peer0));
@@ -295,7 +324,7 @@ mod test {
         let mut cache = RouteBackCache::new(1, time::Duration::milliseconds(1), 1);
         let (peer0, hash0) = create_message(0);
 
-        cache.insert(&clock.clock(), hash0, peer0.clone());
+        cache.insert(&clock.clock(), hash0, peer0.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), Some(&peer0));
         clock.advance(time::Duration::milliseconds(2));
@@ -312,11 +341,11 @@ mod test {
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
 
-        cache.insert(&clock.clock(), hash0, peer0.clone());
+        cache.insert(&clock.clock(), hash0, peer0.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), Some(&peer0));
         clock.advance(time::Duration::milliseconds(2));
-        cache.insert(&clock.clock(), hash1, peer1.clone());
+        cache.insert(&clock.clock(), hash1, peer1.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash1), Some(&peer1));
         assert_eq!(cache.get(&hash0), None);
@@ -330,11 +359,11 @@ mod test {
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
 
-        cache.insert(&clock.clock(), hash0, peer0.clone());
+        cache.insert(&clock.clock(), hash0, peer0.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash0), Some(&peer0));
         clock.advance(time::Duration::milliseconds(2));
-        cache.insert(&clock.clock(), hash1, peer1.clone());
+        cache.insert(&clock.clock(), hash1, peer1.clone(), None);
         check_consistency(&cache);
         assert_eq!(cache.get(&hash1), Some(&peer1));
         assert_eq!(cache.get(&hash0), None);
@@ -351,11 +380,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(&clock.clock(), hash0, peer0);
+        cache.insert(&clock.clock(), hash0, peer0, None);
         clock.advance(time::Duration::milliseconds(1100));
-        cache.insert(&clock.clock(), hash1, peer1.clone());
-        cache.insert(&clock.clock(), hash2, peer1);
-        cache.insert(&clock.clock(), hash3, peer3);
+        cache.insert(&clock.clock(), hash1, peer1.clone(), None);
+        cache.insert(&clock.clock(), hash2, peer1, None);
+        cache.insert(&clock.clock(), hash3, peer3, None);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_none()); // This is removed because it was evicted
@@ -375,11 +404,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(&clock.clock(), hash0, peer0);
+        cache.insert(&clock.clock(), hash0, peer0, None);
         clock.advance(time::Duration::milliseconds(1000));
-        cache.insert(&clock.clock(), hash1, peer1.clone());
-        cache.insert(&clock.clock(), hash2, peer1);
-        cache.insert(&clock.clock(), hash3, peer3);
+        cache.insert(&clock.clock(), hash1, peer1.clone(), None);
+        cache.insert(&clock.clock(), hash2, peer1, None);
+        cache.insert(&clock.clock(), hash3, peer3, None);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_some());
@@ -399,11 +428,11 @@ mod test {
         let (_, hash2) = create_message(2);
         let (peer3, hash3) = create_message(3);
 
-        cache.insert(&clock.clock(), hash0, peer0);
+        cache.insert(&clock.clock(), hash0, peer0, None);
         clock.advance(time::Duration::milliseconds(1000));
-        cache.insert(&clock.clock(), hash1, peer1.clone());
-        cache.insert(&clock.clock(), hash2, peer1);
-        cache.insert(&clock.clock(), hash3, peer3);
+        cache.insert(&clock.clock(), hash1, peer1.clone(), None);
+        cache.insert(&clock.clock(), hash2, peer1, None);
+        cache.insert(&clock.clock(), hash3, peer3, None);
         check_consistency(&cache);
 
         assert!(cache.get(&hash0).is_some());
@@ -432,7 +461,7 @@ mod test {
             for _ in 0..4 {
                 let hashi = hash(&[ix]);
                 ix += 1;
-                cache.insert(&clock.clock(), hashi, peer.clone());
+                cache.insert(&clock.clock(), hashi, peer.clone(), None);
             }
 
             peers.push(peer);
@@ -443,7 +472,7 @@ mod test {
         for _ in 0..50 {
             let hashi = hash(&[ix]);
             ix += 1;
-            cache.insert(&clock.clock(), hashi, attacker.clone());
+            cache.insert(&clock.clock(), hashi, attacker.clone(), None);
         }
 
         check_consistency(&cache);

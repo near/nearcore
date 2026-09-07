@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "congestion-control-test-contract"
+name = "compact-test-contract"
 version = "0.1.0"

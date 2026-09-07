@@ -623,6 +623,27 @@ impl TieredMessageBody {
         }
     }
 
+    pub fn must_arrive_on_route_back(&self) -> bool {
+        match self {
+            TieredMessageBody::T1(_) => false,
+            TieredMessageBody::T2(body) => body.must_arrive_on_route_back(),
+        }
+    }
+
+    pub fn requested_response_kind(&self) -> Option<RoutedResponseKind> {
+        match self {
+            TieredMessageBody::T1(_) => None,
+            TieredMessageBody::T2(body) => body.requested_response_kind(),
+        }
+    }
+
+    pub fn response_kind(&self) -> Option<RoutedResponseKind> {
+        match self {
+            TieredMessageBody::T1(_) => None,
+            TieredMessageBody::T2(body) => body.response_kind(),
+        }
+    }
+
     pub fn from_routed(routed: RoutedMessageBody) -> Self {
         match routed {
             RoutedMessageBody::BlockApproval(approval) => {
@@ -814,6 +835,14 @@ pub enum T2MessageBody {
     // PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 12,
 }
 
+/// The routed reply that answers a routed request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoutedResponseKind {
+    Pong,
+    TxStatusResponse,
+    PartialEncodedChunkResponse,
+}
+
 impl T2MessageBody {
     pub fn message_resend_count(&self) -> usize {
         1
@@ -821,6 +850,40 @@ impl T2MessageBody {
 
     pub fn allow_sending_to_self(&self) -> bool {
         false
+    }
+
+    /// A `TxStatusResponse` is the only routed reply whose payload is itself the answer:
+    /// the receiver has no committed data to check it against, unlike a
+    /// `PartialEncodedChunkResponse`, whose parts and receipts are verified against the
+    /// locally stored chunk header. Its one sender addresses it to the route back hash of
+    /// the `TxStatusRequest` that asked for it, so one addressed to our `PeerId` answers
+    /// no request this node made.
+    pub fn must_arrive_on_route_back(&self) -> bool {
+        matches!(self, T2MessageBody::TxStatusResponse(_))
+    }
+
+    /// The reply this body asks for, when it is a request that expects one.
+    pub fn requested_response_kind(&self) -> Option<RoutedResponseKind> {
+        match self {
+            T2MessageBody::Ping(_) => Some(RoutedResponseKind::Pong),
+            T2MessageBody::TxStatusRequest(_, _) => Some(RoutedResponseKind::TxStatusResponse),
+            T2MessageBody::PartialEncodedChunkRequest(_) => {
+                Some(RoutedResponseKind::PartialEncodedChunkResponse)
+            }
+            _ => None,
+        }
+    }
+
+    /// The reply this body is, when it is a reply.
+    pub fn response_kind(&self) -> Option<RoutedResponseKind> {
+        match self {
+            T2MessageBody::Pong(_) => Some(RoutedResponseKind::Pong),
+            T2MessageBody::TxStatusResponse(_) => Some(RoutedResponseKind::TxStatusResponse),
+            T2MessageBody::PartialEncodedChunkResponse(_) => {
+                Some(RoutedResponseKind::PartialEncodedChunkResponse)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1192,16 +1255,7 @@ impl RoutedMessageV3 {
     }
 
     pub fn expect_response(&self) -> bool {
-        if let TieredMessageBody::T2(body) = &self.body {
-            matches!(
-                **body,
-                T2MessageBody::Ping(_)
-                    | T2MessageBody::TxStatusRequest(_, _)
-                    | T2MessageBody::PartialEncodedChunkRequest(_)
-            )
-        } else {
-            false
-        }
+        self.body.requested_response_kind().is_some()
     }
 
     /// Return true if ttl is positive after decreasing ttl by one, false otherwise.

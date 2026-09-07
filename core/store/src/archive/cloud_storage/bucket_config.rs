@@ -4,8 +4,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// The first writer creates it; subsequent writers validate their local
 /// settings match. This ensures all writers use identical parameters.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BucketConfig {
-    V1(BucketConfigV1),
+    V1(BucketConfigV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]

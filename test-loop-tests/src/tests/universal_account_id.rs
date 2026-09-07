@@ -8,10 +8,6 @@
 //!
 //! - `universal_state_init_to_account_id`
 //! - `promise_batch_action_universal_state_init`
-//!
-//! These are gated on `ProtocolFeature::UniversalAccounts`: on binaries where
-//! the feature is not yet enabled they log a skip and return, per the project
-//! convention for protocol features that are not yet stabilized.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -46,7 +42,7 @@ use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
 use near_primitives::utils::derive_universal_account_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -196,14 +192,14 @@ impl Env {
         }
     }
 
-    /// Deploy the nightly test contract, the one exposing the universal-account
-    /// host functions, and return the account holding it.
+    /// Deploy the test contract exposing the universal-account host functions,
+    /// and return the account holding it.
     fn deploy_caller_contract(&mut self) -> AccountId {
         let account = self.caller_account.clone();
         let tx = SignedTransaction::deploy_contract(
             self.next_nonce(),
             &account,
-            near_test_contracts::nightly_rs_contract().to_vec(),
+            near_test_contracts::rs_contract().to_vec(),
             &create_user_test_signer(&account),
             self.block_hash(),
         );
@@ -254,10 +250,6 @@ impl Env {
 #[test]
 fn test_universal_state_init_key_only() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-key-only").public_key();
@@ -290,10 +282,6 @@ fn test_universal_state_init_key_only() {
 #[test]
 fn test_universal_state_init_contract() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let code = env.deploy_global_contract();
 
@@ -326,10 +314,6 @@ fn test_universal_state_init_contract() {
 #[test]
 fn test_universal_state_init_repeated() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-repeat").public_key();
@@ -358,10 +342,6 @@ fn test_universal_state_init_repeated() {
 #[test]
 fn test_universal_state_init_after_transfer() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-prefunded").public_key();
@@ -442,10 +422,6 @@ fn non_canonical_state_init(public_key: &PublicKey) -> RawStateInit {
 #[test]
 fn test_universal_state_init_derives_from_supplied_bytes() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-non-canonical").public_key();
@@ -513,10 +489,6 @@ fn derive_wasm(state_init: &[u8]) -> Vec<u8> {
 #[test]
 fn test_universal_state_init_to_account_id_matches_receiver_check() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     // The first canonical known-answer vector from
@@ -554,10 +526,6 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
 #[test]
 fn test_universal_state_init_from_contract() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let caller = env.deploy_caller_contract();
 
@@ -598,10 +566,6 @@ fn test_universal_state_init_from_contract() {
 #[test]
 fn test_universal_state_init_from_contract_malformed() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let caller = env.deploy_caller_contract();
 
@@ -623,10 +587,6 @@ fn test_universal_state_init_from_contract_malformed() {
 #[test]
 fn test_universal_state_init_wrong_receiver() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-wrong-receiver").public_key();
@@ -666,10 +626,6 @@ fn test_universal_state_init_wrong_receiver() {
 #[test]
 fn test_universal_state_init_then_function_call() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let code = env.deploy_global_contract();
 
@@ -720,10 +676,6 @@ fn test_universal_state_init_then_function_call() {
 #[test]
 fn test_uninitialized_account_rejects_actions_needing_state() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-uninitialized").public_key();
@@ -791,10 +743,6 @@ fn test_uninitialized_account_rejects_actions_needing_state() {
 #[test]
 fn test_self_signed_state_init() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "self-signed-init");
@@ -851,10 +799,6 @@ fn test_self_signed_state_init() {
 #[test]
 fn create_and_fund_universal_account_in_one_tx() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let public_key = SecretKey::from_seed(KeyType::ED25519, "create-and-fund").public_key();
@@ -902,10 +846,6 @@ fn create_and_fund_universal_account_in_one_tx() {
 #[test]
 fn test_relayer_transfer_then_init_then_call() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let code = env.deploy_global_contract();
 
@@ -962,10 +902,6 @@ fn test_relayer_transfer_then_init_then_call() {
 #[test]
 fn test_relayer_creates_funds_and_calls_in_one_tx() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let code = env.deploy_global_contract();
 
@@ -1021,10 +957,6 @@ fn test_relayer_creates_funds_and_calls_in_one_tx() {
 #[test]
 fn test_relayer_init_funds_then_calls_in_one_tx() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
     let code = env.deploy_global_contract();
 
@@ -1081,10 +1013,6 @@ fn test_relayer_init_funds_then_calls_in_one_tx() {
 #[test]
 fn test_relayer_cannot_add_key_to_account_it_creates() {
     init_test_logger();
-    if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-        return;
-    }
     let mut env = Env::setup();
 
     let owner_key = SecretKey::from_seed(KeyType::ED25519, "rightful-owner").public_key();

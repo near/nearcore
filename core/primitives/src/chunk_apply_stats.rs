@@ -44,9 +44,8 @@ pub struct ChunkApplyStatsV0 {
 }
 
 /// Information gathered during chunk application.
-/// This feature is still in development. Consider V1 as unstable, fields might be added or removed
-/// from it at any time. We will do proper versioning after stabilization when there will be other
-/// services depending on this structure.
+/// The cloud archive writes this struct into a frozen blob format, so adding or removing a field
+/// changes what an already-written object means. Add a `ChunkApplyStats::V2` instead.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkApplyStatsV1 {
     /// Height at which the chunk was applied

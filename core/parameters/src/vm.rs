@@ -228,7 +228,7 @@ pub struct Config {
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past the protocol version where the feature is enabled.
+    // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
 
     /// Whether to discard custom sections.

@@ -6,7 +6,9 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, KeyForStateChanges, ShardTries, StateSnapshotConfig, Store, TrieConfig};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
-use near_primitives::chunk_apply_stats::{BandwidthSchedulerStats, ChunkApplyStats};
+use near_primitives::chunk_apply_stats::{
+    BandwidthSchedulerStats, ChunkApplyStats, ChunkApplyStatsV1,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -27,17 +29,21 @@ pub type InverseStateChanges = BTreeMap<TrieKey, Option<Vec<u8>>>;
 /// Versioned container for shard-related data stored in the cloud archive.
 /// This is for a single block height (taken from the file path).
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardData {
-    V1(ShardDataV1),
+    V1(ShardDataV1) = 0,
 }
 
 // Short-lived deserialized blob held only in small bounded collections;
 // the size disparity is transient, not worth a heap indirection per read.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardDataV1 {
-    NewChunk(NewChunkData),
-    Carried(CarriedData),
+    NewChunk(NewChunkData) = 0,
+    Carried(CarriedData) = 1,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -126,12 +132,25 @@ struct InverseDeltasContext {
 /// That field is how long the scheduler took on the node that applied the chunk, so two
 /// writers of the same shard disagree on it; every other field follows from the chunk.
 pub fn archived_chunk_apply_stats(mut stats: ChunkApplyStats) -> ChunkApplyStats {
+    // Both levels are destructured so that a field added to either has to be classified
+    // here before this builds: node-dependent ones join `time_to_run_ms`, the rest are
+    // ignored. The blob is frozen, so a field cannot arrive in it unnoticed.
     let scheduler = match &mut stats {
         ChunkApplyStats::V0(v0) => &mut v0.bandwidth_scheduler,
-        ChunkApplyStats::V1(v1) => &mut v1.bandwidth_scheduler,
+        ChunkApplyStats::V1(v1) => {
+            let ChunkApplyStatsV1 {
+                height: _,
+                shard_id: _,
+                is_new_chunk: _,
+                transactions_num: _,
+                incoming_receipts_num: _,
+                bandwidth_scheduler,
+                balance: _,
+                receipt_sink: _,
+            } = v1;
+            bandwidth_scheduler
+        }
     };
-    // Destructured so that a field added to the scheduler's stats has to be classified here
-    // before this builds: node-dependent ones join `time_to_run_ms`, the rest are ignored.
     let BandwidthSchedulerStats {
         params: _,
         prev_bandwidth_requests: _,
@@ -171,10 +190,10 @@ fn build_shard_data(
     };
 
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
-    let chunk_apply_stats = option_to_not_found(
+    let chunk_apply_stats = archived_chunk_apply_stats(option_to_not_found(
         chunk_store.get_chunk_apply_stats(&block_hash, &shard_id),
         format_args!("CHUNK APPLY STATS: height {block_height}, shard {shard_id:?}"),
-    )?;
+    )?);
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let inverse_state_changes = build_inverse_state_changes(
         store,
@@ -414,8 +433,10 @@ impl ShardData {
 
 /// Versioned container for a batch of shard data spanning consecutive heights.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum ShardBatch {
-    V1(ShardBatchV1),
+    V1(ShardBatchV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -518,5 +539,31 @@ impl ShardBatch {
         );
         let index = (height - batch.start_height) as usize;
         batch.data[index].as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CarriedData, ShardData, ShardDataV1};
+    use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::chunk_extra::ChunkExtra;
+
+    /// The wire tag is part of the frozen format. The schema check hashes it too, but a
+    /// change there reads as a hash to regenerate; this states the byte a reader expects.
+    #[test]
+    fn carried_shard_data_keeps_its_tag() {
+        let carried = ShardDataV1::Carried(CarriedData {
+            block_hash: CryptoHash::default(),
+            chunk_extra: ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+            chunk_apply_stats: ChunkApplyStats::V1(ChunkApplyStatsV1::dummy()),
+            state_changes: vec![],
+            incoming_receipts: None,
+            inverse_state_changes: None,
+        });
+        let bytes = borsh::to_vec(&carried).unwrap();
+        assert_eq!(bytes.first(), Some(&1), "`Carried` serializes as tag 1");
+        let wrapped = borsh::to_vec(&ShardData::V1(carried)).unwrap();
+        assert_eq!(&wrapped[..2], &[0u8, 1][..], "the container tag leads the variant tag");
     }
 }

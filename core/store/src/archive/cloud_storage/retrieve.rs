@@ -1,4 +1,5 @@
 use crate::archive::cloud_storage::CloudStorage;
+use crate::archive::cloud_storage::archive::CloudHead;
 use crate::archive::cloud_storage::batch::BatchId;
 use crate::archive::cloud_storage::blocks::BlockBatch;
 use crate::archive::cloud_storage::epoch_data::EpochData;
@@ -52,7 +53,9 @@ impl CloudStorage {
         if !self.dir_contains(&ListableCloudDir::Metadata, &filename).await? {
             return Ok(None);
         }
-        self.retrieve(&file_id).await.map(Some)
+        let head: CloudHead = self.retrieve(&file_id).await?;
+        let height = head.height();
+        Ok(Some(height))
     }
 
     /// Returns a shard head from external storage, if present.
@@ -65,7 +68,9 @@ impl CloudStorage {
         if !self.dir_contains(&ListableCloudDir::ShardHeads, &filename).await? {
             return Ok(None);
         }
-        self.retrieve(&file_id).await.map(Some)
+        let head: CloudHead = self.retrieve(&file_id).await?;
+        let height = head.height();
+        Ok(Some(height))
     }
 
     /// Returns the state snapshot header from external storage.

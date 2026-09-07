@@ -40,11 +40,7 @@ fn try_main() -> Result<(), Error> {
 
     test_contract_features.push("latest_protocol");
     build_contract("./test-contract-rs", &test_contract_features, "test_contract_rs")?;
-    build_contract(
-        "./congestion-control-test-contract",
-        &test_contract_features,
-        "congestion_control_test_contract",
-    )?;
+    build_contract("./compact-test-contract", &test_contract_features, "compact_test_contract")?;
 
     test_contract_features.push("nightly");
     build_contract("./test-contract-rs", &test_contract_features, "nightly_test_contract_rs")?;

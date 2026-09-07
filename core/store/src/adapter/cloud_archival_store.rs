@@ -1,11 +1,12 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{
     CLOUD_READER_HEAD_KEY, CLOUD_WRITER_BLOCK_HEAD_KEY, CLOUD_WRITER_MIN_HEAD_KEY,
-    CLOUD_WRITER_PREV_EPOCH_END_KEY, CLOUD_WRITER_SHARD_HEAD_PREFIX, cloud_writer_shard_head_key,
-    cloud_writer_shard_head_key_shard_id,
+    CLOUD_WRITER_PREV_EPOCH_END_KEY, CLOUD_WRITER_SHARD_HEAD_PREFIX, FINAL_HEAD_KEY, HEAD_KEY,
+    HEADER_HEAD_KEY, cloud_writer_shard_head_key, cloud_writer_shard_head_key_shard_id,
 };
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
@@ -136,5 +137,13 @@ impl<'a> CloudArchivalStoreUpdateAdapter<'a> {
 
     pub fn set_reader_head(&mut self, head: &CloudReaderHead) {
         self.store_update.set_ser(DBCol::BlockMisc, CLOUD_READER_HEAD_KEY, head);
+    }
+
+    /// Points the heads a query resolves against at `tip`. All three name the same block,
+    /// because a reader holds only blocks the writer archived below its own final head.
+    pub fn set_chain_heads(&mut self, tip: &Tip) {
+        self.store_update.set_ser(DBCol::BlockMisc, HEAD_KEY, tip);
+        self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, tip);
+        self.store_update.set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, tip);
     }
 }

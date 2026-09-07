@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.23"
+    "version": "1.3.24"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -4445,7 +4445,7 @@
             ],
             "default": {
               "nanos": 0,
-              "secs": 1
+              "secs": 5
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
           },

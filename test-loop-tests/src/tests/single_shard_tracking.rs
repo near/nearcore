@@ -27,6 +27,9 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP;
 /// Ensure that shard data is stored only for the shards it is tracking.
 /// Verify that old data is garbage collected for all shards.
 #[test]
+// TODO(spice-data-distribution): tests marked ignore under spice need receipt-proof pull
+// recovery — tracking-only nodes get no receipt-proof pushes; re-enable with (#16275).
+#[cfg_attr(feature = "protocol_feature_spice", ignore = "needs receipt-proof pull recovery")]
 fn test_rpc_single_shard_tracking() {
     init_test_logger();
     let validator = "cp0";

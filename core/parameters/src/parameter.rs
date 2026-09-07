@@ -254,7 +254,7 @@ pub enum Parameter {
     // protocol version 70, where the feature is enabled.
     EthImplicitAccounts,
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past the protocol version where the feature is enabled.
+    // past protocol version 87, where the feature is enabled.
     UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,

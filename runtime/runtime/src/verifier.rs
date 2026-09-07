@@ -2534,10 +2534,6 @@ mod tests {
     /// signed by a sibling one would find that key's scope empty.
     #[test]
     fn test_bootstrap_nonce_floor_is_account_scoped() {
-        if !ProtocolFeature::UniversalAccounts.enabled(PROTOCOL_VERSION) {
-            tracing::info!("skipping: UniversalAccounts not enabled at v{PROTOCOL_VERSION}");
-            return;
-        }
         let config = RuntimeConfig::test();
         let gas_price = Balance::from_yoctonear(5000);
         // Stands in for `initial_nonce_value(creation_height)`; only its relation
