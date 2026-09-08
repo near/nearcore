@@ -17,7 +17,9 @@ class TestReleaseCandidate(TestSetup):
         - No state dumper.
         - Upgrade happens over 2 epochs.
         - Archival nodes.
-        - 1 producer per shard
+        - More producer seats than shards, so at least one shard gets a
+          redundant chunk producer (needed to test early chunk producer
+          kickout).
         - 2 validators.
 
     Required arguments:
@@ -29,7 +31,7 @@ class TestReleaseCandidate(TestSetup):
     def __init__(self, args):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=10, num_chunk_validator_seats=12)
+            num_chunk_producer_seats=12, num_chunk_validator_seats=14)
         self.epoch_len = 14500  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
         self.has_archival = True
