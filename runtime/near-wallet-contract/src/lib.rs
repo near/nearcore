@@ -34,7 +34,13 @@ const MAINNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
         ),
     },
     WalletGlobalContract {
-        hash: CryptoHash([0; 32]), // TODO: fill in real hash
+        // 5LM8a65dWxesxZeWq3HjCcjLkNTwHjTUPp8R117wZJDw
+        // Deployed in https://nearblocks.io/txns/DKiEEbvssm6ozPTFesTGewRVcrteCmyTHzi4JvTPxaR7
+        hash: CryptoHash([
+            0x40, 0x63, 0x8b, 0x73, 0xc9, 0x6c, 0xeb, 0x00, 0xe7, 0x03, 0x79, 0xdc, 0x71, 0x65,
+            0x89, 0xfd, 0xcc, 0xaf, 0x0d, 0x35, 0xec, 0x7b, 0x28, 0xf3, 0x8a, 0x79, 0x99, 0xe3,
+            0x89, 0x50, 0x54, 0x72,
+        ]),
         latest_protocol_version: None,
     },
 ];
@@ -52,7 +58,13 @@ const TESTNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
         ),
     },
     WalletGlobalContract {
-        hash: CryptoHash([0; 32]), // TODO: fill in real hash
+        // H7BByXFswWtJzpoatHsnTKiUAomKubBTFi8tq9vzULX7
+        // Deployed in https://testnet.nearblocks.io/txns/GYdoLMuhaoJThrbcTepWKn5YqemJTb7B3bem2Pw3Es4f
+        hash: CryptoHash([
+            0xef, 0x4f, 0xff, 0x25, 0x0b, 0xc3, 0x65, 0x06, 0x3a, 0x73, 0x72, 0xc3, 0xe9, 0x3b,
+            0x30, 0x81, 0x99, 0x0b, 0xd5, 0x04, 0xc6, 0x3a, 0xf2, 0xd1, 0xff, 0x5a, 0x1d, 0x16,
+            0x7e, 0x0a, 0x6c, 0x66,
+        ]),
         latest_protocol_version: None,
     },
 ];
@@ -305,8 +317,10 @@ mod tests {
         assert_eq!(eth_wallet_global_contract_hash(MOCKNET, non_updated_pv), old_mainnet_expected);
         assert_eq!(eth_wallet_global_contract_hash(TESTNET, non_updated_pv), old_testnet_expected);
 
-        let new_mainnet_expected: CryptoHash = "11111111111111111111111111111111".parse().unwrap();
-        let new_testnet_expected: CryptoHash = "11111111111111111111111111111111".parse().unwrap();
+        let new_mainnet_expected: CryptoHash =
+            "5LM8a65dWxesxZeWq3HjCcjLkNTwHjTUPp8R117wZJDw".parse().unwrap();
+        let new_testnet_expected: CryptoHash =
+            "H7BByXFswWtJzpoatHsnTKiUAomKubBTFi8tq9vzULX7".parse().unwrap();
 
         // Latest versions are returned on the newer protocol version
         assert_eq!(eth_wallet_global_contract_hash(MAINNET, updated_pv), new_mainnet_expected);
