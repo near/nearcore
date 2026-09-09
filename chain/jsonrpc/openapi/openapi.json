@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.24"
+    "version": "1.3.25"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3586,6 +3586,35 @@
               "WithdrawFromGasKeyNotAllowedInDelegate"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `UniversalStateInit` state init commits to more access keys than allowed.",
+            "properties": {
+              "UniversalStateInitTooManyKeys": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_keys": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_keys",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitTooManyKeys"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -12359,6 +12388,12 @@
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
+            "type": "integer"
+          },
+          "max_universal_state_init_keys": {
+            "description": "Max number of access keys a `UniversalStateInit` action may commit to.\n\nEach committed key is priced as a full `AddKey`, at the send rate, so the\nwhole cost lands when a transaction is converted to a receipt. Without a\ncap one transaction converts for more gas than a chunk has, and since\nconversion happens before anything is charged, transaction selection\nadmits it anyway.",
+            "format": "uint64",
+            "minimum": 0,
             "type": "integer"
           },
           "max_yield_payload_size": {
