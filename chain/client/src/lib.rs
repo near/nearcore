@@ -49,6 +49,7 @@ pub mod client_actor;
 mod config_updater;
 pub mod debug;
 pub mod gc_actor;
+pub mod indexer;
 mod info;
 pub mod metrics;
 pub mod pending_transaction_queue;

@@ -48,6 +48,7 @@ near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-external-storage.workspace = true
+near-indexer-primitives.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
