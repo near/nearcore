@@ -1148,7 +1148,11 @@ pub struct ChunkHeaderView {
     /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
     /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
     /// `Some(Some(split))`: field present and set
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "serde_with::rust::double_option::deserialize"
+    )]
     pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
 }
@@ -3186,6 +3190,35 @@ mod tests {
     use assert_matches::assert_matches;
     use near_primitives_core::hash::CryptoHash;
     use serde_json::json;
+
+    #[test]
+    fn test_chunk_header_proposed_split_json_roundtrip() {
+        use super::ChunkHeaderView;
+        use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+        use crate::trie_split::TrieSplit;
+        use crate::version::ProtocolFeature;
+
+        let mut view: ChunkHeaderView = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
+            1,
+            0.into(),
+            CryptoHash::default(),
+            ProtocolFeature::DynamicResharding.protocol_version(),
+        ))
+        .into();
+        // Missing, present-null and present-value distinguish header versions.
+        for proposed_split in [None, Some(None), Some(Some(TrieSplit::dummy()))] {
+            view.proposed_split = proposed_split.clone();
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(json.get("proposed_split").is_some(), proposed_split.is_some());
+            let decoded: ChunkHeaderView = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(decoded.proposed_split, proposed_split);
+            assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+            // Version selection affects the recomputed chunk hash.
+            let expected_header: ShardChunkHeader = view.clone().into();
+            let decoded_header: ShardChunkHeader = decoded.into();
+            assert_eq!(decoded_header.chunk_hash(), expected_header.chunk_hash());
+        }
+    }
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
