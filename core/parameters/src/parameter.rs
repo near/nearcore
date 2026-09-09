@@ -227,6 +227,8 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxReceiptTotalInputSize,
+    /// Max number of access keys a `UniversalStateInit` action may commit to.
+    MaxUniversalStateInitKeys,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
     MinContractSizePerLocal,
@@ -411,6 +413,7 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxReceiptTotalInputSize,
+            Parameter::MaxUniversalStateInitKeys,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
             Parameter::MinContractSizePerLocal,

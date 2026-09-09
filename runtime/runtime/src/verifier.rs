@@ -792,7 +792,7 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, Signer};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
@@ -817,7 +817,7 @@ mod tests {
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
@@ -2589,6 +2589,105 @@ mod tests {
         let key_floor =
             PendingConstraints { max_nonce: BOOTSTRAP_NONCE + 1, ..PendingConstraints::default() };
         assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
+    }
+
+    /// A self-signed state-init transaction committing to `num_keys` access keys
+    /// and carrying one data entry of `value_len` bytes. Padding the entry grows
+    /// the transaction by exactly `value_len`, which is how the size-limit case
+    /// below hits the limit on the nose.
+    fn bootstrap_state_init_tx(num_keys: u64, value_len: usize) -> SignedTransaction {
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let access_keys = (0..num_keys)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"pad".to_vec(), vec![0u8; value_len])]),
+            access_keys,
+        });
+        let raw_state_init = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw_state_init);
+        SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw_state_init,
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        )
+    }
+
+    /// A state init committing to more keys than allowed never gets as far as
+    /// conversion: `validate_transaction` is stateless, and both RPC ingest and
+    /// `prepare_transactions` run it before a transaction is charged for
+    /// anything. That matters because the per-key fee is a *send* fee, burnt
+    /// when the transaction becomes a receipt, and nothing meters conversion
+    /// against the chunk's gas limit.
+    #[test]
+    fn test_validate_transaction_rejects_over_cap_universal_state_init() {
+        let config = RuntimeConfig::test();
+        let max_keys = config.wasm_config.limit_config.max_universal_state_init_keys;
+        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0);
+
+        let (err, _) = validate_transaction(&config, bootstrap_tx(max_keys + 1), PROTOCOL_VERSION)
+            .expect_err("a state init over the key cap must be rejected");
+        assert_eq!(
+            err,
+            InvalidTxError::ActionsValidation(
+                ActionsValidationError::UniversalStateInitTooManyKeys {
+                    number_of_keys: max_keys + 1,
+                    limit: max_keys,
+                }
+            )
+        );
+
+        // The cap itself is fine, so the only thing rejected is going past it.
+        assert!(validate_transaction(&config, bootstrap_tx(max_keys), PROTOCOL_VERSION).is_ok());
+    }
+
+    /// The most expensive state-init transaction the validator will accept, on
+    /// the real parameters, still converts for less gas than a chunk gives
+    /// transactions: the key cap and the size limit together bound the
+    /// conversion burn.
+    ///
+    /// Worst case is both terms at once, a transaction at
+    /// `max_transaction_size` that also commits to
+    /// `max_universal_state_init_keys` keys. Conversion is not prepaid and is
+    /// not metered against the chunk's gas limit, so if this ever exceeded
+    /// `max_tx_gas` one transaction could crowd receipts out of a chunk.
+    #[test]
+    fn test_largest_universal_state_init_converts_within_the_tx_gas_budget() {
+        let store = near_parameters::RuntimeConfigStore::new(None);
+        let config = store.get_config(PROTOCOL_VERSION);
+        let limits = &config.wasm_config.limit_config;
+        let max_keys = limits.max_universal_state_init_keys;
+        let max_size = limits.max_transaction_size;
+        let budget = config.congestion_control_config.max_tx_gas;
+
+        // Pad the data entry until the transaction is exactly at the size limit.
+        let without_padding =
+            bootstrap_state_init_tx(max_keys, 0).size_for_limits(PROTOCOL_VERSION);
+        let padding = usize::try_from(max_size - without_padding).unwrap();
+        let signed_tx = bootstrap_state_init_tx(max_keys, padding);
+        assert_eq!(signed_tx.size_for_limits(PROTOCOL_VERSION), max_size, "padding is exact");
+
+        let burnt =
+            tx_cost(config, &signed_tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+        assert!(
+            validate_transaction(config, signed_tx, PROTOCOL_VERSION).is_ok(),
+            "the worst case has to be one the validator actually accepts"
+        );
+        assert!(
+            burnt < budget,
+            "{max_keys} keys in a {max_size} B transaction burn {burnt} at conversion, \
+             against a per-chunk transaction budget of {budget}"
+        );
     }
 
     #[test]

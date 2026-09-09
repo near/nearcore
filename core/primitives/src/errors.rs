@@ -497,6 +497,11 @@ pub enum ActionsValidationError {
     } = 26,
     /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
     WithdrawFromGasKeyNotAllowedInDelegate = 27,
+    /// A `UniversalStateInit` state init commits to more access keys than allowed.
+    UniversalStateInitTooManyKeys {
+        number_of_keys: u64,
+        limit: u64,
+    } = 28,
 }
 
 /// Describes the error for validating a receipt.
@@ -736,6 +741,12 @@ impl Display for ActionsValidationError {
             }
             ActionsValidationError::MalformedUniversalStateInit => {
                 write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+            }
+            ActionsValidationError::UniversalStateInitTooManyKeys { number_of_keys, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit commits to {number_of_keys} access keys but at most {limit} is allowed",
+                )
             }
         }
     }

@@ -535,6 +535,18 @@ fn validate_universal_state_init(
         validate_global_contract_identifier(code)?;
     }
 
+    // Every committed key is charged as a full `AddKey` at the send rate, which is
+    // paid when this transaction is converted to a receipt. That conversion is not
+    // metered against the chunk's gas limit, so without this cap a single
+    // transaction converts for more gas than a chunk has to give.
+    let number_of_keys = state_init.access_keys().len() as u64;
+    if number_of_keys > limit_config.max_universal_state_init_keys {
+        return Err(ActionsValidationError::UniversalStateInitTooManyKeys {
+            number_of_keys,
+            limit: limit_config.max_universal_state_init_keys,
+        });
+    }
+
     // Individual storage keys and values must respect the trie limits.
     for (key, value) in state_init.data() {
         if key.len() as u64 > limit_config.max_length_storage_key {
@@ -1613,6 +1625,46 @@ mod tests {
         assert_eq!(
             validate_action(&limit, &action, &receiver, feature_version),
             Err(ActionsValidationError::MalformedUniversalStateInit)
+        );
+    }
+
+    /// A state init may commit to at most `max_universal_state_init_keys` access
+    /// keys. The cap exists because each key is charged as a full `AddKey` at
+    /// the send rate, all of it burnt when the transaction is converted to a
+    /// receipt, and nothing meters that conversion against the chunk gas limit.
+    #[test]
+    fn test_validate_universal_state_init_key_count() {
+        let limit = test_limit_config();
+        let max_keys = limit.max_universal_state_init_keys;
+        let feature_version = ProtocolFeature::UniversalAccounts.protocol_version();
+
+        let with_keys = |num_keys: u64| {
+            let access_keys = (0..num_keys)
+                .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
+                .map(|key| PublicKeyHandle::from(key.public_key()))
+                .collect::<BTreeSet<_>>();
+            assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
+            UniversalStateInit::V1(UniversalStateInitV1 {
+                code: None,
+                data: BTreeMap::new(),
+                access_keys,
+            })
+        };
+        let check = |state_init: &UniversalStateInit| {
+            let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            }));
+            validate_action(&limit, &action, &state_init.derive_account_id(), feature_version)
+        };
+
+        assert_eq!(check(&with_keys(max_keys)), Ok(()));
+        assert_eq!(
+            check(&with_keys(max_keys + 1)),
+            Err(ActionsValidationError::UniversalStateInitTooManyKeys {
+                number_of_keys: max_keys + 1,
+                limit: max_keys,
+            })
         );
     }
 

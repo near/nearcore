@@ -120,6 +120,14 @@ pub struct LimitConfig {
     /// Max combined size (in bytes) of the resolved promise inputs a single
     /// receipt may consume.
     pub max_receipt_total_input_size: u64,
+    /// Max number of access keys a `UniversalStateInit` action may commit to.
+    ///
+    /// Each committed key is priced as a full `AddKey`, at the send rate, so the
+    /// whole cost lands when a transaction is converted to a receipt. Without a
+    /// cap one transaction converts for more gas than a chunk has, and since
+    /// conversion happens before anything is charged, transaction selection
+    /// admits it anyway.
+    pub max_universal_state_init_keys: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
