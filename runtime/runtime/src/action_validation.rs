@@ -535,10 +535,6 @@ fn validate_universal_state_init(
         validate_global_contract_identifier(code)?;
     }
 
-    // Every committed key is charged as a full `AddKey` at the send rate, which is
-    // paid when this transaction is converted to a receipt. That conversion is not
-    // metered against the chunk's gas limit, so without this cap a single
-    // transaction converts for more gas than a chunk has to give.
     let number_of_keys = state_init.access_keys().len() as u64;
     if number_of_keys > limit_config.max_universal_state_init_keys {
         return Err(ActionsValidationError::UniversalStateInitTooManyKeys {
