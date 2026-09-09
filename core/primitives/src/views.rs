@@ -64,6 +64,7 @@ use near_primitives_core::deterministic_account_id::{
 use near_primitives_core::types::NonceIndex;
 use near_time::Utc;
 use serde_with::base64::Base64;
+use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -1151,7 +1152,7 @@ pub struct ChunkHeaderView {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "serde_with::rust::double_option::deserialize"
+        deserialize_with = "double_option::deserialize"
     )]
     pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
