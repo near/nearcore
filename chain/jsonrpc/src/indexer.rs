@@ -137,13 +137,7 @@ fn validate_message(
         let transactions = tx_ids.into_iter().collect::<HashSet<_>>();
         let mut receipt_ids = Vec::new();
         for id in outcome_ids {
-            chain_store
-                .get_outcome_by_id_and_block_hash(&id, &block_hash)
-                .ok_or_else(|| incomplete(format!("missing execution outcome {id}")))?;
             if !transactions.contains(&id) {
-                chain_store
-                    .get_receipt(&id)
-                    .ok_or_else(|| incomplete(format!("missing receipt {id}")))?;
                 receipt_ids.push(id);
             }
         }
@@ -171,11 +165,6 @@ fn validate_message(
                 .filter(|entry| matches!(entry.source(), ReceiptSource::Instant))
                 .map(|entry| *entry.receipt_id())
                 .collect::<Vec<_>>();
-            for id in &ids {
-                chain_store
-                    .get_receipt(id)
-                    .ok_or_else(|| incomplete(format!("missing instant receipt {id}")))?;
-            }
             ids
         };
         if chunk.instant_receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>()
