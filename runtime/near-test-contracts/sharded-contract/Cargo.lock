@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.0.0"
+version = "2.14.0-rc.1"
 dependencies = [
  "arbitrary",
  "base64 0.21.7",
@@ -437,11 +437,11 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-core"
-version = "0.0.0"
+version = "2.14.0-rc.1"
 
 [[package]]
 name = "near-schema-checker-lib"
-version = "0.0.0"
+version = "2.14.0-rc.1"
 dependencies = [
  "near-schema-checker-core",
  "near-schema-checker-macro",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-macro"
-version = "0.0.0"
+version = "2.14.0-rc.1"
 
 [[package]]
 name = "near-token"
