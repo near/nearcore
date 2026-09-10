@@ -28,6 +28,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
+use crate::utils::setups::pre_early_kickout_upgrade_edge;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -38,7 +39,10 @@ use near_network::client::StateRequestHeader;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, ProtocolVersion, ShardId,
+};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 
@@ -135,26 +139,37 @@ pub(crate) fn assert_shard_shuffling_happened(env: &TestLoopEnv, validators: &[A
     );
 }
 
-/// Validators that provably *acquired state* for a newly assigned shard, by index.
+/// One proven state acquisition: validator `validator_index` gained `shard_id` in `epoch_id`,
+/// which ran at `protocol_version`.
+#[derive(Debug)]
+pub(crate) struct StateSyncAcquisition {
+    pub validator_index: usize,
+    // Retained for callers' `Debug` assertion output, which dead-code analysis ignores.
+    #[allow(dead_code)]
+    pub shard_id: ShardId,
+    #[allow(dead_code)]
+    pub epoch_id: EpochId,
+    pub protocol_version: ProtocolVersion,
+}
+
+/// Returns every proven state acquisition for newly assigned shards.
 ///
-/// `assert_shard_shuffling_happened` only proves an assignment changed; holding
-/// `ChunkExtra` for the shard in the new epoch is only reachable after a state sync.
-/// "Newly assigned" follows `shard_tracker::should_catch_up_shard`: gained now, not held
-/// in either of the two prior epochs. State retained from two epochs ago means the node
-/// resumes applying chunks from disk, no sync, and still writes the `ChunkExtra` read as
-/// proof here.
+/// An assignment change alone does not prove state sync. A new epoch's `ChunkExtra` does,
+/// provided the validator did not hold that shard in either of the two previous epochs —
+/// "newly assigned" follows `shard_tracker::should_catch_up_shard`. Otherwise it may reuse
+/// retained state and still write `ChunkExtra` without syncing.
 ///
-/// Fixed-layout helper, enforced the same way as `assert_shard_shuffling_happened`; a
-/// resharding caller must map a shard to its prior parent instead.
+/// Reports every validator, shard, and epoch acquisition so callers can inspect the protocol
+/// version. A validator may appear more than once; deduplicate `validator_index` before per-node
+/// work.
 ///
-/// Callers are nightly-only, but this module is not gated, so the stable build would
-/// see this as dead code under `-D warnings`.
-#[cfg_attr(not(feature = "nightly"), allow(dead_code))]
+/// This helper requires a fixed layout. Resharding callers must map each shard to its previous
+/// parent.
 pub(crate) fn assert_state_synced_for_reassigned_shard(
     env: &TestLoopEnv,
     validators: &[AccountId],
-) -> Vec<usize> {
-    let mut synced_validators = Vec::new();
+) -> Vec<StateSyncAcquisition> {
+    let mut acquisitions = Vec::new();
     for (idx, validator) in validators.iter().enumerate() {
         let node = env.node(idx);
         let client = node.client();
@@ -164,7 +179,7 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
         let genesis_height = chain.genesis().height();
         let epoch_ids = collect_distinct_epoch_ids(client);
 
-        'validator: for w in 1..epoch_ids.len() {
+        for w in 1..epoch_ids.len() {
             let (prev_epoch, new_epoch) = (&epoch_ids[w - 1], &epoch_ids[w]);
             let prev_layout = epoch_manager.get_shard_layout(prev_epoch).unwrap();
             let shard_layout = epoch_manager.get_shard_layout(new_epoch).unwrap();
@@ -202,24 +217,34 @@ pub(crate) fn assert_state_synced_for_reassigned_shard(
                         continue;
                     }
                     if chain.get_chunk_extra(&hash, &shard_uid).is_ok() {
+                        let protocol_version =
+                            epoch_manager.get_epoch_protocol_version(new_epoch).unwrap();
                         tracing::info!(
                             target: "test",
                             node = idx,
                             ?shard_id,
+                            protocol_version,
                             "verified state synced for reassigned shard"
                         );
-                        synced_validators.push(idx);
-                        break 'validator;
+                        acquisitions.push(StateSyncAcquisition {
+                            validator_index: idx,
+                            shard_id,
+                            epoch_id: *new_epoch,
+                            protocol_version,
+                        });
+                        // One record per (validator, shard, epoch); later heights in the same
+                        // epoch would only repeat it.
+                        break;
                     }
                 }
             }
         }
     }
     assert!(
-        !synced_validators.is_empty(),
+        !acquisitions.is_empty(),
         "no validator held state for a newly reassigned shard; state sync not exercised"
     );
-    synced_validators
+    acquisitions
 }
 
 /// Verify all nodes advanced their head past the given minimum height.
@@ -889,19 +914,16 @@ fn test_state_request() {
     spam_state_sync_header_reqs(&mut env);
 }
 
-// State sync during protocol upgrade. Starts at PROTOCOL_VERSION - 1, and the chain
-// upgrades mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_state_sync_protocol_upgrade() {
+// State sync during protocol upgrade. Starts at `old_protocol`, and the chain upgrades to
+// `new_protocol` mid-run. Shard shuffling forces state sync across the protocol upgrade boundary.
+fn state_sync_protocol_upgrade(old_protocol: ProtocolVersion, new_protocol: ProtocolVersion) {
     init_test_logger();
     let validators_spec = create_validators_spec(2, 0);
     let clients = validators_spec_clients(&validators_spec);
     let accounts = make_accounts(10);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(EPOCH_LENGTH)
-        .protocol_version(PROTOCOL_VERSION - 1)
+        .protocol_version(old_protocol)
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(2), 1))
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, INITIAL_USER_BALANCE)
@@ -912,6 +934,7 @@ fn test_state_sync_protocol_upgrade() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_protocol))
         .clients(clients.clone())
         .build();
     execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
@@ -919,6 +942,49 @@ fn test_state_sync_protocol_upgrade() {
     let client = env.node(0).client();
     let tip = client.chain.head().unwrap();
     let version = client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
-    assert_eq!(version, PROTOCOL_VERSION);
+    assert_eq!(version, new_protocol);
+
+    // Both versions must appear, or the run never crossed the upgrade it is named for.
+    let versions_seen = collect_distinct_epoch_ids(client)
+        .into_iter()
+        .map(|epoch_id| client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        versions_seen.contains(&old_protocol) && versions_seen.contains(&new_protocol),
+        "expected epochs at both {old_protocol} and {new_protocol}, saw {versions_seen:?}"
+    );
+
     assert_shard_shuffling_happened(&env, &clients);
+    // Shuffling proves only an assignment change. A validator may reuse state retained from two
+    // epochs ago, but holding `ChunkExtra` for a newly acquired shard proves a real state sync.
+    let acquisitions = assert_state_synced_for_reassigned_shard(&env, &clients);
+    // Require an acquisition after the upgrade. A pre-upgrade sync alone would make both callers
+    // cover the same protocol version.
+    assert!(
+        acquisitions.iter().any(|acquisition| acquisition.protocol_version == new_protocol),
+        "no state acquisition happened in a {new_protocol} epoch, so state sync was only \
+         exercised below the upgrade: {acquisitions:?}"
+    );
+}
+
+// Test the client-voted upgrade edge. When EarlyKickout is the newest stable feature, the
+// post-upgrade acquisition uses V2 witnesses and resolves producers through
+// `resolve_and_verify_anchored_producer`.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_protocol_upgrade() {
+    state_sync_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION);
+}
+
+// Keep the upgrade below EarlyKickout so state sync uses V1 witnesses.
+// `PartialEncodedStateWitness::new` selects V2 only when the feature is enabled. V1 resolves its
+// producer through the separate `get_chunk_producer_info` arm in `validate.rs`. Once EarlyKickout
+// is stable, this is the only state-sync fixture whose post-upgrade acquisition uses that arm.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_state_sync_protocol_upgrade_pre_early_kickout() {
+    let (old_protocol, new_protocol) = pre_early_kickout_upgrade_edge();
+    state_sync_protocol_upgrade(old_protocol, new_protocol);
 }

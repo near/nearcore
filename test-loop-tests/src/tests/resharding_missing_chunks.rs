@@ -25,17 +25,21 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
+use crate::utils::setups::{
+    derive_new_epoch_config_from_boundary, pre_early_kickout_upgrade_edge,
+    two_upgrades_voting_schedule,
+};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::types::{AccountId, ProtocolVersion, ShardId};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
+use near_store::DBCol;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 /// One recorded block: its height, epoch height, whether the new (post-split)
@@ -50,11 +54,10 @@ struct BlockRecord {
 /// A shard that misses all chunks for the epoch(s) preceding a resharding split
 /// must still be able to reshard and let its children produce chunks. Before the
 /// fix the children halt permanently.
-#[test]
-// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
-// that this fix and scenario don't cover; resharding under spice is not supported yet.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn slow_test_resharding_parent_missing_full_epoch_before_split() {
+///
+/// The split lands at `target_protocol_version`, reached by two upgrades from
+/// `target_protocol_version - 2`.
+fn resharding_parent_missing_full_epoch_before_split(target_protocol_version: ProtocolVersion) {
     init_test_logger();
 
     let epoch_length = 5;
@@ -78,7 +81,12 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
 
     // Genesis two protocol versions back, so the split can be pushed out by an
     // intermediate no-op upgrade (base -> base -> new layout).
-    let base_protocol_version = PROTOCOL_VERSION - 2;
+    let base_protocol_version = target_protocol_version - 2;
+    assert!(
+        base_protocol_version >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "genesis version {base_protocol_version} is below the minimum supported \
+         {MIN_SUPPORTED_PROTOCOL_VERSION}"
+    );
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(base_protocol_version)
         .validators_spec(validators_spec)
@@ -90,7 +98,7 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
     let (new_epoch_config, new_shard_layout) =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
     // base_protocol_version and +1 keep the base layout (no resharding); +2 (=
-    // PROTOCOL_VERSION) introduces the new layout, so the split lands a few epochs
+    // target_protocol_version) introduces the new layout, so the split lands a few epochs
     // in (around epoch height 6), clear of warmup and within the silenced window.
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config.clone())),
@@ -120,14 +128,14 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
     let silenced_epochs = HashSet::from([4, 5, 6]);
     let drop_condition = DropCondition::ChunksForShardsInEpochs {
         shards: HashSet::from([parent_shard_id]),
-        epoch_heights: silenced_epochs,
+        epoch_heights: silenced_epochs.clone(),
     };
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(clients)
         .epoch_config_store(epoch_config_store)
-        .protocol_upgrade_schedule(two_upgrades_voting_schedule(PROTOCOL_VERSION))
+        .protocol_upgrade_schedule(two_upgrades_voting_schedule(target_protocol_version))
         .skip_warmup()
         .build()
         .drop(drop_condition);
@@ -213,6 +221,54 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
          not strictly before E={epoch_e}",
     );
 
+    // Check each shard's chunk-production rate. The earlier assertions need only one full mask
+    // per epoch and can pass after almost all chunks are lost.
+    //
+    // Exclude partial epochs. `skip_warmup` stretches the first and adds an empty mask plus an
+    // all-`false` block. `stop_condition` truncates the last, which can fail the ratio without a
+    // regression.
+    let epoch_heights = records.iter().map(|r| r.epoch_height).collect::<BTreeSet<_>>();
+    let first_epoch = *epoch_heights.iter().next().expect("no blocks recorded");
+    let last_epoch = *epoch_heights.iter().next_back().unwrap();
+    for &epoch_height in &epoch_heights {
+        if epoch_height == first_epoch || epoch_height == last_epoch {
+            continue;
+        }
+        let epoch_blocks = records.iter().filter(|r| r.epoch_height == epoch_height).collect_vec();
+        let total = epoch_blocks.len();
+        let is_new_layout = epoch_blocks[0].is_new_layout;
+        assert!(
+            epoch_blocks.iter().all(|r| r.is_new_layout == is_new_layout),
+            "epoch {epoch_height} spans both shard layouts; the parent exclusion below would \
+             apply to the wrong blocks"
+        );
+        let num_shards = epoch_blocks.iter().map(|r| r.chunk_mask.len()).max().unwrap();
+        for shard_index in 0..num_shards {
+            // Exclude the silenced parent only in the old layout. The measured shard ids change
+            // from `[2, 1, 0]` to `[3, 4, 1, 0]`, so index 0 changes from parent 2 to child 3.
+            // `DropCondition` targets shard id 2, which is absent from the new layout. Excluding
+            // index 0 there would skip a live child.
+            if !is_new_layout
+                && shard_index == parent_shard_index
+                && silenced_epochs.contains(&epoch_height)
+            {
+                continue;
+            }
+            let produced = epoch_blocks
+                .iter()
+                .filter(|r| r.chunk_mask.get(shard_index).copied().unwrap_or(false))
+                .count();
+            // Enforce a 70% floor with integer arithmetic. The regression produces exactly one
+            // chunk per epoch, while healthy non-silenced shards produce nearly 100%. With five
+            // blocks per epoch, the floor requires four chunks and permits one miss.
+            assert!(
+                produced * 10 >= total * 7,
+                "shard index {shard_index} produced {produced} of {total} chunks in epoch \
+                 {epoch_height} (new_layout={is_new_layout}), under the 70% floor"
+            );
+        }
+    }
+
     // Bug check: after the split the children must produce endorsed chunks. On
     // unfixed code they never do (permanent halt).
     let children_recovered = records
@@ -225,4 +281,102 @@ fn slow_test_resharding_parent_missing_full_epoch_before_split() {
          (parent's last chunk was in epoch {last_parent_chunk_epoch}, before the split epoch E={epoch_e}); \
          the resharded shard halted permanently",
     );
+
+    let split_blocks = records.iter().filter(|r| r.epoch_height == resharding_epoch).collect_vec();
+    let split_start =
+        split_blocks.iter().map(|r| r.height).min().expect("no blocks recorded in the split epoch");
+
+    // Confirm the split epoch uses `target_protocol_version`, whose config introduces the new
+    // layout. The guarded check below would do nothing if these versions diverged.
+    let node = env.node(0);
+    let client = node.client();
+    let split_epoch_id = {
+        let hash = client.chain.get_block_hash_by_height(split_start).unwrap();
+        client.epoch_manager.get_epoch_id(&hash).unwrap()
+    };
+    let split_version = client.epoch_manager.get_epoch_protocol_version(&split_epoch_id).unwrap();
+    assert_eq!(
+        split_version, target_protocol_version,
+        "the split epoch runs at {split_version}, not the {target_protocol_version} its layout \
+         comes from"
+    );
+
+    // Run only for the sibling pinned below activation. Remove this arm when that sibling retires.
+    if !ProtocolFeature::EarlyKickout.enabled(split_version) {
+        // The column must remain empty across the split. Checking one key would miss an ungated
+        // writer that populated other anchors.
+        let rows = node.store().iter(DBCol::ChunkProducers).count();
+        assert_eq!(
+            rows, 0,
+            "EarlyKickout is off for the whole run, but the ChunkProducers column holds {rows} \
+             rows"
+        );
+
+        // Producer resolution must use the canonical sampler while the column is empty.
+        //
+        // This records the reader contract but does not pin a live mutation. An ungated reader
+        // returns `ChunkProducerNotInDB` for same-epoch anchors, but its chunk loss triggers the
+        // 70% floor before this probe. The empty-column assertion above pins the ungated-writer
+        // mutation.
+        //
+        // The run ends in epoch E+3 and `DEFAULT_GC_NUM_EPOCHS_TO_KEEP` is 5, leaving about one
+        // epoch of GC margin for these split-epoch blocks. If the run grows or retention shrinks,
+        // every `ok()?` skips its candidate and the final `expect` reports the missing chunks.
+        let resolved = split_blocks
+            .iter()
+            // Start at `+ 2`, the first possible same-epoch grandparent anchor. The epoch check
+            // remains necessary because heights can be skipped.
+            .filter(|r| r.height >= split_start + 2)
+            .find_map(|record| {
+                let hash = client.chain.get_block_hash_by_height(record.height).ok()?;
+                let block = client.chain.get_block(&hash).ok()?;
+                let chunk_epoch_id = *block.header().epoch_id();
+                let prev = client.chain.get_block_header(block.header().prev_hash()).ok()?;
+                let anchor = *prev.prev_hash();
+                if client.epoch_manager.get_epoch_id(&anchor).ok()? != chunk_epoch_id {
+                    return None;
+                }
+                // Select a set mask bit so the lookup covers a newly created chunk, not a
+                // carried-forward one.
+                let chunks = block.chunks();
+                let index = record.chunk_mask.iter().position(|produced| *produced)?;
+                let chunk = chunks.get(index)?;
+                if chunk.height_created() != record.height {
+                    return None;
+                }
+                Some(client.epoch_manager.get_chunk_producer_info_anchored(
+                    Some(&anchor),
+                    &chunk_epoch_id,
+                    chunk.height_created(),
+                    chunk.shard_id(),
+                ))
+            })
+            .expect("no block in the split epoch carried a freshly created chunk with an anchor in its own epoch");
+        resolved.unwrap_or_else(|err| {
+            panic!("anchored resolution failed below activation, with no rows to read: {err:?}")
+        });
+    }
+}
+
+/// Splits at the client-voted version. When EarlyKickout is the newest stable feature, the split
+/// epoch also crosses its activation edge.
+#[test]
+// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
+// that this fix and scenario don't cover; resharding under spice is not supported yet.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_parent_missing_full_epoch_before_split() {
+    resharding_parent_missing_full_epoch_before_split(PROTOCOL_VERSION);
+}
+
+/// Splits below EarlyKickout activation. `DBCol::ChunkProducers` remains empty, and
+/// `PartialEncodedStateWitness::new` selects V1 witnesses on both sides of the split because it
+/// selects V2 only when the feature is enabled. Once EarlyKickout is stable, this is the only
+/// resharding fixture covering that combination.
+#[test]
+// Spice uses a separate chunk-validation path (`spice_validate_chunk_state_witness`)
+// that this fix and scenario don't cover; resharding under spice is not supported yet.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_resharding_parent_missing_full_epoch_before_split_pre_early_kickout() {
+    let (_, target_protocol_version) = pre_early_kickout_upgrade_edge();
+    resharding_parent_missing_full_epoch_before_split(target_protocol_version);
 }
