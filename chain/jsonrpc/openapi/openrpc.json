@@ -2371,6 +2371,36 @@
             ],
             "title": "UniversalStateInitTooManyKeys",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The state-init actions in one receipt carry more storage entries in total\nthan allowed.",
+            "properties": {
+              "TotalNumberOfStateInitEntriesExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_entries": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_entries",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfStateInitEntriesExceeded"
+            ],
+            "title": "TotalNumberOfStateInitEntriesExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -7432,6 +7462,12 @@
           "max_stack_height": {
             "description": "How tall the stack is allowed to grow?\n\nSee <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost\nis calculated.",
             "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_state_init_entries": {
+            "description": "Max number of storage entries a `DeterministicStateInit` or\n`UniversalStateInit` action may carry.\n\nEach entry costs `..._state_init_per_entry` to execute, which is counted\ninto the receipt's congestion gas whether or not it is ever burnt. Without\na cap one receipt reserves several times `max_congestion_outgoing_gas`,\npinning the sending shard at full outgoing congestion, which stops it\naccepting transactions.",
+            "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },

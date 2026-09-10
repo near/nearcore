@@ -5,7 +5,7 @@ pub mod delegate;
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit,
     trie_key::GlobalContractCodeIdentifier,
-    universal_state_init::{RawStateInit, UniversalStateInit},
+    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -503,6 +503,50 @@ impl Action {
                         .iter()
                         .any(Action::post_quantum_signatures_required)
             }
+        }
+    }
+
+    /// Number of state-init storage entries this action makes the receipt it
+    /// belongs to pay an execution fee for.
+    ///
+    /// Exhaustive by design, so that a new action variant has to make the
+    /// decision explicitly rather than silently counting as zero. Do not
+    /// collapse the arms into a wildcard.
+    pub fn num_state_init_entries(&self) -> u64 {
+        match self {
+            // Carries a state init directly. A payload that does not decode
+            // describes no entries as far as this is concerned; it is rejected by
+            // action validation before it can run.
+            Action::DeterministicStateInit(a) => a.state_init.data().len() as u64,
+            Action::UniversalStateInit(a) => state_init_counts(&a.state_init).num_entries,
+            // Recursive: the inner actions become their own receipt, but the
+            // outer one prepays their execution fees, so their entries are part
+            // of what it reserves.
+            Action::Delegate(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_state_init_entries)
+                .fold(0, u64::saturating_add),
+            Action::DelegateV2(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_state_init_entries)
+                .fold(0, u64::saturating_add),
+            // No state init anywhere in these.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::AddKey(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => 0,
         }
     }
 }

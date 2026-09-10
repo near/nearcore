@@ -40,3 +40,22 @@ sha3_host_fns: { old: false, new: true }
 # Universal accounts: make `0u` account ids implicit, so a transfer can create
 # the account before its state init is applied.
 universal_accounts: { old: false, new: true }
+
+# Bound the number of storage entries a state-init action may carry. Each entry
+# costs `..._state_init_per_entry` to execute (200 Ggas), and that lands in the
+# receipt's congestion gas whether or not it is burnt, so an uncapped count lets
+# one receipt reserve several times `max_congestion_outgoing_gas` (10 PGas) and
+# pin its own shard at full outgoing congestion.
+#
+# 1_500 is just above the ceiling the contract-created path already has: a
+# contract pays the same 200 Ggas per entry out of its own gas, against
+# `max_total_prepaid_gas` of 300 Tgas, so it can never build more than ~1_449.
+# Capping at or above that keeps the two creation paths in agreement, and no
+# payable contract action becomes unrepresentable. At 1_500 entries the receipt
+# carries ~0.3 PGas of congestion, 3% of the cap.
+#
+# `DeterministicStateInit` has been live since protocol 82, so this is a real
+# tightening rather than a limit on a new action: the base value stays unlimited
+# and only takes effect here. Enforced for newly created receipts only, so
+# receipts already in flight at the upgrade keep executing.
+max_state_init_entries: {old: 4_294_967_295, new: 1_500}

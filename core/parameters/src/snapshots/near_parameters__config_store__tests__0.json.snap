@@ -256,6 +256,7 @@ snapshot_kind: text
       "max_number_input_data_dependencies": 128,
       "max_receipt_total_input_size": 4294967295,
       "max_universal_state_init_keys": 1024,
+      "max_state_init_entries": 4294967295,
       "max_functions_number_per_contract": 10000,
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,

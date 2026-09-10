@@ -169,6 +169,11 @@ impl<'c> EstimatorContext<'c> {
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
             max_length_storage_key: u64::MAX,
+            // `deterministic_state_init_entry_send` measures a 100_000-entry
+            // payload, which is the point: the per-entry cost is only visible in
+            // bulk. Its transaction goes through `validate_transaction`, which
+            // would otherwise refuse it.
+            max_state_init_entries: u64::MAX,
 
             max_total_prepaid_gas: Gas::MAX,
 
