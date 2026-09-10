@@ -11,6 +11,7 @@ use crate::{
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
+use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
@@ -6925,43 +6926,63 @@ mod relayer_funded_state_init {
     }
 }
 
-/// One state-init receipt at the entry cap must not reserve a meaningful share of
-/// the shard's entire outgoing congestion budget.
+/// The worst state-init receipt validation accepts must not reserve a meaningful
+/// share of the shard's entire outgoing congestion budget.
 ///
-/// Sized as the worst case a transaction can produce: the entry cap, with the
-/// payload padded out to `max_transaction_size` so the per-byte term is maxed too.
-/// The contract-created path is bounded more tightly by its own prepaid gas.
+/// Sized as the worst case a transaction can produce, which is all three limits
+/// at once: `max_actions_per_receipt` state-init actions, their entries summing
+/// to `max_state_init_entries`, padded out to `max_transaction_size`. Spreading
+/// the entries across the whole action budget is what a per-action limit failed
+/// to bound, so the receipt is validated here too: the bound is only meaningful
+/// for a receipt that would actually be admitted.
 #[test]
-fn state_init_at_the_entry_cap_stays_within_the_outgoing_congestion_cap() {
+fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() {
     let config = RuntimeConfigStore::for_chain_id("mainnet").get_config(PROTOCOL_VERSION).clone();
     let limits = &config.wasm_config.limit_config;
-    let max_entries = limits.max_state_init_entries;
     let cap = config.congestion_control_config.max_congestion_outgoing_gas;
+    let copies = usize::try_from(limits.max_actions_per_receipt).unwrap();
+    let entries_per_action = limits.max_state_init_entries / copies as u64;
 
-    // One of the entries carries the padding, so the count stays at the limit.
+    // One of the entries carries the padding, so the count stays exact.
     let state_init = |pad: usize| {
         let mut data: BTreeMap<Vec<u8>, Vec<u8>> =
-            (0..max_entries - 1).map(|i| (i.to_le_bytes().to_vec(), Vec::new())).collect();
+            (0..entries_per_action - 1).map(|i| (i.to_le_bytes().to_vec(), Vec::new())).collect();
         data.insert(b"pad".to_vec(), vec![0u8; pad]);
-        assert_eq!(data.len() as u64, max_entries, "the payload must sit exactly at the limit");
+        assert_eq!(data.len() as u64, entries_per_action, "entries per action must be exact");
         DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
             data,
         })
     };
-    // Pad that entry until the payload fills a whole transaction.
-    let without_padding = borsh::object_length(&state_init(0)).unwrap();
-    let pad = usize::try_from(limits.max_transaction_size).unwrap() - without_padding;
+    // Pad each action until the actions together fill a whole transaction.
+    let per_action_budget = usize::try_from(limits.max_transaction_size).unwrap() / copies;
+    let pad = per_action_budget - borsh::object_length(&state_init(0)).unwrap();
     let state_init = state_init(pad);
-    assert_eq!(
-        borsh::object_length(&state_init).unwrap() as u64,
-        limits.max_transaction_size,
-        "padding is exact"
+    let payload_len = borsh::object_length(&state_init).unwrap();
+    assert!(
+        payload_len * copies <= usize::try_from(limits.max_transaction_size).unwrap(),
+        "the actions together must fit one transaction",
     );
+
+    // Every action in a receipt shares its receiver and a state init has to
+    // derive to it, so the copies are necessarily byte identical.
+    let receiver_id = derive_near_deterministic_account_id(&state_init);
+    let actions = (0..copies)
+        .map(|_| {
+            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init: state_init.clone(),
+                deposit: Balance::ZERO,
+            }))
+        })
+        .collect_vec();
+    let total_entries = entries_per_action * copies as u64;
+    assert_eq!(total_entries, limits.max_state_init_entries, "must sit at the entry limit");
+    crate::action_validation::validate_actions(limits, &actions, &receiver_id, PROTOCOL_VERSION)
+        .expect("the worst case has to be one validation actually accepts");
 
     let receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: alice_account(),
-        receiver_id: derive_near_deterministic_account_id(&state_init),
+        receiver_id,
         receipt_id: CryptoHash::default(),
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: alice_account(),
@@ -6969,31 +6990,29 @@ fn state_init_at_the_entry_cap_stays_within_the_outgoing_congestion_cap() {
             gas_price: GAS_PRICE,
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: vec![Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                state_init,
-                deposit: Balance::ZERO,
-            }))],
+            actions,
         }),
     });
 
     let congestion_gas = compute_receipt_congestion_gas(&receipt, &config).unwrap();
     println!(
-        "[entry cap] {max_entries} entries in a {} B payload reserve {congestion_gas} of \
-         congestion, {:.2}% of the {cap} whole-shard outgoing cap",
-        limits.max_transaction_size,
+        "[state init] {copies} actions x {entries_per_action} entries ({total_entries} total) in \
+         {} B reserve {congestion_gas} of congestion, {:.2}% of the {cap} whole-shard cap",
+        payload_len * copies,
         100.0 * congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
     );
     assert!(
         congestion_gas < cap,
-        "one {max_entries}-entry state-init receipt reserves {congestion_gas} of congestion, \
-         against a whole-shard outgoing cap of {cap}"
+        "one state-init receipt reserves {congestion_gas} of congestion, against a whole-shard \
+         outgoing cap of {cap}"
     );
-    // A single receipt taking a large share of the shard's budget is the problem
-    // itself, not just exceeding it. If this trips, reconsider the cap rather
-    // than the assertion.
+    // A single receipt taking a large share of the shard's whole budget is the
+    // problem itself, not just exceeding it. The dominant term here is the
+    // per-action base fee, bounded by `max_actions_per_receipt`, rather than the
+    // entries. If this trips, reconsider the limits rather than the assertion.
     assert!(
-        congestion_gas.as_gas() * 10 < cap.as_gas(),
-        "one {max_entries}-entry state-init receipt reserves {congestion_gas}, over a tenth of \
-         the whole-shard outgoing cap of {cap}"
+        congestion_gas.as_gas() * 5 < cap.as_gas(),
+        "one state-init receipt reserves {congestion_gas}, over a fifth of the whole-shard \
+         outgoing cap of {cap}"
     );
 }

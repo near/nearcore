@@ -502,18 +502,12 @@ pub enum ActionsValidationError {
         number_of_keys: u64,
         limit: u64,
     } = 28,
-    /// A `DeterministicStateInit` state init carries more storage entries than
-    /// allowed.
-    DeterministicStateInitTooManyEntries {
+    /// The state-init actions in one receipt carry more storage entries in total
+    /// than allowed.
+    TotalNumberOfStateInitEntriesExceeded {
         number_of_entries: u64,
         limit: u64,
     } = 29,
-    /// A `UniversalStateInit` state init carries more storage entries than
-    /// allowed.
-    UniversalStateInitTooManyEntries {
-        number_of_entries: u64,
-        limit: u64,
-    } = 30,
 }
 
 /// Describes the error for validating a receipt.
@@ -760,22 +754,13 @@ impl Display for ActionsValidationError {
                     "UniversalStateInit commits to {number_of_keys} access keys but at most {limit} is allowed",
                 )
             }
-            ActionsValidationError::DeterministicStateInitTooManyEntries {
+            ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
                 number_of_entries,
                 limit,
             } => {
                 write!(
                     f,
-                    "DeterministicStateInit carries {number_of_entries} storage entries but at most {limit} is allowed",
-                )
-            }
-            ActionsValidationError::UniversalStateInitTooManyEntries {
-                number_of_entries,
-                limit,
-            } => {
-                write!(
-                    f,
-                    "UniversalStateInit carries {number_of_entries} storage entries but at most {limit} is allowed",
+                    "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
                 )
             }
         }

@@ -3618,9 +3618,9 @@
           },
           {
             "additionalProperties": false,
-            "description": "A `DeterministicStateInit` state init carries more storage entries than\nallowed.",
+            "description": "The state-init actions in one receipt carry more storage entries in total\nthan allowed.",
             "properties": {
-              "DeterministicStateInitTooManyEntries": {
+              "TotalNumberOfStateInitEntriesExceeded": {
                 "properties": {
                   "limit": {
                     "format": "uint64",
@@ -3641,36 +3641,7 @@
               }
             },
             "required": [
-              "DeterministicStateInitTooManyEntries"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "description": "A `UniversalStateInit` state init carries more storage entries than\nallowed.",
-            "properties": {
-              "UniversalStateInitTooManyEntries": {
-                "properties": {
-                  "limit": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "number_of_entries": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "number_of_entries",
-                  "limit"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "UniversalStateInitTooManyEntries"
+              "TotalNumberOfStateInitEntriesExceeded"
             ],
             "type": "object"
           }
