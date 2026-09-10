@@ -51,6 +51,8 @@ pub mod trie_key;
 pub mod trie_split;
 pub mod types;
 pub mod universal_state_init;
+#[cfg(feature = "test_utils")]
+pub mod universal_state_init_vectors;
 pub mod upgrade_schedule;
 pub mod utils;
 pub mod validator_mandates;
