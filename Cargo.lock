@@ -4374,6 +4374,7 @@ name = "near-indexer-primitives"
 version = "0.0.0"
 dependencies = [
  "near-primitives",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -4391,6 +4392,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-epoch-manager",
+ "near-indexer-primitives",
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
@@ -4449,6 +4451,7 @@ dependencies = [
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
+ "near-indexer-primitives",
  "near-primitives",
  "near-schema-checker-lib",
  "near-time",

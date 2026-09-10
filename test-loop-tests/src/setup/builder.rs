@@ -14,6 +14,7 @@ use near_chain_configs::test_genesis::{
 };
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, DumpConfig, Genesis, SyncConfig, TrackedShardsConfig};
+use near_jsonrpc::RpcConfig;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
@@ -63,6 +64,7 @@ pub(crate) struct TestLoopBuilder {
     /// Whether to add a non-validator RPC node (tracks all shards). Honored by both the auto and
     /// manual setup APIs.
     enable_rpc: bool,
+    rpc_config: RpcConfig,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
@@ -100,6 +102,7 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: true,
             disable_compiled_contract_cache: false,
             enable_rpc: false,
+            rpc_config: RpcConfig::default(),
             upgrade_schedule: None,
             rpc_pool: None,
             bucket_config: BucketConfig::canonical(),
@@ -371,6 +374,11 @@ impl TestLoopBuilder {
         handle
     }
 
+    pub(crate) fn rpc_config(mut self, config: RpcConfig) -> Self {
+        self.rpc_config = config;
+        self
+    }
+
     /// Custom function to change the configs before constructing each client.
     pub fn config_modifier(
         mut self,
@@ -541,6 +549,7 @@ impl TestLoopBuilder {
             .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
             genesis,
+            rpc_config: self.rpc_config,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,

@@ -23,9 +23,9 @@ use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
 };
-use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_jsonrpc::{RpcConfig, ViewClientSenderForRpc};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -54,6 +54,7 @@ pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 /// This state is shared across all nodes and none of it belongs to a specific node.
 pub struct SharedState {
     pub genesis: Genesis,
+    pub rpc_config: RpcConfig,
     /// Directory of the current test. This is automatically deleted once tempdir goes out of scope.
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,

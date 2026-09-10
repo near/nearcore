@@ -142,6 +142,35 @@ Methods registered in `process_basic_requests_internal()`:
 
 **Sandbox** (only with `sandbox` feature): `sandbox_patch_state`, `sandbox_fast_forward`
 
+### Indexer Block RPC
+
+`EXPERIMENTAL_indexer_block` accepts `{"block_hash": "<hash>"}` and returns the
+existing `StreamerMessage` fields (`block`, `shards`) plus `tracked_shards` in
+historical layout order. It reuses the embedded indexer's assembler. Clients choose
+an optimistic or finalized head through `block`, then request each message by hash;
+this method does not select finality or maintain a streaming cursor.
+
+`tracked_shards` describes configured chunk/execution coverage. Carried chunks
+remain null even on tracked shards. State changes retain the embedded assembler's
+behavior and may include stored changes outside that coverage.
+
+The node must have `save_tx_outcomes` and `save_state_changes` enabled throughout
+the requested history and retain the required execution metadata. Archive mode
+alone does not guarantee that retention. The handler rejects currently disabled
+saving, missing execution indices, outcomes or receipts, and unsupported SPICE
+execution. Existing storage has no historical state-change recording marker:
+current settings cannot prove that an empty historical result was recorded, and
+the checks do not provide a snapshot against every GC race.
+
+`rpc.enable_indexer_rpc` defaults to false, following `enable_debug_rpc`. Disabled
+nodes return method not found. To enable the endpoint, set `enable_indexer_rpc` to
+true in the `rpc` section of `config.json`.
+
+`rpc.indexer_max_concurrent_requests` bounds admitted requests (default 1). Excess
+requests fail with `BUSY` before assembly instead of queuing. Responses larger than 32 MiB are rejected without truncation. This size
+check follows assembly and allocation; it is not a peak-memory bound. Operators
+should apply caller rate limits appropriate to their workloads.
+
 ### Parameter Parsing
 
 Each RPC method type implements `RpcRequest::parse()` in `chain/jsonrpc/src/api/`. The `Params<T>` struct provides chained parsing for backward compatibility:
@@ -285,6 +314,8 @@ Proof computation is in `core/store/src/merkle_proof.rs`. ViewClientActor handle
 - `polling_config.polling_timeout` - Timeout for `broadcast_tx_commit` etc. (default: 10s).
 - `limits_config.json_payload_max_size` - Max request body (default: 10MB).
 - `enable_debug_rpc` - Enable debug endpoints.
+- `enable_indexer_rpc` - Enable `EXPERIMENTAL_indexer_block` (default: false).
+- `indexer_max_concurrent_requests` - Concurrent indexer block requests (default: 1).
 
 **Rosetta RPC** (via `rosetta_rpc` section in `config.json`):
 
