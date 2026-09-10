@@ -178,7 +178,7 @@ fn validate_action_with_mode(
             )
         }
         Action::DeterministicStateInit(a) => {
-            validate_deterministic_state_init(limit_config, a, receiver)
+            validate_deterministic_state_init(limit_config, a, receiver, mode)
         }
         Action::UniversalStateInit(a) => {
             validate_universal_state_init(limit_config, a, receiver, current_protocol_version)
@@ -471,6 +471,7 @@ fn validate_deterministic_state_init(
     limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ActionsValidationError> {
     validate_global_contract_identifier(action.state_init.code())?;
 
@@ -481,6 +482,25 @@ fn validate_deterministic_state_init(
             derived_id,
             receiver_id: receiver_id.clone(),
         });
+    }
+
+    // Bound the number of storage entries a state-init action may carry. Each entry
+    // adds to the receipt's congestion gas, regardless if it is burned or not, so
+    // unbounded entries could easily congest the shard.
+    // `DeterministicStateInit` predates this limit, so the check applies to newly
+    // created receipts only. A receipt built before the limit took effect is accepted.
+    match mode {
+        ValidateReceiptMode::NewReceipt => {
+            let number_of_entries = action.state_init.data().len() as u64;
+            let limit = limit_config.max_state_init_entries;
+            if number_of_entries > limit {
+                return Err(ActionsValidationError::DeterministicStateInitTooManyEntries {
+                    number_of_entries,
+                    limit,
+                });
+            }
+        }
+        ValidateReceiptMode::ExistingReceipt => {}
     }
 
     // State init entries must not violate limits of individual state keys and values.
@@ -540,6 +560,18 @@ fn validate_universal_state_init(
         return Err(ActionsValidationError::UniversalStateInitTooManyKeys {
             number_of_keys,
             limit: limit_config.max_universal_state_init_keys,
+        });
+    }
+
+    // Bound the number of storage entries a state-init action may carry. Each entry
+    // adds to the receipt's congestion gas, regardless if it is burned or not, so
+    // unbounded entries could easily congest the shard.
+    let number_of_entries = state_init.data().len() as u64;
+    let limit = limit_config.max_state_init_entries;
+    if number_of_entries > limit {
+        return Err(ActionsValidationError::UniversalStateInitTooManyEntries {
+            number_of_entries,
+            limit,
         });
     }
 
@@ -1660,6 +1692,84 @@ mod tests {
             Err(ActionsValidationError::UniversalStateInitTooManyKeys {
                 number_of_keys: max_keys + 1,
                 limit: max_keys,
+            })
+        );
+    }
+
+    /// Both state-init actions cap the number of storage entries they may carry.
+    #[test]
+    fn test_validate_state_init_entry_count() {
+        let limit = test_limit_config();
+        let max_entries = limit.max_state_init_entries;
+
+        let data = |num_entries: u64| {
+            (0..num_entries)
+                .map(|i| (i.to_le_bytes().to_vec(), Vec::new()))
+                .collect::<BTreeMap<Vec<u8>, Vec<u8>>>()
+        };
+
+        let deterministic = |num_entries: u64| {
+            let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+                data: data(num_entries),
+            });
+            let receiver = derive_near_deterministic_account_id(&state_init);
+            let action = Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit: Balance::ZERO,
+            }));
+            (action, receiver)
+        };
+        let universal = |num_entries: u64| {
+            let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+                code: None,
+                data: data(num_entries),
+                access_keys: BTreeSet::new(),
+            });
+            let receiver = state_init.derive_account_id();
+            let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            }));
+            (action, receiver)
+        };
+        let check = |(action, receiver): (Action, AccountId), mode| {
+            validate_action_with_mode(&limit, &action, &receiver, PROTOCOL_VERSION, mode)
+        };
+
+        // At the limit both are fine, one entry over and both are refused, each
+        // naming its own action.
+        assert_eq!(check(deterministic(max_entries), ValidateReceiptMode::NewReceipt), Ok(()));
+        assert_eq!(
+            check(deterministic(max_entries + 1), ValidateReceiptMode::NewReceipt),
+            Err(ActionsValidationError::DeterministicStateInitTooManyEntries {
+                number_of_entries: max_entries + 1,
+                limit: max_entries,
+            })
+        );
+        assert_eq!(check(universal(max_entries), ValidateReceiptMode::NewReceipt), Ok(()));
+        assert_eq!(
+            check(universal(max_entries + 1), ValidateReceiptMode::NewReceipt),
+            Err(ActionsValidationError::UniversalStateInitTooManyEntries {
+                number_of_entries: max_entries + 1,
+                limit: max_entries,
+            })
+        );
+
+        // `DeterministicStateInit` predates the limit, so a receipt built before
+        // it took effect has to keep executing.
+        assert_eq!(
+            check(deterministic(max_entries + 1), ValidateReceiptMode::ExistingReceipt),
+            Ok(())
+        );
+        // `UniversalStateInit` needs no such tolerance: the action is invalid
+        // before the version that sets the limit, so no receipt carrying one can
+        // predate it. Refused in either mode.
+        assert_eq!(
+            check(universal(max_entries + 1), ValidateReceiptMode::ExistingReceipt),
+            Err(ActionsValidationError::UniversalStateInitTooManyEntries {
+                number_of_entries: max_entries + 1,
+                limit: max_entries,
             })
         );
     }

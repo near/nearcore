@@ -128,6 +128,15 @@ pub struct LimitConfig {
     /// conversion happens before anything is charged, transaction selection
     /// admits it anyway.
     pub max_universal_state_init_keys: u64,
+    /// Max number of storage entries a `DeterministicStateInit` or
+    /// `UniversalStateInit` action may carry.
+    ///
+    /// Each entry costs `..._state_init_per_entry` to execute, which is counted
+    /// into the receipt's congestion gas whether or not it is ever burnt. Without
+    /// a cap one receipt reserves several times `max_congestion_outgoing_gas`,
+    /// pinning the sending shard at full outgoing congestion, which stops it
+    /// accepting transactions.
+    pub max_state_init_entries: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,

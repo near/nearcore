@@ -14,19 +14,22 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
-    Action, DeleteAccountAction, GlobalContractIdentifier, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    Action, DeleteAccountAction, DeterministicStateInitAction, GlobalContractIdentifier,
+    TransferToGasKeyAction, UseGlobalContractAction,
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
+};
+use near_primitives::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
@@ -51,7 +54,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
     ShardId, StateChangeCause,
 };
-use near_primitives::utils::create_receipt_id_from_transaction;
+use near_primitives::utils::{
+    create_receipt_id_from_transaction, derive_near_deterministic_account_id,
+};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
@@ -62,7 +67,7 @@ use near_store::{
     set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -6918,4 +6923,77 @@ mod relayer_funded_state_init {
             "a refund must not bring a `0u` account into existence",
         );
     }
+}
+
+/// One state-init receipt at the entry cap must not reserve a meaningful share of
+/// the shard's entire outgoing congestion budget.
+///
+/// Sized as the worst case a transaction can produce: the entry cap, with the
+/// payload padded out to `max_transaction_size` so the per-byte term is maxed too.
+/// The contract-created path is bounded more tightly by its own prepaid gas.
+#[test]
+fn state_init_at_the_entry_cap_stays_within_the_outgoing_congestion_cap() {
+    let config = RuntimeConfigStore::for_chain_id("mainnet").get_config(PROTOCOL_VERSION).clone();
+    let limits = &config.wasm_config.limit_config;
+    let max_entries = limits.max_state_init_entries;
+    let cap = config.congestion_control_config.max_congestion_outgoing_gas;
+
+    // One of the entries carries the padding, so the count stays at the limit.
+    let state_init = |pad: usize| {
+        let mut data: BTreeMap<Vec<u8>, Vec<u8>> =
+            (0..max_entries - 1).map(|i| (i.to_le_bytes().to_vec(), Vec::new())).collect();
+        data.insert(b"pad".to_vec(), vec![0u8; pad]);
+        assert_eq!(data.len() as u64, max_entries, "the payload must sit exactly at the limit");
+        DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+            data,
+        })
+    };
+    // Pad that entry until the payload fills a whole transaction.
+    let without_padding = borsh::object_length(&state_init(0)).unwrap();
+    let pad = usize::try_from(limits.max_transaction_size).unwrap() - without_padding;
+    let state_init = state_init(pad);
+    assert_eq!(
+        borsh::object_length(&state_init).unwrap() as u64,
+        limits.max_transaction_size,
+        "padding is exact"
+    );
+
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: derive_near_deterministic_account_id(&state_init),
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit: Balance::ZERO,
+            }))],
+        }),
+    });
+
+    let congestion_gas = compute_receipt_congestion_gas(&receipt, &config).unwrap();
+    println!(
+        "[entry cap] {max_entries} entries in a {} B payload reserve {congestion_gas} of \
+         congestion, {:.2}% of the {cap} whole-shard outgoing cap",
+        limits.max_transaction_size,
+        100.0 * congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
+    );
+    assert!(
+        congestion_gas < cap,
+        "one {max_entries}-entry state-init receipt reserves {congestion_gas} of congestion, \
+         against a whole-shard outgoing cap of {cap}"
+    );
+    // A single receipt taking a large share of the shard's budget is the problem
+    // itself, not just exceeding it. If this trips, reconsider the cap rather
+    // than the assertion.
+    assert!(
+        congestion_gas.as_gas() * 10 < cap.as_gas(),
+        "one {max_entries}-entry state-init receipt reserves {congestion_gas}, over a tenth of \
+         the whole-shard outgoing cap of {cap}"
+    );
 }
