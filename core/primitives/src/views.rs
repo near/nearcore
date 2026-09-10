@@ -64,6 +64,7 @@ use near_primitives_core::deterministic_account_id::{
 use near_primitives_core::types::NonceIndex;
 use near_time::Utc;
 use serde_with::base64::Base64;
+use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -1148,7 +1149,11 @@ pub struct ChunkHeaderView {
     /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
     /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
     /// `Some(Some(split))`: field present and set
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option::deserialize"
+    )]
     pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
 }
@@ -3178,14 +3183,41 @@ impl CongestionInfoView {
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 mod tests {
-    use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
+    use super::{ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
+    use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::ExecutionMetadata;
+    use crate::trie_split::TrieSplit;
+    use crate::version::ProtocolFeature;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_primitives_core::hash::CryptoHash;
     use serde_json::json;
+
+    #[test]
+    fn test_chunk_header_proposed_split_json_roundtrip() {
+        let mut view: ChunkHeaderView = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
+            1,
+            0.into(),
+            CryptoHash::default(),
+            ProtocolFeature::DynamicResharding.protocol_version(),
+        ))
+        .into();
+        // Missing, present-null and present-value distinguish header versions.
+        for proposed_split in [None, Some(None), Some(Some(TrieSplit::dummy()))] {
+            view.proposed_split = proposed_split.clone();
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(json.get("proposed_split").is_some(), proposed_split.is_some());
+            let decoded: ChunkHeaderView = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(decoded.proposed_split, proposed_split);
+            assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+            // Version selection affects the recomputed chunk hash.
+            let expected_header: ShardChunkHeader = view.clone().into();
+            let decoded_header: ShardChunkHeader = decoded.into();
+            assert_eq!(decoded_header.chunk_hash(), expected_header.chunk_hash());
+        }
+    }
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
