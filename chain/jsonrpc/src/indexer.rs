@@ -75,7 +75,13 @@ impl JsonRpcHandler {
             message,
             tracked_shards: tracked.iter().map(ShardUId::shard_id).collect(),
         };
-        if to_vec(&response).map_err(unavailable)?.len() > MAX_MESSAGE_BYTES {
+        if to_vec(&response)
+            .map_err(|error| RpcIndexerBlockError::InternalError {
+                error_message: error.to_string(),
+            })?
+            .len()
+            > MAX_MESSAGE_BYTES
+        {
             return Err(RpcIndexerBlockError::LimitExceeded);
         }
         Ok(response)
