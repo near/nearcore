@@ -2,17 +2,21 @@ use crate::errors::RpcError;
 use near_indexer_primitives::StreamerMessage;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
+#[cfg(feature = "schemars")]
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::to_value;
+use thiserror::Error;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RpcIndexerBlockRequest {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
 pub struct RpcIndexerBlockResponse {
     /// Existing consumers can deserialize this result directly as StreamerMessage.
     #[serde(flatten)]
@@ -22,8 +26,8 @@ pub struct RpcIndexerBlockResponse {
     pub tracked_shards: Vec<ShardId>,
 }
 
-#[derive(Debug, thiserror::Error, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Error, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcIndexerBlockError {
     #[error("block or execution data unavailable: {error_message}")]
