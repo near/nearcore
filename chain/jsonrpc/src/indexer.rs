@@ -18,6 +18,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use serde_json::to_vec;
 use std::collections::HashSet;
 use std::fmt::Display;
+use tokio::task::block_in_place;
 
 const MAX_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 
@@ -70,7 +71,7 @@ impl JsonRpcHandler {
         let message = build_streamer_message(&fetcher, block, &tracker)
             .await
             .map_err(RpcIndexerBlockError::rpc_from)?;
-        validate_message(&store, &message, &tracked)?;
+        block_in_place(|| validate_message(&store, &message, &tracked))?;
         let response = RpcIndexerBlockResponse {
             message,
             tracked_shards: tracked.iter().map(ShardUId::shard_id).collect(),
