@@ -995,6 +995,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break;
                 }
 
+                // The time limit has to be checked here and not only between
+                // groups. Everything below is work per *peeked* transaction, and a
+                // transaction that ends up rejected pays for none of it: it burns
+                // no gas and never advances `total_size`, so it is invisible to
+                // both budgets above. `MAX_TXS_PER_GROUP_PER_VISIT` bounds the
+                // iterations, not the work, since the cost of a peek scales with
+                // the transaction's payload.
+                if let Some(time_limit) = &time_limit
+                    && start_time.elapsed() >= *time_limit
+                {
+                    prepared_transactions.limited_by = PrepareTransactionsLimit::Time;
+                    break 'add_txs_loop;
+                }
+
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.size_for_limits(protocol_version))
                     > size_limit as u64

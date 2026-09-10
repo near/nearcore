@@ -2213,6 +2213,142 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
     );
 }
 
+/// The time limit must also bound a flood that fits inside a *single* group
+/// visit. `test_prepare_transactions_flood_respects_time_limit_and_fairness`
+/// covers the case where the flood exceeds `MAX_TXS_PER_GROUP_PER_VISIT`, so the
+/// loop returns to the outer check between visits. It cannot cover this one:
+/// here the whole flood fits in one visit, so the outer check is never reached
+/// again, and only a check inside the per-group loop can stop it.
+///
+/// The cost per peeked transaction is what makes the difference. These carry a
+/// `UniversalStateInit` payload at the transaction size limit, which
+/// `is_state_init_bootstrap` hashes and decodes and `tx_cost` decodes twice more,
+/// all before the transaction is rejected. A rejected transaction burns no gas
+/// and never advances `total_size`, so the gas and size budgets stay put.
+#[test]
+fn test_prepare_transactions_respects_time_limit_within_one_group_visit() {
+    /// Mainnet `max_transaction_size` (`core/parameters/res/runtime_configs/69.yaml:3`).
+    const MAX_TX_SIZE: usize = 1_572_864;
+    /// Default `transaction_pool_size_limit` (`core/chain-configs/src/client_config.rs`).
+    const POOL_LIMIT: usize = 100_000_000;
+    const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+
+    let committed =
+        InMemorySigner::from_seed("unused.near".parse().unwrap(), KeyType::ED25519, "committed");
+    // One entry holding one large value, rather than many small entries: this
+    // shape stays within every per-entry and per-key limit, so what the test
+    // measures cannot be taken away by a cap on the payload's structure.
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::from([(b"k".to_vec(), vec![0u8; MAX_TX_SIZE - 1_000])]),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(committed.public_key())]),
+    });
+    let raw_state_init = state_init.to_raw();
+    let payload_len = raw_state_init.0.len();
+    assert!(payload_len < MAX_TX_SIZE, "payload {payload_len} exceeds the transaction size limit");
+    let account_id = derive_universal_account_id(&raw_state_init);
+
+    // The account exists but is uninitialized and far too poor to pay for a state
+    // init this large, so every transaction below is rejected on balance.
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_uid =
+        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
+    {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut state_update = TrieUpdate::new(trie);
+        set_account(
+            &mut state_update,
+            account_id.clone(),
+            &Account::new_uninitialized(Balance::from_yoctonear(1), 100, BOOTSTRAP_NONCE),
+        );
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = env.runtime.tries.store_update();
+        env.state_roots[0] =
+            env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+    }
+
+    // All at the one admissible bootstrap nonce, so the nonce gap check lets every
+    // one of them through to the expensive work. They differ only in the action
+    // deposit, which is enough for distinct hashes and so distinct pool entries.
+    let build_pool = |size: usize| -> TransactionPool {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for i in 0..size {
+            let tx = Transaction::V0(TransactionV0 {
+                signer_id: account_id.clone(),
+                public_key: committed.public_key(),
+                nonce: BOOTSTRAP_NONCE + 1,
+                receiver_id: account_id.clone(),
+                block_hash,
+                actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw_state_init.clone(),
+                    deposit: Balance::from_yoctonear(i as u128),
+                }))],
+            });
+            let signed = SignedTransaction::new(Signature::empty(KeyType::ED25519), tx);
+            assert_eq!(
+                pool.insert_transaction(ValidatedTransaction::new_for_test(signed)),
+                InsertTransactionResult::Success,
+            );
+        }
+        pool
+    };
+
+    let run = |pool: &mut TransactionPool, time_limit| -> (PreparedTransactions, Duration) {
+        let start = std::time::Instant::now();
+        let mut iter = pool.pool_iterator();
+        let prepared = prepare_transactions_extra_with_time_limit(
+            &env,
+            &chain,
+            &mut iter,
+            HashSet::new(),
+            &|_| true,
+            &mut PendingTxCheckResult::always_admit(),
+            None,
+            time_limit,
+        )
+        .unwrap()
+        .0;
+        (prepared, Duration::nanoseconds(start.elapsed().as_nanos() as i64))
+    };
+
+    // What one rejected transaction costs on this machine. Everything below is
+    // sized against it, so the test does not depend on absolute speed.
+    const WARMUP: usize = 4;
+    let (warmup, warmup_elapsed) = run(&mut build_pool(WARMUP), None);
+    assert!(warmup.transactions.is_empty(), "the flood must not be includable");
+    let per_tx = warmup_elapsed / WARMUP as i32;
+
+    // A shard pool's worth of them, all in the one (account, key) group, and
+    // fewer than the per-visit cap so the loop never returns to the outer check.
+    let flood_size = POOL_LIMIT / payload_len;
+    assert!(
+        flood_size < MAX_TXS_PER_GROUP_PER_VISIT,
+        "the pool byte limit, not the per-visit count cap, has to be what bounds this group",
+    );
+    let mut pool = build_pool(flood_size);
+
+    // Enough for a few transactions, far short of the whole flood.
+    let time_limit = per_tx * 8;
+    let (result, elapsed) = run(&mut pool, Some(time_limit));
+    assert!(result.transactions.is_empty(), "the flood must not be includable");
+    assert!(
+        matches!(result.limited_by, PrepareTransactionsLimit::Time),
+        "expected to stop on the time limit, stopped on {:?}",
+        result.limited_by,
+    );
+    assert!(
+        elapsed <= time_limit + per_tx * 5,
+        "preparation took {elapsed} against a {time_limit} limit \
+         ({flood_size} rejected transactions of {payload_len} B at {per_tx} each)",
+    );
+}
+
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
