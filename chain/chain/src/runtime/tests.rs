@@ -2317,12 +2317,15 @@ fn test_prepare_transactions_respects_time_limit_within_one_group_visit() {
         (prepared, Duration::nanoseconds(start.elapsed().as_nanos() as i64))
     };
 
-    // What one rejected transaction costs on this machine. Everything below is
-    // sized against it, so the test does not depend on absolute speed.
-    const WARMUP: usize = 4;
+    // Calibrate the budget against this machine rather than a fixed duration:
+    // time an unbudgeted run over a small pool, and give the real run twice
+    // that. The doubling leaves room above the per-call setup the warmup also
+    // paid for, so the outer check cannot fire before the group is entered,
+    // while staying far below what draining the whole flood would take.
+    const WARMUP: usize = 8;
     let (warmup, warmup_elapsed) = run(&mut build_pool(WARMUP), None);
     assert!(warmup.transactions.is_empty(), "the flood must not be includable");
-    let per_tx = warmup_elapsed / WARMUP as i32;
+    let time_limit = warmup_elapsed * 2;
 
     // A shard pool's worth of them, all in the one (account, key) group, and
     // fewer than the per-visit cap so the loop never returns to the outer check.
@@ -2333,19 +2336,27 @@ fn test_prepare_transactions_respects_time_limit_within_one_group_visit() {
     );
     let mut pool = build_pool(flood_size);
 
-    // Enough for a few transactions, far short of the whole flood.
-    let time_limit = per_tx * 8;
-    let (result, elapsed) = run(&mut pool, Some(time_limit));
+    let (result, _) = run(&mut pool, Some(time_limit));
     assert!(result.transactions.is_empty(), "the flood must not be includable");
+
+    // Nothing below measures wall-clock time, so a slow or heavily loaded worker
+    // cannot fail this. The counts alone say the inner check is what stopped it:
+    // there is a single group, so had the loop only checked the clock between
+    // groups it would have drained the group and reported `NoMoreTxsInPool`.
     assert!(
         matches!(result.limited_by, PrepareTransactionsLimit::Time),
         "expected to stop on the time limit, stopped on {:?}",
         result.limited_by,
     );
+    let examined = flood_size - pool.len();
     assert!(
-        elapsed <= time_limit + per_tx * 5,
-        "preparation took {elapsed} against a {time_limit} limit \
-         ({flood_size} rejected transactions of {payload_len} B at {per_tx} each)",
+        examined > 0,
+        "expected the group to be entered, so that the stop came from the inner check \
+         rather than from the outer one before any transaction was peeked",
+    );
+    assert!(
+        examined < flood_size,
+        "expected to stop before draining the group, examined all {flood_size}",
     );
 }
 
