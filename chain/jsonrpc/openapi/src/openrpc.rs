@@ -25,6 +25,7 @@ use near_jsonrpc_primitives::types::congestion::{
     RpcCongestionLevelRequest, RpcCongestionLevelResponse,
 };
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceResponse};
+use near_jsonrpc_primitives::types::indexer::{RpcIndexerBlockRequest, RpcIndexerBlockResponse};
 use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
     RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
@@ -1127,6 +1128,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         "Returns state changes for specific state change kinds",
         false,
         &["changes", "experimental"],
+    );
+    add_method::<RpcIndexerBlockRequest, RpcIndexerBlockResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_indexer_block",
+        "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.",
+        false,
+        &["indexer", "experimental"],
     );
     add_method::<RpcProtocolConfigRequest, RpcProtocolConfigResponse>(
         &mut methods,

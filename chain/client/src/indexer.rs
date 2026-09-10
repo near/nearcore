@@ -126,7 +126,7 @@ pub async fn build_streamer_message(
 
         let outcomes = shards_outcomes
             .remove(&header.shard_id)
-            .expect("execution outcomes for given shard should be present");
+            .ok_or_else(|| FailedToFetchData::String("missing shard execution outcomes".into()))?;
         let outcome_count = outcomes.len();
         let outcome_order: Vec<CryptoHash> =
             outcomes.iter().map(|o| o.execution_outcome.id).collect();
@@ -159,7 +159,7 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
             &runtime_config,
             gas_price,
-        );
+        )?;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome_id in outcome_order {
@@ -471,7 +471,7 @@ fn convert_transactions_sir_into_local_receipts<'a>(
     tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
-) -> Vec<ReceiptView> {
+) -> Result<Vec<ReceiptView>, FailedToFetchData> {
     let mut local_receipts = Vec::new();
     for indexer_tx in tx_iter {
         let tx = &indexer_tx.transaction;
@@ -488,7 +488,9 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             continue;
         };
         let actions: Vec<_> =
-            tx.actions.iter().cloned().map(Action::try_from).map(Result::unwrap).collect();
+            tx.actions.iter().cloned().map(Action::try_from).collect::<Result<_, _>>().map_err(
+                |error| FailedToFetchData::String(format!("invalid local action: {error}")),
+            )?;
         let cost = calculate_tx_cost(
             &tx.receiver_id,
             &tx.signer_id,
@@ -497,7 +499,9 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             runtime_config,
             gas_price,
         )
-        .unwrap();
+        .map_err(|error| {
+            FailedToFetchData::String(format!("invalid local transaction cost: {error}"))
+        })?;
         // Use empty actions here and clone actions from transactions later.
         // Note that we cannot just pass `actions` here since conversion
         // ActionView -> Action -> ActionView does not always preserve the
@@ -517,5 +521,5 @@ fn convert_transactions_sir_into_local_receipts<'a>(
         actions.clone_from(&indexer_tx.transaction.actions);
         local_receipts.push(receipt_view);
     }
-    local_receipts
+    Ok(local_receipts)
 }

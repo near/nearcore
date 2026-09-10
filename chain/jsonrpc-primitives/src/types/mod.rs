@@ -7,6 +7,7 @@ pub mod config;
 pub mod congestion;
 pub mod entity_debug;
 pub mod gas_price;
+pub mod indexer;
 pub mod light_client;
 pub mod maintenance;
 pub mod network_info;

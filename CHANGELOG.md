@@ -6,6 +6,8 @@
 
 ### Non-protocol Changes
 
+* Added the opt-in `EXPERIMENTAL_indexer_block` RPC to fetch indexer messages by block hash. Enable it with `rpc.enable_indexer_rpc`; `rpc.indexer_max_concurrent_requests` controls request concurrency.
+
 ## [2.14.0]
 
 ### Protocol Changes

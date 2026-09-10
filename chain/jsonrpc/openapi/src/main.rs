@@ -21,6 +21,7 @@ use near_jsonrpc_primitives::types::{
     config::{RpcProtocolConfigError, RpcProtocolConfigRequest, RpcProtocolConfigResponse},
     congestion::{RpcCongestionLevelError, RpcCongestionLevelRequest, RpcCongestionLevelResponse},
     gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
+    indexer::{RpcIndexerBlockError, RpcIndexerBlockRequest, RpcIndexerBlockResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
         RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
@@ -703,7 +704,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.3.25".to_string(),
+            version: "1.3.26".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -935,6 +936,12 @@ fn main() {
         &mut all_paths,
         "EXPERIMENTAL_light_client_state_proof".to_string(),
         "Returns a value from a shard's state together with its trie proof against the chunk's certified state root, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<RpcIndexerBlockRequest, RpcIndexerBlockResponse, RpcIndexerBlockError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_indexer_block".to_string(),
+        "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.".to_string(),
     );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,

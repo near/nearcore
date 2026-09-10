@@ -587,6 +587,7 @@ pub fn setup_client(
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
+        shared_state.rpc_config.clone(),
         test_loop.clock(),
         &client_sender,
         &view_client_sender,
