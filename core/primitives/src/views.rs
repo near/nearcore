@@ -3183,10 +3183,13 @@ impl CongestionInfoView {
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 mod tests {
-    use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
+    use super::{ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
+    use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::ExecutionMetadata;
+    use crate::trie_split::TrieSplit;
+    use crate::version::ProtocolFeature;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_primitives_core::hash::CryptoHash;
@@ -3194,11 +3197,6 @@ mod tests {
 
     #[test]
     fn test_chunk_header_proposed_split_json_roundtrip() {
-        use super::ChunkHeaderView;
-        use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-        use crate::trie_split::TrieSplit;
-        use crate::version::ProtocolFeature;
-
         let mut view: ChunkHeaderView = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
             1,
             0.into(),
