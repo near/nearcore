@@ -885,7 +885,11 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_handler.sync_status.as_variant_name(),
-                    display_sync_status(&self.client.sync_handler.sync_status, &head),
+                    display_sync_status(
+                        &self.client.sync_handler.sync_status,
+                        &head,
+                        self.info_helper.sync_rates(),
+                    ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.as_ref().into(),
@@ -1011,6 +1015,15 @@ enum SyncRequirement {
 impl SyncRequirement {
     fn sync_needed(&self) -> bool {
         matches!(self, Self::SyncNeeded { .. })
+    }
+
+    /// Highest height seen from peers, or `None` when no peer reported one.
+    fn highest_height(&self) -> Option<BlockHeight> {
+        match self {
+            Self::SyncNeeded { highest_height, .. }
+            | Self::AlreadyCaughtUp { highest_height, .. } => Some(*highest_height),
+            Self::NoPeers | Self::AdvHeaderSyncDisabled => None,
+        }
     }
 
     fn to_metrics_string(&self) -> String {
@@ -1952,6 +1965,12 @@ impl ClientActor {
             }
         };
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
+        if let Some(highest_height) = sync.highest_height() {
+            metrics::SYNC_HIGHEST_PEER_HEIGHT.set(highest_height as i64);
+        }
+        if !matches!(self.client.sync_handler.sync_status, SyncStatus::StateSync(_)) {
+            metrics::STATE_SYNC_STALE_DEADLINE_HEIGHT.set(0);
+        }
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
