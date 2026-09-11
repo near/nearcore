@@ -8,7 +8,8 @@ use crate::spice::chunk_validator_actor::{
 };
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
-    DataManagerError, Policies, ReceivedParts, SpiceData, SpiceDataManager, VerifiedCodedPart,
+    DataManagerError, Policies, PullRequest, ReceivedParts, SpiceData, SpiceDataManager,
+    VerifiedCodedPart, WakeAt, rotated_source_index,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -18,6 +19,7 @@ use near_async::futures::DelayedActionRunner;
 use near_async::futures::DelayedActionRunnerExt as _;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
+use near_async::messaging::HandlerWithContext;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Duration};
@@ -74,16 +76,16 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{TrieDBStorage, TrieStorage};
+use rand::rngs::StdRng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash as _, Hasher as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use strum::IntoStaticStr;
+use time::ext::InstantExt as _;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -264,6 +266,8 @@ pub struct SpiceDataDistributorActor {
     /// Fetch engine for receipt proofs; witnesses stay on `waiting_on_data` until they
     /// switch over too.
     data_manager: SpiceDataManager,
+
+    clock: Clock,
 }
 
 struct DistributionData {
@@ -292,6 +296,7 @@ pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
     pub data_verification: Sender<DataVerification>,
+    pub missing_receipt_proofs: Sender<MissingReceiptProofs>,
 }
 
 struct DataPartsEntry {
@@ -338,11 +343,19 @@ pub enum DataVerification {
     Failed(DataId),
 }
 
-impl Handler<DataVerification> for SpiceDataDistributorActor {
-    fn handle(&mut self, verification: DataVerification) {
+/// The consumer needed these items' data and found it not (fully) arrived: the pull
+/// trigger. Sent by the chunk executor when an apply attempt finds receipt proofs
+/// missing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MissingReceiptProofs {
+    pub data_ids: Vec<DataId>,
+}
+
+impl HandlerWithContext<DataVerification> for SpiceDataDistributorActor {
+    fn handle(&mut self, verification: DataVerification, ctx: &mut dyn DelayedActionRunner<Self>) {
         let (data_id, result) = match verification {
             DataVerification::Ok(data_id) => {
-                let result = self.data_manager.on_verified(&data_id);
+                let result = self.data_manager.on_verified(&data_id).map(|()| WakeAt(None));
                 (data_id, result)
             }
             DataVerification::Failed(data_id) => {
@@ -350,10 +363,24 @@ impl Handler<DataVerification> for SpiceDataDistributorActor {
                 (data_id, result)
             }
         };
-        if let Err(err) = result {
+        match result {
+            Ok(wake) => self.set_pull_wake_timer(ctx, wake),
             // A verification result can race item expiry, so failing to apply one is not an error.
-            tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring expired data verification result");
+            Err(err) => {
+                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring expired data verification result");
+            }
         }
+    }
+}
+
+impl HandlerWithContext<MissingReceiptProofs> for SpiceDataDistributorActor {
+    fn handle(
+        &mut self,
+        MissingReceiptProofs { data_ids }: MissingReceiptProofs,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+    ) {
+        let wake = self.data_manager.start_pulling(&data_ids);
+        self.set_pull_wake_timer(ctx, wake);
     }
 }
 
@@ -408,10 +435,11 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
     }
 }
 
-impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
+impl HandlerWithContext<SpiceIncomingPartialData> for SpiceDataDistributorActor {
     fn handle(
         &mut self,
         SpiceIncomingPartialData { data, recv_permit: _recv_permit }: SpiceIncomingPartialData,
+        ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
         let block_hash = *data.block_hash();
         if !self.spice_gate.should_process(
@@ -422,17 +450,19 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             return;
         }
         let sender = data.sender().clone();
-        if let Err(err) = self.receive_data(data) {
-            if let Some(Error::DataIsIrrelevant(data_id)) = err.inner() {
-                self.waiting_on_data.remove(&data_id);
-                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "received irrelevant data");
-                return;
+        match self.receive_data(data) {
+            Ok(wake) => self.set_pull_wake_timer(ctx, wake),
+            Err(err) => {
+                if let Some(Error::DataIsIrrelevant(data_id)) = err.inner() {
+                    self.waiting_on_data.remove(&data_id);
+                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "received irrelevant data");
+                    return;
+                }
+                // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
+                // invalid data.
+                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to handle receiving partial data");
             }
-            // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
-            // invalid data.
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to handle receiving partial data");
-            return;
-        };
+        }
     }
 }
 
@@ -477,8 +507,12 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
     }
 }
 
-impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
-    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+impl HandlerWithContext<ProcessedBlock> for SpiceDataDistributorActor {
+    fn handle(
+        &mut self,
+        ProcessedBlock { block_hash }: ProcessedBlock,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+    ) {
         // A pre-spice block distributes no receipts or witnesses and produces no
         // endorsements, so there is nothing to wait on or contribute for it.
         match spice_enabled_for_block(&self.chain_store, &block_hash) {
@@ -498,8 +532,11 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
-        if let Err(err) = self.process_pending_partial_data(&block_hash) {
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
+        match self.process_pending_partial_data(&block_hash) {
+            Ok(wake) => self.set_pull_wake_timer(ctx, wake),
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
+            }
         }
         match self.chain_store.spice_final_execution_head() {
             Ok(head) => self.data_manager.on_final_execution_head(head.height),
@@ -513,6 +550,7 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
 impl SpiceDataDistributorActor {
     pub fn new(
         clock: Clock,
+        rng: StdRng,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
@@ -529,12 +567,14 @@ impl SpiceDataDistributorActor {
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
-            clock,
+            clock.clone(),
+            rng,
             DATA_PARTS_RATIO,
             Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         Self {
             data_manager,
+            clock,
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
             rs_encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
@@ -589,6 +629,37 @@ impl SpiceDataDistributorActor {
         {
             *self.malformed_data_requests.entry(*reason).or_default() += 1;
         }
+    }
+
+    /// Runs the engine's due pulls at `wake`. A timer made stale by a re-schedule still
+    /// fires and is harmless: the engine finds nothing due.
+    fn set_pull_wake_timer(&self, ctx: &mut dyn DelayedActionRunner<Self>, wake: WakeAt) {
+        let WakeAt(Some(at)) = wake else {
+            return;
+        };
+        let delay = at.signed_duration_since(self.clock.now()).max(Duration::ZERO);
+        ctx.run_later("spice data pull wake", delay, |actor, ctx| {
+            actor.process_due_pulls(ctx);
+        });
+    }
+
+    fn process_due_pulls(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        // TODO(spice): Allow requesting data without signer using route back.
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
+        let (requests, wake) = self.data_manager.on_wake(self.clock.now(), me);
+        for PullRequest { producer, wants } in requests {
+            let requester = me.expect("a request is only built with a signer").clone();
+            let wants =
+                wants.into_iter().map(|(id, ordinals)| (SpiceDataIdentifier::from(&id), ordinals));
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceDataRequest {
+                    request: SpiceDataRequest::new(wants.collect(), requester),
+                    producer,
+                },
+            ));
+        }
+        self.set_pull_wake_timer(ctx, wake);
     }
 
     // TODO(spice): before distributing persist data keyed by id to allow it being re-requested.
@@ -707,13 +778,17 @@ impl SpiceDataDistributorActor {
         Ok((recipients_set, producers))
     }
 
-    pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), ReceiveDataError> {
+    pub(crate) fn receive_data(
+        &mut self,
+        data: SpicePartialData,
+    ) -> Result<WakeAt, ReceiveDataError> {
         let block_hash = data.block_hash();
         let block = match self.chain_store.get_block(block_hash) {
             Ok(block) => block,
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 return self
                     .add_pending_partial_data(data)
+                    .map(|()| WakeAt(None))
                     .map_err(ReceiveDataError::ReceivingDataWithoutBlock);
             }
             Err(err) => return Err(err.into()),
@@ -754,7 +829,7 @@ impl SpiceDataDistributorActor {
         &mut self,
         partial_data: SpicePartialData,
         block: &Block,
-    ) -> Result<(), Error> {
+    ) -> Result<WakeAt, Error> {
         let sender_validator = self
             .epoch_manager
             .get_validator_by_account_id(block.header().epoch_id(), partial_data.sender())?;
@@ -769,7 +844,7 @@ impl SpiceDataDistributorActor {
         &mut self,
         SpiceVerifiedPartialData { id, commitment, parts, sender }: SpiceVerifiedPartialData,
         block: &Block,
-    ) -> Result<(), Error> {
+    ) -> Result<WakeAt, Error> {
         self.verify_data_id(&id, block)?;
         let (_recipients, producers) = self.recipients_and_producers(&id, block)?;
         if !producers.contains(&sender) {
@@ -793,18 +868,19 @@ impl SpiceDataDistributorActor {
                     Ok(ReceivedParts::Complete(SpiceData::ReceiptProof(receipt_proof))) => {
                         self.executor_sender
                             .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
-                        Ok(())
+                        Ok(WakeAt(None))
                     }
                     Ok(ReceivedParts::Complete(SpiceData::StateWitness(_))) => {
                         unreachable!("decode checked the data against its receipt-proof id")
                     }
-                    Ok(ReceivedParts::Collecting) => Ok(()),
+                    Ok(ReceivedParts::Collecting(wake)) => Ok(wake),
                     Ok(ReceivedParts::NotWanted) => Err(Error::DataIsIrrelevant(id)),
                     Err(err) => Err(err.into()),
                 }
             }
             SpiceDataIdentifier::Witness { .. } => {
-                self.receive_witness_data_with_block(id, commitment, parts, block, &producers)
+                self.receive_witness_data_with_block(id, commitment, parts, block, &producers)?;
+                Ok(WakeAt(None))
             }
         }
     }
@@ -1027,25 +1103,28 @@ impl SpiceDataDistributorActor {
         Ok(false)
     }
 
-    fn process_pending_partial_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn process_pending_partial_data(&mut self, block_hash: &CryptoHash) -> Result<WakeAt, Error> {
         let ready_data = self.pending_partial_data.pop(&block_hash).unwrap_or_default();
+        let mut wake = WakeAt(None);
         if ready_data.is_empty() {
-            return Ok(());
+            return Ok(wake);
         }
         let block = self.chain_store.get_block(&block_hash)?;
         for data in ready_data {
             let data_id = data.id.clone();
             let commitment = data.commitment.clone();
-            if let Err(err) = self.receive_verified_data_with_block(data, &block) {
-                if let Error::DataIsIrrelevant(_) = err {
+            match self.receive_verified_data_with_block(data, &block) {
+                Ok(data_wake) => wake = wake.earliest(data_wake),
+                Err(err @ Error::DataIsIrrelevant(_)) => {
                     self.waiting_on_data.remove(&data_id);
                     tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "processing irrelevant data");
-                } else {
+                }
+                Err(err) => {
                     tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to process partial data");
                 }
             }
         }
-        Ok(())
+        Ok(wake)
     }
 
     #[cfg(test)]
@@ -1498,8 +1577,7 @@ impl SpiceDataDistributorActor {
             // TODO(spice): Request data only we know may be available. (For example based on
             // execution and certification heads.)
             let total_parts = producers.len();
-            let producer_index =
-                producer_index_to_request_from(total_parts, id, me, self.request_round);
+            let producer_index = rotated_source_index(total_parts, id, me, self.request_round);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceDataRequest {
                     // TODO(spice): Batch the ids that resolve to the same producer.
@@ -1860,19 +1938,4 @@ fn validate_wants(wants: &BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>) -> Resul
         return Err(Error::MalformedRequest(MalformedDataRequest::TooManyOrdinals));
     }
     Ok(())
-}
-
-/// The starting producer index is derived from a hash of (data_id, requester), so requests for the
-/// same data are spread across producers instead of all landing on one. Adding `round` advances the
-/// index each tick, so retries move along rather than repeatedly targeting an unresponsive producer.
-fn producer_index_to_request_from(
-    num_producers: usize,
-    data_id: &SpiceDataIdentifier,
-    requester: &AccountId,
-    round: u64,
-) -> usize {
-    let mut hasher = DefaultHasher::new();
-    data_id.hash(&mut hasher);
-    requester.hash(&mut hasher);
-    (hasher.finish().wrapping_add(round) % num_producers as u64) as usize
 }

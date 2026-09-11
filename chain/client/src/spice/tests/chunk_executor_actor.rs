@@ -4,6 +4,7 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::data_distributor_actor::DataVerification;
+use crate::spice::data_distributor_actor::MissingReceiptProofs;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
@@ -95,6 +96,7 @@ enum OutgoingMessage {
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
     DataVerification(DataVerification),
+    MissingReceiptProofs(MissingReceiptProofs),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -122,6 +124,9 @@ impl Clone for OutgoingMessage {
             }),
             OutgoingMessage::DataVerification(verification) => {
                 OutgoingMessage::DataVerification(verification.clone())
+            }
+            OutgoingMessage::MissingReceiptProofs(missing) => {
+                OutgoingMessage::MissingReceiptProofs(missing.clone())
             }
         }
     }
@@ -192,8 +197,16 @@ impl TestActor {
                 }
             }),
             data_verification: Sender::from_fn({
+                let outgoing_sc = outgoing_sc.clone();
                 move |message| {
                     outgoing_sc.unbounded_send(OutgoingMessage::DataVerification(message)).unwrap();
+                }
+            }),
+            missing_receipt_proofs: Sender::from_fn({
+                move |message| {
+                    outgoing_sc
+                        .unbounded_send(OutgoingMessage::MissingReceiptProofs(message))
+                        .unwrap();
                 }
             }),
         };
@@ -370,6 +383,9 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
         }
         OutgoingMessage::SpiceDistributorStateWitness(_) => {}
         OutgoingMessage::DataVerification(_) => {}
+        // These tests bypass real distribution: receipts reach the actors directly above,
+        // so a transient missing-receipts report has nothing to trigger.
+        OutgoingMessage::MissingReceiptProofs(_) => {}
     }
 }
 
@@ -965,6 +981,55 @@ fn test_verifying_an_invalid_network_receipt_reports_failed() {
     });
 
     assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Failed(data_id)]);
+}
+
+/// A pulled receipt proof can be delivered before the first processed block creates
+/// the destination shard's executor (a restart, or an epoch boundary).
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_receipt_delivered_before_the_first_processed_block_is_verified_once_results_land() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    // Only the source shard's node executes; the recipient has not processed a block yet.
+    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[1], &block));
+    let mut receipt_proof = None;
+    while let Ok(Some(message)) = outgoing_rc.try_next() {
+        let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
+            receipt_proofs,
+            ..
+        }) = message
+        else {
+            continue;
+        };
+        receipt_proof = receipt_proof.or_else(|| {
+            receipt_proofs.into_iter().find(|proof| {
+                actors[0].actor.shard_tracker.cares_about_shard(block.hash(), proof.1.to_shard_id)
+            })
+        });
+    }
+    let receipt_proof = receipt_proof.expect("the source shard sends a proof to the recipient");
+    let data_id = DataId::receipt_proof(
+        *block.hash(),
+        receipt_proof.1.from_shard_id,
+        receipt_proof.1.to_shard_id,
+    );
+
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
+        data_id: data_id.clone(),
+        receipt_proof,
+    });
+    // Buffered, not dropped: the source block's execution results are not in yet.
+    assert_eq!(drain_verifications(&mut outgoing_rc), vec![]);
+
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[0], &block));
+    record_endorsements(&mut actors, &block);
+    actors[0].handle_with_internal_events(ExecutionResultEndorsed { block_hash: *block.hash() });
+
+    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Ok(data_id)]);
 }
 
 /// First receipt proof the actors sent out; drops every other queued message.

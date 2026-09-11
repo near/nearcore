@@ -53,6 +53,8 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use parking_lot::RwLock;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -290,6 +292,7 @@ fn spawn_spice_actors(
 
     let spice_data_distributor_actor = SpiceDataDistributorActor::new(
         Clock::real(),
+        StdRng::from_entropy(),
         epoch_manager.clone(),
         runtime.store().chain_store(),
         validator_signer.clone(),

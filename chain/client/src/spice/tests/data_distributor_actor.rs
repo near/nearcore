@@ -3,8 +3,9 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
+    DATA_PARTS_RATIO, DataVerification, Error, FALLBACK_WITNESS_PULL_GRACE,
+    FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS,
+    MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, DataManagerError};
@@ -13,7 +14,7 @@ use itertools::Itertools as _;
 use near_async::messaging::Actor;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
-use near_async::time::Clock;
+use near_async::time::{Clock, FakeClock};
 use near_chain::Block;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::activation::SpiceMessageKind;
@@ -47,7 +48,8 @@ use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{Direction, MerklePathItem, merklize};
+use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
@@ -76,12 +78,15 @@ use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use with_ctx::{handle, handle_with_runner};
 
 fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> Arc<Block> {
     build_block_with_core_statements(epoch_manager, prev_block, vec![])
@@ -177,6 +182,36 @@ fn new_test_witness(block: &Block) -> SpiceChunkStateWitness {
     new_test_witness_for_chunk(block, chunk_header)
 }
 
+/// Own module so `HandlerWithContext` stays out of the file's scope: importing it there
+/// would make every plain `actor.handle(..)` call ambiguous against the `Handler` blanket.
+mod with_ctx {
+    use crate::spice::data_distributor_actor::SpiceDataDistributorActor;
+    use near_async::messaging::HandlerWithContext;
+    use near_async::test_utils::FakeDelayedActionRunner;
+
+    /// Drives a context-taking handler with the given timer runner.
+    pub(super) fn handle_with_runner<M>(
+        actor: &mut SpiceDataDistributorActor,
+        msg: M,
+        runner: &mut FakeDelayedActionRunner<SpiceDataDistributorActor>,
+    ) where
+        M: Send + 'static,
+        SpiceDataDistributorActor: HandlerWithContext<M>,
+    {
+        HandlerWithContext::handle(actor, msg, runner);
+    }
+
+    /// Drives a context-taking handler, discarding any timers it sets. Tests that
+    /// assert on the timers use [`handle_with_runner`] with their own runner.
+    pub(super) fn handle<M>(actor: &mut SpiceDataDistributorActor, msg: M)
+    where
+        M: Send + 'static,
+        SpiceDataDistributorActor: HandlerWithContext<M>,
+    {
+        handle_with_runner(actor, msg, &mut FakeDelayedActionRunner::default());
+    }
+}
+
 fn setup(num_chunk_producers: usize, num_validators: usize) -> (Genesis, Chain) {
     setup_with_shard_layout(num_chunk_producers, num_validators, ShardLayout::multi_shard(2, 0))
 }
@@ -243,15 +278,25 @@ fn new_chain(chain: &Chain, genesis: &Genesis) -> Chain {
 struct ActorBuilder {
     validator: Option<AccountId>,
     tracked_shards_config: TrackedShardsConfig,
+    clock: Clock,
 }
 
 impl ActorBuilder {
     fn new(validator: Option<AccountId>) -> Self {
-        Self { validator, tracked_shards_config: TrackedShardsConfig::NoShards }
+        Self {
+            validator,
+            tracked_shards_config: TrackedShardsConfig::NoShards,
+            clock: Clock::real(),
+        }
     }
 
     fn tracked_shards_config(mut self, config: TrackedShardsConfig) -> Self {
         self.tracked_shards_config = config;
+        self
+    }
+
+    fn clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
         self
     }
 
@@ -294,7 +339,8 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
-            Clock::real(),
+            self.clock,
+            StdRng::seed_from_u64(42),
             epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
@@ -551,10 +597,13 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
             continue;
         };
         assert!(recipients.contains(validator));
-        receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
-            recv_permit: RecvMessagePermit::none(),
-        });
+        handle(
+            &mut receiver,
+            SpiceIncomingPartialData {
+                data: partial_data.clone(),
+                recv_permit: RecvMessagePermit::none(),
+            },
+        );
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -697,10 +746,13 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
             panic!()
         };
         assert!(recipients.contains(receiver_account));
-        receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
-            recv_permit: RecvMessagePermit::none(),
-        });
+        handle(
+            &mut receiver,
+            SpiceIncomingPartialData {
+                data: partial_data.clone(),
+                recv_permit: RecvMessagePermit::none(),
+            },
+        );
     }
     let message = receiver_messages_rc.try_recv().unwrap();
     assert_matches!(receiver_messages_rc.try_recv(), Err(TryRecvError::Empty));
@@ -951,7 +1003,7 @@ macro_rules! test_invalid_incoming_partial_data {
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock($error)));
                     }
-                    actor.handle(incoming_data);
+                    handle(&mut actor, incoming_data);
                     assert_matches!(outgoing_rc.try_recv(), Ok(_));
                 }
             )+
@@ -1125,7 +1177,7 @@ fn test_incoming_partial_data_is_already_decoded() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     let data = incoming_data.data.clone();
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -1241,7 +1293,7 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
             receipt_proofs: vec![honest_proof],
         },
     );
-    actor.handle(honest_data);
+    handle(&mut actor, honest_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1292,7 +1344,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
             receipt_proofs: vec![honest_proof],
         },
     );
-    actor.handle(honest_data);
+    handle(&mut actor, honest_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1343,8 +1395,103 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
             receipt_proofs: vec![honest_proof],
         },
     );
-    actor.handle(honest_data);
+    handle(&mut actor, honest_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
+}
+
+/// The verification-window recovery: a decoded commitment the consumer rejects resumes
+/// collecting, and its pull is due immediately — the request goes out at once, for the
+/// ordinals the residual does not hold.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_failed_verification_pulls_the_missing_ordinals_at_once() {
+    let (_genesis, chain) = setup(8, 0);
+    let block = latest_block(&chain);
+    let honest_proof = new_test_receipt_proof(&block);
+    let producers = producers_of_receipt_proof(&chain, &block, &honest_proof);
+    let data_parts = reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO);
+    assert!(data_parts >= 2, "one honest part alone must not decode");
+    assert!(producers.len() >= 2 * data_parts, "not enough unbound producers to recover from");
+    let recipient = recipients_of_receipt_proof(&chain, &block, &honest_proof)
+        .into_iter()
+        .find(|account| !producers.contains(account))
+        .unwrap();
+
+    let clock = FakeClock::default();
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor =
+        ActorBuilder::new(Some(recipient.clone())).clock(clock.clock()).build(outgoing_sc, &chain);
+    let mut runner = FakeDelayedActionRunner::default();
+
+    let push_from = |producer: &AccountId, proof: &ReceiptProof| {
+        let (incoming, _recipient) = get_incoming_data(
+            producer,
+            &chain,
+            SpiceDistributorOutgoingReceipts {
+                block_hash: *block.hash(),
+                receipt_proofs: vec![proof.clone()],
+            },
+        );
+        incoming
+    };
+
+    // One honest part, then a fake commitment for the same id (same shards, different
+    // content) decoded from `data_parts` fabricated parts.
+    handle_with_runner(&mut actor, push_from(&producers[0], &honest_proof), &mut runner);
+    let mut fake_proof = honest_proof.clone();
+    fake_proof
+        .1
+        .proof
+        .push(MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left });
+    for producer in &producers[1..=data_parts] {
+        handle_with_runner(&mut actor, push_from(producer, &fake_proof), &mut runner);
+    }
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::ExecutorIncomingUnverifiedReceipts(ExecutorIncomingUnverifiedReceipts {
+        data_id,
+        receipt_proof,
+    }) = message
+    else {
+        panic!("expected the fake commitment delivered");
+    };
+    assert_eq!(receipt_proof, fake_proof);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+
+    handle_with_runner(&mut actor, DataVerification::Failed(data_id.clone()), &mut runner);
+
+    // The clock never advances: the request the failed verification result triggered is immediate,
+    // and asks only for the ordinals the residual honest part does not cover.
+    runner.run_queued_actions(&mut actor);
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::NetworkRequests {
+        request: NetworkRequests::SpiceDataRequest { request, producer },
+    } = message
+    else {
+        panic!("expected an immediate data request");
+    };
+    assert!(producers.contains(&producer));
+    let (wants, requester) = request.into_parts();
+    assert_eq!(requester, recipient);
+    let missing: BTreeSet<u64> = (1..producers.len() as u64).collect();
+    assert_eq!(wants, BTreeMap::from([(SpiceDataIdentifier::from(&data_id), missing)]));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+
+    // Honest parts from producers not bound to the banned commitment complete the item,
+    // and the consumer's verification result settles it.
+    for producer in &producers[data_parts + 1..2 * data_parts] {
+        handle_with_runner(&mut actor, push_from(producer, &honest_proof), &mut runner);
+    }
+    let message = outgoing_rc.try_recv().unwrap();
+    let OutgoingMessage::ExecutorIncomingUnverifiedReceipts(ExecutorIncomingUnverifiedReceipts {
+        data_id,
+        receipt_proof,
+    }) = message
+    else {
+        panic!("expected the honest proof delivered");
+    };
+    assert_eq!(receipt_proof, honest_proof);
+    handle_with_runner(&mut actor, DataVerification::Ok(data_id), &mut runner);
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
@@ -1370,7 +1517,7 @@ fn test_incoming_partial_data_for_receipt_with_witness_id() {
             Err(ReceiveDataError::ReceivingDataWithBlock(Error::IdAndDataMismatch))
         );
     }
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1425,7 +1572,7 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
             Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessShardId))
         );
     }
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1462,7 +1609,7 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
             Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessBlockHash))
         );
     }
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1630,7 +1777,7 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &recipient);
 
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     assert_eq!(actor.pending_partial_data_size(), 1);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
@@ -1641,7 +1788,7 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
     assert_eq!(actor.pending_partial_data_size(), 0);
 }
@@ -1974,7 +2121,7 @@ fn test_requesting_witness_for_new_block_when_validator() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2015,7 +2162,7 @@ fn test_not_requesting_witness_for_new_block_when_not_validator() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2052,7 +2199,7 @@ fn test_not_requesting_witness_for_new_block_without_signer() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2089,7 +2236,7 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(actor.is_tracking(&data_id));
@@ -2131,7 +2278,7 @@ fn test_not_waiting_on_receipts_we_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&data_id));
@@ -2172,7 +2319,7 @@ fn test_not_requesting_witnesses_we_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2209,8 +2356,8 @@ fn test_not_requesting_data_we_already_received() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
-    actor.handle(incoming_data);
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, incoming_data);
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2240,7 +2387,7 @@ fn test_not_requesting_data_we_already_received_before_block() {
     let mut actor = ActorBuilder::new(Some(recipient)).build(outgoing_sc, &receiver_chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    actor.handle(incoming_data);
+    handle(&mut actor, incoming_data);
     process_block_sync(
         &mut receiver_chain,
         next_block.clone().into(),
@@ -2248,7 +2395,7 @@ fn test_not_requesting_data_we_already_received_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2287,10 +2434,10 @@ fn test_handling_data_request_with_receipts_in_store() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
-    actor.handle(SpiceIncomingPartialData {
-        data: partial_data,
-        recv_permit: RecvMessagePermit::none(),
-    });
+    handle(
+        &mut actor,
+        SpiceIncomingPartialData { data: partial_data, recv_permit: RecvMessagePermit::none() },
+    );
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -2340,10 +2487,10 @@ fn test_handling_data_request_with_witness_in_store() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &recipient_chain, &recipient);
-    actor.handle(SpiceIncomingPartialData {
-        data: partial_data,
-        recv_permit: RecvMessagePermit::none(),
-    });
+    handle(
+        &mut actor,
+        SpiceIncomingPartialData { data: partial_data, recv_permit: RecvMessagePermit::none() },
+    );
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -2858,10 +3005,10 @@ fn test_requesting_receipts_when_not_validator() {
     let mut actor = ActorBuilder::new(Some(requester))
         .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
         .build(outgoing_sc, &requester_chain);
-    actor.handle(SpiceIncomingPartialData {
-        data: partial_data,
-        recv_permit: RecvMessagePermit::none(),
-    });
+    handle(
+        &mut actor,
+        SpiceIncomingPartialData { data: partial_data, recv_permit: RecvMessagePermit::none() },
+    );
 
     let message = outgoing_rc.try_recv().unwrap();
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
@@ -3310,7 +3457,7 @@ fn test_stops_waiting_on_witness_once_its_block_is_final_certified() {
     let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &next_block);
     let head = produce_blocks_until_final(&mut chain, &certifying_block);
 
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(
         !actor
@@ -3361,7 +3508,7 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     let head = produce_blocks_until_final(&mut chain, &next_block);
 
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     // The dead fork's witness is purged at the final head; the canonical block's stays.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
@@ -3380,7 +3527,7 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     // Once the final execution head passes their height, the dead fork's item and the
     // executed canonical block's item are both moot and expire.
     save_final_execution_head(&chain, &next_block);
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(!actor.is_tracking(&proof_id(&next_block)));
@@ -3412,14 +3559,14 @@ fn test_fallback_endorsement_is_broadcast_on_every_block_until_it_is_on_chain() 
 
     let mut block = latest_block(&chain);
     for _ in 0..3 {
-        actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        handle(&mut actor, ProcessedBlock { block_hash: *block.hash() });
         assert!(broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
         block = produce_block(&mut chain, &block);
     }
 
     let carrying_block =
         produce_block_carrying_endorsement(&mut chain, &block, &chunk_id, &validator);
-    actor.handle(ProcessedBlock { block_hash: *carrying_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *carrying_block.hash() });
     assert!(!broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
 }
 
@@ -3510,7 +3657,7 @@ fn test_witness_is_pushed_when_fallback_opens() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head_block.hash() });
 
     let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
     assert_eq!(pushes.len(), 1);
@@ -3537,11 +3684,11 @@ fn test_witness_is_pushed_only_once() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head_block.hash() });
     assert_eq!(drain_outgoing_partial_data(&mut outgoing_rc).len(), 1);
 
     let next_block = produce_block(&mut chain, &head_block);
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 }
 
@@ -3563,12 +3710,12 @@ fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved(
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
     // A fallback-only chunk is eligible on its own block, but its witness only exists once the
     // producer applies the chunk, which needs the previous block certified.
-    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *chunk_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 
     let witness = save_test_witness_for_chunk(&chain, &chunk_id);
     let next_block = produce_block(&mut chain, &chunk_block);
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *next_block.hash() });
 
     let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
     assert_eq!(pushes.len(), 1, "the push was not retried once the witness was saved");
@@ -3594,7 +3741,7 @@ fn test_fallback_witness_is_requested_only_after_the_pull_grace() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *head_block.hash() });
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(!requested_witness_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
@@ -3672,13 +3819,13 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
 
     // A fallback-only chunk is eligible on its own block, so the push can reach a receiver that
     // does not have that block yet. The parts wait for it rather than being refused.
-    actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
+    handle(&mut actor, SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
     assert_eq!(actor.pending_partial_data_size(), 1);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
     let chunk_block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
     catch_up_to(&mut receiver_chain, &chain, &chunk_block);
-    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+    handle(&mut actor, ProcessedBlock { block_hash: *chunk_block.hash() });
 
     let message = outgoing_rc.try_recv().unwrap();
     let OutgoingMessage::ChunkStateWitnessMessage(SpiceChunkStateWitnessMessage {
@@ -3706,7 +3853,7 @@ fn test_pushed_fallback_witness_is_kept_when_head_is_within_the_lookahead() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
-    actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
+    handle(&mut actor, SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
 
     let message = outgoing_rc.try_recv().unwrap();
     let OutgoingMessage::ChunkStateWitnessMessage(SpiceChunkStateWitnessMessage {

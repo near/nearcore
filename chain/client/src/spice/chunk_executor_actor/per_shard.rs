@@ -8,7 +8,8 @@ use super::storage::{
 };
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
-    SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    MissingReceiptProofs, SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
+    SpiceDistributorStateWitness,
 };
 use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
@@ -318,6 +319,20 @@ impl PerShardChunkExecutor {
             );
             if proofs.len() != prev_block_shard_uids.len() {
                 tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_uids.len(), "not ready: missing incoming receipts");
+                let have: HashSet<ShardId> =
+                    proofs.iter().map(|proof| proof.1.from_shard_id).collect();
+                let data_ids = prev_block_shard_uids
+                    .iter()
+                    .map(|uid| uid.shard_id())
+                    .filter(|from_shard| !have.contains(from_shard))
+                    .map(|from_shard| DataId::ReceiptProof {
+                        source: SpiceChunkId { block_hash: prev_block_hash, shard_id: from_shard },
+                        to_shard: shard_id,
+                    })
+                    .collect();
+                self.data_distributor_adapter
+                    .missing_receipt_proofs
+                    .send(MissingReceiptProofs { data_ids });
                 return Ok(ApplyOutcome::NotReady);
             }
             proofs
