@@ -9,6 +9,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
+    QueryError,
 };
 use near_crypto::PublicKeyHandle;
 use near_primitives::hash::CryptoHash;
@@ -213,7 +214,7 @@ impl crate::ChainAccess for ChainAccess {
         let mut ret = Vec::new();
         let mut after_key = None;
         loop {
-            let response = self
+            let response = match self
                 .view_client
                 .send_async(Query {
                     block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
@@ -224,7 +225,12 @@ impl crate::ChainAccess for ChainAccess {
                     },
                 })
                 .await
-                .unwrap()?;
+                .unwrap()
+            {
+                Ok(response) => response,
+                Err(QueryError::UnknownAccount { .. }) => return Ok(ret),
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };

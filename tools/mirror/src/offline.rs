@@ -195,7 +195,7 @@ impl crate::ChainAccess for ChainAccess {
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         let mut after_key = None;
         loop {
-            let response = self.runtime.query(
+            let response = match self.runtime.query(
                 shard_uid,
                 chunk_extra.state_root(),
                 header.height(),
@@ -208,7 +208,13 @@ impl crate::ChainAccess for ChainAccess {
                     after_key,
                     limit: ACCESS_KEY_PAGE_SIZE,
                 },
-            )?;
+            ) {
+                Ok(response) => response,
+                Err(near_chain_primitives::error::QueryError::UnknownAccount { .. }) => {
+                    return Ok(ret);
+                }
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };
