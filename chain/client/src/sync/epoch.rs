@@ -143,10 +143,7 @@ impl EpochSync {
             EpochSyncStatus::Done => return Ok(()),
         }
 
-        // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
-        let peer = highest_height_peers
-            .choose(&mut rand::thread_rng())
-            .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
+        let peer = Self::choose_peer(highest_height_peers)?;
 
         tracing::info!(target: "sync", peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
@@ -161,6 +158,18 @@ impl EpochSync {
         ));
 
         Ok(())
+    }
+
+    /// Picks a peer to request the epoch sync proof from.
+    ///
+    /// TODO(#11976): Implement a more robust logic for picking a peer to request
+    /// epoch sync from.
+    fn choose_peer(
+        highest_height_peers: &[HighestHeightPeerInfo],
+    ) -> Result<&HighestHeightPeerInfo, Error> {
+        highest_height_peers
+            .choose(&mut rand::thread_rng())
+            .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))
     }
 
     /// Validates an epoch sync proof: checks peer identity, proof freshness,
@@ -188,32 +197,12 @@ impl EpochSync {
             tracing::warn!(target: "sync", %source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
             return Ok(false);
         }
-        if proof
-            .current_epoch
-            .first_block_header_in_epoch
-            .height()
-            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-            >= *source_peer_height
-        {
-            tracing::error!(
-                target: "sync",
-                %source_peer,
-                "ignoring epoch sync proof from peer that is too recent"
-            );
-            return Ok(false);
-        }
-        if proof
-            .current_epoch
-            .first_block_header_in_epoch
-            .height()
-            .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
-            < *source_peer_height
-        {
-            tracing::error!(
-                target: "sync",
-                %source_peer,
-                "ignoring epoch sync proof from peer that is too old"
-            );
+        if !Self::verify_proof_freshness(
+            &proof.current_epoch,
+            chain,
+            source_peer,
+            *source_peer_height,
+        ) {
             return Ok(false);
         }
 
@@ -343,24 +332,7 @@ impl EpochSync {
         }
 
         // Verify block producer handoff to the second epoch after genesis.
-        let second_next_epoch_id_after_genesis = EpochId(*self.genesis.hash());
-        let second_next_epoch_info_after_genesis =
-            epoch_manager.get_epoch_info(&second_next_epoch_id_after_genesis)?;
-        if all_epochs[0].block_producers
-            != get_epoch_info_block_producers(&second_next_epoch_info_after_genesis)
-        {
-            return Err(Error::InvalidEpochSyncProof(
-                "invalid block producers for second epoch after genesis".to_string(),
-            ));
-        }
-        if all_epochs[0].last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
-            return Err(Error::InvalidEpochSyncProof(format!(
-                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
-                second_next_epoch_id_after_genesis,
-                all_epochs[0].last_final_block_header.epoch_id(),
-            )));
-        }
-        Self::verify_final_block_endorsement(&all_epochs[0])?;
+        self.verify_first_epoch(&all_epochs[0], epoch_manager)?;
 
         // Verify the data of each epoch, in chronological order. When verifying each epoch,
         // we assume that the previous epoch has been verified (thereby giving correctness of all
@@ -375,38 +347,114 @@ impl EpochSync {
         //
         // See the comments in `EpochSyncProofEpochData` for more detailed information.
         for epoch_index in 1..all_epochs.len() {
-            let epoch = &all_epochs[epoch_index];
-            let prev_epoch = &all_epochs[epoch_index - 1];
-            if !Self::verify_block_producer_handoff(
-                &epoch.block_producers,
-                epoch.use_versioned_bp_hash_format,
-                prev_epoch.last_final_block_header.next_bp_hash(),
-            )? {
-                return Err(Error::InvalidEpochSyncProof(format!(
-                    "invalid block producer handoff to epoch index {}",
-                    epoch_index
-                )));
-            }
-            if epoch.last_final_block_header.epoch_id()
-                != prev_epoch.last_final_block_header.next_epoch_id()
-            {
-                return Err(Error::InvalidEpochSyncProof(format!(
-                    "epoch_id mismatch at all_epochs[{}]: expected {:?}, got {:?}",
-                    epoch_index,
-                    prev_epoch.last_final_block_header.next_epoch_id(),
-                    epoch.last_final_block_header.epoch_id(),
-                )));
-            }
-            Self::verify_final_block_endorsement(epoch)?;
+            Self::verify_next_epoch(&all_epochs[epoch_index], &all_epochs[epoch_index - 1])?;
         }
 
-        Self::verify_epoch_sync_data_hash(&last_epoch, &current_epoch.first_block_header_in_epoch)?;
-
-        Self::verify_current_epoch_data(
-            current_epoch,
-            &all_epochs.last().unwrap().last_final_block_header,
-        )?;
+        Self::verify_proof_tail(last_epoch, current_epoch, all_epochs.last().unwrap())?;
         Ok(())
+    }
+
+    /// Returns `true` iff the proof is neither newer nor older than a proof from a
+    /// peer at `source_peer_height` should be.
+    fn verify_proof_freshness(
+        current_epoch: &EpochSyncProofCurrentEpochData,
+        chain: &Chain,
+        source_peer: &PeerId,
+        source_peer_height: BlockHeight,
+    ) -> bool {
+        if current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+            >= source_peer_height
+        {
+            tracing::error!(
+                target: "sync",
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too recent"
+            );
+            return false;
+        }
+        if current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS * chain.epoch_length)
+            < source_peer_height
+        {
+            tracing::error!(
+                target: "sync",
+                %source_peer,
+                "ignoring epoch sync proof from peer that is too old"
+            );
+            return false;
+        }
+        true
+    }
+
+    /// Verifies the first epoch of a proof against the genesis.
+    fn verify_first_epoch(
+        &self,
+        epoch: &EpochSyncProofEpochData,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> Result<(), Error> {
+        let second_next_epoch_id_after_genesis = EpochId(*self.genesis.hash());
+        let second_next_epoch_info_after_genesis =
+            epoch_manager.get_epoch_info(&second_next_epoch_id_after_genesis)?;
+        if epoch.block_producers
+            != get_epoch_info_block_producers(&second_next_epoch_info_after_genesis)
+        {
+            return Err(Error::InvalidEpochSyncProof(
+                "invalid block producers for second epoch after genesis".to_string(),
+            ));
+        }
+        if epoch.last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch for the first epoch's last final block header: expected {:?}, got {:?}",
+                second_next_epoch_id_after_genesis,
+                epoch.last_final_block_header.epoch_id(),
+            )));
+        }
+        Self::verify_final_block_endorsement(epoch)?;
+        Ok(())
+    }
+
+    /// Verifies one epoch against the epoch before it: block producer handoff,
+    /// epoch id linkage, and endorsements of the last final block.
+    fn verify_next_epoch(
+        epoch: &EpochSyncProofEpochData,
+        prev_epoch: &EpochSyncProofEpochData,
+    ) -> Result<(), Error> {
+        let epoch_id = epoch.last_final_block_header.epoch_id();
+        if !Self::verify_block_producer_handoff(
+            &epoch.block_producers,
+            epoch.use_versioned_bp_hash_format,
+            prev_epoch.last_final_block_header.next_bp_hash(),
+        )? {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "invalid block producer handoff to epoch {epoch_id:?}"
+            )));
+        }
+        if epoch_id != prev_epoch.last_final_block_header.next_epoch_id() {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch: expected {:?}, got {:?}",
+                prev_epoch.last_final_block_header.next_epoch_id(),
+                epoch_id,
+            )));
+        }
+        Self::verify_final_block_endorsement(epoch)?;
+        Ok(())
+    }
+
+    /// Verifies the end of a proof: that the last epoch's data hashes to what the
+    /// current epoch's first block header commits to, and that the current epoch
+    /// data follows the final epoch.
+    fn verify_proof_tail(
+        last_epoch: &EpochSyncProofLastEpochData,
+        current_epoch: &EpochSyncProofCurrentEpochData,
+        final_epoch: &EpochSyncProofEpochData,
+    ) -> Result<(), Error> {
+        Self::verify_epoch_sync_data_hash(last_epoch, &current_epoch.first_block_header_in_epoch)?;
+        Self::verify_current_epoch_data(current_epoch, &final_epoch.last_final_block_header)
     }
 
     fn verify_current_epoch_data(
@@ -663,6 +711,13 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         }
 
+        self.apply_validated_epoch_sync_proof(proof);
+    }
+}
+
+impl ClientActor {
+    /// Applies a proof that has already been verified.
+    fn apply_validated_epoch_sync_proof(&mut self, proof: EpochSyncProofV1) {
         // If the proof is valid but the node is stale (data beyond genesis), shut down for data reset immediately
         let tip_height = match self.client.chain.header_head() {
             Ok(head) => head.height,
