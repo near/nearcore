@@ -487,9 +487,8 @@ impl TrieViewer {
             &epoch_info_provider.chain_id(),
             AccessOptions::DEFAULT,
         )?;
-        let contract_code_hash = contract_id_resolved.hash();
         let contract =
-            pipeline.get_contract(&receipt, contract_id_resolved, 0, view_config.clone());
+            pipeline.get_contract(&receipt, contract_id_resolved.clone(), 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -507,7 +506,7 @@ impl TrieViewer {
         );
         let outcome = execute_function_call(
             contract,
-            contract_code_hash,
+            &contract_id_resolved,
             &apply_state,
             &mut runtime_ext,
             originator_id,
