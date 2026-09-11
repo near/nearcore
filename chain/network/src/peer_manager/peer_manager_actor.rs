@@ -1344,6 +1344,51 @@ impl PeerManagerActor {
                 };
                 if sent { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
             }
+            NetworkRequests::EpochSyncManifestRequest { peer_id } => {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncManifestRequest.into(),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncManifestResponse { peer_id, manifest } => {
+                // Use the pre-acquired permit if the caller supplied one.
+                let msg: Arc<PeerMessage> = PeerMessage::EpochSyncManifestResponse(manifest).into();
+                let sent = match permit {
+                    Some(p) => {
+                        self.transport.send_message_with_permit(tcp::Tier::T2, peer_id, msg, p)
+                    }
+                    None => self.transport.send_message(tcp::Tier::T2, peer_id, msg),
+                };
+                if sent { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
+            }
+            NetworkRequests::EpochSyncBatchRequest { peer_id, batch_index } => {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncBatchRequest { batch_index }.into(),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncBatchResponse { peer_id, batch_index, batch } => {
+                // Use the pre-acquired permit if the caller supplied one.
+                let msg: Arc<PeerMessage> =
+                    PeerMessage::EpochSyncBatchResponse { batch_index, batch }.into();
+                let sent = match permit {
+                    Some(p) => {
+                        self.transport.send_message_with_permit(tcp::Tier::T2, peer_id, msg, p)
+                    }
+                    None => self.transport.send_message(tcp::Tier::T2, peer_id, msg),
+                };
+                if sent { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
+            }
             NetworkRequests::ChunkContractAccesses(validators, accesses) => {
                 for validator in validators {
                     self.state.send_message_to_account(

@@ -7,6 +7,8 @@ use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use bytesize::{KIB, MIB};
 pub use edge::*;
+use near_primitives::epoch_sync::CompressedEpochSyncProofBatch;
+use near_primitives::epoch_sync::CompressedEpochSyncProofManifest;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
@@ -452,6 +454,16 @@ pub enum PeerMessage {
 
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+
+    EpochSyncManifestRequest,
+    EpochSyncManifestResponse(CompressedEpochSyncProofManifest),
+    EpochSyncBatchRequest {
+        batch_index: u64,
+    },
+    EpochSyncBatchResponse {
+        batch_index: u64,
+        batch: CompressedEpochSyncProofBatch,
+    },
 }
 
 impl fmt::Display for PeerMessage {
@@ -517,7 +529,9 @@ impl PeerMessage {
             | PeerMessage::LastEdge(_)
             | PeerMessage::PeersRequest(_)
             | PeerMessage::Challenge(_) // challenges are disabled
-            | PeerMessage::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
+            | PeerMessage::EpochSyncRequest
+            | PeerMessage::EpochSyncBatchRequest { .. }
+            | PeerMessage::EpochSyncManifestRequest => MAX_SMALL_MESSAGE_SIZE,
 
             PeerMessage::PeersResponse(_)
             | PeerMessage::Transaction(_)
@@ -526,7 +540,9 @@ impl PeerMessage {
             | PeerMessage::SyncSnapshotHosts(_)
             | PeerMessage::BlockHeaders(_)
             | PeerMessage::Block(_)
-            | PeerMessage::OptimisticBlock(_) => MAX_MEDIUM_MESSAGE_SIZE,
+            | PeerMessage::OptimisticBlock(_)
+            | PeerMessage::EpochSyncBatchResponse { .. }
+            | PeerMessage::EpochSyncManifestResponse(_) => MAX_MEDIUM_MESSAGE_SIZE,
 
             PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
             PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,

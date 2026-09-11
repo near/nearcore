@@ -165,7 +165,9 @@ impl SyncHandler {
                 *current_height = head.height;
                 *hh = highest_height;
             }
-            status => unreachable!("unexpected sync status in handle_sync_needed: {:?}", status),
+            status @ (SyncStatus::AwaitingPeers | SyncStatus::NoSync) => {
+                unreachable!("unexpected sync status in handle_sync_needed: {:?}", status)
+            }
         }
         Ok(None)
     }

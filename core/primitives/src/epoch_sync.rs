@@ -2,6 +2,7 @@ use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::types::EpochId;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
 use crate::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
@@ -66,6 +67,7 @@ pub struct EpochSyncProofV1 {
 }
 
 const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;
+const MAX_UNCOMPRESSED_MANIFEST_SIZE_V1: ByteSize = ByteSize::mib(5);
 const EPOCH_SYNC_COMPRESSION_LEVEL: i32 = 3;
 
 #[derive(
@@ -201,4 +203,164 @@ pub struct EpochSyncProofCurrentEpochData {
     /// (as there is only one unique correct partial merkle tree for a specific root and a specific
     /// block ordinal).
     pub partial_merkle_tree_for_first_block: PartialMerkleTree,
+}
+
+pub const EPOCHS_PER_BATCH_V1: u64 = 128;
+pub const MAX_UNCOMPRESSED_BATCH_SIZE_V1: ByteSize = ByteSize::kib(128 * EPOCHS_PER_BATCH_V1);
+pub const MAX_NUMBER_OF_BATCHES: u64 = 1_000;
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum EpochSyncProofManifest {
+    V1(EpochSyncProofManifestV1) = 0,
+}
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofManifestV1 {
+    /// Total number of epochs the proof covers
+    pub total_epochs: u64,
+    pub batches_metadata: Vec<EpochSyncProofBatchMetadata>,
+    /// Some extra data for the last epoch before the current epoch.
+    pub last_epoch: EpochSyncProofLastEpochData,
+    /// Extra information to initialize the current epoch we're syncing to.
+    pub current_epoch: EpochSyncProofCurrentEpochData,
+}
+
+impl EpochSyncProofManifestV1 {
+    pub fn expected_num_batches(&self) -> u64 {
+        self.total_epochs.div_ceil(EPOCHS_PER_BATCH_V1)
+    }
+}
+
+impl EpochSyncProofManifest {
+    pub fn into_v1(self) -> EpochSyncProofManifestV1 {
+        match self {
+            EpochSyncProofManifest::V1(manifest) => manifest,
+        }
+    }
+}
+
+impl EpochSyncProofV1 {
+    pub fn split_into_batches(self) -> (EpochSyncProofManifestV1, Vec<EpochSyncProofBatchV1>) {
+        let EpochSyncProofV1 { all_epochs, last_epoch, current_epoch } = self;
+        let total_epochs = all_epochs.len() as u64;
+        let epochs_per_batch = EPOCHS_PER_BATCH_V1 as usize;
+        let num_batches = all_epochs.len().div_ceil(epochs_per_batch);
+
+        let batches_metadata = (0..num_batches)
+            .map(|batch_index| {
+                if batch_index == 0 {
+                    EpochSyncProofBatchMetadata {
+                        first_epoch_id: EpochId::default(),
+                        first_bp_hash: CryptoHash::default(),
+                    }
+                } else {
+                    let prev_epoch_last_header =
+                        &all_epochs[batch_index * epochs_per_batch - 1].last_final_block_header;
+                    EpochSyncProofBatchMetadata {
+                        first_epoch_id: *prev_epoch_last_header.next_epoch_id(),
+                        first_bp_hash: *prev_epoch_last_header.next_bp_hash(),
+                    }
+                }
+            })
+            .collect();
+
+        let mut remaining_epochs = all_epochs.into_iter();
+        let batches = (0..num_batches)
+            .map(|_| EpochSyncProofBatchV1 {
+                epochs: remaining_epochs.by_ref().take(epochs_per_batch).collect(),
+            })
+            .collect();
+
+        (
+            EpochSyncProofManifestV1 { total_epochs, batches_metadata, last_epoch, current_epoch },
+            batches,
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum EpochSyncProofBatch {
+    V1(EpochSyncProofBatchV1) = 0,
+}
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofBatchV1 {
+    /// A contiguous run of `all_epochs`.
+    pub epochs: Vec<EpochSyncProofEpochData>,
+}
+
+impl EpochSyncProofBatch {
+    pub fn into_v1(self) -> EpochSyncProofBatchV1 {
+        match self {
+            EpochSyncProofBatch::V1(batch) => batch,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofBatchMetadata {
+    pub first_epoch_id: EpochId,
+    pub first_bp_hash: CryptoHash,
+}
+
+const EPOCH_SYNC_BATCH_COMPRESSION_LEVEL: i32 = EPOCH_SYNC_COMPRESSION_LEVEL;
+
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
+    derive_more::AsRef,
+    ProtocolSchema,
+)]
+pub struct CompressedEpochSyncProofManifest(Box<[u8]>);
+impl
+    CompressedData<
+        EpochSyncProofManifest,
+        { MAX_UNCOMPRESSED_MANIFEST_SIZE_V1.0 },
+        EPOCH_SYNC_BATCH_COMPRESSION_LEVEL,
+    > for CompressedEpochSyncProofManifest
+{
+}
+
+impl Debug for CompressedEpochSyncProofManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressedEpochSyncProofManifest")
+            .field("len", &self.0.len())
+            .field("manifest", &self.decode())
+            .finish()
+    }
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
+    derive_more::AsRef,
+    ProtocolSchema,
+)]
+pub struct CompressedEpochSyncProofBatch(Box<[u8]>);
+impl
+    CompressedData<
+        EpochSyncProofBatch,
+        { MAX_UNCOMPRESSED_BATCH_SIZE_V1.0 },
+        EPOCH_SYNC_BATCH_COMPRESSION_LEVEL,
+    > for CompressedEpochSyncProofBatch
+{
+}
+
+impl Debug for CompressedEpochSyncProofBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressedEpochSyncProofBatch")
+            .field("len", &self.0.len())
+            .field("batch", &self.decode())
+            .finish()
+    }
 }

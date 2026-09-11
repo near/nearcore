@@ -90,7 +90,7 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// If at least one error is present, returns the list of all configuration errors.  
+    /// If at least one error is present, returns the list of all configuration errors.
     pub fn validate(&self) -> Result<(), Vec<(RateLimitedPeerMessageKey, TokenBucketError)>> {
         let mut errors = Vec::new();
         for (key, message_config) in &self.rate_limits {
@@ -117,6 +117,22 @@ impl Config {
         config.rate_limits.insert(
             RateLimitedPeerMessageKey::EpochSyncResponse,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
+        );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncManifestRequest,
+            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+        );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncManifestResponse,
+            SingleMessageConfig::new(1, 1.0 / 30.0, None),
+        );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncChunkRequest,
+            SingleMessageConfig::new(8, 0.5, None),
+        );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncChunkResponse,
+            SingleMessageConfig::new(8, 0.5, None),
         );
         // SyncRoutingTable carries forged-edge OOM potential. The sender side already throttles
         // via routing_table_update_rate_limit (qps=1, burst=1) per peer, so 1 msg/s sustained
@@ -261,6 +277,10 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedContractDeploys,
     EpochSyncRequest,
     EpochSyncResponse,
+    EpochSyncManifestRequest,
+    EpochSyncManifestResponse,
+    EpochSyncChunkRequest,
+    EpochSyncChunkResponse,
     OptimisticBlock,
     SpicePartialData,
     SpiceChunkEndorsement,
@@ -355,6 +375,10 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
         PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
+        PeerMessage::EpochSyncManifestRequest => Some((EpochSyncManifestRequest, 1)),
+        PeerMessage::EpochSyncManifestResponse(_) => Some((EpochSyncManifestResponse, 1)),
+        PeerMessage::EpochSyncBatchRequest { .. } => Some((EpochSyncChunkRequest, 1)),
+        PeerMessage::EpochSyncBatchResponse { .. } => Some((EpochSyncChunkResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
         | PeerMessage::Tier3Handshake(_)
