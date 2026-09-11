@@ -184,7 +184,9 @@ fn test_rpc_query_unknown_access_key_error_format() {
     }
 }
 
-/// `query` keeps its flat shape for a missing account, naming the account. See nearcore#16185.
+/// `query` must report a missing account as a structured error, not a flat message.
+/// Legacy clients word-match the flat message and read an unrecognised one as a
+/// contract execution error. See nearcore#16185.
 #[test]
 fn test_rpc_query_unknown_account_error_format() {
     init_test_logger();
@@ -218,15 +220,8 @@ fn test_rpc_query_unknown_account_error_format() {
 
     match response {
         Message::Response(resp) => {
-            let value = resp.result.expect("expected Ok result with backward-compat error JSON");
-            assert!(value.get("logs").is_some());
-            assert!(value.get("block_height").is_some());
-            assert!(value.get("block_hash").is_some());
-            let error_msg = value["error"].as_str().unwrap();
-            assert_eq!(
-                error_msg, "account nonexistent.near does not exist while viewing",
-                "error must name the missing account, not the access key: {error_msg}"
-            );
+            let err = resp.result.expect_err("a missing account must be a structured error");
+            assert_rpc_error(&err, "UNKNOWN_ACCOUNT");
         }
         other => panic!("expected Response, got: {other:?}"),
     }

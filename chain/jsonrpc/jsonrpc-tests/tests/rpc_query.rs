@@ -1255,6 +1255,30 @@ async fn test_experimental_view_gas_key_nonces_missing_account() {
     assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_gas_key_nonces");
 }
 
+/// A missing account must be a structured error, not the legacy flat shape.
+/// Clients such as near-jsonrpc-client-rs word-match the flat message and read an
+/// unrecognised one as a contract execution error. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKey {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key");
+}
+
 /// Gas-key queries have no legacy flat shape, so this stays a structured error.
 #[tokio::test]
 async fn test_query_gas_key_nonces_missing_account() {
