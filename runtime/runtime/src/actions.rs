@@ -227,6 +227,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     epoch_info_provider: &dyn EpochInfoProvider,
+    protocol_version: ProtocolVersion,
 ) {
     // Config-aware: account type whose feature is off reads as `NamedAccount` and panics
     // below rather than being created. Only `universal_accounts` can still be off.
@@ -256,7 +257,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let chain_id = epoch_info_provider.chain_id();
 
             // Use a deployed global contract for ETH implicit accounts.
-            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+            let global_contract_hash = eth_wallet_global_contract_hash(&chain_id, protocol_version);
             let storage_usage = fee_config.storage_usage_config.num_bytes_account
                 + global_contract_hash.as_bytes().len() as u64;
 
