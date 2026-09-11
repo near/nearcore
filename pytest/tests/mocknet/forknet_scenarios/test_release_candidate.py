@@ -35,7 +35,7 @@ class TestReleaseCandidate(TestSetup):
         self.epoch_len = 14500  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
         self.has_archival = True
-        self.regions = "us-east1,europe-west4,asia-east1,us-west1"
+        self.regions = "us-east1,europe-west4,us-west1"
 
         # Upgrade 1/2 nodes in the second epoch. A quarter at a time.
         self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
