@@ -1,5 +1,4 @@
 use crate::spice::core::save_uncertified_chunks;
-use crate::store::ChainStore;
 use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -134,13 +133,14 @@ pub fn synthesize_execution_result_and_receipt_proofs(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunks = block.chunks();
     let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
-        chain_store,
-        epoch_manager,
-        *block.hash(),
-        shard_id,
-        chunk_header.height_included(),
-    )?;
+    // TODO(spice-resharding): reassign the receipts when the layout changed between
+    // the inclusion block and `block`, as that helper does.
+    let mut inclusion_header = chain_store.get_block_header(block.hash())?;
+    while inclusion_header.height() != chunk_header.height_included() {
+        inclusion_header = chain_store.get_block_header(inclusion_header.prev_hash())?;
+    }
+    let outgoing_receipts =
+        chain_store.get_outgoing_receipts(inclusion_header.hash(), shard_id)?.to_vec();
 
     let next_shard_layout = epoch_manager.get_shard_layout_from_prev_block(block.hash())?;
     let (outgoing_receipts_root, receipt_proofs) =
@@ -186,6 +186,32 @@ pub fn execution_result_from_pre_spice_child(
     }))
 }
 
+/// The block carrying the chunk of `shard_id` a boundary witness of `block` applies
+/// — `block` itself when it includes one — and the blocks after it, oldest first,
+/// whose old-chunk applications the witness replays.
+pub fn anchor_and_replay_blocks(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    shard_id: ShardId,
+) -> Result<(Arc<Block>, Vec<Arc<Block>>), Error> {
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
+    let chunks = block.chunks();
+    let height_included =
+        chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
+
+    let mut replay_blocks = Vec::new();
+    let mut anchor_block = chain_store.get_block(block.hash())?;
+    while anchor_block.header().height() > height_included {
+        let prev_hash = *anchor_block.header().prev_hash();
+        replay_blocks.push(anchor_block);
+        anchor_block = chain_store.get_block(&prev_hash)?;
+    }
+    replay_blocks.reverse();
+    Ok((anchor_block, replay_blocks))
+}
+
 /// The blocks whose incoming receipts the target shard's chunk at `anchor_block`
 /// consumed
 pub fn boundary_source_blocks_for_target(
@@ -223,7 +249,13 @@ pub fn check_pre_spice_execution_result(
     chunk_id: &SpiceChunkId,
     execution_result: &ChunkExecutionResult,
 ) -> Result<(), Error> {
-    let block = chain_store.get_block(&chunk_id.block_hash)?;
+    // A block this node does not hold is nothing to check against, same as a chunk
+    // it never applied below.
+    let block = match chain_store.get_block(&chunk_id.block_hash) {
+        Ok(block) => block,
+        Err(Error::DBNotFoundErr(_)) => return Ok(()),
+        Err(err) => return Err(err),
+    };
     if block.is_spice_block() {
         return Ok(());
     }

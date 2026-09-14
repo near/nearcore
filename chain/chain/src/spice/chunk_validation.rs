@@ -1,6 +1,6 @@
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice::boundary::boundary_source_blocks_for_target;
+use crate::spice::boundary::{anchor_and_replay_blocks, boundary_source_blocks_for_target};
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
@@ -74,23 +74,13 @@ pub fn spice_pre_validate_chunk_state_witness(
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     let chunk_header = chunks.get(shard_index).unwrap();
 
-    // On a pre-spice block whose chunk is missing, the
-    // witness's main transition applies the shard's last included chunk and replays every
-    // block after the anchor's as an implicit old-chunk transition. Otherwise the
-    // anchor is the block itself and there is nothing to replay.
-    let (anchor_block, replay_blocks) =
-        if !block.is_spice_block() && !chunk_header.is_new_chunk(block.header().height()) {
-            let mut replay_blocks = Vec::new();
-            let mut anchor_block = store.get_block(block.hash())?;
-            while anchor_block.header().height() > chunk_header.height_included() {
-                replay_blocks.push(anchor_block.clone());
-                anchor_block = store.get_block(anchor_block.header().prev_hash())?;
-            }
-            replay_blocks.reverse();
-            (anchor_block, replay_blocks)
-        } else {
-            (store.get_block(block.hash())?, Vec::new())
-        };
+    // Under spice a missing chunk is an empty new chunk, so only a pre-spice block
+    // can anchor earlier than itself.
+    let (anchor_block, replay_blocks) = if block.is_spice_block() {
+        (store.get_block(block.hash())?, Vec::new())
+    } else {
+        anchor_and_replay_blocks(store, epoch_manager, block, shard_id)?
+    };
     let anchor_prev_block = store.get_block(anchor_block.header().prev_hash())?;
     let anchor_epoch_id = epoch_manager.get_epoch_id(anchor_block.header().hash())?;
     let anchor_shard_layout = epoch_manager.get_shard_layout(&anchor_epoch_id)?;

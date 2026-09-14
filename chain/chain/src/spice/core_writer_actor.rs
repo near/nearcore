@@ -141,22 +141,33 @@ impl SpiceCoreWriterActor {
         store_update
     }
 
+    /// `None` when the boundary tripwire rejects the result: one bad chunk must not
+    /// cost the block its other core statements.
     fn save_execution_result(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
-    ) -> Result<StoreUpdate, Error> {
-        check_pre_spice_execution_result(
+    ) -> Option<StoreUpdate> {
+        if let Err(err) = check_pre_spice_execution_result(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             &SpiceChunkId { block_hash: *block_hash, shard_id },
             execution_result,
-        )?;
+        ) {
+            tracing::error!(
+                target: "spice_core_writer",
+                ?err,
+                %block_hash,
+                %shard_id,
+                "not saving execution result",
+            );
+            return None;
+        }
         let key = get_execution_results_key(block_hash, shard_id);
         let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
-        Ok(store_update)
+        Some(store_update)
     }
 
     fn save_uncertified_execution_result(
@@ -274,11 +285,13 @@ impl SpiceCoreWriterActor {
 
             assert_eq!(&chunk_id.block_hash, block.header().hash());
             let execution_result = execution_results.get(&chunk_execution_result_hash).unwrap();
-            store_update.merge(self.save_execution_result(
+            if let Some(update) = self.save_execution_result(
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
                 execution_result,
-            )?);
+            ) {
+                store_update.merge(update);
+            }
         }
 
         for execution_result in execution_results.values() {
@@ -553,11 +566,13 @@ impl SpiceCoreWriterActor {
                         .insert(endorsement.account_id().clone());
                 }
                 SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                    store_update.merge(self.save_execution_result(
+                    if let Some(update) = self.save_execution_result(
                         &chunk_id.block_hash,
                         chunk_id.shard_id,
                         execution_result,
-                    )?);
+                    ) {
+                        store_update.merge(update);
+                    }
                     in_block_execution_results.insert(chunk_id);
                 }
             };
@@ -585,11 +600,13 @@ impl SpiceCoreWriterActor {
             )? {
                 let execution_result = self.get_uncertified_execution_result(&chunk_execution_result_hash)
                     .expect("for each endorsement we should save corresponding uncertified execution result");
-                store_update.merge(self.save_execution_result(
+                if let Some(update) = self.save_execution_result(
                     &chunk_id.block_hash,
                     chunk_id.shard_id,
                     &execution_result,
-                )?);
+                ) {
+                    store_update.merge(update);
+                }
             }
         }
 

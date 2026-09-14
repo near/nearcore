@@ -5,7 +5,7 @@ use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
 use near_chain::spice::boundary::{
-    execution_result_from_pre_spice_child, is_spice_activation_parent,
+    anchor_and_replay_blocks, execution_result_from_pre_spice_child, is_spice_activation_parent,
 };
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
@@ -331,19 +331,17 @@ impl SpiceChunkValidatorActor {
 
     fn prev_execution_results_for_witness(
         &self,
-        block: &Block,
+        block: &Arc<Block>,
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<Option<(BlockExecutionResults, Arc<Block>)>, Error> {
         if !block.is_spice_block() {
-            let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
-            let chunks = block.chunks();
-            let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-            let mut anchor_block = self.chain_store.get_block(block.header().hash())?;
-            while anchor_block.header().height() > chunk_header.height_included() {
-                anchor_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
-            }
+            let (anchor_block, _replay_blocks) = anchor_and_replay_blocks(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block.as_ref(),
+                shard_id,
+            )?;
             let (_, prev_shard_id, _) = self
                 .epoch_manager
                 .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
@@ -364,8 +362,7 @@ impl SpiceChunkValidatorActor {
             Ok(Some((results, anchor_block)))
         } else {
             let results = self.core_reader.get_block_execution_results(prev_block.header())?;
-            let block = self.chain_store.get_block(block.header().hash())?;
-            Ok(results.map(|results| (results, block)))
+            Ok(results.map(|results| (results, Arc::clone(block))))
         }
     }
 

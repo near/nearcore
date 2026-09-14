@@ -16,7 +16,8 @@ use near_chain::BlockHeader;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::spice::boundary::{
-    is_spice_activation_parent, synthesize_execution_result_and_receipt_proofs,
+    anchor_and_replay_blocks, is_spice_activation_parent,
+    synthesize_execution_result_and_receipt_proofs,
 };
 use near_chain::spice::chunk_application::{
     ChunkPersistenceConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
@@ -483,11 +484,8 @@ impl PerShardChunkExecutor {
         Ok(receipt_proofs)
     }
 
-    /// Endorses `execution_result` for this shard's chunk of `block`: a designated
-    /// chunk validator broadcasts, any other epoch validator records the endorsement
-    /// locally without broadcasting — the chunk isn't fallback-eligible yet so peers
-    /// would reject it; the distributor broadcasts it from the stored result once
-    /// overdue. Everyone else endorses nothing.
+    /// A designated chunk validator broadcasts; any other epoch validator only records
+    /// locally, since peers reject an endorsement before the chunk is fallback-eligible.
     fn endorse_execution_result(
         &self,
         block: &Block,
@@ -584,16 +582,12 @@ impl PerShardChunkExecutor {
         let chunk_headers = block.chunks();
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
 
-        // Walk down to the anchor, collecting the blocks whose old-chunk applications
-        // the witness replays (oldest first after the reverse).
-        let height_included = chunk_header.height_included();
-        let mut replay_blocks = Vec::new();
-        let mut anchor_block = self.chain_store.get_block(block.hash())?;
-        while anchor_block.header().height() > height_included {
-            replay_blocks.push(anchor_block.clone());
-            anchor_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
-        }
-        replay_blocks.reverse();
+        let (anchor_block, replay_blocks) = anchor_and_replay_blocks(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            block,
+            shard_id,
+        )?;
 
         let Some(chunk) =
             self.get_new_chunk_if_valid(chunk_header, anchor_block.header().height())?
@@ -671,7 +665,7 @@ impl PerShardChunkExecutor {
             &anchor_shard_layout,
             *anchor_block.header().prev_hash(),
             previous_inclusion_height,
-            ReceiptFilter::TargetShard,
+            ReceiptFilter::All,
         )?);
         let mut source_receipt_proofs = HashMap::new();
         for ReceiptProofResponse(source_block_hash, proofs) in &range_receipt_proofs {

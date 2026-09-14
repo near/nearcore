@@ -117,13 +117,10 @@ impl SpiceMessageGate {
     /// Whether an inbound spice message referencing `block_hash` should be processed. One drop
     /// counts one message.
     ///
-    /// The authoritative answer is the referenced block itself. A resolved pre-spice
-    /// block is still accepted when it is a verified activation parent: its execution
-    /// results are certified under spice, so the endorsements, witnesses and data
-    /// doing that all reference its hash, and there is no resend — dropping them
-    /// while heads are still pre-spice would starve certification. When the block
-    /// is not on disk we cannot ask it, and we must not simply drop: spice legitimately
-    /// receives data ahead of its block and buffers it. So fall back to the head.
+    /// The authoritative answer is the referenced block itself, plus the activation
+    /// parent, which spice certifies and whose data is never resent. When the block
+    /// is not on disk, fall back to the head: spice legitimately receives data ahead
+    /// of its block and buffers it.
     pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -159,10 +156,8 @@ impl SpiceMessageGate {
             Ok(true) => true,
             Ok(false) => match is_spice_activation_parent(epoch_manager, block_hash) {
                 Ok(is_activation_parent) => is_activation_parent,
-                // The block is on disk but its epoch info is not readable: we cannot
-                // verify it as an activation parent, so treat it as plainly pre-spice.
                 Err(err) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "spice_activation",
                         ?err,
                         kind = kind.as_str(),
