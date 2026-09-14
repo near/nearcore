@@ -1,6 +1,5 @@
 use super::DataManagerError;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::{Clock, Instant};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
@@ -8,17 +7,16 @@ use near_primitives::reed_solomon::{
     ReedSolomonEncoderSerialize, ReedSolomonPartsTracker, reed_solomon_part_length,
 };
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::spice::partial_data::SpiceDataCommitment;
+use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataIdentifier};
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
-use std::collections::{HashMap, HashSet};
-use std::mem::replace;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Identity of one piece of distributed data the engine tracks.
 // TODO(spice-data-distribution): witnesses and contract code move here when their
-// paths switch to the engine (#16275).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// paths switch to the engine. At that moment it can be replaced with `SpiceDataIdentifier`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataId {
     /// `source` is the chunk whose execution produced the receipts; `to_shard` is their
     /// destination. Produced by `source`'s producers, needed by next-block producers of
@@ -54,6 +52,18 @@ impl DataId {
     }
 }
 
+impl From<&DataId> for SpiceDataIdentifier {
+    fn from(id: &DataId) -> Self {
+        match id {
+            DataId::ReceiptProof { source, to_shard } => SpiceDataIdentifier::ReceiptProof {
+                block_hash: source.block_hash,
+                from_shard_id: source.shard_id,
+                to_shard_id: *to_shard,
+            },
+        }
+    }
+}
+
 /// One tracked piece of data.
 // TODO(spice-data-distribution): a `Produce` variant is added with the serve path (#16275).
 pub(crate) enum Item {
@@ -70,152 +80,91 @@ impl ReedSolomonEncoderSerialize for SpiceData {}
 
 impl ReedSolomonEncoderDeserialize for SpiceData {}
 
-/// The fetch lifecycle. No terminal "have" state: the store is the source of truth for
-/// done-ness — the consumer persists the verified data (e.g. a receipt proof in the
-/// chain store) and the engine consults that.
-pub(crate) enum FetchState {
-    /// Wanted, but no unit has arrived and pulling has not started; waiting for the push.
-    WaitingForPush,
-    /// At least one unit arrived, or speculative pulling started.
-    Collecting(Assembly),
-    /// Assembled data handed to the consumer; parked until its verification result, so a
-    /// re-pushed part cannot deliver twice. `residual` keeps the incomplete trackers.
-    Delivered { attribution: DataAttribution, residual: Assembly },
-    /// Consumer verified and persisted the artifact; terminal until expiry. The
-    /// attribution stays because a fault can be discovered after local verification (for example the
-    /// certified result for the chunk differs from locally verified witness) and must still map back to the senders.
-    ProcessedLocally {
-        // TODO(spice-data-distribution): read by the certification comparator (#16275).
-        #[allow(dead_code)]
-        attribution: DataAttribution,
-    },
-}
-
-/// Runs a state transition that takes ownership of the (parts of) current state.
-///
-/// # Arguments
-/// - `f` consumes the current state and returns `(next_state, result)`; to reject the transition, return the received state unchanged.
-fn transition<T>(state: &mut FetchState, f: impl FnOnce(FetchState) -> (FetchState, T)) -> T {
-    // Borrow checker needs a placeholder for state (because it is `&mut` and we like to move out parts of it).
-    // `WaitingForPush` is used as one. It is never observed and is overwritten next line.
-    let (next, result) = f(replace(state, FetchState::WaitingForPush));
-    *state = next;
-    result
-}
-
 /// An item produced by others and fetched by us.
 pub(crate) struct FetchItem {
-    pub(crate) state: FetchState,
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
-    /// When the first unit arrived; `None` until then. Anchors the wait-for-push grace clock.
-    pub(crate) first_unit_at: Option<Instant>,
+    /// Tracks the state of commitments.
+    pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
+    /// Associates sender ids to commitment they contributed to.
+    pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
+}
+
+/// What the engine holds for one claimed commitment of an item.
+pub(super) enum CommitmentState {
+    /// Collecting parts toward a decode.
+    Tracking(CodedTracker),
+    /// Decoded, to data or to garbage. Nothing more can arrive under it.
+    Settled,
 }
 
 impl FetchItem {
-    pub(crate) fn waiting_for_push(height: BlockHeight) -> Self {
-        Self { state: FetchState::WaitingForPush, height, first_unit_at: None }
+    pub(crate) fn new(height: BlockHeight) -> Self {
+        Self { height, commitments: HashMap::new(), commitment_by_contributor: HashMap::new() }
     }
 
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
-    pub(crate) fn collecting(encoder: Arc<ReedSolomonEncoder>, height: BlockHeight) -> Self {
-        Self { state: FetchState::Collecting(Assembly::new(encoder)), height, first_unit_at: None }
-    }
-
-    /// Starts a speculative pull: a waiting item begins collecting before any part
-    /// arrived. Does nothing unless the item is waiting for the push.
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
-    pub(crate) fn start_pulling(&mut self, encoder: Arc<ReedSolomonEncoder>) -> bool {
-        if !matches!(self.state, FetchState::WaitingForPush) {
-            return false;
-        }
-        self.state = FetchState::Collecting(Assembly::new(encoder));
-        true
-    }
-
-    /// Opens a waiting item on its first part; a completing part parks the item in
-    /// `Delivered` in the same call. `NotCollecting` means the item is parked awaiting
-    /// a verification result or already processed.
-    // TODO(spice-data-distribution): consider accepting parts into the residual while
-    // parked in `Delivered`, rejecting only a would-be-completing part; today all parts
-    // are rejected and a failed verification recovers via an immediate pull.
+    /// Inserts a verified part under its commitment. Any claim binds the sender to the
+    /// commitment; a claim of the wrong width or part length settles the commitment as
+    /// bogus. A decoding insert settles it in the same call. Errors are attributable to
+    /// the sender.
     pub(crate) fn insert_part(
         &mut self,
-        clock: &Clock,
         encoder: &Arc<ReedSolomonEncoder>,
         id: &DataId,
         sender: &AccountId,
         verified: VerifiedCodedPart,
     ) -> Result<PartInsertResult, DataManagerError> {
-        let commitment = verified.commitment.clone();
-        let result = match &mut self.state {
-            FetchState::WaitingForPush => {
-                // a rejected part must leave a waiting item waiting, so promote
-                // only after the insert succeeds
-                let mut assembly = Assembly::new(encoder.clone());
-                let result = assembly.insert_part(id, sender, verified)?;
-                self.state = FetchState::Collecting(assembly);
-                result
-            }
-            FetchState::Collecting(assembly) => assembly.insert_part(id, sender, verified)?,
-            _ => return Err(DataManagerError::NotCollecting),
-        };
-        let FetchState::Collecting(assembly) = &self.state else {
-            unreachable!("an accepted insert leaves the item collecting");
-        };
-        match &result {
-            PartInsertResult::Garbage { .. } => {
-                if !assembly.has_parts() {
-                    self.first_unit_at = None;
-                }
-            }
-            PartInsertResult::Accepted | PartInsertResult::Complete(_) => {
-                if self.first_unit_at.is_none() {
-                    self.first_unit_at = Some(clock.now());
-                }
-            }
-            PartInsertResult::Duplicate => {}
+        let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
+        if self.commitment_by_contributor.get(sender).is_some_and(|bound| bound != &commitment) {
+            return Err(DataManagerError::ConflictingCommitment);
         }
-        if matches!(result, PartInsertResult::Complete(_)) {
-            transition(&mut self.state, |state| {
-                let FetchState::Collecting(mut assembly) = state else {
-                    unreachable!("a completing insert leaves the item collecting");
-                };
-                let attribution = assembly.take_attribution(&commitment);
-                (FetchState::Delivered { attribution, residual: assembly }, ())
-            });
+        self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
+
+        if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
+            return Ok(PartInsertResult::Settled);
+        }
+        // TODO(spice-data-distribution): cap encoded_length against the max payload size;
+        // the only cap today is MAX_ENCODED_LENGTH inside the decode.
+        let encoded_length =
+            usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
+        // equal widths plus a verified proof imply the ordinal is in range
+        let malformed = if total_parts != encoder.total_parts() {
+            Some(DataManagerError::WrongTotalParts)
+        } else if part.len() != reed_solomon_part_length(encoded_length, encoder.data_parts()) {
+            Some(DataManagerError::WrongPartLength)
+        } else {
+            None
+        };
+        if let Some(error) = malformed {
+            // no part verifies under a well-formed commitment of another width or part
+            // length, so the commitment is bogus: settled like a garbage decode
+            self.commitments.insert(commitment, CommitmentState::Settled);
+            return Err(error);
+        }
+        let state = self.commitments.entry(commitment.clone()).or_insert_with(|| {
+            CommitmentState::Tracking(CodedTracker::new(encoder.clone(), encoded_length))
+        });
+        let CommitmentState::Tracking(tracker) = state else {
+            unreachable!("a settled commitment was returned above");
+        };
+        let result = tracker.insert_part(id, &commitment, ordinal, part)?;
+        match &result {
+            PartInsertResult::Decoded(_) => *state = CommitmentState::Settled,
+            PartInsertResult::Garbage(error) => {
+                let contributors: Vec<_> = self
+                    .commitment_by_contributor
+                    .iter()
+                    .filter(|(_, bound)| *bound == &commitment)
+                    .map(|(contributor, _)| contributor)
+                    .collect();
+                tracing::debug!(target: "spice_data_distribution", ?id, ?error, ?contributors, "commitment decoded to garbage");
+                *state = CommitmentState::Settled;
+            }
+            PartInsertResult::Accepted
+            | PartInsertResult::Duplicate
+            | PartInsertResult::Settled => {}
         }
         Ok(result)
-    }
-
-    /// Marks the delivered data as verified.
-    pub(crate) fn mark_verified(&mut self) -> Result<(), DataManagerError> {
-        transition(&mut self.state, |state| match state {
-            FetchState::Delivered { attribution, .. } => {
-                (FetchState::ProcessedLocally { attribution }, Ok(()))
-            }
-            state => (state, Err(DataManagerError::NotDelivered)),
-        })
-    }
-
-    /// Marks the delivered data as failed: bans the decoded commitment and resumes
-    /// collecting from the residual.
-    pub(crate) fn mark_failed(&mut self) -> Result<HashSet<AccountId>, DataManagerError> {
-        transition(&mut self.state, |state| match state {
-            FetchState::Delivered { attribution, mut residual } => {
-                let contributors = attribution.contributors();
-                residual.ban(attribution.decoded);
-                // an empty residual means the only evidence was the banned commitment's
-                // own parts, so existence is unproven again
-                if !residual.has_parts() {
-                    self.first_unit_at = None;
-                }
-                (FetchState::Collecting(residual), Ok(contributors))
-            }
-            state => (state, Err(DataManagerError::NotDelivered)),
-        })
     }
 }
 
@@ -247,7 +196,8 @@ impl VerifiedCodedPart {
         ) {
             return Err(DataManagerError::InvalidMerkleProof);
         }
-        let ordinal = usize::try_from(ordinal).map_err(|_| DataManagerError::InvalidOrdinal)?;
+        // the index check above bounds the ordinal by `total_parts`, a usize
+        let ordinal = usize::try_from(ordinal).expect("verified ordinal fits in usize");
         Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
@@ -262,204 +212,60 @@ impl VerifiedCodedPart {
     }
 }
 
-pub(crate) struct Assembly {
-    encoder: Arc<ReedSolomonEncoder>,
-    /// One tracker per commitment; a sender may back only one, which bounds the trackers.
-    trackers: HashMap<SpiceDataCommitment, CodedTracker>,
-    /// Commitments rejected for this item — a failed consumer verification or a garbage
-    /// decode. Parts under them are rejected on arrival.
-    banned: HashSet<SpiceDataCommitment>,
-    /// The one commitment each sender provided parts for. Outlives the trackers, so a
-    /// sender whose commitment was dropped as garbage cannot loop through fresh
-    /// commitments.
-    commitment_by_sender: HashMap<AccountId, SpiceDataCommitment>,
-}
-
-impl Assembly {
-    pub(crate) fn new(encoder: Arc<ReedSolomonEncoder>) -> Self {
-        Self {
-            encoder,
-            trackers: HashMap::new(),
-            banned: HashSet::new(),
-            commitment_by_sender: HashMap::new(),
-        }
-    }
-
-    fn ban(&mut self, commitment: SpiceDataCommitment) {
-        self.banned.insert(commitment);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_banned(&self, commitment: &SpiceDataCommitment) -> bool {
-        self.banned.contains(commitment)
-    }
-
-    /// A returned `Complete` must be resolved (delivered or failed) before the next
-    /// insert; a completed tracker never survives the call that completed it.
-    pub(crate) fn insert_part(
-        &mut self,
-        id: &DataId,
-        sender: &AccountId,
-        verified: VerifiedCodedPart,
-    ) -> Result<PartInsertResult, DataManagerError> {
-        let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        if self.banned.contains(&commitment) {
-            return Err(DataManagerError::BannedCommitment);
-        }
-        debug_assert!(
-            !self.trackers.values().any(CodedTracker::is_complete),
-            "a completion was left unresolved"
-        );
-        // equal widths plus a verified proof imply the ordinal is in range
-        if total_parts != self.encoder.total_parts() {
-            return Err(DataManagerError::WrongTotalParts);
-        }
-        if self.commitment_by_sender.get(sender).is_some_and(|provided| provided != &commitment) {
-            return Err(DataManagerError::ConflictingCommitment);
-        }
-        // TODO(spice-data-distribution): cap encoded_length against the max payload size;
-        // the only cap today is MAX_ENCODED_LENGTH inside the decode.
-        let encoded_length =
-            usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
-        if part.len() != reed_solomon_part_length(encoded_length, self.encoder.data_parts()) {
-            return Err(DataManagerError::WrongPartLength);
-        }
-        let tracker = self
-            .trackers
-            .entry(commitment.clone())
-            .or_insert_with(|| CodedTracker::new(self.encoder.clone(), commitment.clone()));
-        let result = tracker.insert_part(id, ordinal, part, sender)?;
-        self.commitment_by_sender.insert(sender.clone(), commitment.clone());
-        if matches!(result, PartInsertResult::Garbage { .. }) {
-            self.trackers.remove(&commitment);
-            self.banned.insert(commitment);
-        }
-        Ok(result)
-    }
-
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
-    pub(crate) fn is_complete(&self) -> bool {
-        self.trackers.values().any(CodedTracker::is_complete)
-    }
-
-    /// Ordinals to ask for: an ordinal is skipped only if held under every commitment.
-    // TODO(spice-data-distribution): production callers land with the pull path (#16275).
-    #[allow(dead_code)]
-    pub(crate) fn missing_ordinals(&self) -> Vec<u64> {
-        (0..self.encoder.total_parts())
-            .filter(|ordinal| {
-                self.trackers.is_empty()
-                    || self.trackers.values().any(|tracker| !tracker.has_part(*ordinal))
-            })
-            .map(|ordinal| ordinal as u64)
-            .collect()
-    }
-
-    pub(crate) fn has_parts(&self) -> bool {
-        self.trackers.values().any(|tracker| tracker.part_count() > 0)
-    }
-
-    /// Removes the completed tracker, yielding who to blame for its data.
-    fn take_attribution(&mut self, commitment: &SpiceDataCommitment) -> DataAttribution {
-        let tracker =
-            self.trackers.remove(commitment).expect("completed commitment should be tracked");
-        DataAttribution { decoded: commitment.clone(), senders: tracker.senders }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn tracked_commitments(&self) -> HashSet<&SpiceDataCommitment> {
-        self.trackers.keys().collect()
-    }
-}
-
-/// Accumulates parts toward decoding under one claimed commitment and records who sent
-/// each ordinal.
+/// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
-    /// Per-ordinal sender of the parts we hold.
-    senders: Vec<Option<AccountId>>,
-    /// The commitment the parts are tracked under
-    commitment: SpiceDataCommitment,
 }
 
 impl CodedTracker {
-    fn new(encoder: Arc<ReedSolomonEncoder>, commitment: SpiceDataCommitment) -> Self {
-        let encoded_length =
-            usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
-        let total_parts = encoder.total_parts();
-        Self {
-            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
-            senders: vec![None; total_parts],
-            commitment,
-        }
+    fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
+        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
     }
 
+    /// Inserts a part; the decoding insert checks the data against `commitment`'s hash
+    /// and `id`.
     fn insert_part(
         &mut self,
         id: &DataId,
+        commitment: &SpiceDataCommitment,
         ordinal: usize,
         part: Box<[u8]>,
-        sender: &AccountId,
     ) -> Result<PartInsertResult, DataManagerError> {
-        match self.parts.insert_part(ordinal, part, None) {
-            InsertPartResult::Accepted => {
-                self.senders[ordinal] = Some(sender.clone());
-                Ok(PartInsertResult::Accepted)
+        Ok(match self.parts.insert_part(ordinal, part, None) {
+            InsertPartResult::Accepted => PartInsertResult::Accepted,
+            InsertPartResult::PartAlreadyAvailable => PartInsertResult::Duplicate,
+            InsertPartResult::InvalidPartOrd => {
+                unreachable!("verified ordinal is below the tracker's part count")
             }
-            InsertPartResult::PartAlreadyAvailable => Ok(PartInsertResult::Duplicate),
-            InsertPartResult::InvalidPartOrd => Err(DataManagerError::InvalidOrdinal),
             InsertPartResult::Decoded(result) => {
-                self.senders[ordinal] = Some(sender.clone());
                 let checked =
                     result.map_err(|_| AssembledDataError::Undecodable).and_then(|data| {
-                        if hash(&borsh::to_vec(&data).unwrap()) != self.commitment.hash {
+                        if hash(&borsh::to_vec(&data).unwrap()) != commitment.hash {
                             return Err(AssembledDataError::HashMismatch);
                         }
                         id.verify_data(&data)?;
                         Ok(data)
                     });
-                Ok(match checked {
-                    Ok(data) => PartInsertResult::Complete(data),
-                    Err(error) => {
-                        tracing::debug!(target: "spice_data_distribution", ?error, "commitment decoded to garbage");
-                        PartInsertResult::Garbage { contributors: self.contributors(), error }
-                    }
-                })
+                match checked {
+                    Ok(data) => PartInsertResult::Decoded(data),
+                    Err(error) => PartInsertResult::Garbage(error),
+                }
             }
-        }
-    }
-
-    fn contributors(&self) -> HashSet<AccountId> {
-        self.senders.iter().flatten().cloned().collect()
-    }
-
-    fn is_complete(&self) -> bool {
-        self.parts.has_enough_parts()
-    }
-
-    fn has_part(&self, ordinal: usize) -> bool {
-        self.parts.has_part(ordinal)
-    }
-
-    fn part_count(&self) -> usize {
-        self.parts.data_parts_present()
+        })
     }
 }
 
-#[must_use = "a Complete carries the delivered data"]
+#[must_use = "a Decoded carries the delivered data"]
 #[derive(Debug)]
 pub(crate) enum PartInsertResult {
     Accepted,
     Duplicate,
+    /// The commitment was already decoded; the part was not needed.
+    Settled,
     /// The commitment decoded to this data, which matches the committed hash and the id.
-    Complete(SpiceData),
-    /// The commitment reached K parts but yielded no data matching its hash and id;
-    /// `error` is the check that failed. Carries the accounts that provided parts for it.
-    Garbage {
-        contributors: HashSet<AccountId>,
-        error: AssembledDataError,
-    },
+    Decoded(SpiceData),
+    /// The commitment reached K parts but yielded no data matching its hash and id.
+    Garbage(AssembledDataError),
 }
 
 /// Why decoded data was rejected.
@@ -475,19 +281,4 @@ pub(crate) enum AssembledDataError {
     InvalidToShardId,
     #[error("decoded receipt proof from_shard_id is invalid")]
     InvalidFromShardId,
-}
-
-/// Decoded commitment bundled with accounts which provided its parts.
-#[derive(Debug)]
-pub(crate) struct DataAttribution {
-    pub(super) decoded: SpiceDataCommitment,
-    /// Per-ordinal sender of the parts we hold.
-    senders: Vec<Option<AccountId>>,
-}
-
-impl DataAttribution {
-    /// Accounts that provided parts for the decoded commitment.
-    pub(crate) fn contributors(&self) -> HashSet<AccountId> {
-        self.senders.iter().flatten().cloned().collect()
-    }
 }
