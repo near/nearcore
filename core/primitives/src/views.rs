@@ -573,6 +573,7 @@ pub enum EpochSyncStatusView {
         current_batch_index: EpochSyncBatchIndex,
         source_peer_id: String,
         source_peer_height: BlockHeight,
+        attempt_number: u64,
     },
     Done,
 }

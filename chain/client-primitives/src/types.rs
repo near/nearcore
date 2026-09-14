@@ -129,6 +129,7 @@ pub enum EpochSyncStatus {
         source_peer_id: PeerId,
         source_peer_height: BlockHeight,
         attempt_time: near_time::Utc,
+        attempt_number: u64,
         /// False once a response has been handled, so the next tick asks for the
         /// batch now recorded rather than waiting out the timeout.
         awaiting_response: bool,
@@ -225,11 +226,14 @@ impl From<EpochSyncStatus> for EpochSyncStatusView {
                 current_batch_index,
                 source_peer_id,
                 source_peer_height,
-                ..
+                attempt_number,
+                attempt_time: _,
+                awaiting_response: _,
             } => EpochSyncStatusView::FetchingBatches {
                 current_batch_index,
                 source_peer_id: source_peer_id.to_string(),
                 source_peer_height,
+                attempt_number,
             },
             EpochSyncStatus::InProgress { source_peer_height, source_peer_id, attempt_time } => {
                 EpochSyncStatusView::InProgress {

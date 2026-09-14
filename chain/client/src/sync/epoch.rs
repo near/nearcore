@@ -55,6 +55,10 @@ const EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS: u64 = {
     3
 };
 
+/// Maximum number of attempts of downloading a batch before falling back
+/// to downloading the whole proof as a single blob.
+const EPOCH_SYNC_BATCHED_MAX_ATTEMPTS: u64 = 10;
+
 /// Collects the batches of an epoch sync proof as they arrive, until the tail
 /// signals that the whole proof has been seen.
 ///
@@ -196,10 +200,11 @@ impl EpochSync {
         status: &mut EpochSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        match status {
+        let force_monolithic = match status {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
+                    true
                 } else {
                     return Ok(());
                 }
@@ -207,9 +212,10 @@ impl EpochSync {
             EpochSyncStatus::FetchingBatches {
                 current_batch_index,
                 source_peer_id,
+                source_peer_height: _,
                 attempt_time,
+                attempt_number,
                 awaiting_response,
-                ..
             } => {
                 if *awaiting_response {
                     if *attempt_time + self.config.timeout_for_epoch_sync >= self.clock.now_utc() {
@@ -222,20 +228,33 @@ impl EpochSync {
                     );
                 }
 
-                let batch_index = *current_batch_index;
-                return self.request_batch(status, highest_height_peers, batch_index);
+                if *attempt_number < EPOCH_SYNC_BATCHED_MAX_ATTEMPTS {
+                    let batch_index = *current_batch_index;
+                    let next_attempt_number = *attempt_number + 1;
+                    return self.request_batch(
+                        status,
+                        highest_height_peers,
+                        batch_index,
+                        next_attempt_number,
+                    );
+                } else {
+                    // If we failed to download a batch too many times, we fall
+                    // back to downloading the whole proof as a single blob.
+                    true
+                }
             }
-            EpochSyncStatus::NotStarted => {}
+            EpochSyncStatus::NotStarted => false,
             EpochSyncStatus::Done => return Ok(()),
-        }
+        };
 
-        if ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) {
+        if ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) && !force_monolithic {
             tracing::info!(target: "sync", "bootstrapping node via batched epoch sync");
 
             self.request_batch(
                 status,
                 highest_height_peers,
                 self.proof_assembler.next_batch_index(),
+                /*attempt_number=*/ 1,
             )?;
         } else {
             tracing::info!(target: "sync", "bootstrapping node via monolithic epoch sync");
@@ -261,6 +280,7 @@ impl EpochSync {
         status: &mut EpochSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
         batch_index: EpochSyncBatchIndex,
+        attempt_number: u64,
     ) -> Result<(), Error> {
         let peer = Self::choose_peer(highest_height_peers)?;
         *status = EpochSyncStatus::FetchingBatches {
@@ -269,6 +289,7 @@ impl EpochSync {
             source_peer_height: peer.highest_block_height,
             attempt_time: self.clock.now_utc(),
             awaiting_response: true,
+            attempt_number,
         };
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::EpochSyncBatchRequest {
@@ -1013,11 +1034,13 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
             if let SyncStatus::EpochSync(EpochSyncStatus::FetchingBatches {
                 current_batch_index,
                 awaiting_response,
+                attempt_number,
                 ..
             }) = &mut self.client.sync_handler.sync_status
             {
                 if advance {
                     *current_batch_index += 1;
+                    *attempt_number = 0;
                 }
                 *awaiting_response = false;
             }
@@ -1051,7 +1074,7 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
                     Ok(()) => {
                         tracing::info!(
                             target: "sync", %from_peer, batch_index,
-                            "accepted epoch sync batch with index {batch_index}",
+                            "accepted epoch sync batch",
                         );
                         finish_batch_attempt(true);
                     }
