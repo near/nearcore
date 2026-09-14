@@ -185,7 +185,7 @@ fn test_rpc_query_unknown_access_key_error_format() {
 }
 
 /// `query` must report a missing account as a structured error, not a flat message.
-/// Legacy clients word-match the flat message and read an unrecognised one as a
+/// Legacy clients word-match the flat message and read an unrecognized one as a
 /// contract execution error. See nearcore#16185.
 #[test]
 fn test_rpc_query_unknown_account_error_format() {

@@ -1257,7 +1257,7 @@ async fn test_experimental_view_gas_key_nonces_missing_account() {
 
 /// A missing account must be a structured error, not the legacy flat shape.
 /// Clients such as near-jsonrpc-client-rs word-match the flat message and read an
-/// unrecognised one as a contract execution error. See nearcore#16185.
+/// unrecognized one as a contract execution error. See nearcore#16185.
 #[tokio::test]
 async fn test_query_access_key_missing_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
