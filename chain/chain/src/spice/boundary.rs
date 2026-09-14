@@ -441,7 +441,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut forged = synthesized.clone();
+        let mut forged = synthesized;
         forged.outgoing_receipts_root = CryptoHash::hash_bytes(b"forged root");
         check_pre_spice_execution_result(&chain_store, epoch_manager.as_ref(), &chunk_id, &forged)
             .unwrap_err();
@@ -528,13 +528,10 @@ mod tests {
         assert_eq!(result.outgoing_receipts_root, CryptoHash::hash_bytes(b"receipts root"));
 
         // The next block carries the same header (chunk missing): no result.
-        let block_missing_chunk = TestBlockBuilder::from_prev_block(
-            Clock::real(),
-            block_with_chunk.as_ref(),
-            signer.clone(),
-        )
-        .protocol_version(pre_spice_protocol_version())
-        .build();
+        let block_missing_chunk =
+            TestBlockBuilder::from_prev_block(Clock::real(), block_with_chunk.as_ref(), signer)
+                .protocol_version(pre_spice_protocol_version())
+                .build();
         assert_eq!(
             execution_result_from_pre_spice_child(
                 epoch_manager.as_ref(),

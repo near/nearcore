@@ -8,11 +8,13 @@ use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_header
 use near_async::time::Clock;
 use near_chain_configs::Genesis;
 use near_primitives::block::Block;
+use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
-use near_primitives::types::{NumShards, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use std::sync::Arc;
 
 /// Saves the block and records it in the epoch manager the way block postprocessing
@@ -44,6 +46,31 @@ pub(crate) fn setup_pre_spice_chain(num_shards: NumShards) -> Chain {
     get_chain_with_genesis(Clock::real(), genesis)
 }
 
+/// Endorsement slots for a fabricated pre-spice block at `height`, one per chunk
+/// validator where the block includes a new chunk and none where its chunk is
+/// missing: the shape the epoch manager's aggregator asserts.
+pub(crate) fn pre_spice_chunk_endorsements(
+    chain: &Chain,
+    prev_block: &Block,
+    height: BlockHeight,
+    chunks: &[ShardChunkHeader],
+) -> Vec<ChunkEndorsementSignatures> {
+    let epoch_manager = chain.epoch_manager.as_ref();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash()).unwrap();
+    chunks
+        .iter()
+        .map(|chunk| {
+            if !chunk.is_new_chunk(height) {
+                return vec![];
+            }
+            let assignments = epoch_manager
+                .get_chunk_validator_assignments(&epoch_id, chunk.shard_id(), height)
+                .unwrap();
+            vec![None; assignments.len()]
+        })
+        .collect()
+}
+
 /// Fabricates, saves and records the next pre-spice block: shards in
 /// `new_chunk_shards` get a new (fake) chunk header, every other shard carries the
 /// previous block's header, i.e. its chunk is missing.
@@ -65,8 +92,11 @@ pub(crate) fn add_pre_spice_block(
         )
         .collect();
     let signer = Arc::new(create_test_signer("test1"));
+    let height = prev_block.header().height() + 1;
+    let chunk_endorsements = pre_spice_chunk_endorsements(chain, prev_block, height, &chunks);
     let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(chunks)
+        .chunk_endorsements(chunk_endorsements)
         .protocol_version(pre_spice_protocol_version())
         .build();
     save_and_record_block(chain, &block, pre_spice_protocol_version());

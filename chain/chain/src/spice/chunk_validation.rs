@@ -1642,7 +1642,9 @@ mod tests {
     mod pre_spice_boundary {
         use super::*;
         use crate::spice::boundary::execution_result_from_pre_spice_child;
-        use crate::spice::tests::{save_and_record_block, setup_pre_spice_chain};
+        use crate::spice::tests::{
+            pre_spice_chunk_endorsements, save_and_record_block, setup_pre_spice_chain,
+        };
         use near_primitives::bandwidth_scheduler::BandwidthRequests;
         use near_primitives::congestion_info::CongestionInfo;
         use near_primitives::gas::Gas;
@@ -1792,8 +1794,11 @@ mod tests {
                         chunk_header
                     })
                     .collect();
+                let chunk_endorsements =
+                    pre_spice_chunk_endorsements(&self.chain, prev_block, height, &chunks);
                 let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                     .chunks(chunks)
+                    .chunk_endorsements(chunk_endorsements)
                     .protocol_version(pre_spice_protocol_version())
                     .build();
                 save_and_record_block(&mut self.chain, &block, pre_spice_protocol_version());
@@ -1994,7 +1999,7 @@ mod tests {
             let target = source_receipt_proofs[&target_id].clone();
             let mut other = source_receipt_proofs[&other_id].clone();
             // Swap the receipt payloads while keeping the shard routing.
-            other.0 = target.0.clone();
+            other.0 = target.0;
             source_receipt_proofs.insert(other_id, other);
             let witness = boundary_chain.boundary_witness_with_proofs(source_receipt_proofs);
 
