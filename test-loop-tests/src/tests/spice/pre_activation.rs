@@ -385,6 +385,5 @@ fn new_test_witness(chunk_id: SpiceChunkId) -> SpiceChunkStateWitness {
         vec![],
         BTreeSet::new(),
         None,
-        vec![],
     )
 }

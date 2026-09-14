@@ -4,7 +4,9 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
-use near_chain::spice::boundary::{boundary_source_results_for_target, is_spice_activation_parent};
+use near_chain::spice::boundary::{
+    execution_result_from_pre_spice_child, is_spice_activation_parent,
+};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -342,18 +344,23 @@ impl SpiceChunkValidatorActor {
             while anchor_block.header().height() > chunk_header.height_included() {
                 anchor_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
             }
-            let source_results = boundary_source_results_for_target(
-                &self.chain_store,
+            let (_, prev_shard_id, _) = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
+            let prev_result = execution_result_from_pre_spice_child(
                 self.epoch_manager.as_ref(),
                 &anchor_block,
                 shard_id,
-            )?;
-            let results = BlockExecutionResults(
-                source_results
-                    .into_iter()
-                    .map(|(shard_id, (result, _))| (shard_id, result))
-                    .collect(),
-            );
+            )?
+            .ok_or_else(|| {
+                Error::Other(format!(
+                    "anchor block {} includes no chunk of shard {}",
+                    anchor_block.hash(),
+                    shard_id
+                ))
+            })?;
+            let results =
+                BlockExecutionResults(HashMap::from([(prev_shard_id, Arc::new(prev_result))]));
             Ok(Some((results, anchor_block)))
         } else {
             let results = self.core_reader.get_block_execution_results(prev_block.header())?;
@@ -395,15 +402,17 @@ impl SpiceChunkValidatorActor {
         };
 
         let prev_validator_proposals = if !block.is_spice_block() {
-            // The pre-spice apply this witness replays took the previous chunk's
-            // validator proposals off the applied chunk's own header, already
-            // reconstructed as the previous execution result's chunk extra.
             let (_, prev_shard_id, _) = self
                 .epoch_manager
                 .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
-            let prev_execution_result = prev_block_execution_results.0.get(&prev_shard_id).expect(
-                "the target shard is included at its anchor, so its previous result is derived",
-            );
+            let prev_execution_result =
+                prev_block_execution_results.0.get(&prev_shard_id).ok_or_else(|| {
+                    Error::Other(format!(
+                        "no previous execution result for shard {} at anchor {}",
+                        shard_id,
+                        anchor_block.hash()
+                    ))
+                })?;
             prev_execution_result.chunk_extra.validator_proposals().collect()
         } else {
             match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {

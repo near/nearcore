@@ -1,6 +1,6 @@
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice::boundary::boundary_source_results_for_target;
+use crate::spice::boundary::boundary_source_blocks_for_target;
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
@@ -19,7 +19,8 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
-    EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof, ShardChunkHeader,
+    ChunkHash, EncodedShardChunk, EncodedShardChunkBody, EncodedShardChunkV2, ReceiptProof,
+    ShardChunkHeader,
 };
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
@@ -27,7 +28,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
 use node_runtime::SignedValidPeriodTransactions;
-use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::Span;
@@ -36,7 +36,7 @@ pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
     /// Contexts for the old-chunk replays of a boundary witness whose chunk is
     /// missing in its block, oldest first, derived from on-chain blocks. Empty
-    /// otherwise. See `SpiceChunkStateWitnessV1::implicit_boundary_transitions`.
+    /// otherwise. See `SpiceBoundaryWitnessData::implicit_transitions`.
     implicit_transition_params: Vec<(ApplyChunkBlockContext, ShardUId)>,
 }
 
@@ -118,15 +118,30 @@ pub fn spice_pre_validate_chunk_state_witness(
     // get_resharding_transition in c/c/s/stateless_validation/chunk_validation.rs
 
     let receipts_to_apply = if !block.is_spice_block() {
-        let source_results =
-            boundary_source_results_for_target(store, epoch_manager, &anchor_block, shard_id)?;
+        let Some(boundary) = state_witness.boundary() else {
+            return Err(Error::InvalidChunkStateWitness(
+                "witness of a pre-spice block carries no boundary data".to_string(),
+            ));
+        };
+        if !state_witness.source_receipt_proofs().is_empty() {
+            return Err(Error::InvalidChunkStateWitness(
+                "boundary witness carries spice source receipt proofs".to_string(),
+            ));
+        }
+        let source_blocks =
+            boundary_source_blocks_for_target(store, epoch_manager, &anchor_block, shard_id)?;
         validate_boundary_source_receipts_proofs(
-            &state_witness.source_receipt_proofs(),
-            &source_results,
+            &boundary.source_receipt_proofs,
+            &source_blocks,
             &anchor_shard_layout,
             shard_id,
         )?
     } else {
+        if state_witness.boundary().is_some() {
+            return Err(Error::InvalidChunkStateWitness(
+                "witness of a spice block carries boundary data".to_string(),
+            ));
+        }
         validate_source_receipts_proofs(
             &state_witness.source_receipt_proofs(),
             prev_execution_results,
@@ -278,17 +293,19 @@ pub fn spice_validate_chunk_state_witness(
 
     // Replay the boundary witness's implicit old-chunk transitions on top of the anchor transition
     let implicit_transition_params = pre_validation_output.implicit_transition_params;
-    if implicit_transition_params.len() != state_witness.implicit_boundary_transitions().len() {
+    let implicit_transitions = state_witness
+        .boundary()
+        .map_or(&[][..], |boundary| boundary.implicit_transitions.as_slice());
+    if implicit_transition_params.len() != implicit_transitions.len() {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Implicit transitions count mismatch. Expected {}, found {}",
             implicit_transition_params.len(),
-            state_witness.implicit_boundary_transitions().len(),
+            implicit_transitions.len(),
         )));
     }
     let mut chunk_extra = chunk_extra;
-    for ((block_context, transition_shard_uid), transition) in implicit_transition_params
-        .into_iter()
-        .zip(state_witness.implicit_boundary_transitions().iter())
+    for ((block_context, transition_shard_uid), transition) in
+        implicit_transition_params.into_iter().zip(implicit_transitions)
     {
         let transition_block_hash = transition.block_hash;
         let old_chunk_data = OldChunkData {
@@ -378,52 +395,35 @@ fn verify_proof_of_invalid_chunk(
     Ok(())
 }
 
-/// Boundary-witness counterpart of [`validate_source_receipts_proofs`]. The anchor's
-/// pre-spice application consumed the incoming receipts of every block from the
-/// target shard's previous inclusion (exclusive) through the anchor (inclusive), so
-/// the witness carries one proof per source shard *included* in that range.
+/// Boundary-witness counterpart of [`validate_source_receipts_proofs`], shaped like
+/// the pre-spice validation: the anchor's application consumed the incoming receipts
+/// of every block from the target shard's previous inclusion (exclusive) through the
+/// anchor (inclusive), so the witness carries one proof per chunk included in that
+/// range.
 fn validate_boundary_source_receipts_proofs(
-    source_receipt_proofs: &HashMap<ShardId, ReceiptProof>,
-    source_results: &HashMap<ShardId, (Arc<ChunkExecutionResult>, Arc<Block>)>,
+    source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
+    source_blocks: &[Arc<Block>],
     shard_layout: &ShardLayout,
     target_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
-    if source_receipt_proofs.len() != source_results.len() {
-        return Err(Error::InvalidChunkStateWitness(format!(
-            "source_receipt_proofs contains incorrect number of proofs. Expected {} proofs, found {}",
-            source_results.len(),
-            source_receipt_proofs.len(),
-        )));
-    }
-
-    let mut source_blocks: Vec<&Arc<Block>> =
-        source_results.values().map(|(_, source_block)| source_block).collect();
-    source_blocks.sort_by_key(|source_block| Reverse(source_block.header().height()));
-    source_blocks.dedup_by_key(|source_block| *source_block.hash());
-
     let mut receipts = Vec::new();
+    let mut expected_proofs = 0;
     for source_block in source_blocks {
-        let mut contributions: Vec<(ShardId, &Arc<ChunkExecutionResult>)> = source_results
-            .iter()
-            .filter(|(_, (_, block))| block.hash() == source_block.hash())
-            .map(|(shard_id, (result, _))| (*shard_id, result))
-            .collect();
-        contributions.sort_by_key(|(shard_id, _)| *shard_id);
-
         let mut block_proofs = Vec::new();
-        for (from_shard_id, result) in contributions {
-            let Some(receipt_proof) = source_receipt_proofs.get(&from_shard_id) else {
+        for chunk_header in source_block.chunks().iter_new() {
+            let Some(receipt_proof) = source_receipt_proofs.get(&chunk_header.chunk_hash()) else {
                 return Err(Error::InvalidChunkStateWitness(format!(
-                    "Missing source receipt proof for shard {:?}",
-                    from_shard_id
+                    "Missing source receipt proof for chunk {:?}",
+                    chunk_header.chunk_hash()
                 )));
             };
             validate_receipt_proof(
                 receipt_proof,
-                from_shard_id,
+                chunk_header.shard_id(),
                 target_shard_id,
-                result.outgoing_receipts_root,
+                *chunk_header.prev_outgoing_receipts_root(),
             )?;
+            expected_proofs += 1;
             block_proofs.push(receipt_proof.clone());
         }
 
@@ -434,6 +434,14 @@ fn validate_boundary_source_receipts_proofs(
         )?;
         shuffle_receipt_proofs(&mut block_proofs, get_receipts_shuffle_salt(source_block));
         receipts.extend(block_proofs.into_iter().map(|proof| proof.0).flatten());
+    }
+
+    if source_receipt_proofs.len() != expected_proofs {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "source_receipt_proofs contains too many proofs. Expected {} proofs, found {}",
+            expected_proofs,
+            source_receipt_proofs.len(),
+        )));
     }
     Ok(receipts)
 }
@@ -780,7 +788,6 @@ mod tests {
             vec![],
             BTreeSet::new(),
             None,
-            vec![],
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -822,7 +829,6 @@ mod tests {
             test_chain.transactions(),
             BTreeSet::new(),
             None,
-            vec![],
         );
 
         let result = spice_pre_validate_chunk_state_witness(
@@ -1164,7 +1170,6 @@ mod tests {
                 self.transactions,
                 self.contract_accesses,
                 self.proof_of_invalid_chunk,
-                vec![],
             )
         }
     }
@@ -1382,7 +1387,6 @@ mod tests {
                 vec![],
                 BTreeSet::new(),
                 Some(Box::new(body)),
-                vec![],
             )
         }
 
@@ -1476,7 +1480,6 @@ mod tests {
                 transactions,
                 BTreeSet::new(),
                 None,
-                vec![],
             )
         }
 
@@ -1498,7 +1501,6 @@ mod tests {
                 transactions,
                 BTreeSet::new(),
                 None,
-                vec![],
             )
         }
 
@@ -1645,27 +1647,27 @@ mod tests {
     /// Era-semantics tests for a witness of the spice activation parent whose chunk
     /// is missing: the apply-side context must be the pre-spice one, keyed to the
     /// anchor (the shard's last included chunk), and the source receipt proofs must
-    /// come from exactly the source shards' inclusions within the consumed range,
-    /// verified against their own headers' receipts roots.
+    /// come from exactly the chunk headers included within the consumed range,
+    /// verified against their own receipts roots.
     mod pre_spice_boundary {
         use super::*;
-        use crate::spice::boundary::boundary_source_results_for_target;
+        use crate::spice::boundary::execution_result_from_pre_spice_child;
         use crate::spice::tests::{save_and_record_block, setup_pre_spice_chain};
         use near_primitives::bandwidth_scheduler::BandwidthRequests;
         use near_primitives::congestion_info::CongestionInfo;
         use near_primitives::gas::Gas;
+        use near_primitives::spice::state_witness::SpiceBoundaryWitnessData;
         use near_primitives::test_utils::{
             TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
         };
-        use near_primitives::types::Balance;
+        use near_primitives::types::{Balance, BlockHeight};
 
         struct BoundaryChain {
             chain: Chain,
             /// Block including the other shard's chunk, mid-range for the target
             /// shard's witness: the target's chunk is missing in it.
             mid_range_block: Arc<Block>,
-            /// Block of the target shard's last included chunk; the other shard's
-            /// chunk is missing in it.
+            /// Block of the target shard's last included chunk.
             anchor_block: Arc<Block>,
             /// The pre-spice block the witness is keyed to; every chunk missing.
             boundary_block: Arc<Block>,
@@ -1679,10 +1681,11 @@ mod tests {
 
         /// A staggered gap straddling the anchor:
         /// full block -> mid-range (other new, target missing) -> anchor (target
-        /// new, other missing) -> boundary block (everything missing). The target's
-        /// witness anchors one below the boundary block, and its application
-        /// consumed the other shard's receipts from the mid-range block.
-        fn setup_boundary_chain() -> BoundaryChain {
+        /// new, other new iff `other_included_at_anchor`) -> boundary block
+        /// (everything missing). The target's witness anchors one below the boundary
+        /// block, and its application consumed the other shard's receipts from the
+        /// mid-range block, and from the anchor too when included there.
+        fn setup_boundary_chain(other_included_at_anchor: bool) -> BoundaryChain {
             init_test_logger();
             let chain = setup_pre_spice_chain(2);
             let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -1707,8 +1710,13 @@ mod tests {
                 .add_block(&boundary_chain.genesis(), &[target_shard_id, other_shard_id]);
             boundary_chain.mid_range_block =
                 boundary_chain.add_block(&full_block, &[other_shard_id]);
-            boundary_chain.anchor_block = boundary_chain
-                .add_block(&boundary_chain.mid_range_block.clone(), &[target_shard_id]);
+            let anchor_shards: &[ShardId] = if other_included_at_anchor {
+                &[target_shard_id, other_shard_id]
+            } else {
+                &[target_shard_id]
+            };
+            boundary_chain.anchor_block =
+                boundary_chain.add_block(&boundary_chain.mid_range_block.clone(), anchor_shards);
             boundary_chain.boundary_block =
                 boundary_chain.add_block(&boundary_chain.anchor_block.clone(), &[]);
             boundary_chain
@@ -1726,21 +1734,25 @@ mod tests {
                     .unwrap()
             }
 
-            /// Distinct receipts per source shard, all addressed to the target shard.
-            fn receipts_from(&self, from_shard_id: ShardId) -> Vec<Receipt> {
+            /// Distinct receipts per source shard inclusion, all addressed to the
+            /// target shard.
+            fn receipts_from(&self, from_shard_id: ShardId, height: BlockHeight) -> Vec<Receipt> {
+                let shard_id: u64 = from_shard_id.into();
+                let deposit = 100 * u128::from(height) + u128::from(shard_id);
                 vec![Receipt::new_balance_refund(
                     &test_receiver().parse().unwrap(),
-                    Balance::from_yoctonear(100 + u128::from(Into::<u64>::into(from_shard_id))),
+                    Balance::from_yoctonear(deposit),
                 )]
             }
 
-            /// The receipts root a new chunk of `shard_id` commits to as its
-            /// previous chunk's output: the root over [`Self::receipts_from`].
-            fn receipts_root_from(&self, shard_id: ShardId) -> CryptoHash {
+            /// The receipts root a new chunk of `shard_id` included at `height`
+            /// commits to as its previous chunk's output: the root over
+            /// [`Self::receipts_from`].
+            fn receipts_root_from(&self, shard_id: ShardId, height: BlockHeight) -> CryptoHash {
                 let (root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
                     &self.shard_layout(),
                     shard_id,
-                    self.receipts_from(shard_id),
+                    self.receipts_from(shard_id, height),
                 )
                 .unwrap();
                 root
@@ -1748,9 +1760,9 @@ mod tests {
 
             /// Fabricates the next block: shards in `new_chunk_shards` get a new
             /// pre-spice chunk header whose `prev_outgoing_receipts_root` commits
-            /// to [`Self::receipts_from`] that shard — the root witness source
-            /// proofs are verified against — and every other shard carries the
-            /// previous block's header.
+            /// to [`Self::receipts_from`] that shard at this height — the root
+            /// witness source proofs are verified against — and every other shard
+            /// carries the previous block's header.
             fn add_block(
                 &mut self,
                 prev_block: &Block,
@@ -1777,7 +1789,7 @@ mod tests {
                             Gas::ZERO,
                             Gas::ZERO,
                             Balance::ZERO,
-                            self.receipts_root_from(shard_id),
+                            self.receipts_root_from(shard_id, height),
                             CryptoHash::default(),
                             vec![],
                             CongestionInfo::default(),
@@ -1798,8 +1810,15 @@ mod tests {
                 block
             }
 
-            fn source_results(&self) -> HashMap<ShardId, (Arc<ChunkExecutionResult>, Arc<Block>)> {
-                boundary_source_results_for_target(
+            /// Hash of the chunk of `shard_id` carried by `block`.
+            fn chunk_hash(&self, block: &Block, shard_id: ShardId) -> ChunkHash {
+                let shard_index = self.shard_layout().get_shard_index(shard_id).unwrap();
+                let chunks = block.chunks();
+                chunks.get(shard_index).unwrap().chunk_hash().clone()
+            }
+
+            fn source_blocks(&self) -> Vec<Arc<Block>> {
+                boundary_source_blocks_for_target(
                     &self.chain.chain_store,
                     self.chain.epoch_manager.as_ref(),
                     &self.anchor_block,
@@ -1808,62 +1827,71 @@ mod tests {
                 .unwrap()
             }
 
-            fn source_receipt_proofs(&self) -> HashMap<ShardId, ReceiptProof> {
+            fn source_receipt_proofs(&self) -> HashMap<ChunkHash, ReceiptProof> {
                 let shard_layout = self.shard_layout();
-                self.source_results()
-                    .keys()
-                    .map(|from_shard_id| {
+                let mut source_receipt_proofs = HashMap::new();
+                for source_block in self.source_blocks() {
+                    let height = source_block.header().height();
+                    for chunk_header in source_block.chunks().iter_new() {
                         let (_, proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
                             &shard_layout,
-                            *from_shard_id,
-                            self.receipts_from(*from_shard_id),
+                            chunk_header.shard_id(),
+                            self.receipts_from(chunk_header.shard_id(), height),
                         )
                         .unwrap();
                         let proof = proofs
                             .into_iter()
                             .find(|proof| proof.1.to_shard_id == self.target_shard_id)
                             .unwrap();
-                        (*from_shard_id, proof)
-                    })
-                    .collect()
+                        source_receipt_proofs.insert(chunk_header.chunk_hash().clone(), proof);
+                    }
+                }
+                source_receipt_proofs
             }
 
-            /// Fabricated results the pre-validation call is given; only the target
-            /// shard's entry is read (for the main transition's previous extra).
+            /// Results the pre-validation call is given: only the target shard's
+            /// entry is read (for the main transition's previous extra), reconstructed
+            /// from the anchor's header like the validator actor does.
             fn prev_execution_results(&self) -> BlockExecutionResults {
-                BlockExecutionResults(
-                    self.source_results()
-                        .into_iter()
-                        .map(|(shard_id, (result, _))| (shard_id, result))
-                        .collect(),
+                let prev_result = execution_result_from_pre_spice_child(
+                    self.chain.epoch_manager.as_ref(),
+                    &self.anchor_block,
+                    self.target_shard_id,
                 )
+                .unwrap()
+                .unwrap();
+                BlockExecutionResults(HashMap::from([(
+                    self.target_shard_id,
+                    Arc::new(prev_result),
+                )]))
             }
 
             fn boundary_witness_with_proofs(
                 &self,
-                source_receipt_proofs: HashMap<ShardId, ReceiptProof>,
+                source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
             ) -> SpiceChunkStateWitness {
                 let receipts_to_apply = validate_boundary_source_receipts_proofs(
                     &self.source_receipt_proofs(),
-                    &self.source_results(),
+                    &self.source_blocks(),
                     &self.shard_layout(),
                     self.target_shard_id,
                 )
                 .unwrap();
                 let applied_receipts_hash =
                     hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
-                SpiceChunkStateWitness::new(
+                SpiceChunkStateWitness::new_boundary(
                     SpiceChunkId {
                         block_hash: *self.boundary_block.hash(),
                         shard_id: self.target_shard_id,
                     },
                     PartialState::TrieValues(vec![]),
-                    source_receipt_proofs,
+                    SpiceBoundaryWitnessData {
+                        source_receipt_proofs,
+                        implicit_transitions: vec![],
+                    },
                     applied_receipts_hash,
                     vec![],
                     BTreeSet::new(),
-                    None,
-                    vec![],
                 )
             }
 
@@ -1886,6 +1914,19 @@ mod tests {
             }
         }
 
+        fn assert_rejected(result: Result<SpicePreValidationOutput, Error>, what: &str) {
+            let err = match result {
+                Ok(_) => panic!("{what} must be rejected"),
+                Err(err) => err,
+            };
+            assert!(matches!(err, Error::InvalidChunkStateWitness(_)), "wrong error kind: {err:?}",);
+        }
+
+        fn sorted(mut receipts: Vec<Receipt>) -> Vec<Receipt> {
+            receipts.sort_by_cached_key(|receipt| borsh::to_vec(receipt).unwrap());
+            receipts
+        }
+
         /// The main transition's context must be the anchor's pre-spice context: the
         /// anchor's height and parent, the anchor parent's gas price, and the
         /// anchor's real missed-chunk counts (the other shard's chunk is missing in
@@ -1896,7 +1937,7 @@ mod tests {
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn test_boundary_witness_uses_pre_spice_anchor_context() {
-            let boundary_chain = setup_boundary_chain();
+            let boundary_chain = setup_boundary_chain(false);
             let witness = boundary_chain.boundary_witness();
             let output = boundary_chain.run_pre_validation(&witness).unwrap();
 
@@ -1931,8 +1972,12 @@ mod tests {
             // Receipts come from each source shard's own inclusion: the target's at
             // the anchor (newest first), the other shard's at the mid-range block.
             let expected_receipts = [
-                boundary_chain.receipts_from(boundary_chain.target_shard_id),
-                boundary_chain.receipts_from(boundary_chain.other_shard_id),
+                boundary_chain
+                    .receipts_from(boundary_chain.target_shard_id, anchor_block.header().height()),
+                boundary_chain.receipts_from(
+                    boundary_chain.other_shard_id,
+                    boundary_chain.mid_range_block.header().height(),
+                ),
             ]
             .concat();
             assert_eq!(output.new_chunk_data.receipts, expected_receipts);
@@ -1945,42 +1990,88 @@ mod tests {
             assert_eq!(replay_shard_uid.shard_id(), boundary_chain.target_shard_id);
         }
 
-        /// A proof carrying receipts other than the ones its source shard's header
-        /// commits to must be rejected.
+        /// A proof carrying receipts other than the ones its chunk header commits to
+        /// must be rejected.
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn test_boundary_witness_source_proofs_verify_against_source_header_roots() {
-            let boundary_chain = setup_boundary_chain();
+            let boundary_chain = setup_boundary_chain(false);
             let mut source_receipt_proofs = boundary_chain.source_receipt_proofs();
-            let target = source_receipt_proofs[&boundary_chain.target_shard_id].clone();
-            let mut other = source_receipt_proofs[&boundary_chain.other_shard_id].clone();
+            let target_id = boundary_chain
+                .chunk_hash(&boundary_chain.anchor_block, boundary_chain.target_shard_id);
+            let other_id = boundary_chain
+                .chunk_hash(&boundary_chain.mid_range_block, boundary_chain.other_shard_id);
+            let target = source_receipt_proofs[&target_id].clone();
+            let mut other = source_receipt_proofs[&other_id].clone();
             // Swap the receipt payloads while keeping the shard routing.
             other.0 = target.0.clone();
-            source_receipt_proofs.insert(boundary_chain.other_shard_id, other);
+            source_receipt_proofs.insert(other_id, other);
             let witness = boundary_chain.boundary_witness_with_proofs(source_receipt_proofs);
 
-            let err = match boundary_chain.run_pre_validation(&witness) {
-                Ok(_) => panic!("tampered source proof must be rejected"),
-                Err(err) => err,
-            };
-            assert!(matches!(err, Error::InvalidChunkStateWitness(_)), "wrong error kind: {err:?}",);
+            assert_rejected(boundary_chain.run_pre_validation(&witness), "tampered source proof");
         }
 
-        /// The proof set must cover exactly the source shards included within the
+        /// The proof set must cover exactly the chunk headers included within the
         /// consumed range: dropping the mid-range contribution is rejected.
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn test_boundary_witness_source_proofs_come_from_source_shard_inclusions() {
-            let boundary_chain = setup_boundary_chain();
+            let boundary_chain = setup_boundary_chain(false);
             let mut source_receipt_proofs = boundary_chain.source_receipt_proofs();
-            source_receipt_proofs.remove(&boundary_chain.other_shard_id);
+            source_receipt_proofs.remove(
+                &boundary_chain
+                    .chunk_hash(&boundary_chain.mid_range_block, boundary_chain.other_shard_id),
+            );
             let witness = boundary_chain.boundary_witness_with_proofs(source_receipt_proofs);
 
-            let err = match boundary_chain.run_pre_validation(&witness) {
-                Ok(_) => panic!("dropped source proof must be rejected"),
-                Err(err) => err,
-            };
-            assert!(matches!(err, Error::InvalidChunkStateWitness(_)), "wrong error kind: {err:?}",);
+            assert_rejected(boundary_chain.run_pre_validation(&witness), "dropped source proof");
+        }
+
+        /// A source shard included at both the mid-range block and the anchor
+        /// contributes one proof per inclusion, each verified against its own
+        /// header; the receipts of both inclusions are applied, and neither proof can
+        /// be dropped or stand in for the other.
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn test_boundary_witness_source_shard_included_twice_in_range() {
+            let boundary_chain = setup_boundary_chain(true);
+            let anchor_height = boundary_chain.anchor_block.header().height();
+            let mid_range_height = boundary_chain.mid_range_block.header().height();
+            let other_at_anchor = boundary_chain
+                .chunk_hash(&boundary_chain.anchor_block, boundary_chain.other_shard_id);
+            let other_at_mid_range = boundary_chain
+                .chunk_hash(&boundary_chain.mid_range_block, boundary_chain.other_shard_id);
+
+            let source_receipt_proofs = boundary_chain.source_receipt_proofs();
+            assert_eq!(source_receipt_proofs.len(), 3);
+            let witness =
+                boundary_chain.boundary_witness_with_proofs(source_receipt_proofs.clone());
+            let output = boundary_chain.run_pre_validation(&witness).unwrap();
+            let expected_receipts = [
+                boundary_chain.receipts_from(boundary_chain.target_shard_id, anchor_height),
+                boundary_chain.receipts_from(boundary_chain.other_shard_id, anchor_height),
+                boundary_chain.receipts_from(boundary_chain.other_shard_id, mid_range_height),
+            ]
+            .concat();
+            assert_eq!(sorted(output.new_chunk_data.receipts), sorted(expected_receipts));
+
+            let mut dropped = source_receipt_proofs.clone();
+            dropped.remove(&other_at_mid_range);
+            let witness = boundary_chain.boundary_witness_with_proofs(dropped);
+            assert_rejected(
+                boundary_chain.run_pre_validation(&witness),
+                "dropped proof of one of two inclusions",
+            );
+
+            let mut swapped = source_receipt_proofs;
+            let mut at_mid_range = swapped[&other_at_mid_range].clone();
+            at_mid_range.0 = swapped[&other_at_anchor].0.clone();
+            swapped.insert(other_at_mid_range, at_mid_range);
+            let witness = boundary_chain.boundary_witness_with_proofs(swapped);
+            assert_rejected(
+                boundary_chain.run_pre_validation(&witness),
+                "proof carrying the same shard's other inclusion",
+            );
         }
     }
 }

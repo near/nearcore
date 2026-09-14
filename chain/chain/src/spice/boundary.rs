@@ -17,7 +17,6 @@ use near_primitives::version::ProtocolFeature;
 use near_store::StoreUpdate;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Whether `block_hash` is a spice activation parent: a last block of the last
@@ -187,15 +186,14 @@ pub fn execution_result_from_pre_spice_child(
     }))
 }
 
-/// What each source shard sent into the target shard's chunk at `anchor_block`,
-/// keyed by source shard: the result its receipt proof is verified against, and the
-/// block its receipts come from.
-pub fn boundary_source_results_for_target(
+/// The blocks whose incoming receipts the target shard's chunk at `anchor_block`
+/// consumed
+pub fn boundary_source_blocks_for_target(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     anchor_block: &Block,
     target_shard_id: ShardId,
-) -> Result<HashMap<ShardId, (Arc<ChunkExecutionResult>, Arc<Block>)>, Error> {
+) -> Result<Vec<Arc<Block>>, Error> {
     let anchor_prev_block = chain_store.get_block(anchor_block.header().prev_hash())?;
     let prev_shard_layout =
         epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
@@ -206,27 +204,14 @@ pub fn boundary_source_results_for_target(
         .ok_or(Error::InvalidShardId(target_shard_id))?
         .height_included();
 
-    let mut results = HashMap::new();
+    let mut source_blocks = Vec::new();
     let mut block = chain_store.get_block(anchor_block.header().hash())?;
     while block.header().height() > previous_inclusion_height {
-        let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
-        for shard_id in shard_layout.shard_ids() {
-            let Some(result) =
-                execution_result_from_pre_spice_child(epoch_manager, &block, shard_id)?
-            else {
-                continue;
-            };
-            if results.insert(shard_id, (Arc::new(result), block.clone())).is_some() {
-                return Err(Error::Other(format!(
-                    "shard {} included more than once between the target shard's inclusions; \
-                     the boundary witness carries one proof per source shard",
-                    shard_id
-                )));
-            }
-        }
-        block = chain_store.get_block(block.header().prev_hash())?;
+        let prev_hash = *block.header().prev_hash();
+        source_blocks.push(block);
+        block = chain_store.get_block(&prev_hash)?;
     }
-    Ok(results)
+    Ok(source_blocks)
 }
 
 /// Tripwire against the two sources of truth at the boundary: a certified execution
