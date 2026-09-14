@@ -830,13 +830,13 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
         let EpochSyncBatchResponseMessage { from_peer, segment, recv_permit: _ } = msg;
         match segment {
             EpochSyncProofSegment::Batch { batch_index, .. } => {
-                tracing::warn!(
+                tracing::debug!(
                     target: "sync", %from_peer, batch_index,
                     "ignoring unsolicited epoch sync batch response",
                 );
             }
             EpochSyncProofSegment::Tail(_) => {
-                tracing::warn!(
+                tracing::debug!(
                     target: "sync", %from_peer,
                     "ignoring unsolicited epoch sync tail response",
                 );
