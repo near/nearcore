@@ -5,8 +5,6 @@
 //! blacklist read from the same live accessor the consensus read uses. It collapses to
 //! `sample_chunk_producer` wherever the blacklist is empty, so the sync tests (always inside
 //! the grace window) and `tests::early_kickout_e2e` (grace shrunk, blacklist active) share it.
-//!
-//! Gated on `nightly` only, not `test_features`, so both callers can reach it.
 
 use crate::utils::node::TestLoopNode;
 use near_chain::Error as ChainError;

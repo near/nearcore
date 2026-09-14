@@ -515,6 +515,7 @@ pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
     AdvInsertInvalidTransactions(bool),
+    AdvProduceMaxGasChunkHeader(bool),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -603,6 +604,11 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 tracing::info!(target: "adversary", on, "invalid transactions");
                 self.client.chunk_producer.adversarial.produce_invalid_tx_in_chunks = on;
+                None
+            }
+            NetworkAdversarialMessage::AdvProduceMaxGasChunkHeader(on) => {
+                tracing::info!(target: "adversary", on, "max gas chunk header");
+                self.client.chunk_producer.adversarial.produce_max_gas_chunk_header = on;
                 None
             }
         }
@@ -1342,6 +1348,18 @@ impl ClientActor {
             );
 
             if update_result.validator_signer_updated {
+                // The startup check refuses this pairing, and a key arriving later has to meet
+                // the same refusal, since the writer would archive its own chunk rows under an
+                // inclusion height the chain has not given them yet.
+                if self.client.config.cloud_archival_writer.is_some()
+                    && self.client.validator_signer.get().is_some()
+                {
+                    tracing::error!(
+                        target: "client",
+                        "dropping a hot-loaded validator key: a cloud archival writer must not produce chunks"
+                    );
+                    self.client.update_validator_signer(None);
+                }
                 if let Some(validator_signer) = self.client.validator_signer.get() {
                     check_validator_tracked_shards(&self.client, validator_signer.validator_id())
                         .expect("Could not check validator tracked shards");

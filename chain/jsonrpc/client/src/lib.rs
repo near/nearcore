@@ -6,6 +6,7 @@ use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
     RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
 };
+use near_jsonrpc_primitives::types::indexer::{RpcIndexerBlockRequest, RpcIndexerBlockResponse};
 use near_jsonrpc_primitives::types::receipts::{
     RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
 };
@@ -235,6 +236,17 @@ impl JsonRpcClient {
 
     pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<RpcTransactionResponse> {
         call_method(&self.transport, "broadcast_tx_commit", [tx])
+    }
+
+    pub fn experimental_indexer_block(
+        &self,
+        block_hash: CryptoHash,
+    ) -> RpcRequest<RpcIndexerBlockResponse> {
+        call_method(
+            &self.transport,
+            "EXPERIMENTAL_indexer_block",
+            RpcIndexerBlockRequest { block_hash },
+        )
     }
 
     pub fn status(&self) -> RpcRequest<StatusResponse> {

@@ -38,8 +38,8 @@ pub struct SpicePartialDataFaultState {
 /// takes effect on the next message.
 ///
 /// Keying by sender covers every way partial data leaves a node: the push, the all-stake fallback
-/// push, and the response to a data request. Contract accesses and contract code travel as their
-/// own messages and are never faulted.
+/// push, and the response to a data request. Contract accesses travel as their own message and
+/// are dropped separately by `drop_contract_accesses_from`; contract code is never faulted.
 // TODO(spice-data-distribution): fault contract code responses too, so a test can drop them or
 // answer with bytes that do not hash to the requested code.
 #[derive(Default)]
@@ -55,6 +55,8 @@ pub struct SpicePartialDataFaults {
     pub equivocate_from: HashSet<AccountId>,
     /// Limits every fault above to one kind of data. `None` faults both kinds.
     pub only_kind: Option<SpiceDataKind>,
+    /// Contract accesses these accounts send never arrive. Partial data is unaffected.
+    pub drop_contract_accesses_from: HashSet<AccountId>,
 }
 
 /// Which kind of partial data a fault applies to.
@@ -90,6 +92,8 @@ pub struct SpicePartialDataObserved {
     pub delayed: usize,
     pub corrupted: usize,
     pub equivocated: usize,
+    /// Contract accesses messages dropped.
+    pub dropped_contract_accesses: usize,
     /// Data requests seen per requesting node. Empty on a healthy chain, where pushes are enough,
     /// so it shows which nodes a fault pushed onto the recovery path.
     // TODO(spice-data-distribution): record the producer asked and the ordinals requested, so a
@@ -165,6 +169,19 @@ fn install_spice_partial_data_fault_handler(
                 .insert(chunk_id);
         }
         _ => {}
+    }));
+
+    let accesses_state = state.clone();
+    let accesses_sender = me.clone();
+    peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+        let NetworkRequests::SpiceChunkContractAccesses(_, _) = &request else {
+            return HandlerResult::Unhandled(request);
+        };
+        if !accesses_state.faults.lock().drop_contract_accesses_from.contains(&accesses_sender) {
+            return HandlerResult::Unhandled(request);
+        }
+        accesses_state.observed.lock().dropped_contract_accesses += 1;
+        HandlerResult::Handled(NetworkResponses::NoResponse)
     }));
 
     peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {

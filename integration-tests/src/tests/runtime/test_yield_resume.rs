@@ -635,7 +635,7 @@ fn create_with_id_fails_when_amount_exceeds_balance() {
     );
 }
 
-// The 1-yoctoNEAR exemption in VMLogic only fires when `current_account_balance`
+// The 1-yoctoNEAR exemption in the VM host functions only fires when `current_account_balance`
 // is exactly zero. To reach that state end-to-end the contract must drain its
 // entire balance via a Transfer promise in the same wasm call. The runtime's
 // `check_storage_stake` would normally reject a contract account with 0 balance,
@@ -761,7 +761,7 @@ fn create_with_id_one_yocto_exemption_on_drained_zba() {
     );
 
     // The wasm drains the entire account_balance, then the 1-yocto deduction is
-    // skipped via the exemption — leaving VMLogic balance at 0. The runtime
+    // skipped via the exemption — leaving the VM's account balance at 0. The runtime
     // sets account.amount = 0, the ZBA check lets that stand, and finally the
     // receiver gas reward is credited on top, so balance_after = reward exactly.
     let reward = contract_function_call_reward(&fee_helper(&node), &res, "call_promise", args_len);

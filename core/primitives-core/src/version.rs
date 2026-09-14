@@ -409,6 +409,8 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// Fix same-chunk calls to a just-distributed global contract by recording the deploy.
+    GlobalContractSameChunkCallFix,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
     /// receipt, recording the contract attached to the receiver account
@@ -614,23 +616,23 @@ impl ProtocolFeature {
             | ProtocolFeature::AccountCostIncrease
             | ProtocolFeature::DelegateV2 => 85,
             ProtocolFeature::EnforcePerReceiptStorageProofLimit => 86,
-
-            ProtocolFeature::FixContractLoadingError => 86,
+            ProtocolFeature::FixContractLoadingError => 87,
             ProtocolFeature::RejectEmptyMethodName => 87,
             ProtocolFeature::RejectDelegateV2 => 87,
             ProtocolFeature::RejectWithdrawFromGasKeyInDelegate => 87,
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
+            ProtocolFeature::EarlyKickout => 87,
+            ProtocolFeature::FixMlDsaCostCharging => 87,
+            ProtocolFeature::GlobalContractSameChunkCallFix => 87,
+            ProtocolFeature::UniversalAccounts => 87,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::FixMlDsaCostCharging => 153,
-            ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

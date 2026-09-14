@@ -1,3 +1,4 @@
+use crate::DBCol;
 use crate::Store;
 use crate::adapter::StoreAdapter;
 use crate::archive::cloud_storage::batch::BatchRange;
@@ -9,18 +10,18 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::get_block_shard_id_rev;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Versioned container for block-related data stored in the cloud archival.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BlockData {
-    V1(BlockDataV1),
+    V1(BlockDataV1) = 0,
 }
 
-// TODO(cloud_archival): remove this note once the cloud blob format is stabilized.
-// Pre-stabilization there is no committed blob-format contract, so adding a field
-// to `V1` is fine: no stable blobs exist to break. Once the format freezes, add a
-// `BlockData::V2` variant instead of changing `V1`.
+// The format is frozen: add a `BlockData::V2` variant instead of changing `V1`.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BlockDataV1 {
     /// Read from `DBCol::Block`.
@@ -68,8 +69,6 @@ fn read_chunk_producers(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Vec<(ShardId, ValidatorStake)>, Error> {
-    use crate::DBCol;
-    use near_primitives::utils::get_block_shard_id_rev;
     store
         .iter_prefix(DBCol::ChunkProducers, block_hash.as_ref())
         .map(|(key, value)| {
@@ -117,8 +116,10 @@ impl BlockData {
 
 /// Versioned container for a batch of block data spanning consecutive heights.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum BlockBatch {
-    V1(BlockBatchV1),
+    V1(BlockBatchV1) = 0,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]

@@ -40,7 +40,6 @@ pub(crate) static RESHARDING_ASSIGNMENT_STRATEGY: LazyLock<IntCounterVec> = Lazy
     .unwrap()
 });
 
-#[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
@@ -52,7 +51,6 @@ pub(crate) static EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED: LazyLock<IntCounterVe
         .unwrap()
     });
 
-#[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_SAFETY_VALVE_FIRED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_early_kickout_safety_valve_fired_total",
@@ -63,7 +61,6 @@ pub(crate) static EARLY_KICKOUT_SAFETY_VALVE_FIRED: LazyLock<IntCounterVec> = La
     .unwrap()
 });
 
-#[cfg(feature = "nightly")]
 pub(crate) static EARLY_KICKOUT_BLACKLIST_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "near_early_kickout_blacklist_size",

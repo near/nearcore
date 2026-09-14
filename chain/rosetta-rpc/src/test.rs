@@ -29,6 +29,8 @@ pub async fn test_convert_block_changes_to_transactions(
                     storage_usage: 200000,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -46,6 +48,8 @@ pub async fn test_convert_block_changes_to_transactions(
                     storage_usage: 200000,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -61,6 +65,8 @@ pub async fn test_convert_block_changes_to_transactions(
                     storage_usage: 200000,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -78,6 +84,8 @@ pub async fn test_convert_block_changes_to_transactions(
                     storage_usage: 200000,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -93,6 +101,8 @@ pub async fn test_convert_block_changes_to_transactions(
             storage_usage: 200000,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
     accounts_previous_state.insert(
@@ -105,6 +115,8 @@ pub async fn test_convert_block_changes_to_transactions(
             storage_usage: 200000,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
     let transactions = convert_block_changes_to_transactions(
@@ -516,6 +528,8 @@ pub async fn test_stake_gas_prepayment(
                 storage_usage: 0,
                 global_contract_hash: None,
                 global_contract_account_id: None,
+                state: Default::default(),
+                bootstrap_nonce: None,
             },
         },
     }];
@@ -530,6 +544,8 @@ pub async fn test_stake_gas_prepayment(
             storage_usage: 0,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
 
@@ -613,6 +629,8 @@ pub async fn test_function_call_deposit_separation(
                 storage_usage: 0,
                 global_contract_hash: None,
                 global_contract_account_id: None,
+                state: Default::default(),
+                bootstrap_nonce: None,
             },
         },
     }];
@@ -627,6 +645,8 @@ pub async fn test_function_call_deposit_separation(
             storage_usage: 0,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
 
@@ -713,6 +733,8 @@ pub async fn test_execution_status_propagation(
                     storage_usage: 0,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -731,6 +753,8 @@ pub async fn test_execution_status_propagation(
                     storage_usage: 0,
                     global_contract_hash: None,
                     global_contract_account_id: None,
+                    state: Default::default(),
+                    bootstrap_nonce: None,
                 },
             },
         },
@@ -747,6 +771,8 @@ pub async fn test_execution_status_propagation(
             storage_usage: 0,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
     accounts_previous_state.insert(
@@ -759,6 +785,8 @@ pub async fn test_execution_status_propagation(
             storage_usage: 0,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: Default::default(),
+            bootstrap_nonce: None,
         },
     );
 

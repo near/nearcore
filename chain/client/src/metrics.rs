@@ -805,7 +805,9 @@ pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCoun
         try_create_int_counter_vec(
             "near_partial_witness_part_messages_received_total",
             "Partial state witness part-messages received from chunk producers, \
-             labeled by wire version. Increments once per part-message.",
+             labeled by wire version. Increments once per part-message. The shard_id \
+             label is peer-supplied and counted before validation, so shards outside \
+             the epoch's layout are bucketed as \"unknown\" to bound cardinality.",
             &["shard_id", "version"],
         )
         .unwrap()

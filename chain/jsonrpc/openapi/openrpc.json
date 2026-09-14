@@ -433,6 +433,15 @@
         "title": "AccountInfo",
         "type": "object"
       },
+      "AccountState": {
+        "description": "Whether an account's state has been installed.\n\nOnly universal accounts can be uninitialized: they come into existence when\na transfer funds a `0u` id whose state init has not been applied yet. A\ndeterministic `0s` account waiting for its state init is an ordinary V1\naccount with no contract, not this.",
+        "enum": [
+          "initialized",
+          "uninitialized"
+        ],
+        "title": "AccountState",
+        "type": "string"
+      },
       "AccountWithPublicKey": {
         "description": "Account ID with its public key.",
         "properties": {
@@ -1285,6 +1294,28 @@
             "const": "MalformedUniversalStateInit",
             "description": "The bytes of a `UniversalStateInit` action do not decode into a state init.\nAction validation rejects such an action before it runs, so this only fires\nif that check was bypassed.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The action needs a set-up account, but the receiver is an uninitialized\nuniversal account. Distinct from `AccountDoesNotExist`: the account is\nthere, it just has no access keys, code or data yet.",
+            "properties": {
+              "AccountNotInitialized": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AccountNotInitialized"
+            ],
+            "title": "AccountNotInitialized",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -2310,6 +2341,66 @@
             "const": "WithdrawFromGasKeyNotAllowedInDelegate",
             "description": "A `WithdrawFromGasKey` action must not be nested inside a delegate action.",
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `UniversalStateInit` state init commits to more access keys than allowed.",
+            "properties": {
+              "UniversalStateInitTooManyKeys": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_keys": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_keys",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "UniversalStateInitTooManyKeys"
+            ],
+            "title": "UniversalStateInitTooManyKeys",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The state-init actions in one receipt carry more storage entries in total\nthan allowed.",
+            "properties": {
+              "TotalNumberOfStateInitEntriesExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_entries": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_entries",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfStateInitEntriesExceeded"
+            ],
+            "title": "TotalNumberOfStateInitEntriesExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -2874,6 +2965,34 @@
         "title": "BlockStatusView",
         "type": "object"
       },
+      "BlockView": {
+        "properties": {
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "The AccountId of the author of the Block"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkHeaderView"
+            },
+            "type": "array"
+          },
+          "header": {
+            "$ref": "#/components/schemas/BlockHeaderView"
+          }
+        },
+        "required": [
+          "author",
+          "header",
+          "chunks"
+        ],
+        "title": "BlockView",
+        "type": "object"
+      },
       "CatchupStatusView": {
         "description": "Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process",
         "properties": {
@@ -3171,7 +3290,7 @@
             ],
             "default": {
               "nanos": 0,
-              "secs": 1
+              "secs": 5
             },
             "description": "Interval at which the system checks for new blocks or chunks to archive."
           },
@@ -6342,6 +6461,143 @@
         ],
         "title": "HostError"
       },
+      "IndexerChunkView": {
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "header": {
+            "$ref": "#/components/schemas/ChunkHeaderView"
+          },
+          "instant_receipts": {
+            "default": [],
+            "description": "Receipts that were processed instantly in the same chunk they were created.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptView"
+            },
+            "type": "array"
+          },
+          "local_receipts": {
+            "default": [],
+            "description": "Receipts generated in this chunk from transactions with `signer_id`\nequal to `receiver_id`.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptView"
+            },
+            "type": "array"
+          },
+          "receipts": {
+            "description": "Represents receipts generated by execution of the previous chunk.\nNote that those are not the receipts executed by this chunk or even\ntargeting that shard.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptView"
+            },
+            "type": "array"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerTransactionWithOutcome"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "author",
+          "header",
+          "transactions",
+          "receipts"
+        ],
+        "title": "IndexerChunkView",
+        "type": "object"
+      },
+      "IndexerExecutionOutcomeWithOptionalReceipt": {
+        "properties": {
+          "execution_outcome": {
+            "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReceiptView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "execution_outcome"
+        ],
+        "title": "IndexerExecutionOutcomeWithOptionalReceipt",
+        "type": "object"
+      },
+      "IndexerExecutionOutcomeWithReceipt": {
+        "properties": {
+          "execution_outcome": {
+            "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptView"
+          }
+        },
+        "required": [
+          "execution_outcome",
+          "receipt"
+        ],
+        "title": "IndexerExecutionOutcomeWithReceipt",
+        "type": "object"
+      },
+      "IndexerShard": {
+        "properties": {
+          "chunk": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IndexerChunkView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt_execution_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerExecutionOutcomeWithReceipt"
+            },
+            "type": "array"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "state_changes": {
+            "items": {
+              "$ref": "#/components/schemas/StateChangeWithCauseView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "shard_id",
+          "receipt_execution_outcomes",
+          "state_changes"
+        ],
+        "title": "IndexerShard",
+        "type": "object"
+      },
+      "IndexerTransactionWithOutcome": {
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/IndexerExecutionOutcomeWithOptionalReceipt"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/SignedTransactionView"
+          }
+        },
+        "required": [
+          "transaction",
+          "outcome"
+        ],
+        "title": "IndexerTransactionWithOutcome",
+        "type": "object"
+      },
       "InvalidAccessKeyError": {
         "oneOf": [
           {
@@ -7209,6 +7465,12 @@
             "minimum": 0,
             "type": "integer"
           },
+          "max_state_init_entries": {
+            "description": "Max number of storage entries a `DeterministicStateInit` or\n`UniversalStateInit` action may carry.\n\nEach entry costs `..._state_init_per_entry` to execute, which is counted\ninto the receipt's congestion gas whether or not it is ever burnt. Without\na cap one receipt reserves several times `max_congestion_outgoing_gas`,\npinning the sending shard at full outgoing congestion, which stops it\naccepting transactions.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "max_tables_per_contract": {
             "description": "If present, stores max number of tables declared globally in one contract",
             "format": "uint32",
@@ -7247,11 +7509,26 @@
               "null"
             ]
           },
+          "max_universal_state_init_keys": {
+            "description": "Max number of access keys a `UniversalStateInit` action may commit to.\n\nEach committed key is priced as a full `AddKey`, at the send rate, so the\nwhole cost lands when a transaction is converted to a receipt. Without a\ncap one transaction converts for more gas than a chunk has, and since\nconversion happens before anything is charged, transaction selection\nadmits it anyway.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "max_yield_payload_size": {
             "description": "Maximum number of bytes for payload passed over a yield resume.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "min_contract_size_per_local": {
+            "description": "If present, requires at least this many bytes of contract code per local.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "per_receipt_storage_proof_size_limit": {
             "description": "Hard limit on the size of storage proof generated while executing a single receipt.",
@@ -9132,6 +9409,47 @@
         "title": "RpcHealthResponse",
         "type": "null"
       },
+      "RpcIndexerBlockRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "block_hash"
+        ],
+        "title": "RpcIndexerBlockRequest",
+        "type": "object"
+      },
+      "RpcIndexerBlockResponse": {
+        "description": "Resulting struct represents block with chunks",
+        "properties": {
+          "block": {
+            "$ref": "#/components/schemas/BlockView"
+          },
+          "shards": {
+            "items": {
+              "$ref": "#/components/schemas/IndexerShard"
+            },
+            "type": "array"
+          },
+          "tracked_shards": {
+            "description": "The node's configured chunk and execution coverage, in block layout order.\nCarried chunks remain None inside the message even for tracked shards.",
+            "items": {
+              "$ref": "#/components/schemas/ShardId"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "block",
+          "shards",
+          "tracked_shards"
+        ],
+        "title": "RpcIndexerBlockResponse",
+        "type": "object"
+      },
       "RpcKnownProducer": {
         "properties": {
           "account_id": {
@@ -10805,6 +11123,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bootstrap_nonce": {
+            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "code_hash": {
             "allOf": [
               {
@@ -10842,6 +11169,14 @@
               }
             ],
             "description": "Staked balance locked for validation, in yoctoNEAR."
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountState"
+              }
+            ],
+            "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
           },
           "storage_paid_at": {
             "default": 0,
@@ -11980,6 +12315,15 @@
                     ],
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
+                  "bootstrap_nonce": {
+                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "code_hash": {
                     "allOf": [
                       {
@@ -12017,6 +12361,14 @@
                       }
                     ],
                     "description": "Staked balance locked for validation, in yoctoNEAR."
+                  },
+                  "state": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountState"
+                      }
+                    ],
+                    "description": "Whether the account is initialized. Only a universal account can be\nuninitialized: it has no access keys, code or data until a\n`UniversalStateInit` arrives. Omitted for initialized accounts."
                   },
                   "storage_paid_at": {
                     "default": 0,
@@ -14253,6 +14605,34 @@
       "tags": [
         {
           "name": "changes"
+        },
+        {
+          "name": "experimental"
+        }
+      ]
+    },
+    {
+      "name": "EXPERIMENTAL_indexer_block",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "block_hash",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/RpcIndexerBlockResponse"
+        }
+      },
+      "summary": "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.",
+      "tags": [
+        {
+          "name": "indexer"
         },
         {
           "name": "experimental"

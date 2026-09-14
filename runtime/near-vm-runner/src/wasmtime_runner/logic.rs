@@ -30,9 +30,7 @@ use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
-use near_primitives_core::universal_account_id::{
-    encode_universal_account_id, is_universal_account_id,
-};
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use near_primitives_core::universal_state_init::RawStateInit;
 use std::rc::Rc;
 
@@ -133,10 +131,10 @@ fn write_memory(
 /// there’s insufficient gas, memory interval is out of bounds or given register
 /// isn’t set.
 ///
-/// This is not a method on `VMLogic` so that the compiler can track borrowing
-/// of gas counter, memory and registers separately.  This allows `VMLogic` to
-/// borrow value from a register and then continue constructing mutable
-/// references to other fields in the structure..
+/// This is a free function rather than a method on `Ctx` so that the compiler
+/// can track borrowing of gas counter, memory and registers separately.  This
+/// allows a host function to borrow a value from a register and then continue
+/// constructing mutable references to other fields of the context.
 fn get_memory_or_register<'a>(
     gas_counter: &mut GasCounter,
     memory: &'a [u8],
@@ -3506,21 +3504,17 @@ pub fn promise_batch_action_transfer(
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
     let receiver_id = ctx.ext.get_receipt_receiver(receipt_idx);
-    // TODO(universal-accounts): replace with an `AccountType::Universal` check
-    // once `near-account-id` supports 0u accounts.
-    let receiver_is_universal =
-        ctx.config.universal_accounts && is_universal_account_id(receiver_id.as_str());
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
         ctx.config.eth_implicit_accounts,
-        receiver_is_universal,
+        ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
         ctx.config.eth_implicit_accounts,
-        receiver_is_universal,
+        ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );
     let burn_cost = send_fee;

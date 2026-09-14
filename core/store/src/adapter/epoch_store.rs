@@ -8,13 +8,10 @@ use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
 use near_primitives::epoch_sync::{CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-#[cfg(feature = "nightly")]
 use near_primitives::types::ShardId;
-#[cfg(feature = "nightly")]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::compression::CompressedData;
-#[cfg(feature = "nightly")]
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
@@ -154,9 +151,8 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
 
     /// Record the chunk producer sampled for chunks anchored at `block_hash` on
     /// `shard_id`, keyed by `(block_hash, shard_id)`. Read back by the
-    /// epoch-manager chunk-producer resolvers. Nightly-only: `DBCol::ChunkProducers`
-    /// (and an enabled EarlyKickout) only exist under the `nightly` feature.
-    #[cfg(feature = "nightly")]
+    /// epoch-manager chunk-producer resolvers. Only written when EarlyKickout is
+    /// enabled for the anchor's epoch; the column is empty before then.
     pub fn set_chunk_producer(
         &mut self,
         block_hash: &CryptoHash,

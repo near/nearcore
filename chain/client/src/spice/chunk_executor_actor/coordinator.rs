@@ -4,6 +4,7 @@
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
@@ -56,7 +57,8 @@ pub struct ChunkExecutorActor {
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
-    pub block_hash: CryptoHash,
+    /// Id the proof was delivered under.
+    pub data_id: DataId,
     pub receipt_proof: ReceiptProof,
 }
 
@@ -431,7 +433,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { block_hash, receipt_proof } = receipts;
+        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
+        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
@@ -440,7 +444,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = receipt_proof.1.to_shard_id;
+        let to_shard_id = *to_shard;
         // A receipt for a shard this node does track can arrive before anything created
         // the executor, and the push is not retried, so create it here if the shard
         // is tracked as of the source block. Create only, never evict: the tracked
@@ -473,11 +477,13 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
                 self.get_or_create_per_shard_executor(shard_uid);
             }
         }
+        // TODO(spice-data-distribution): dropping leaves the data manager's item parked
+        // with no verification result until it expires (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
         };
-        if let Err(err) = executor.handle_incoming_receipt(block_hash, receipt_proof) {
+        if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
     }

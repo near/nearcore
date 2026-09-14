@@ -11,7 +11,7 @@ use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, verify_path};
+use near_primitives::merkle::{merklize, verify_path, verify_path_with_index};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
@@ -180,9 +180,11 @@ impl ChainStateSyncAdapter {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let block_header = self.chain_store.get_block_header(&block_hash)?.clone();
             let block = self.chain_store.get_block(&block_hash)?;
+            let block_shard_layout =
+                self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
+            let block_chunks = block.chunks();
             let (block_receipts_root, block_receipts_proofs) = merklize(
-                &block
-                    .chunks()
+                &block_chunks
                     .iter()
                     .map(|chunk| *chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
@@ -199,20 +201,25 @@ impl ChainStateSyncAdapter {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
-                let from_shard_index = prev_shard_layout.get_shard_index(*from_shard_id)?;
+                // `block_receipts_proofs` is merklized over this block's chunks, so the leaf index
+                // comes from this block's layout. `get_incoming_receipts_for_shard` walks back
+                // across epoch boundaries, so it need not be the sync block's layout.
+                let from_shard_index = block_shard_layout.get_shard_index(*from_shard_id)?;
 
-                let root_proof = *block.chunks()[from_shard_index].prev_outgoing_receipts_root();
-                root_proofs_cur
-                    .push(RootProof(root_proof, block_receipts_proofs[from_shard_index].clone()));
-
-                // Make sure we send something reasonable.
-                assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
-                assert!(verify_path(root_proof, proof, &receipts_hash));
-                assert!(verify_path(
-                    block_receipts_root,
-                    &block_receipts_proofs[from_shard_index],
-                    &root_proof,
-                ));
+                let (Some(from_chunk), Some(block_receipts_proof)) = (
+                    block_chunks.get(from_shard_index),
+                    block_receipts_proofs.get(from_shard_index),
+                ) else {
+                    return Err(Error::InvalidReceiptsProof);
+                };
+                let root_proof = *from_chunk.prev_outgoing_receipts_root();
+                if block_header.prev_chunk_outgoing_receipts_root() != &block_receipts_root
+                    || !verify_path(root_proof, proof, &receipts_hash)
+                    || !verify_path(block_receipts_root, block_receipts_proof, &root_proof)
+                {
+                    return Err(Error::InvalidReceiptsProof);
+                }
+                root_proofs_cur.push(RootProof(root_proof, block_receipts_proof.clone()));
             }
             root_proofs.push(root_proofs_cur);
         }
@@ -460,6 +467,8 @@ impl ChainStateSyncAdapter {
             hash_to_compare = *header.prev_hash();
 
             let block_header = self.chain_store.get_block_header(block_hash)?;
+            let block_shard_layout =
+                self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
             // 4c. Checking len of receipt_proofs for current block
             if receipt_proofs.len() != shard_state_header.root_proofs()[i].len()
                 || receipt_proofs.len() != block_header.chunks_included() as usize
@@ -491,12 +500,22 @@ impl ChainStateSyncAdapter {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
-                // 4f. Proving the outgoing_receipts_root matches that in the block
-                if !verify_path(
-                    *block_header.prev_chunk_outgoing_receipts_root(),
-                    block_proof,
-                    root,
-                ) {
+                // 4f. Proving the outgoing_receipts_root matches that in the block, at the chunk
+                // index `from_shard_id` names. No merkle root covers that field, so the index check
+                // is what binds it. A shard with no new chunk keeps the previous chunk header, so
+                // its leaf repeats an older root; the index must name a chunk this block included.
+                let from_shard_index = block_shard_layout.get_shard_index(*from_shard_id)?;
+                let has_new_chunk =
+                    block_header.chunk_mask().get(from_shard_index).copied().unwrap_or(false);
+                if !has_new_chunk
+                    || !verify_path_with_index(
+                        *block_header.prev_chunk_outgoing_receipts_root(),
+                        block_proof,
+                        root,
+                        from_shard_index as u64,
+                        block_shard_layout.num_shards(),
+                    )
+                {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }

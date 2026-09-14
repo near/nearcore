@@ -1743,6 +1743,21 @@ pub fn load_config(
         }
     };
 
+    // A writer would archive its own chunk rows under an inclusion height the chain has not
+    // given them yet.
+    let archives_as_writer = config
+        .cloud_archival
+        .as_ref()
+        .is_some_and(|cloud_archival| cloud_archival.writer.is_some());
+    if validator_signer.is_some() && archives_as_writer {
+        validation_errors.push_cross_file_semantics_error(
+            "a cloud archival writer must not produce chunks: it would archive its own chunk \
+             rows under an inclusion height the chain has not given them yet. Remove the \
+             validator key file, or unset cloud_archival.writer."
+                .to_string(),
+        );
+    }
+
     let node_key_path = dir.join(&config.node_key_file);
     let network_signer_result = NodeKeyFile::from_file(&node_key_path);
     let network_signer = match network_signer_result {

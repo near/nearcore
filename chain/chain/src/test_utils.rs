@@ -21,7 +21,9 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ProtocolVersion, ShardId,
+};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -143,6 +145,24 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
     epoch_length: u64,
 ) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
+    setup_with_tx_validity_period_at_version(
+        clock,
+        tx_validity_period,
+        epoch_length,
+        PROTOCOL_VERSION,
+    )
+}
+
+/// `setup_with_tx_validity_period` with the genesis protocol version pinned to
+/// `protocol_version` instead of `PROTOCOL_VERSION`, so features stabilized above it stay
+/// disabled. Only holds while the chain stays inside the genesis epoch: blocks built by
+/// `TestBlockBuilder` vote for `PROTOCOL_VERSION`.
+pub fn setup_with_tx_validity_period_at_version(
+    clock: Clock,
+    tx_validity_period: NumBlocks,
+    epoch_length: u64,
+    protocol_version: ProtocolVersion,
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
     let mut genesis =
         Genesis::test_sharded(clock.clone(), vec!["test".parse::<AccountId>().unwrap()], 1, 1);
@@ -153,7 +173,7 @@ pub fn setup_with_tx_validity_period(
     genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
     genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
-    genesis.config.protocol_version = PROTOCOL_VERSION;
+    genesis.config.protocol_version = protocol_version;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

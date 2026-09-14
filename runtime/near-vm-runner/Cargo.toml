@@ -20,7 +20,6 @@ borsh.workspace = true
 dashmap.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
-finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, optional = true }
 lru.workspace = true
 num-rational.workspace = true
@@ -79,7 +78,6 @@ wat.workspace = true
 default = ["wasmtime_vm"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 prepare = [
-    "finite-wasm",
     "finite-wasm-6",
     "wasm-encoder",
     "wasmparser-236",

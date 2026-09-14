@@ -37,36 +37,6 @@ impl WasmFeatures {
     }
 }
 
-#[cfg(feature = "finite-wasm")]
-impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
-    fn from(f: WasmFeatures) -> Self {
-        assert!(!f.reftypes_bulk_memory);
-        finite_wasm::wasmparser::WasmFeatures {
-            floats: true,
-            mutable_global: true,
-            sign_extension: SIGN_EXTENSION,
-            reference_types: f.reftypes_bulk_memory,
-            bulk_memory: f.reftypes_bulk_memory,
-
-            // wasmer singlepass compiler requires multi_value return values to be disabled.
-            multi_value: MULTI_VALUE,
-            simd: SIMD,
-            threads: THREADS,
-            tail_call: TAIL_CALL,
-            multi_memory: MULTI_MEMORY,
-            exceptions: EXCEPTIONS,
-            memory64: MEMORY64,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
-            relaxed_simd: RELAXED_SIMD,
-            extended_const: EXTENDED_COST,
-            component_model: COMPONENT_MODEL,
-            function_references: FUNCTION_REFERENCES,
-            memory_control: MEMORY_CONTROL,
-            gc: GC,
-        }
-    }
-}
-
 #[cfg(feature = "finite-wasm-6")]
 impl From<WasmFeatures> for finite_wasm_6::wasmparser::WasmFeatures {
     fn from(f: WasmFeatures) -> Self {

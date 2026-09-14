@@ -1,5 +1,7 @@
-use crate::bootstrap_reader::BootstrapReaderCmd;
+use crate::historical_reader::BootstrapCmd;
+use crate::recent_reader::FollowCmd;
 use crate::status::StatusCmd;
+use crate::utils::ServeCmd;
 use near_chain_configs::GenesisValidationMode;
 use std::path::Path;
 
@@ -13,8 +15,12 @@ pub struct CloudArchiveCommand {
 enum SubCommand {
     /// Show cloud archive head positions in external and local storage.
     Status(StatusCmd),
-    /// Bootstrap local store from cloud-archived block data.
-    BootstrapReader(BootstrapReaderCmd),
+    /// Build a local store from bucket data for a given height range.
+    Bootstrap(BootstrapCmd),
+    /// Run the recent reader: pull from the bucket and answer queries from the local store.
+    Follow(FollowCmd),
+    /// Answer queries from a local store nothing is writing to.
+    Serve(ServeCmd),
 }
 
 impl CloudArchiveCommand {
@@ -25,7 +31,9 @@ impl CloudArchiveCommand {
     ) -> anyhow::Result<()> {
         match self.subcmd {
             SubCommand::Status(cmd) => cmd.run(home_dir, genesis_validation),
-            SubCommand::BootstrapReader(cmd) => cmd.run(home_dir, genesis_validation),
+            SubCommand::Bootstrap(cmd) => cmd.run(home_dir, genesis_validation),
+            SubCommand::Follow(cmd) => cmd.run(home_dir, genesis_validation),
+            SubCommand::Serve(cmd) => cmd.run(home_dir, genesis_validation),
         }
     }
 }

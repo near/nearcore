@@ -120,12 +120,32 @@ pub struct LimitConfig {
     /// Max combined size (in bytes) of the resolved promise inputs a single
     /// receipt may consume.
     pub max_receipt_total_input_size: u64,
+    /// Max number of access keys a `UniversalStateInit` action may commit to.
+    ///
+    /// Each committed key is priced as a full `AddKey`, at the send rate, so the
+    /// whole cost lands when a transaction is converted to a receipt. Without a
+    /// cap one transaction converts for more gas than a chunk has, and since
+    /// conversion happens before anything is charged, transaction selection
+    /// admits it anyway.
+    pub max_universal_state_init_keys: u64,
+    /// Max number of storage entries a `DeterministicStateInit` or
+    /// `UniversalStateInit` action may carry.
+    ///
+    /// Each entry costs `..._state_init_per_entry` to execute, which is counted
+    /// into the receipt's congestion gas whether or not it is ever burnt. Without
+    /// a cap one receipt reserves several times `max_congestion_outgoing_gas`,
+    /// pinning the sending shard at full outgoing congestion, which stops it
+    /// accepting transactions.
+    pub max_state_init_entries: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// If present, requires at least this many bytes of contract code per local.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_contract_size_per_local: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_params_per_contract: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,10 +238,14 @@ pub struct Config {
     pub fix_contract_loading_error: bool,
 
     /// Enable the `EthImplicitAccounts` protocol feature.
+    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
+    // protocol version 70, where the feature is enabled.
     pub eth_implicit_accounts: bool,
 
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
 
     /// Whether to discard custom sections.

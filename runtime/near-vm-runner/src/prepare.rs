@@ -5,7 +5,6 @@ use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
 mod instrument_v3;
-mod prepare_v2;
 mod prepare_v3;
 
 /// Loads the given module given in `original_code`, performs some checks on it and
@@ -25,11 +24,7 @@ pub fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
-    if config.reftypes_bulk_memory || config.vm_kind == VMKind::Wasmtime {
-        prepare_v3::prepare_contract(original_code, features, config, kind)
-    } else {
-        prepare_v2::prepare_contract(original_code, features, config, kind)
-    }
+    prepare_v3::prepare_contract(original_code, features, config, kind)
 }
 
 #[cfg(test)]
@@ -37,6 +32,8 @@ mod tests {
     use super::*;
     use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
+    use std::borrow::Cow;
+    use wasm_encoder::{CustomSection, Encode, Section};
 
     fn parse_and_prepare_wat(
         config: &Config,
@@ -45,6 +42,46 @@ mod tests {
     ) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         prepare_contract(wasm.as_ref(), &config, vm_kind)
+    }
+
+    fn append_custom_section_padding(wasm: &mut Vec<u8>, size: usize) {
+        let section =
+            CustomSection { name: Cow::Borrowed("padding"), data: Cow::Owned(vec![0; size]) };
+        wasm.push(section.id());
+        section.encode(wasm);
+    }
+
+    #[test]
+    fn locals_limit_depends_on_contract_size() {
+        const LOCALS: usize = 100;
+
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
+        config.limit_config.max_locals_per_contract = None;
+        config.limit_config.min_contract_size_per_local = Some(2);
+
+        let compact = near_test_contracts::LargeContract {
+            functions: 1,
+            locals_per_function: LOCALS as u32,
+            ..Default::default()
+        }
+        .make();
+        assert!(compact.len() < 2 * LOCALS);
+        assert_matches!(
+            prepare_contract(&compact, &config, VMKind::Wasmtime),
+            Err(PrepareError::TooManyLocals)
+        );
+
+        let mut padded = compact;
+        append_custom_section_padding(&mut padded, 2 * LOCALS);
+        assert!(padded.len() >= 2 * LOCALS);
+        assert_matches!(prepare_contract(&padded, &config, VMKind::Wasmtime), Ok(_));
+
+        // The absolute limit continues to apply independently of contract size.
+        config.limit_config.max_locals_per_contract = Some(LOCALS as u64 - 1);
+        assert_matches!(
+            prepare_contract(&padded, &config, VMKind::Wasmtime),
+            Err(PrepareError::TooManyLocals)
+        );
     }
 
     #[test]

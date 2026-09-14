@@ -497,6 +497,17 @@ pub enum ActionsValidationError {
     } = 26,
     /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
     WithdrawFromGasKeyNotAllowedInDelegate = 27,
+    /// A `UniversalStateInit` state init commits to more access keys than allowed.
+    UniversalStateInitTooManyKeys {
+        number_of_keys: u64,
+        limit: u64,
+    } = 28,
+    /// The state-init actions in one receipt carry more storage entries in total
+    /// than allowed.
+    TotalNumberOfStateInitEntriesExceeded {
+        number_of_entries: u64,
+        limit: u64,
+    } = 29,
 }
 
 /// Describes the error for validating a receipt.
@@ -737,6 +748,21 @@ impl Display for ActionsValidationError {
             ActionsValidationError::MalformedUniversalStateInit => {
                 write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
             }
+            ActionsValidationError::UniversalStateInitTooManyKeys { number_of_keys, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit commits to {number_of_keys} access keys but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                number_of_entries,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
+                )
+            }
         }
     }
 }
@@ -925,6 +951,12 @@ pub enum ActionErrorKind {
     /// Action validation rejects such an action before it runs, so this only fires
     /// if that check was bypassed.
     MalformedUniversalStateInit = 29,
+    /// The action needs a set-up account, but the receiver is an uninitialized
+    /// universal account. Distinct from `AccountDoesNotExist`: the account is
+    /// there, it just has no access keys, code or data yet.
+    AccountNotInitialized {
+        account_id: AccountId,
+    } = 30,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1280,6 +1312,11 @@ impl Display for ActionErrorKind {
             ActionErrorKind::MalformedUniversalStateInit => {
                 write!(f, "UniversalStateInit payload is not a valid state init")
             }
+            ActionErrorKind::AccountNotInitialized { account_id } => write!(
+                f,
+                "Can't complete the action because account {:?} is uninitialized",
+                account_id
+            ),
         }
     }
 }

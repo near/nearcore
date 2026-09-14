@@ -3,12 +3,9 @@ use crate::stateless_validation::validate::{
     validate_partial_encoded_state_witness,
 };
 use near_async::time::Clock;
-#[cfg(feature = "nightly")]
 use near_async::time::{Duration, FakeClock, Utc};
-use near_chain::ChainStoreAccess;
-use near_chain::test_utils::setup;
-#[cfg(feature = "nightly")]
-use near_chain::{BlockProcessingArtifact, Provenance, test_utils::process_block_sync};
+use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period_at_version};
+use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
 use near_chain_primitives::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
@@ -22,18 +19,16 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
 };
-#[cfg(feature = "nightly")]
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
-#[cfg(feature = "nightly")]
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;
+use std::sync::Arc;
 
-/// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire
-/// variant regardless of the compile-time `nightly` feature.
+/// Lowest protocol version with `EarlyKickout` enabled — forces the V2 wire variant.
 fn early_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
 }
@@ -41,6 +36,15 @@ fn early_kickout_version() -> ProtocolVersion {
 /// One protocol version below `EarlyKickout` — forces the V1 wire variant.
 fn pre_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version().checked_sub(1).unwrap()
+}
+
+/// A chain whose genesis epoch sits one version below `EarlyKickout`, so the anchored
+/// `DBCol::ChunkProducers` lookup is off and producer resolution goes through the sampler.
+/// Only the genesis epoch is exercised here, so no vote can lift the chain past it.
+fn setup_before_early_kickout() -> (Chain, Arc<ValidatorSigner>) {
+    let (chain, _epoch_manager, _runtime, signer) =
+        setup_with_tx_validity_period_at_version(Clock::real(), 100, 1000, pre_kickout_version());
+    (chain, signer)
 }
 
 fn make_accesses(
@@ -129,7 +133,6 @@ fn v2_witness_with_height_mismatch_is_rejected() {
 /// With the parent absent the height is pinned to exactly `anchor + 2`: that is accepted
 /// (signed by the anchored producer), a skipped slot above it is deferred (it may be honest,
 /// so the sender is not blamed), and a height below it is rejected outright.
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_witness_parent_absent_accepted_only_at_anchor_offset() {
     use near_primitives::types::validator_stake::ValidatorStake;
@@ -243,7 +246,6 @@ fn v2_witness_parent_absent_accepted_only_at_anchor_offset() {
 /// `G.height + 2` (slot `G.height + 1` skipped) processed locally, a chunk at `G.height + 3`
 /// validates against the parent. Only the parent-absent race drops skipped-slot witnesses; once
 /// the parent is known the exact `anchor + 2` pin no longer applies.
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
     use crate::stateless_validation::validate::ChunkRelevance;
@@ -337,12 +339,11 @@ fn v2_witness_with_parent_known_and_skipped_slot_is_accepted() {
 }
 
 /// Tight cross-check (parent known) rejects a forged grandparent anchor mismatching the
-/// parent's prev hash. On the canonical path (EarlyKickout off); under EarlyKickout the
-/// anchored DB lookup rejects it earlier still.
-#[cfg(not(feature = "nightly"))]
+/// parent's prev hash. Pinned below EarlyKickout so the cross-check is what rejects; once
+/// EarlyKickout is on for the epoch, the anchored DB lookup rejects it earlier still.
 #[test]
 fn v2_witness_with_anchor_mismatch_is_rejected() {
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let (chain, signer) = setup_before_early_kickout();
 
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
@@ -512,8 +513,7 @@ fn v2_accesses_with_height_mismatch_is_rejected() {
 
     // The parent is genesis, so the anchor is its default prev hash. Set the height to
     // genesis + 2 where the parent implies genesis + 1. The anchor stays the default
-    // value, so the producer lookup uses the sampler and only the height is wrong. This
-    // holds under nightly too.
+    // value, so the producer lookup uses the sampler and only the height is wrong.
     let key = ChunkProductionKey { shard_id, epoch_id, height_created: genesis_height + 2 };
     let accesses = make_accesses(
         key,
@@ -539,12 +539,11 @@ fn v2_accesses_with_height_mismatch_is_rejected() {
 }
 
 /// When the parent block is known, the cross-check rejects a forged anchor that does
-/// not match the parent's prev hash. This only matters off nightly; under nightly the
+/// not match the parent's prev hash. Pinned below EarlyKickout: once it is on, the
 /// anchored lookup rejects the forged anchor first, because the block is unknown.
-#[cfg(not(feature = "nightly"))]
 #[test]
 fn v2_accesses_with_anchor_mismatch_is_rejected() {
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let (chain, signer) = setup_before_early_kickout();
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
     let shard_id = ShardId::new(0);
@@ -638,7 +637,6 @@ fn v2_accesses_with_known_parent_is_accepted() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_accesses_with_height_above_anchor_height_is_deferred() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
@@ -713,7 +711,6 @@ fn v2_accesses_with_default_anchor_above_genesis_plus_one_is_rejected() {
 /// from the sampler. We overwrite the genesis anchor's row with a producer the sampler
 /// would never pick, then sign with that producer's key. If the message is accepted, the
 /// verifier read the anchored row.
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_accesses_resolves_anchored_db_row() {
     use near_primitives::types::validator_stake::ValidatorStake;
@@ -869,12 +866,11 @@ fn v2_deploys_with_height_mismatch_is_rejected() {
     assert!(msg.contains("contract_deploys key mismatch"), "got: {msg}");
 }
 
-/// When the parent block is known, the cross-check rejects a forged anchor. This only
-/// matters off nightly; under nightly the anchored lookup rejects the forged anchor first.
-#[cfg(not(feature = "nightly"))]
+/// When the parent block is known, the cross-check rejects a forged anchor. Pinned below
+/// EarlyKickout: once it is on, the anchored lookup rejects the forged anchor first.
 #[test]
 fn v2_deploys_with_anchor_mismatch_is_rejected() {
-    let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
+    let (chain, signer) = setup_before_early_kickout();
     let genesis_hash = *chain.genesis().hash();
     let genesis_height = chain.genesis().height();
     let shard_id = ShardId::new(0);
@@ -958,7 +954,6 @@ fn v2_deploys_with_known_parent_is_accepted() {
     );
 }
 
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_deploys_with_height_above_anchor_height_is_deferred() {
     let (chain, _epoch_manager, _runtime, signer) = setup(Clock::real());
@@ -1024,7 +1019,6 @@ fn v2_deploys_with_default_anchor_above_genesis_plus_one_is_rejected() {
 /// Regression test: under `EarlyKickout` the V2 deploys verifier must look up the
 /// producer from the anchor's `DBCol::ChunkProducers` row, not from the sampler. Same
 /// check as the accesses regression test.
-#[cfg(feature = "nightly")]
 #[test]
 fn v2_deploys_resolves_anchored_db_row() {
     use near_primitives::types::validator_stake::ValidatorStake;

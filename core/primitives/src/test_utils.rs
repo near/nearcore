@@ -611,6 +611,20 @@ impl BlockHeader {
         }
     }
 
+    pub fn set_prev_height(&mut self, value: BlockHeight) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.prev_height = value,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.prev_height = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.prev_height = value,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.prev_height = value,
+        }
+    }
+
     pub fn set_epoch_id(&mut self, value: EpochId) {
         match self {
             BlockHeader::BlockHeaderV1(_)
