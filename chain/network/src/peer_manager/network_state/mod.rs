@@ -1350,7 +1350,7 @@ impl NetworkState {
                     });
                 } else {
                     metrics::MessageDropped::OutgoingQueueLimitExceeded
-                        .inc_msg_type("EpochSyncBatchResponse");
+                        .inc_msg_type("EpochSyncBatchRequest");
                     tracing::warn!(
                         target: "network",
                         %peer_id,
