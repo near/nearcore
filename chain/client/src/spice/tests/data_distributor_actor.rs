@@ -47,7 +47,7 @@ use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{Direction, MerklePathItem, merklize};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
@@ -294,7 +294,6 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
-            Clock::real(),
             epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
@@ -1036,7 +1035,7 @@ test_invalid_incoming_partial_data! {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_not_matching_commitment_hash_is_banned() {
+fn test_incoming_partial_data_not_matching_commitment_hash_is_settled() {
     let (_genesis, chain) = setup(2, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
@@ -1057,19 +1056,14 @@ fn test_incoming_partial_data_not_matching_commitment_hash_is_banned() {
             DataManagerError::GarbageCommitment(AssembledDataError::HashMismatch)
         )))
     );
-    // The garbage decode banned only its commitment; the item keeps collecting.
+    // The garbage decode settled only its commitment; the item keeps collecting.
     assert!(actor.is_tracking(&data_id));
-    assert_matches!(
-        actor.receive_data(data),
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-            DataManagerError::BannedCommitment
-        )))
-    );
+    assert_matches!(actor.receive_data(data), Ok(()));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_with_undecodable_part_is_banned() {
+fn test_incoming_partial_data_with_undecodable_part_is_settled() {
     let (_genesis, chain) = setup(2, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
@@ -1104,14 +1098,9 @@ fn test_incoming_partial_data_with_undecodable_part_is_banned() {
             DataManagerError::GarbageCommitment(AssembledDataError::Undecodable)
         )))
     );
-    // The garbage decode banned only its commitment; the item keeps collecting.
+    // The garbage decode settled only its commitment; the item keeps collecting.
     assert!(actor.is_tracking(&data_id));
-    assert_matches!(
-        actor.receive_data(data),
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-            DataManagerError::BannedCommitment
-        )))
-    );
+    assert_matches!(actor.receive_data(data), Ok(()));
 }
 
 #[test]
@@ -1126,13 +1115,67 @@ fn test_incoming_partial_data_is_already_decoded() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     let data = incoming_data.data.clone();
     actor.handle(incoming_data);
-    assert_matches!(outgoing_rc.try_recv(), Ok(_));
-    let result = actor.receive_data(data);
-    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsIrrelevant(_)))
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
     );
+    // A re-pushed part under the decoded commitment is harmless: nothing is delivered
+    // twice and nothing is reported.
+    let result = actor.receive_data(data);
+    assert_matches!(result, Ok(()));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_two_candidates_for_one_id_both_reach_the_executor() {
+    // Two producers per shard, so each producer's own part decodes on its own.
+    let (_genesis, chain) = setup(4, 0);
+    let block = latest_block(&chain);
+    let first_proof = new_test_receipt_proof(&block);
+    let mut second_proof = first_proof.clone();
+    second_proof.1.proof =
+        vec![MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left }];
+    let mut producers = producers_of_receipt_proof(&chain, &block, &first_proof);
+    assert_eq!(producers.len(), 2);
+    let second_producer = producers.pop().unwrap();
+    let first_producer = producers.pop().unwrap();
+    // Both pushes go to every to-shard producer; any one of them sees both candidates.
+    let recipient = recipients_of_receipt_proof(&chain, &block, &first_proof).swap_remove(0);
+    let (first_data, _) = get_incoming_data(
+        &first_producer,
+        &chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![first_proof.clone()],
+        },
+    );
+    let (second_data, _) = get_incoming_data(
+        &second_producer,
+        &chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![second_proof.clone()],
+        },
+    );
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    let data_id = test_receipt_proof_data_id(&block);
+
+    actor.handle(first_data);
+    actor.handle(second_data);
+
+    for expected in [first_proof, second_proof] {
+        let OutgoingMessage::ExecutorIncomingUnverifiedReceipts(
+            ExecutorIncomingUnverifiedReceipts { data_id: delivered_id, receipt_proof },
+        ) = outgoing_rc.try_recv().unwrap()
+        else {
+            panic!();
+        };
+        assert_eq!(delivered_id, data_id);
+        assert_eq!(receipt_proof, expected);
+    }
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
