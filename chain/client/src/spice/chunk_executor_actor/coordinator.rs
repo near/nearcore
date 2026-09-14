@@ -217,7 +217,9 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         self.reconcile_tracked_shards(block_hash)?;
         for executor in self.per_shard_executors.values() {
-            executor.bootstrap_boundary_source_block(&block)?;
+            if let Err(err) = executor.bootstrap_boundary_source_block(&block) {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, shard_uid = ?executor.shard_uid(), "failed boundary bootstrap for shard");
+            }
         }
         Ok(())
     }
