@@ -189,14 +189,12 @@ impl EpochSync {
         Ok(())
     }
 
-    /// The batched proof already computed for `epoch_id`, if there is one.
+    /// Returns the batched proof already computed for `epoch_id`, if there is one.
     fn cached_batched_proof(
-        cache: &Mutex<Option<(EpochId, Arc<BatchedEpochSyncProof>)>>,
+        cache: Option<&(EpochId, Arc<BatchedEpochSyncProof>)>,
         epoch_id: EpochId,
     ) -> Option<Arc<BatchedEpochSyncProof>> {
         cache
-            .lock()
-            .as_ref()
             .filter(|(cached_epoch_id, _)| *cached_epoch_id == epoch_id)
             .map(|(_, batched)| batched.clone())
     }
@@ -205,8 +203,6 @@ impl EpochSync {
     /// check [`EpochSync::cached_batched_proof`] first; this is the cache-miss path.
     fn batched_proof(
         compressed: &CompressedEpochSyncProof,
-        epoch_id: EpochId,
-        cache: Arc<Mutex<Option<(EpochId, Arc<BatchedEpochSyncProof>)>>>,
     ) -> Result<Arc<BatchedEpochSyncProof>, Error> {
         let (proof, _) = compressed
             .decode()
@@ -234,9 +230,7 @@ impl EpochSync {
             }))
             .map_err(|err| Error::Other(format!("failed to compress tail: {err}")))?;
 
-        let batched = Arc::new(BatchedEpochSyncProof { batches, tail });
-        *cache.lock() = Some((epoch_id, batched.clone()));
-        Ok(batched)
+        Ok(Arc::new(BatchedEpochSyncProof { batches, tail }))
     }
     /// Picks a peer to request the epoch sync proof from.
     ///
@@ -753,13 +747,18 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
 }
 
 impl Handler<EpochSyncBatchRequestMessage> for ClientActor {
-    fn handle(&mut self, msg: EpochSyncBatchRequestMessage) {
-        let EpochSyncBatchRequestMessage {
+    fn handle(
+        &mut self,
+        EpochSyncBatchRequestMessage {
             from_peer,
             batch_index,
             recv_permit: _,
-            response_permit,
-        } = msg;
+            response_permit
+        }: EpochSyncBatchRequestMessage,
+    ) {
+        if !ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) {
+            return;
+        }
 
         let epoch_id = match self.client.chain.head() {
             Ok(head) => head.epoch_id,
@@ -771,69 +770,38 @@ impl Handler<EpochSyncBatchRequestMessage> for ClientActor {
 
         let network_adapter = self.client.network_adapter.clone();
         let batched_cache = self.client.sync_handler.epoch_sync.last_batched_response_cache.clone();
-
-        if let Some(batched) = EpochSync::cached_batched_proof(&batched_cache, epoch_id) {
-            let Some(segment) = batched.segment_at(batch_index) else {
-                tracing::warn!(
-                    target: "sync", %from_peer, batch_index,
-                    "ignoring request for a batch past the end of the proof",
-                );
-                return;
-            };
-            network_adapter.send(NetworkRequestWithPermit {
-                request: NetworkRequests::EpochSyncBatchResponse { peer_id: from_peer, segment },
-                permit: response_permit,
-            });
-            return;
-        }
-
-        let store = self.client.chain.chain_store.store();
-        let proof_cache =
-            self.client.sync_handler.epoch_sync.last_epoch_sync_response_cache.clone();
-        let transaction_validity_period = self.client.chain.transaction_validity_period();
-        let stored_proof = if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            match self.client.chain.chain_store.epoch_store().get_compressed_epoch_sync_proof() {
-                Some(proof) => Some(proof),
-                None => {
-                    tracing::warn!(target: "sync", "no epoch sync proof is stored");
-                    return;
-                }
-            }
-        } else {
-            None
-        };
+        let epoch_store = self.client.chain.chain_store.epoch_store();
 
         self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync batch request",
             move || {
-                let compressed = match stored_proof {
-                    Some(proof) => proof,
-                    None => match EpochSync::derive_epoch_sync_proof(
-                        store,
-                        transaction_validity_period,
-                        proof_cache,
-                    ) {
-                        Ok(proof) => proof,
+                let mut cache_guard = batched_cache.lock();
+
+                let batched = if let Some(batched) =
+                    EpochSync::cached_batched_proof(cache_guard.as_ref(), epoch_id)
+                {
+                    batched
+                } else {
+                    let Some(compressed_proof) = epoch_store.get_compressed_epoch_sync_proof()
+                    else {
+                        tracing::warn!(target: "sync", "no epoch sync proof is stored");
+                        return;
+                    };
+
+                    let batched = match EpochSync::batched_proof(&compressed_proof) {
+                        Ok(batched) => batched,
                         Err(err) => {
                             tracing::error!(
                                 target: "sync", ?err,
-                                "failed to derive epoch sync proof",
+                                "failed to split epoch sync proof into batches",
                             );
                             return;
                         }
-                    },
+                    };
+                    *cache_guard = Some((epoch_id, batched.clone()));
+                    batched
                 };
-
-                let batched = match EpochSync::batched_proof(&compressed, epoch_id, batched_cache) {
-                    Ok(batched) => batched,
-                    Err(err) => {
-                        tracing::error!(
-                            target: "sync", ?err,
-                            "failed to split epoch sync proof into batches",
-                        );
-                        return;
-                    }
-                };
+                drop(cache_guard);
 
                 let Some(segment) = batched.segment_at(batch_index) else {
                     tracing::warn!(
