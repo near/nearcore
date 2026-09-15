@@ -1,5 +1,7 @@
 # Smart-contract VM
 
+<!-- cspell:ignore vmstate wycheproof -->
+
 > Protocol version: 87 (stable) · Release: 2.14.0-rc.1 · Derived from commit: 233252e · Generated: 2026-09-14
 > Primary crates/files: `runtime/near-vm-runner/src/runner.rs`, `runtime/near-vm-runner/src/wasmtime_runner/mod.rs`, `runtime/near-vm-runner/src/wasmtime_runner/logic.rs`, `runtime/near-vm-runner/src/imports.rs`, `runtime/near-vm-runner/src/logic/logic.rs`, `runtime/near-vm-runner/src/logic/gas_counter.rs`, `runtime/near-vm-runner/src/logic/context.rs`, `runtime/near-vm-runner/src/logic/vmstate.rs`, `runtime/near-vm-runner/src/logic/dependencies.rs`, `runtime/near-vm-runner/src/logic/recorded_storage_counter.rs`, `runtime/near-vm-runner/src/logic/errors.rs`, `runtime/near-vm-runner/src/cache.rs`, `runtime/near-vm-runner/src/prepare.rs`, `runtime/near-vm-runner/src/prepare/prepare_v3.rs`, `runtime/near-vm-runner/src/features.rs`, `core/parameters/src/vm.rs`, `core/parameters/res/runtime_configs/87.yaml`
 
