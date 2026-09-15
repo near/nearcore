@@ -1,5 +1,7 @@
 # Runtime & transaction/receipt execution
 
+<!-- cspell:ignore uninit -->
+
 > Protocol version: 87 (stable) · Release: 2.14.0-rc.1 · Derived from commit: 233252e · Generated: 2026-09-14
 > Primary crates/files: `runtime/runtime/src/lib.rs`, `runtime/runtime/src/actions.rs`, `runtime/runtime/src/verifier.rs`, `runtime/runtime/src/config.rs`, `runtime/runtime/src/action_validation.rs`, `runtime/runtime/src/access_keys.rs`, `runtime/runtime/src/function_call.rs`, `runtime/runtime/src/global_contracts.rs`, `runtime/runtime/src/deterministic_account_id.rs`, `runtime/runtime/src/universal_account_id.rs`, `runtime/runtime/src/receipt_manager.rs`, `core/primitives-core/src/version.rs`, `core/parameters/res/runtime_configs/87.yaml`
 

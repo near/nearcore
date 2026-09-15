@@ -1,5 +1,7 @@
 # Accounts, keys & access control
 
+<!-- cspell:ignore crockford -->
+
 > Protocol version: 87 (stable) · Release: 2.14.0-rc.1 · Derived from commit: 233252e · Generated: 2026-09-14
 > Primary crates/files: `core/primitives-core/src/account.rs`, `core/primitives-core/src/universal_account_id.rs`, `core/primitives-core/src/universal_state_init.rs`, `core/primitives-core/src/deterministic_account_id.rs`, `near-account-id` 3.0.0 (external crate, read from the crates.io `.crate` whose sha256 matches `Cargo.lock`: `src/validation.rs`, `src/account_id_ref.rs`), `core/crypto/src/signature.rs`, `core/primitives/src/universal_state_init.rs`, `core/primitives/src/transaction.rs`, `core/primitives/src/views.rs`, `runtime/runtime/src/access_keys.rs`, `runtime/runtime/src/verifier.rs`, `runtime/runtime/src/actions.rs`, `runtime/runtime/src/universal_account_id.rs`, `runtime/runtime/src/action_validation.rs`, `core/store/src/utils/mod.rs`, `core/primitives-core/src/version.rs`
 

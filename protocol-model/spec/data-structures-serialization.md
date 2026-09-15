@@ -1,5 +1,7 @@
 # Data structures & serialization
 
+<!-- cspell:ignore crockford abcdefghjkmnpqrstvwxyz -->
+
 > Protocol version: 87 (stable) · Release: 2.14.0-rc.1 · Derived from commit: 233252e · Generated: 2026-09-14
 > Primary crates/files: `core/primitives/src/block.rs`, `core/primitives/src/block_header.rs`, `core/primitives/src/block_body.rs`, `core/primitives/src/sharding.rs`, `core/primitives/src/sharding/shard_chunk_header_inner.rs`, `core/primitives/src/transaction.rs`, `core/primitives/src/receipt.rs`, `core/primitives/src/action/mod.rs`, `core/primitives/src/action/delegate.rs`, `core/primitives/src/universal_state_init.rs`, `core/primitives/src/merkle.rs`, `core/primitives/src/utils.rs`, `core/primitives/src/state.rs`, `core/primitives/src/views.rs`, `core/primitives-core/src/account.rs`, `core/primitives-core/src/hash.rs`, `core/primitives-core/src/universal_account_id.rs`, `core/primitives-core/src/universal_state_init.rs`, `core/crypto/src/signature.rs`, `core/store/src/light_client_block.rs`
 
