@@ -32,7 +32,7 @@ fn forge_block_body(block: &Block) -> Arc<Block> {
     let BlockBody::V2(body) = &mut v4.body else {
         panic!("expected BlockBodyV2");
     };
-    for chunk_header in body.chunks.iter_mut() {
+    for chunk_header in &mut body.chunks {
         let mut forged = ShardChunkHeader::new_dummy(
             chunk_header.height_created(),
             chunk_header.shard_id(),
@@ -162,7 +162,7 @@ fn test_forged_sync_block_body_is_rejected() {
     // Let the victim reject the forgery, wait out `block_request_timeout` (60s), re-request
     // from another peer and finish syncing.
     let source_handle = env.node_datas[0].client_sender.actor_handle();
-    let head_handle = victim_handle.clone();
+    let head_handle = victim_handle;
     let forgery_stored_reader = forgery_stored.clone();
     env.test_loop.run_until(
         |data| {
