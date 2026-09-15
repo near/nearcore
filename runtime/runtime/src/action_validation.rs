@@ -5,7 +5,7 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, UniversalStateInitAction, UseGlobalContractAction,
+    GlobalContractIdentifier, StateInitCounts, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::errors::ActionsValidationError;
 use near_primitives::transaction::{
@@ -36,23 +36,33 @@ fn validate_number_of_deploy_actions(
     }
 }
 
-/// Bound the number of storage entries the state-init actions in one receipt
-/// carry, in total. Each entry adds to the receipt's congestion gas, regardless if
-/// it is ever burnt, so an unbounded count could congest the shard.
+/// Bound what the state-init actions in one receipt commit to, in total. Each
+/// entry and each committed key adds to the receipt's congestion gas, and each
+/// key is charged at the `add_full_access_key` *send* rate on top, burnt when the
+/// transaction is converted.
 ///
-/// The bound is on the total and not per action, because a receipt can carry many
-/// byte-identical copies of a state init, making per-action bound ineffective.
-fn validate_number_of_state_init_entries(
+/// Both bounds are on the receipt total and not per action, because a receipt can
+/// carry many byte-identical copies of a state init, making a per-action bound
+/// ineffective. They are checked together so they cannot drift apart.
+fn validate_state_init_counts(
     actions: &[Action],
-    max_state_init_entries: u64,
+    limit_config: &LimitConfig,
 ) -> Result<(), ActionsValidationError> {
-    let number_of_entries =
-        actions.iter().map(Action::num_state_init_entries).fold(0u64, u64::saturating_add);
+    let counts = actions
+        .iter()
+        .map(Action::state_init_counts)
+        .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add);
 
-    if number_of_entries > max_state_init_entries {
+    if counts.entries > limit_config.max_state_init_entries {
         return Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
-            number_of_entries,
-            limit: max_state_init_entries,
+            number_of_entries: counts.entries,
+            limit: limit_config.max_state_init_entries,
+        });
+    }
+    if counts.keys > limit_config.max_universal_state_init_keys {
+        return Err(ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
+            number_of_keys: counts.keys,
+            limit: limit_config.max_universal_state_init_keys,
         });
     }
 
@@ -119,7 +129,7 @@ pub(crate) fn validate_actions_with_mode(
         // `DeterministicStateInit` predates the entry limit, so it is applied to newly
         // created receipts only. A receipt built before the limit took effect has to
         // keep executing.
-        validate_number_of_state_init_entries(actions, limit_config.max_state_init_entries)?;
+        validate_state_init_counts(actions, limit_config)?;
     }
 
     let mut found_delegate_action = false;
@@ -560,14 +570,6 @@ fn validate_universal_state_init(
 
     if let Some(code) = state_init.code() {
         validate_global_contract_identifier(code)?;
-    }
-
-    let number_of_keys = state_init.access_keys().len() as u64;
-    if number_of_keys > limit_config.max_universal_state_init_keys {
-        return Err(ActionsValidationError::UniversalStateInitTooManyKeys {
-            number_of_keys,
-            limit: limit_config.max_universal_state_init_keys,
-        });
     }
 
     // Individual storage keys and values must respect the trie limits.
@@ -1652,174 +1654,177 @@ mod tests {
         );
     }
 
-    /// A state init may commit to at most `max_universal_state_init_keys` access
-    /// keys. The cap exists because each key is charged as a full `AddKey` at
-    /// the send rate, all of it burnt when the transaction is converted to a
-    /// receipt, and nothing meters that conversion against the chunk gas limit.
-    #[test]
-    fn test_validate_universal_state_init_key_count() {
-        let limit = test_limit_config();
-        let max_keys = limit.max_universal_state_init_keys;
-        let feature_version = ProtocolFeature::UniversalAccounts.protocol_version();
-
-        let with_keys = |num_keys: u64| {
-            let access_keys = (0..num_keys)
-                .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
-                .map(|key| PublicKeyHandle::from(key.public_key()))
-                .collect::<BTreeSet<_>>();
-            assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
-            UniversalStateInit::V1(UniversalStateInitV1 {
-                code: None,
-                data: BTreeMap::new(),
-                access_keys,
+    /// `copies` byte-identical state-init actions, all addressed to the receiver
+    /// they derive to. The copies are the point: every action in a receipt shares
+    /// its receiver and a state init has to derive to that receiver, so a receipt
+    /// can carry many and pays for each.
+    fn universal_state_init_actions(
+        num_entries: u64,
+        num_keys: u64,
+        copies: usize,
+    ) -> (Vec<Action>, AccountId) {
+        let access_keys = (0..num_keys)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: state_init_data(num_entries),
+            access_keys,
+        });
+        let actions = (0..copies)
+            .map(|_| {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: state_init.to_raw(),
+                    deposit: Balance::ZERO,
+                }))
             })
-        };
-        let check = |state_init: &UniversalStateInit| {
-            let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init: state_init.to_raw(),
-                deposit: Balance::ZERO,
-            }));
-            validate_action(&limit, &action, &state_init.derive_account_id(), feature_version)
-        };
-
-        assert_eq!(check(&with_keys(max_keys)), Ok(()));
-        assert_eq!(
-            check(&with_keys(max_keys + 1)),
-            Err(ActionsValidationError::UniversalStateInitTooManyKeys {
-                number_of_keys: max_keys + 1,
-                limit: max_keys,
-            })
-        );
+            .collect_vec();
+        (actions, state_init.derive_account_id())
     }
 
-    /// The number of storage entries the state-init actions in a receipt carry is
-    /// bounded in *total*, not per action. Each entry costs 200 Ggas to execute,
-    /// and that lands in the receipt's congestion gas whether or not it is ever
-    /// burnt, so a per-action bound would simply be multiplied by the action
-    /// count: every action in a receipt shares its receiver, and a state init has
-    /// to derive to that receiver, so the copies are byte identical and each one
-    /// is paid for.
-    #[test]
-    fn test_validate_state_init_entry_count() {
-        let limit = test_limit_config();
-        let max_entries = limit.max_state_init_entries;
-
-        let data = |num_entries: u64| {
-            (0..num_entries)
-                .map(|i| (i.to_le_bytes().to_vec(), Vec::new()))
-                .collect::<BTreeMap<Vec<u8>, Vec<u8>>>()
-        };
-
-        // `copies` identical state-init actions, all deriving to the one receiver
-        // they are addressed to, each carrying `num_entries` entries.
-        let deterministic = |num_entries: u64, copies: usize| {
-            let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-                code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
-                data: data(num_entries),
-            });
-            let receiver = derive_near_deterministic_account_id(&state_init);
-            let actions = (0..copies)
-                .map(|_| {
-                    Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                        state_init: state_init.clone(),
-                        deposit: Balance::ZERO,
-                    }))
-                })
-                .collect_vec();
-            (actions, receiver)
-        };
-        let universal = |num_entries: u64, copies: usize| {
-            let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
-                code: None,
-                data: data(num_entries),
-                access_keys: BTreeSet::new(),
-            });
-            let receiver = state_init.derive_account_id();
-            let actions = (0..copies)
-                .map(|_| {
-                    Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                        state_init: state_init.to_raw(),
-                        deposit: Balance::ZERO,
-                    }))
-                })
-                .collect_vec();
-            (actions, receiver)
-        };
-        let check = |(actions, receiver): (Vec<Action>, AccountId), mode| {
-            validate_actions_with_mode(&limit, &actions, &receiver, PROTOCOL_VERSION, mode)
-        };
-        let too_many = |number_of_entries| {
-            Err(ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
-                number_of_entries,
-                limit: max_entries,
+    fn deterministic_state_init_actions(
+        num_entries: u64,
+        copies: usize,
+    ) -> (Vec<Action>, AccountId) {
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+            data: state_init_data(num_entries),
+        });
+        let actions = (0..copies)
+            .map(|_| {
+                Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                    state_init: state_init.clone(),
+                    deposit: Balance::ZERO,
+                }))
             })
+            .collect_vec();
+        (actions, derive_near_deterministic_account_id(&state_init))
+    }
+
+    fn state_init_data(num_entries: u64) -> BTreeMap<Vec<u8>, Vec<u8>> {
+        (0..num_entries).map(|i| (i.to_le_bytes().to_vec(), Vec::new())).collect()
+    }
+
+    fn delegate_wrapping(receiver: &AccountId, inner: Vec<Action>) -> Action {
+        let actions = inner.into_iter().map(|a| NonDelegateAction::try_from(a).unwrap()).collect();
+        Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: receiver.clone(),
+                actions,
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::default(),
+        }))
+    }
+
+    /// Both state-init counts are bounded per *receipt*, by one check, and behave
+    /// identically at the boundary. Driven from one table so the two cannot drift
+    /// apart the way they once did: the key cap was enforced per action while the
+    /// entry cap was per receipt, and one receipt could then commit 47,564 keys
+    /// against a cap of 1,024.
+    ///
+    /// Each count is charged per unit. Entries cost 200 Ggas to execute, and each
+    /// committed key is a full `AddKey` at the send rate too. Both land in the
+    /// receipt's congestion gas whether or not they are ever burnt, so a
+    /// per-action bound is simply multiplied by the action count.
+    #[test]
+    fn test_validate_state_init_counts() {
+        let limit = test_limit_config();
+        let version = ProtocolFeature::UniversalAccounts.protocol_version();
+        let check = |(actions, receiver): (Vec<Action>, AccountId), mode| {
+            validate_actions_with_mode(&limit, &actions, &receiver, version, mode)
         };
 
-        // One action: at the limit accepted, one entry over refused.
-        for one in [deterministic(max_entries, 1), universal(max_entries, 1)] {
-            assert_eq!(check(one, ValidateReceiptMode::NewReceipt), Ok(()));
-        }
-        for one in [deterministic(max_entries + 1, 1), universal(max_entries + 1, 1)] {
-            assert_eq!(check(one, ValidateReceiptMode::NewReceipt), too_many(max_entries + 1));
-        }
+        type Build = fn(u64, usize) -> (Vec<Action>, AccountId);
+        type TooMany = fn(u64, u64) -> ActionsValidationError;
+        let entries_err: TooMany = |number_of_entries, limit| {
+            ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                number_of_entries,
+                limit,
+            }
+        };
+        let keys_err: TooMany = |number_of_keys, limit| {
+            ActionsValidationError::TotalNumberOfStateInitKeysExceeded { number_of_keys, limit }
+        };
+        let cases: [(&str, u64, Build, TooMany); 3] = [
+            (
+                "deterministic entries",
+                limit.max_state_init_entries,
+                deterministic_state_init_actions,
+                entries_err,
+            ),
+            (
+                "universal entries",
+                limit.max_state_init_entries,
+                |n, copies| universal_state_init_actions(n, 0, copies),
+                entries_err,
+            ),
+            (
+                "universal keys",
+                limit.max_universal_state_init_keys,
+                |n, copies| universal_state_init_actions(0, n, copies),
+                keys_err,
+            ),
+        ];
 
-        // Several actions: what counts is the sum. Two halves are fine, two
-        // halves plus an entry each are not, even though no single action is over
-        // the limit.
-        let half = max_entries / 2;
-        for split in [deterministic(half, 2), universal(half, 2)] {
-            assert_eq!(check(split, ValidateReceiptMode::NewReceipt), Ok(()));
-        }
-        for split in [deterministic(half + 1, 2), universal(half + 1, 2)] {
-            assert_eq!(check(split, ValidateReceiptMode::NewReceipt), too_many(2 * (half + 1)));
-        }
+        for (name, max, build, too_many) in cases {
+            use ValidateReceiptMode::{ExistingReceipt, NewReceipt};
 
-        // The whole action budget spent on state inits does not buy more entries
-        // either. This is the shape a per-action limit failed to bound.
-        let copies = usize::try_from(limit.max_actions_per_receipt).unwrap();
-        let per_action = max_entries / copies as u64 + 1;
-        for pile in [deterministic(per_action, copies), universal(per_action, copies)] {
+            // One action: at the limit accepted, one unit over refused.
+            assert_eq!(check(build(max, 1), NewReceipt), Ok(()), "{name}: at the limit");
             assert_eq!(
-                check(pile, ValidateReceiptMode::NewReceipt),
-                too_many(per_action * copies as u64),
+                check(build(max + 1, 1), NewReceipt),
+                Err(too_many(max + 1, max)),
+                "{name}: one over the limit",
             );
-        }
 
-        // A delegate action's inner list becomes its own receipt, but the outer
-        // receipt prepays its execution fees (`total_prepaid_exec_fees` recurses
-        // for exactly that reason), so the inner entries count towards the outer
-        // total. This is unlike `max_deploy_actions_per_receipt` sitting next to
-        // it, which counts actions per receipt and so does not sum across the
-        // boundary. Neither list here is over the limit on its own.
-        let delegate_to = |receiver: &AccountId, inner: Vec<Action>| {
-            let actions =
-                inner.into_iter().map(|a| NonDelegateAction::try_from(a).unwrap()).collect();
-            Action::Delegate(Box::new(SignedDelegateAction {
-                delegate_action: DelegateAction {
-                    sender_id: "bob.test.near".parse().unwrap(),
-                    receiver_id: receiver.clone(),
-                    actions,
-                    nonce: 19000001,
-                    max_block_height: 57,
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                },
-                signature: Signature::default(),
-            }))
-        };
-        let (outer, receiver) = deterministic(half + 1, 1);
-        let (inner, inner_receiver) = deterministic(half + 1, 1);
-        let nested = [outer, vec![delegate_to(&inner_receiver, inner)]].concat();
-        assert_eq!(
-            check((nested, receiver), ValidateReceiptMode::NewReceipt),
-            too_many(2 * (half + 1)),
-        );
+            // Several actions: the sum is what counts. Two halves fit, two halves
+            // plus a unit each do not, though neither action is over on its own.
+            let half = max / 2;
+            assert_eq!(check(build(half, 2), NewReceipt), Ok(()), "{name}: two halves");
+            assert_eq!(
+                check(build(half + 1, 2), NewReceipt),
+                Err(too_many(2 * (half + 1), max)),
+                "{name}: two halves plus one each",
+            );
 
-        // `DeterministicStateInit` predates the limit, so a receipt built before
-        // it took effect has to keep executing. An incoming or delayed receipt
-        // that fails validation is a `RuntimeError`, not an action error, so
-        // enforcing this in `ExistingReceipt` mode would fail the whole chunk.
-        for existing in [deterministic(max_entries + 1, 1), universal(max_entries + 1, 1)] {
-            assert_eq!(check(existing, ValidateReceiptMode::ExistingReceipt), Ok(()));
+            // The whole action budget spent on state inits buys no more. This is
+            // the shape a per-action bound failed to stop.
+            let copies = usize::try_from(limit.max_actions_per_receipt).unwrap();
+            let per_action = max / copies as u64 + 1;
+            assert_eq!(
+                check(build(per_action, copies), NewReceipt),
+                Err(too_many(per_action * copies as u64, max)),
+                "{name}: the full action budget",
+            );
+
+            // A delegate's inner actions become their own receipt, but the outer
+            // one prepays their fees, so the inner units count towards the outer
+            // total. Neither list is over the limit alone.
+            let (outer, receiver) = build(half + 1, 1);
+            let (inner, inner_receiver) = build(half + 1, 1);
+            let nested = [outer, vec![delegate_wrapping(&inner_receiver, inner)]].concat();
+            assert_eq!(
+                check((nested, receiver), NewReceipt),
+                Err(too_many(2 * (half + 1), max)),
+                "{name}: summed across a delegate",
+            );
+
+            // `DeterministicStateInit` predates these limits, so a receipt built
+            // before they took effect has to keep executing. An incoming or
+            // delayed receipt that fails validation is a `RuntimeError`, not an
+            // action error, so enforcing this in `ExistingReceipt` mode would fail
+            // the whole chunk.
+            assert_eq!(
+                check(build(max + 1, 1), ExistingReceipt),
+                Ok(()),
+                "{name}: tolerated in an existing receipt",
+            );
         }
     }
 
