@@ -81,15 +81,31 @@ fn test_forged_sync_block_body_is_rejected() {
     // tell the sync-hash request from the prev/extra block requests: only the sync-hash block
     // goes to the orphan pool, and only the orphan pool body is ever read back.
     let sync_hash: Arc<Mutex<Option<CryptoHash>>> = Arc::new(Mutex::new(None));
-    let sync_hash_writer = sync_hash.clone();
+    let sync_hash_cell = sync_hash.clone();
     let sync_hash_reader = sync_hash.clone();
+
+    // Chunk headers of the forged body, recorded just before it is handed to the victim.
+    let forged_chunks: Arc<Mutex<Option<Vec<ShardChunkHeader>>>> = Arc::new(Mutex::new(None));
+    let forged_chunks_reader = forged_chunks.clone();
+
+    // Set if the forged body is ever seen inside the victim's orphan pool.
+    let forgery_stored = Arc::new(AtomicBool::new(false));
+    let forgery_stored_writer = forgery_stored.clone();
+
     let victim_handle = env.node_datas[victim_idx].client_sender.actor_handle();
     let callback_handle = victim_handle.clone();
     env.test_loop.set_every_event_callback(move |data| {
-        if let SyncStatus::StateSync(status) =
-            &data.get(&callback_handle).client.sync_handler.sync_status
-        {
-            *sync_hash_writer.lock() = Some(status.sync_hash);
+        let client = &data.get(&callback_handle).client;
+        if let SyncStatus::StateSync(status) = &client.sync_handler.sync_status {
+            *sync_hash_cell.lock() = Some(status.sync_hash);
+        }
+
+        let Some(sync_hash) = *sync_hash_cell.lock() else { return };
+        let Some(orphan) = client.chain.get_orphan(&sync_hash) else { return };
+        let forged_chunks = forged_chunks_reader.lock();
+        let Some(forged_chunks) = forged_chunks.as_ref() else { return };
+        if orphan.chunks().iter_raw().eq(forged_chunks.iter()) {
+            forgery_stored_writer.store(true, Ordering::SeqCst);
         }
     });
 
@@ -122,12 +138,15 @@ fn test_forged_sync_block_body_is_rejected() {
                     .view_client_sender
                     .send_async(BlockRequest(hash));
                 let forged_counter = forged_counter.clone();
+                let forged_chunks = forged_chunks.clone();
                 future_spawner.spawn("forged sync block response", async move {
                     let Ok(Some(block)) = future.await else { return };
                     let forged = forge_block_body(&block);
                     // The whole point: the forgery keeps the honest hash, so a node that
                     // accepts it stores it under the hash it is waiting for.
                     assert_eq!(forged.hash(), block.hash());
+                    *forged_chunks.lock() =
+                        Some(forged.chunks().iter_raw().cloned().collect::<Vec<_>>());
                     forged_counter.fetch_add(1, Ordering::SeqCst);
                     let future = responder.send_async(
                         BlockResponse { block: forged, peer_id, was_requested: true }.span_wrap(),
@@ -144,8 +163,14 @@ fn test_forged_sync_block_body_is_rejected() {
     // from another peer and finish syncing.
     let source_handle = env.node_datas[0].client_sender.actor_handle();
     let head_handle = victim_handle.clone();
+    let forgery_stored_reader = forgery_stored.clone();
     env.test_loop.run_until(
         |data| {
+            // Stop early on a stored forgery so the failure is reported instead of being
+            // buried in whatever the victim does next.
+            if forgery_stored_reader.load(Ordering::SeqCst) {
+                return true;
+            }
             let victim_height = data.get(&head_handle).client.chain.head().unwrap().height;
             let source_height = data.get(&source_handle).client.chain.head().unwrap().height;
             victim_height == source_height
@@ -159,9 +184,8 @@ fn test_forged_sync_block_body_is_rejected() {
     );
 
     let sync_hash = sync_hash_reader.lock().expect("victim never entered state sync");
-    let client = &env.test_loop.data.get(&victim_handle).client;
     assert!(
-        !client.chain.is_orphan(&sync_hash),
-        "forged sync block was stored under the honest hash {sync_hash}"
+        !forgery_stored.load(Ordering::SeqCst),
+        "forged sync block was stored in the orphan pool under the honest hash {sync_hash}"
     );
 }
