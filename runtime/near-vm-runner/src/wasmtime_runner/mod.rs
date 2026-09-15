@@ -46,10 +46,9 @@ mod trap_classification;
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
-/// Value used for [PoolingAllocationConfig::decommit_batch_size]
-///
-/// Wasmtime defaults to `1`
-const DECOMMIT_BATCH_SIZE: usize = MAX_CONCURRENCY as usize / 2;
+/// Number of freed linear-memory regions the Wasmtime pooling allocator lets
+/// accumulate before returning them to the OS. See [PoolingAllocationConfig::decommit_batch_size].
+const DECOMMIT_BATCH_SIZE: usize = 1;
 
 /// The default maximum amount of tables per module.
 ///
