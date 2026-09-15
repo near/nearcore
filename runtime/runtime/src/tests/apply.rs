@@ -12,7 +12,7 @@ use crate::{
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
@@ -22,7 +22,7 @@ use near_primitives::account::{
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     Action, DeleteAccountAction, DeterministicStateInitAction, GlobalContractIdentifier,
-    TransferToGasKeyAction, UseGlobalContractAction,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -55,6 +55,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
     ShardId, StateChangeCause,
 };
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
@@ -68,7 +69,7 @@ use near_store::{
     set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -6993,6 +6994,66 @@ fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() 
             actions,
         }),
     });
+
+    // The same bound for a key-bearing universal payload. Keys are the denser of
+    // the two: `add_full_access_key` exec is 101.765 Ggas against 200 Ggas for an
+    // entry, but a key is 33 wire bytes against an entry's minimum of 9, and the
+    // key cap is lower.
+    let keys_per_action = limits.max_universal_state_init_keys / copies as u64;
+    let universal = {
+        let access_keys = (0..keys_per_action)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, keys_per_action, "seeds must give distinct keys");
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys,
+        })
+    };
+    let universal_receiver = universal.derive_account_id();
+    let universal_actions = (0..copies)
+        .map(|_| {
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: universal.to_raw(),
+                deposit: Balance::ZERO,
+            }))
+        })
+        .collect_vec();
+    crate::action_validation::validate_actions(
+        limits,
+        &universal_actions,
+        &universal_receiver,
+        PROTOCOL_VERSION,
+    )
+    .expect("the key-bearing worst case has to be one validation accepts");
+    let universal_receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: universal_receiver,
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: universal_actions,
+        }),
+    });
+    let universal_congestion_gas =
+        compute_receipt_congestion_gas(&universal_receipt, &config).unwrap();
+    println!(
+        "[state init] {copies} actions x {keys_per_action} keys ({} total) reserve \
+         {universal_congestion_gas} of congestion, {:.2}% of the {cap} whole-shard cap",
+        copies as u64 * keys_per_action,
+        100.0 * universal_congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
+    );
+    assert!(
+        universal_congestion_gas.as_gas() * 5 < cap.as_gas(),
+        "a key-bearing state-init receipt reserves {universal_congestion_gas}, over a fifth of \
+         the whole-shard outgoing cap of {cap}"
+    );
 
     let congestion_gas = compute_receipt_congestion_gas(&receipt, &config).unwrap();
     println!(
