@@ -24,7 +24,7 @@ static LOCALNET: WalletContract =
 const MAINNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
     WalletGlobalContract {
         // 2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4
-        hash: CryptoHash([
+        global_contract_hash: CryptoHash([
             0x1d, 0xaa, 0x83, 0x5c, 0x46, 0x37, 0xf7, 0xae, 0x3d, 0x92, 0x40, 0x95, 0xba, 0x3f,
             0x0b, 0xf2, 0x82, 0x9b, 0xcf, 0xa1, 0x7b, 0x10, 0x68, 0xcd, 0x58, 0xbd, 0x85, 0x3d,
             0xca, 0xd7, 0xce, 0xb5,
@@ -36,7 +36,7 @@ const MAINNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
     WalletGlobalContract {
         // 5LM8a65dWxesxZeWq3HjCcjLkNTwHjTUPp8R117wZJDw
         // Deployed in https://nearblocks.io/txns/DKiEEbvssm6ozPTFesTGewRVcrteCmyTHzi4JvTPxaR7
-        hash: CryptoHash([
+        global_contract_hash: CryptoHash([
             0x40, 0x63, 0x8b, 0x73, 0xc9, 0x6c, 0xeb, 0x00, 0xe7, 0x03, 0x79, 0xdc, 0x71, 0x65,
             0x89, 0xfd, 0xcc, 0xaf, 0x0d, 0x35, 0xec, 0x7b, 0x28, 0xf3, 0x8a, 0x79, 0x99, 0xe3,
             0x89, 0x50, 0x54, 0x72,
@@ -48,7 +48,7 @@ const MAINNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
 const TESTNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
     WalletGlobalContract {
         // 3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn
-        hash: CryptoHash([
+        global_contract_hash: CryptoHash([
             0x23, 0x8f, 0xea, 0xc1, 0xf8, 0x6c, 0xc9, 0xf9, 0xf4, 0x00, 0x3e, 0x3f, 0x6d, 0x5a,
             0xeb, 0xc0, 0x4e, 0xae, 0xa9, 0xc3, 0x94, 0x03, 0x2b, 0xd2, 0x94, 0x70, 0xe9, 0x60,
             0x9b, 0x67, 0xf6, 0xc5,
@@ -60,7 +60,7 @@ const TESTNET_GLOBAL_CONTRACTS: [WalletGlobalContract; 2] = [
     WalletGlobalContract {
         // H7BByXFswWtJzpoatHsnTKiUAomKubBTFi8tq9vzULX7
         // Deployed in https://testnet.nearblocks.io/txns/GYdoLMuhaoJThrbcTepWKn5YqemJTb7B3bem2Pw3Es4f
-        hash: CryptoHash([
+        global_contract_hash: CryptoHash([
             0xef, 0x4f, 0xff, 0x25, 0x0b, 0xc3, 0x65, 0x06, 0x3a, 0x73, 0x72, 0xc3, 0xe9, 0x3b,
             0x30, 0x81, 0x99, 0x0b, 0xd5, 0x04, 0xc6, 0x3a, 0xf2, 0xd1, 0xff, 0x5a, 0x1d, 0x16,
             0x7e, 0x0a, 0x6c, 0x66,
@@ -197,7 +197,10 @@ pub fn code_hash_matches_wallet_contract(chain_id: &str, code_hash: &CryptoHash)
 }
 
 struct WalletGlobalContract {
-    hash: CryptoHash,
+    global_contract_hash: CryptoHash,
+    /// The latest protocol version where this instance of the wallet contract
+    /// is used by the protocol for eth-implicit accounts. If `None` then
+    /// this instance applies to all future protocol versions.
     latest_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -209,10 +212,10 @@ impl WalletGlobalContract {
         for contract in contracts {
             match contract.latest_protocol_version {
                 None => {
-                    return contract.hash;
+                    return contract.global_contract_hash;
                 }
                 Some(latest_protocol_version) if protocol_version <= latest_protocol_version => {
-                    return contract.hash;
+                    return contract.global_contract_hash;
                 }
                 _ => (),
             }
@@ -228,7 +231,7 @@ impl WalletGlobalContract {
         for contract in contracts {
             if let Some(latest_protocol_version) = contract.latest_protocol_version
                 && latest_protocol_version < protocol_version
-                && &contract.hash == code_hash
+                && &contract.global_contract_hash == code_hash
             {
                 return true;
             }
