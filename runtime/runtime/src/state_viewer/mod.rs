@@ -176,9 +176,15 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
-        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-        })
+        if let Some(access_key) = get_access_key(state_update, account_id, public_key)? {
+            return Ok(access_key);
+        }
+        if get_account(state_update, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
+        Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() })
     }
 
     /// Lists an account's access keys, optionally paginated.
@@ -272,6 +278,11 @@ impl TrieViewer {
                 }
             }
         }
+        if keys.is_empty() && get_account(trie, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
         Ok((keys, last_key))
     }
 
@@ -281,10 +292,19 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
-        let access_key =
-            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-                errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { public_key: public_key.clone() }
-            })?;
+        let access_key = match get_access_key(state_update, account_id, public_key)? {
+            Some(access_key) => access_key,
+            None if get_account(state_update, account_id)?.is_none() => {
+                return Err(errors::ViewGasKeyNoncesError::AccountDoesNotExist {
+                    requested_account_id: account_id.clone(),
+                });
+            }
+            None => {
+                return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+                    public_key: public_key.clone(),
+                });
+            }
+        };
         // If the access key is not a gas key, treat as not found.
         let Some(gas_key_info) = access_key.gas_key_info() else {
             return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
