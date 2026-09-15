@@ -12,7 +12,10 @@ use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
     get_epoch_info_block_producers,
 };
-use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
+use near_network::client::{
+    EpochSyncBatchRequestMessage, EpochSyncBatchResponseMessage, EpochSyncRequestMessage,
+    EpochSyncResponseMessage,
+};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter,
     PeerManagerMessageRequest,
@@ -20,8 +23,11 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_sync::{
-    CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
-    EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
+    CompressedEpochSyncProof, CompressedEpochSyncProofBatch, CompressedEpochSyncProofTail,
+    EPOCHS_PER_BATCH_V1, EpochSyncBatchIndex, EpochSyncProof, EpochSyncProofBatch,
+    EpochSyncProofBatchV1, EpochSyncProofCurrentEpochData, EpochSyncProofEpochData,
+    EpochSyncProofLastEpochData, EpochSyncProofSegment, EpochSyncProofTail, EpochSyncProofTailV1,
+    EpochSyncProofV1,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -58,6 +64,28 @@ pub struct EpochSync {
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
+    /// The same proof, split and re-compressed for serving batch requests.
+    last_batched_response_cache: Arc<Mutex<Option<(EpochId, Arc<BatchedEpochSyncProof>)>>>,
+}
+
+/// A proof pre-split into the pieces served by `EpochSyncBatchRequest`.
+pub struct BatchedEpochSyncProof {
+    batches: Vec<CompressedEpochSyncProofBatch>,
+    tail: CompressedEpochSyncProofTail,
+}
+
+impl BatchedEpochSyncProof {
+    /// The batch at `batch_index`, or the tail for the index one past the last
+    /// whole batch. `None` for anything beyond that.
+    fn segment_at(&self, batch_index: EpochSyncBatchIndex) -> Option<EpochSyncProofSegment> {
+        match self.batches.get(batch_index as usize) {
+            Some(batch) => Some(EpochSyncProofSegment::Batch { batch_index, batch: batch.clone() }),
+            None if batch_index as usize == self.batches.len() => {
+                Some(EpochSyncProofSegment::Tail(self.tail.clone()))
+            }
+            None => None,
+        }
+    }
 }
 
 impl EpochSync {
@@ -75,6 +103,7 @@ impl EpochSync {
             async_computation_spawner,
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
+            last_batched_response_cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -160,6 +189,49 @@ impl EpochSync {
         Ok(())
     }
 
+    /// Returns the batched proof already computed for `epoch_id`, if there is one.
+    fn cached_batched_proof(
+        cache: Option<&(EpochId, Arc<BatchedEpochSyncProof>)>,
+        epoch_id: EpochId,
+    ) -> Option<Arc<BatchedEpochSyncProof>> {
+        cache
+            .filter(|(cached_epoch_id, _)| *cached_epoch_id == epoch_id)
+            .map(|(_, batched)| batched.clone())
+    }
+
+    /// Splits a compressed proof into compressed batches plus a tail. Callers
+    /// check [`EpochSync::cached_batched_proof`] first; this is the cache-miss path.
+    fn batched_proof(
+        compressed: &CompressedEpochSyncProof,
+    ) -> Result<Arc<BatchedEpochSyncProof>, Error> {
+        let (proof, _) = compressed
+            .decode()
+            .map_err(|err| Error::Other(format!("failed to decompress epoch sync proof: {err}")))?;
+        let EpochSyncProofV1 { all_epochs, last_epoch, current_epoch } = proof.into_v1();
+
+        let (batches, remaining_epochs) =
+            all_epochs.as_chunks::<{ EPOCHS_PER_BATCH_V1 as usize }>();
+        let batches = batches
+            .iter()
+            .cloned()
+            .map(|epochs| {
+                CompressedEpochSyncProofBatch::encode(&EpochSyncProofBatch::V1(
+                    EpochSyncProofBatchV1 { epochs },
+                ))
+                .map(|(compressed, _)| compressed)
+                .map_err(|err| Error::Other(format!("failed to compress batch: {err}")))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let (tail, _) =
+            CompressedEpochSyncProofTail::encode(&EpochSyncProofTail::V1(EpochSyncProofTailV1 {
+                epochs: remaining_epochs.to_vec(),
+                last_epoch,
+                current_epoch,
+            }))
+            .map_err(|err| Error::Other(format!("failed to compress tail: {err}")))?;
+
+        Ok(Arc::new(BatchedEpochSyncProof { batches, tail }))
+    }
     /// Picks a peer to request the epoch sync proof from.
     ///
     /// TODO(#11976): Implement a more robust logic for picking a peer to request
@@ -670,6 +742,105 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                     });
                 },
             )
+        }
+    }
+}
+
+impl Handler<EpochSyncBatchRequestMessage> for ClientActor {
+    fn handle(
+        &mut self,
+        EpochSyncBatchRequestMessage {
+            from_peer,
+            batch_index,
+            recv_permit: _,
+            response_permit
+        }: EpochSyncBatchRequestMessage,
+    ) {
+        if !ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
+        let epoch_id = match self.client.chain.head() {
+            Ok(head) => head.epoch_id,
+            Err(err) => {
+                tracing::warn!(target: "sync", ?err, "no head while serving epoch sync batch");
+                return;
+            }
+        };
+
+        let network_adapter = self.client.network_adapter.clone();
+        let batched_cache = self.client.sync_handler.epoch_sync.last_batched_response_cache.clone();
+        let epoch_store = self.client.chain.chain_store.epoch_store();
+
+        self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(
+            "respond to epoch sync batch request",
+            move || {
+                let mut cache_guard = batched_cache.lock();
+
+                let batched = if let Some(batched) =
+                    EpochSync::cached_batched_proof(cache_guard.as_ref(), epoch_id)
+                {
+                    batched
+                } else {
+                    let Some(compressed_proof) = epoch_store.get_compressed_epoch_sync_proof()
+                    else {
+                        tracing::warn!(target: "sync", "no epoch sync proof is stored");
+                        return;
+                    };
+
+                    let batched = match EpochSync::batched_proof(&compressed_proof) {
+                        Ok(batched) => batched,
+                        Err(err) => {
+                            tracing::error!(
+                                target: "sync", ?err,
+                                "failed to split epoch sync proof into batches",
+                            );
+                            return;
+                        }
+                    };
+                    *cache_guard = Some((epoch_id, batched.clone()));
+                    batched
+                };
+                drop(cache_guard);
+
+                let Some(segment) = batched.segment_at(batch_index) else {
+                    tracing::warn!(
+                        target: "sync", %from_peer, batch_index,
+                        "ignoring request for a batch past the end of the proof",
+                    );
+                    return;
+                };
+
+                network_adapter.send(NetworkRequestWithPermit {
+                    request: NetworkRequests::EpochSyncBatchResponse {
+                        peer_id: from_peer,
+                        segment,
+                    },
+                    permit: response_permit,
+                });
+            },
+        )
+    }
+}
+
+impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
+    fn handle(&mut self, msg: EpochSyncBatchResponseMessage) {
+        // TODO: feed the segment to the download state machine; until it exists
+        // nothing requests batches, so any segment that arrives is unsolicited.
+        let EpochSyncBatchResponseMessage { from_peer, segment, recv_permit: _ } = msg;
+        match segment {
+            EpochSyncProofSegment::Batch { batch_index, .. } => {
+                tracing::debug!(
+                    target: "sync", %from_peer, batch_index,
+                    "ignoring unsolicited epoch sync batch response",
+                );
+            }
+            EpochSyncProofSegment::Tail(_) => {
+                tracing::debug!(
+                    target: "sync", %from_peer,
+                    "ignoring unsolicited epoch sync tail response",
+                );
+            }
         }
     }
 }

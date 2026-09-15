@@ -51,7 +51,9 @@ use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::epoch_sync::{
+    CompressedEpochSyncProof, EpochSyncBatchIndex, EpochSyncProofSegment,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -452,6 +454,10 @@ pub enum PeerMessage {
 
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+
+    /// Requests one batch of an epoch sync proof.
+    EpochSyncBatchRequest(EpochSyncBatchIndex),
+    EpochSyncBatchResponse(EpochSyncProofSegment),
 }
 
 impl fmt::Display for PeerMessage {
@@ -530,6 +536,8 @@ impl PeerMessage {
 
             PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
             PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,
+            PeerMessage::EpochSyncBatchRequest(_) => MAX_SMALL_MESSAGE_SIZE,
+            PeerMessage::EpochSyncBatchResponse(_) => MAX_LARGE_MESSAGE_SIZE,
             PeerMessage::Routed(msg) => match msg.body() {
                 T1(body) => match body.as_ref() {
                     BlockApproval(_) | VersionedChunkEndorsement(_) | SpiceChunkEndorsement(_) => {

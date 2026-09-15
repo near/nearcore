@@ -97,6 +97,155 @@ impl Debug for CompressedEpochSyncProof {
     }
 }
 
+/// Index of a batch within the sequence of batches an epoch sync proof is split
+/// into. Batch 0 covers the oldest epochs.
+pub type EpochSyncBatchIndex = u64;
+
+/// Number of epochs carried by every batch except the tail.
+pub const EPOCHS_PER_BATCH_V1: u64 = 128;
+
+const MAX_UNCOMPRESSED_EPOCH_SYNC_BATCH_SIZE: u64 = ByteSize::mib(16).0;
+const MAX_UNCOMPRESSED_EPOCH_SYNC_TAIL_SIZE: u64 = ByteSize::mib(32).0;
+
+/// One batch of `EPOCHS_PER_BATCH_V1` consecutive epochs from an epoch sync proof.
+///
+/// A batch is verified against the epoch that precedes it, so batches are only
+/// meaningful in order: batch 0 is proven against the genesis, and batch `i + 1`
+/// against the last epoch of batch `i`. See [`EpochSyncProofV1::all_epochs`].
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum EpochSyncProofBatch {
+    V1(EpochSyncProofBatchV1) = 0,
+}
+
+impl EpochSyncProofBatch {
+    pub fn into_v1(self) -> EpochSyncProofBatchV1 {
+        match self {
+            EpochSyncProofBatch::V1(v1) => v1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofBatchV1 {
+    pub epochs: [EpochSyncProofEpochData; EPOCHS_PER_BATCH_V1 as usize],
+}
+
+/// The end of an epoch sync proof: whatever epochs did not fill a whole batch,
+/// followed by the extra data needed to initialize the epoch being synced to.
+///
+/// Receiving the tail is what tells a downloading node that it has seen every
+/// batch.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum EpochSyncProofTail {
+    V1(EpochSyncProofTailV1) = 0,
+}
+
+impl EpochSyncProofTail {
+    pub fn into_v1(self) -> EpochSyncProofTailV1 {
+        match self {
+            EpochSyncProofTail::V1(v1) => v1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofTailV1 {
+    /// The epochs left over after the last full batch, in order. Fewer than
+    /// `EPOCHS_PER_BATCH_V1` entries, possibly none.
+    pub epochs: Vec<EpochSyncProofEpochData>,
+    /// Some extra data for the last epoch before the current epoch.
+    pub last_epoch: EpochSyncProofLastEpochData,
+    /// Extra information to initialize the current epoch we're syncing to.
+    pub current_epoch: EpochSyncProofCurrentEpochData,
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
+    derive_more::AsRef,
+    ProtocolSchema,
+)]
+pub struct CompressedEpochSyncProofBatch(Box<[u8]>);
+impl
+    CompressedData<
+        EpochSyncProofBatch,
+        MAX_UNCOMPRESSED_EPOCH_SYNC_BATCH_SIZE,
+        EPOCH_SYNC_COMPRESSION_LEVEL,
+    > for CompressedEpochSyncProofBatch
+{
+}
+
+impl Debug for CompressedEpochSyncProofBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressedEpochSyncProofBatch").field("len", &self.0.len()).finish()
+    }
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
+    derive_more::AsRef,
+    ProtocolSchema,
+)]
+pub struct CompressedEpochSyncProofTail(Box<[u8]>);
+impl
+    CompressedData<
+        EpochSyncProofTail,
+        MAX_UNCOMPRESSED_EPOCH_SYNC_TAIL_SIZE,
+        EPOCH_SYNC_COMPRESSION_LEVEL,
+    > for CompressedEpochSyncProofTail
+{
+}
+
+impl Debug for CompressedEpochSyncProofTail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressedEpochSyncProofTail").field("len", &self.0.len()).finish()
+    }
+}
+
+/// One piece of an epoch sync proof, as served in answer to a batch request.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum EpochSyncProofSegment {
+    Batch {
+        batch_index: EpochSyncBatchIndex,
+        batch: CompressedEpochSyncProofBatch,
+    } = 0,
+    /// Also tells the requester it has seen every batch.
+    Tail(CompressedEpochSyncProofTail) = 1,
+}
+
+impl EpochSyncProofV1 {
+    pub fn from_batches_and_tail(
+        batches: Vec<EpochSyncProofBatchV1>,
+        tail: EpochSyncProofTailV1,
+    ) -> Self {
+        let EpochSyncProofTailV1 { epochs: tail_epochs, last_epoch, current_epoch } = tail;
+        EpochSyncProofV1 {
+            all_epochs: batches
+                .into_iter()
+                .flat_map(|batch| batch.epochs)
+                .chain(tail_epochs)
+                .collect(),
+            last_epoch,
+            current_epoch,
+        }
+    }
+}
+
 /// For epoch sync we need to keep track of when the block producer hash format changed.
 /// This is required for the correct calculation of the proof. See [`use_versioned_bp_hash_format`]
 pub fn should_use_versioned_bp_hash_format(protocol_version: ProtocolVersion) -> bool {

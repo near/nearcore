@@ -6,7 +6,9 @@ use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::{Approval, Block, BlockHeader};
-use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::epoch_sync::{
+    CompressedEpochSyncProof, EpochSyncBatchIndex, EpochSyncProofSegment,
+};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -170,6 +172,21 @@ pub struct EpochSyncResponseMessage {
 }
 
 #[derive(Debug)]
+pub struct EpochSyncBatchRequestMessage {
+    pub from_peer: PeerId,
+    pub batch_index: EpochSyncBatchIndex,
+    pub recv_permit: RecvMessagePermit,
+    pub response_permit: OutgoingPermit,
+}
+
+#[derive(Debug)]
+pub struct EpochSyncBatchResponseMessage {
+    pub from_peer: PeerId,
+    pub segment: EpochSyncProofSegment,
+    pub recv_permit: RecvMessagePermit,
+}
+
+#[derive(Debug)]
 pub struct OptimisticBlockMessage {
     pub optimistic_block: OptimisticBlock,
     pub from_peer: PeerId,
@@ -196,6 +213,8 @@ pub struct ClientSenderForNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
+    pub epoch_sync_batch_request: Sender<EpochSyncBatchRequestMessage>,
+    pub epoch_sync_batch_response: Sender<EpochSyncBatchResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
     pub current_epoch_height_request: AsyncSender<GetCurrentEpochHeight, Option<EpochHeight>>,
 }
