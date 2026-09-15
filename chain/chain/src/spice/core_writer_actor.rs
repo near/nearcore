@@ -80,10 +80,6 @@ impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
         }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
             match err {
-                // A non-designated validator re-broadcasts
-                // its recorded endorsement once per block until it lands on chain, and a
-                // receiver whose head has not opened the fallback window for the chunk
-                // yet rejects each copy as irrelevant.
                 ProcessChunkError::InvalidEndorsement(
                     InvalidSpiceEndorsementError::EndorsementIsNotRelevant,
                 )

@@ -357,9 +357,7 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
 }
 
 /// The protocol upgrade with every designated endorsement dropped: the activation
-/// parent can only certify via the all-stake fallback. Both the endorsement threshold
-/// and the fallback assignment for its chunks are keyed on its own pre-spice epoch,
-/// and the fallback witness pull must handle a pre-spice block id.
+/// parent can only certify via the all-stake fallback.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_activation_boundary_all_stake_fallback() {

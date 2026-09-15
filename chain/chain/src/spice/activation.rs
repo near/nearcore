@@ -49,9 +49,6 @@ pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Er
     Ok(chain_store.head_header()?.is_spice())
 }
 
-/// Whether the epoch after the head's is a spice epoch: the head is in the last
-/// pre-spice epoch, so a message about a block this node has not received yet can
-/// concern the activation boundary and must not be dropped for pre-spice-ness.
 fn spice_activation_imminent_at_head(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -62,8 +59,6 @@ fn spice_activation_imminent_at_head(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
-/// Whether spice work exists for `block_hash`: any spice block, and an activation
-/// parent, which spice certifies through the boundary bootstrap.
 pub fn spice_relevant_block(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -114,13 +109,11 @@ enum DropUnit {
 }
 
 impl SpiceMessageGate {
-    /// Whether an inbound spice message referencing `block_hash` should be processed. One drop
-    /// counts one message.
+    /// Whether an inbound spice message referencing `block_hash` should be processed.
     ///
     /// The authoritative answer is the referenced block itself, plus the activation
-    /// parent, which spice certifies and whose data is never resent. When the block
-    /// is not on disk, fall back to the head: spice legitimately receives data ahead
-    /// of its block and buffers it.
+    /// parent. When the block is not on disk, fall back to the head:
+    /// spice legitimately receives data ahead of its block and buffers it.
     pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -245,8 +238,7 @@ mod tests {
 
     /// A chain whose headers are all on disk as pre-spice headers, paired with an
     /// epoch manager that recorded the same hashes with every block after genesis
-    /// voting `vote`. The gate reads spice-ness off the headers and activation off
-    /// the epoch manager, so this exercises both of its inputs consistently.
+    /// voting `vote`.
     fn setup_gated_chain(vote: ProtocolVersion) -> (Chain, EpochManagerHandle, Vec<CryptoHash>) {
         let genesis_protocol_version = pre_spice_protocol_version();
         let mut genesis =

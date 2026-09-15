@@ -213,8 +213,7 @@ impl ChunkExecutorActor {
     }
 
     /// Runs the boundary bootstrap of the activation parent `block_hash` on every
-    /// tracked shard's executor. Reconciles with `block_hash` as the parent first,
-    /// so the executors exist even when this is the first spice work on the chain.
+    /// tracked shard's executor.
     fn bootstrap_boundary_source_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
         self.reconcile_tracked_shards(block_hash)?;
@@ -358,10 +357,8 @@ impl ChunkExecutorActor {
     }
 
     /// Recover after a crash around an activation parent: the boundary bootstrap's
-    /// endorsement and receipt sends are not persisted, so re-run it. The parent is
-    /// the chain head until the first spice block lands, and the spice execution
-    /// head from then until it certifies. A no-op when neither is an activation
-    /// parent.
+    /// endorsement and receipt sends are not persisted, so re-run it.
+    /// A no-op when neither is an activation parent.
     fn recover_boundary_bootstrap(&mut self) -> Result<(), Error> {
         let mut candidates = Vec::new();
         match self.chain_store.head() {
@@ -447,8 +444,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         let to_shard_id = *to_shard;
         // A receipt for a shard this node does track can arrive before anything created
         // the executor, and the push is not retried, so create it here if the shard
-        // is tracked as of the source block. Create only, never evict: the tracked
-        // set of an old source block says nothing about the shards this node runs now.
+        // is tracked as of the source block.
         // TODO(spice-resharding): anchoring on the source block (or the head when it
         // is not received yet) is not enough when the source block is in a different
         // shard layout.

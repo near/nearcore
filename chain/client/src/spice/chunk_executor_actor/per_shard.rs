@@ -587,8 +587,7 @@ impl PerShardChunkExecutor {
     }
 
     /// Packages and distributes the state witness of the activation parent's chunk
-    /// for this shard, so its designated validators can endorse without tracking the
-    /// shard.
+    /// for this shard.
     fn distribute_boundary_witness(&self, block: &Block) -> Result<(), Error> {
         let shard_id = self.shard_uid.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;

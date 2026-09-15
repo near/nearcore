@@ -1468,7 +1468,7 @@ fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
 /// At the boundary the final execution head is seeded to the first spice block's
 /// last final block. `is_descendant_of_final_execution_head` gates execution on it
 /// by walking a block's ancestry down to the head's height and comparing heights
-/// only, never hashes. This pins both consequences for boundary forks:
+/// only, never hashes. Consequences:
 /// - a fork whose blocks sit at the same heights as the canonical chain passes,
 ///   even though its ancestor at the head's height is a different block;
 /// - a fork that branched below the seeded head and skipped its height has no
@@ -1520,7 +1520,7 @@ fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
 }
 
 /// Saves `block` and records it in the epoch manager the way block postprocessing
-/// does, without running block processing: the epoch manager has to know the block
+/// does, without processing the block: the epoch manager has to know the block
 /// to answer activation-boundary questions about it, and its chunks have to be on
 /// disk for the executor to read them.
 fn save_and_record_pre_spice_block(chain: &mut Chain, block: &Arc<Block>) {
@@ -1546,9 +1546,8 @@ fn save_and_record_pre_spice_block(chain: &mut Chain, block: &Arc<Block>) {
 }
 
 /// Extends `chain` with fabricated pre-spice blocks that vote for spice until the
-/// tip is a spice activation parent, and returns it. Each header stays pinned to
-/// the pre-spice version while its vote is the spice one, which is what makes the
-/// epoch after the returned block the first spice epoch.
+/// tip is a spice activation parent, and returns it.
+/// The epoch after the returned block is the first spice epoch.
 fn build_to_activation_parent(chain: &mut Chain, signer: &Arc<ValidatorSigner>) -> Arc<Block> {
     let mut block = chain.genesis_block();
     for _ in 0..MAX_BLOCKS_TO_ACTIVATION {
@@ -1594,16 +1593,9 @@ const BOUNDARY_NUM_SHARDS: NumShards = 3;
 /// The one shard whose chunk extra is withheld below.
 const BROKEN_SHARD_INDEX: usize = 1;
 
-/// The boundary bootstrap has to survive a shard it cannot synthesize.
-///
-/// The coordinator creates a per-shard executor for every shard tracked in the
-/// activation parent's epoch *or* the first spice epoch, so a shard this node
-/// rotates into under spice gets an executor even though the node never applied
-/// the parent's chunk for it and holds no `ChunkExtra` to synthesize from. That
+/// The boundary bootstrap has to survive a shard it cannot synthesize. That
 /// shard's bootstrap must fail on its own without taking the other shards' work
-/// with it: their endorsements, receipt proofs and witnesses are the only ones
-/// they will ever produce for the parent, since nothing retries the bootstrap
-/// outside `start_actor` recovery.
+/// with it.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {

@@ -388,8 +388,7 @@ fn verify_proof_of_invalid_chunk(
 /// Boundary-witness counterpart of [`validate_source_receipts_proofs`], shaped like
 /// the pre-spice validation: the anchor's application consumed the incoming receipts
 /// of every block from the target shard's previous inclusion (exclusive) through the
-/// anchor (inclusive), so the witness carries one proof per chunk included in that
-/// range.
+/// anchor (inclusive).
 fn validate_boundary_source_receipts_proofs(
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
     source_blocks: &[Arc<Block>],
@@ -1165,8 +1164,7 @@ mod tests {
     }
 
     /// Fabricated per-shard execution results and the source receipt proofs to
-    /// `target_shard_id` consistent with them: each source shard's receipts yield
-    /// both the result's outgoing receipts root and the proof a witness carries.
+    /// `target_shard_id` consistent with them.
     fn fabricate_prev_results_and_proofs(
         shard_layout: &ShardLayout,
         target_shard_id: ShardId,
@@ -1635,10 +1633,7 @@ mod tests {
     }
 
     /// Era-semantics tests for a witness of the spice activation parent whose chunk
-    /// is missing: the apply-side context must be the pre-spice one, keyed to the
-    /// anchor (the shard's last included chunk), and the source receipt proofs must
-    /// come from exactly the chunk headers included within the consumed range,
-    /// verified against their own receipts roots.
+    /// is missing.
     mod pre_spice_boundary {
         use super::*;
         use crate::spice::boundary::execution_result_from_pre_spice_child;
@@ -1674,9 +1669,7 @@ mod tests {
         /// A staggered gap straddling the anchor:
         /// full block -> mid-range (other new, target missing) -> anchor (target
         /// new, other new iff `other_included_at_anchor`) -> boundary block
-        /// (everything missing). The target's witness anchors one below the boundary
-        /// block, and its application consumed the other shard's receipts from the
-        /// mid-range block, and from the anchor too when included there.
+        /// (everything missing).
         fn setup_boundary_chain(other_included_at_anchor: bool) -> BoundaryChain {
             init_test_logger();
             let chain = setup_pre_spice_chain(2);
@@ -1726,8 +1719,6 @@ mod tests {
                     .unwrap()
             }
 
-            /// Distinct receipts per source shard inclusion, all addressed to the
-            /// target shard.
             fn receipts_from(&self, from_shard_id: ShardId, height: BlockHeight) -> Vec<Receipt> {
                 let shard_id: u64 = from_shard_id.into();
                 let deposit = 100 * u128::from(height) + u128::from(shard_id);
@@ -1738,8 +1729,7 @@ mod tests {
             }
 
             /// The receipts root a new chunk of `shard_id` included at `height`
-            /// commits to as its previous chunk's output: the root over
-            /// [`Self::receipts_from`].
+            /// commits to as its previous chunk's output.
             fn receipts_root_from(&self, shard_id: ShardId, height: BlockHeight) -> CryptoHash {
                 let (root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
                     &self.shard_layout(),
@@ -1844,9 +1834,6 @@ mod tests {
                 source_receipt_proofs
             }
 
-            /// Results the pre-validation call is given: only the target shard's
-            /// entry is read (for the main transition's previous extra), reconstructed
-            /// from the anchor's header like the validator actor does.
             fn prev_execution_results(&self) -> BlockExecutionResults {
                 let prev_result = execution_result_from_pre_spice_child(
                     self.chain.epoch_manager.as_ref(),
@@ -1925,10 +1912,7 @@ mod tests {
         /// The main transition's context must be the anchor's pre-spice context: the
         /// anchor's height and parent, the anchor parent's gas price, and the
         /// anchor's real missed-chunk counts (the other shard's chunk is missing in
-        /// the anchor). The main transition applies the anchor's chunk, its receipts
-        /// come from each source shard's own inclusion — the other shard's from the
-        /// mid-range block — and each block after the anchor becomes one implicit
-        /// old-chunk replay.
+        /// the anchor).
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn test_boundary_witness_uses_pre_spice_anchor_context() {
@@ -2024,8 +2008,7 @@ mod tests {
 
         /// A source shard included at both the mid-range block and the anchor
         /// contributes one proof per inclusion, each verified against its own
-        /// header; the receipts of both inclusions are applied, and neither proof can
-        /// be dropped or stand in for the other.
+        /// header.
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
         fn test_boundary_witness_source_shard_included_twice_in_range() {

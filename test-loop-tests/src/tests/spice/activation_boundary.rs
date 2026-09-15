@@ -39,8 +39,7 @@ fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> T
             ProtocolFeature::Spice.protocol_version(),
         ))
         // Zero inflation, so the supply identity at the boundary is exact with no
-        // minting term. A real gas price (the test genesis default is zero) so
-        // transactions burn tokens and the identity subtracts a real burn.
+        // minting term. A real gas price so transactions burn tokens and the identity subtracts a real burn.
         .max_inflation_rate(Rational32::new(0, 1))
         .gas_prices(Balance::from_yoctonear(100_000_000), Balance::from_yoctonear(10_000_000_000))
         .gas_price_adjustment_rate(Rational32::new(1, 10))
@@ -53,32 +52,21 @@ fn setup_upgrading_chain(num_producers: usize, num_chunk_validators: usize) -> T
         .build()
 }
 
-/// The upgrade test: a pre-spice chain votes itself into spice, the activation
-/// parent certifies under spice, execution follows across the boundary, and the
-/// chain keeps running spice epochs with no height skipped. Validator topology is
-/// realistic: the chunk-validator-only nodes track nothing, so their endorsements
-/// of the activation parent can only come from validating the boundary witness.
+/// Basic upgrade test: a pre-spice chain votes itself into spice
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice() {
     run_protocol_upgrade_to_spice(BoundaryChunkDrops::None);
 }
 
-/// The upgrade with every chunk missing at the activation parent: certifying it then
-/// needs the multi-block witness — the main transition applies each shard's chunk at
-/// the block before, and the parent's own old-chunk application is replayed as an
-/// implicit transition. Stateless chunk validators make that witness load-bearing.
+/// The upgrade with every chunk missing at the activation parent
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_missing_chunks_at_boundary() {
     run_protocol_upgrade_to_spice(BoundaryChunkDrops::AllAtParent);
 }
 
-/// The upgrade with staggered gaps straddling the anchor: one shard misses only the
-/// activation parent, the other misses the block before it too. The first shard's
-/// witness then anchors at a block where the second shard's chunk is missing — its
-/// receipts come from that shard's own earlier inclusion — and the second shard's
-/// witness replays two implicit transitions.
+/// The upgrade with staggered gaps straddling the anchor
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_staggered_missing_chunks_at_boundary() {
@@ -223,10 +211,6 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
         );
         match drops {
             BoundaryChunkDrops::None => {
-                // The witness of the activation parent replays its apply with the
-                // gas price of the parent's parent (the pre-spice convention); the
-                // spice convention would take the parent's own. Not meaningful with
-                // chunks dropped: a block with no new chunks leaves the price alone.
                 let grandparent =
                     node.client().chain.get_block(parent.header().prev_hash()).unwrap();
                 assert_ne!(
@@ -244,8 +228,6 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
             }
         }
         if drops == BoundaryChunkDrops::Staggered {
-            // The staggering is real: at the block before the parent, the long-gap
-            // shard's chunk is missing while the other shard's is present.
             let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
             let long_gap_index = shard_layout.get_shard_index(long_gap_shard_id.unwrap()).unwrap();
             let mask = grandparent.header().chunk_mask();
@@ -270,7 +252,6 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
 
     let node = env.rpc_node();
     assert!(node.head_block().is_spice_block());
-    // Execution followed across the boundary.
     let final_execution_head =
         node.client().chain.chain_store.spice_final_execution_head().unwrap();
     assert!(
@@ -279,9 +260,7 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
     );
 
     // The certifying block: the first block whose core statements complete the
-    // activation parent's execution results. Nothing else can certify before the
-    // parent does, and inflation is zero, so the supply must stay untouched up to
-    // the certifying block and drop by exactly the parent's burn there.
+    // activation parent's execution results.
     let mut chain_blocks = Vec::new();
     let mut block = node.head_block();
     while block.header().height() > parent_height {
@@ -309,12 +288,7 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
     }
 
     // Walk the core statements forward, tracking per block when its execution
-    // results complete (all shards certified). The activation parent completes
-    // first: every later block descends from it and cannot execute — let alone
-    // certify — before the parent's results are known. Blocks executed off the
-    // parent's results may reach threshold in the very same certifying block, so
-    // the supply drop there covers every block completing in it, each counted from
-    // the burns its certified execution results carry.
+    // results complete
     let mut shards_by_block: HashMap<CryptoHash, HashSet<ShardId>> = HashMap::new();
     let mut burnt_by_block: HashMap<CryptoHash, Balance> = HashMap::new();
     let mut certifying_block = None;
@@ -497,9 +471,7 @@ struct BoundaryTrickle {
 
 /// Runs the upgrade submitting a cross-shard "user" -> "receiver" transfer of
 /// [`TRICKLE_AMOUNT`] every block until the chain crosses the boundary, then lets
-/// certification catch up past every transfer's receipt. Asserts each transfer was
-/// included exactly once and at least one at the activation parent itself, whose
-/// receipt can then only execute under spice.
+/// certification catch up past every transfer's receipt.
 fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickle {
     let sender = create_account_id("user");
     let receiver = create_account_id("receiver");
@@ -582,9 +554,7 @@ fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickl
 }
 
 /// A cross-shard transfer in flight at the boundary: a transaction included in a
-/// pre-spice chunk whose receipt executes in the first spice epoch. Its deposit
-/// must land exactly once — the boundary hands the receipt over exactly one way,
-/// through the bootstrap's persisted receipt proofs.
+/// pre-spice chunk whose receipt executes in the first spice epoch.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_receipt_in_flight() {
@@ -604,11 +574,7 @@ fn test_protocol_upgrade_to_spice_receipt_in_flight() {
 }
 
 /// View queries addressed at blocks on both sides of the boundary, on a node that
-/// crossed it: balances as of pre-spice blocks, the activation parent, and spice
-/// blocks must each reflect exactly the transfers whose receipts had executed by
-/// that block. Also spans an execution outcome pair across the boundary: a
-/// transaction included at the activation parent with its receipt executed under
-/// spice.
+/// crossed it.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_view_queries() {

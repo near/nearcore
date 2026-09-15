@@ -20,9 +20,6 @@ use std::sync::Arc;
 
 /// Whether `block_hash` is a spice activation parent: a last block of the last
 /// pre-spice epoch, so every child of it is a first spice block.
-///
-/// Epoch-manager-backed on purpose: the next epoch's protocol version is fixed by the
-/// time `block_hash` exists, so the answer is stable regardless of the caller's head.
 pub fn is_spice_activation_parent(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
@@ -304,9 +301,7 @@ mod tests {
     use std::sync::Arc;
 
     /// The synthesized result must be the chunk extra the pre-spice apply wrote plus
-    /// the receipts root a producer of the next block's chunk would compute: the
-    /// receipts of the shard's last included chunk, whether that chunk was included
-    /// in the block itself or the block missed it.
+    /// the receipts root a producer of the next block's chunk would compute.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_synthesize_execution_result_with_included_and_missing_chunk() {
@@ -459,8 +454,7 @@ mod tests {
     }
 
     /// Every field of the reconstructed result must come from the corresponding
-    /// prev_* header field, and a missing chunk (header carried over from an older
-    /// block) must yield `None` rather than the older chunk's stale fields.
+    /// prev_* header field, and a missing chunk must yield `None` rather than the older chunk's stale fields.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_execution_result_from_pre_spice_child() {
