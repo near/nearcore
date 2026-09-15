@@ -273,7 +273,8 @@ impl WalletContract {
 #[cfg(test)]
 mod tests {
     use crate::{
-        OLD_TESTNET, code_hash_matches_wallet_contract, eth_wallet_global_contract_hash,
+        MAINNET_GLOBAL_CONTRACTS, OLD_TESTNET, TESTNET_GLOBAL_CONTRACTS, WalletGlobalContract,
+        code_hash_matches_wallet_contract, eth_wallet_global_contract_hash,
         is_earlier_eth_wallet_global_contract_hash, wallet_contract_magic_bytes,
     };
     use near_primitives_core::{
@@ -358,5 +359,36 @@ mod tests {
             TESTNET,
             updated_pv
         ));
+    }
+
+    #[test]
+    fn test_contract_lists_sorted_by_protocol_version() {
+        assert_list_sorted_by_protocol_version(&MAINNET_GLOBAL_CONTRACTS);
+        assert_list_sorted_by_protocol_version(&TESTNET_GLOBAL_CONTRACTS);
+    }
+
+    fn assert_list_sorted_by_protocol_version(list: &[WalletGlobalContract]) {
+        let length = list.len();
+        if length == 0 {
+            panic!("Mainnet and testnet must have non-empty list of wallet contracts.");
+        }
+        let mut version = list[0]
+            .latest_protocol_version
+            .expect("The first entry expires at some protocol version.");
+        for (index, contract) in list.iter().enumerate().skip(1) {
+            match contract.latest_protocol_version {
+                Some(newer_version) => {
+                    assert_ne!(index, length - 1, "The final entry in the list must never expire");
+                    assert!(
+                        version < newer_version,
+                        "Later instances of the wallet contract must expire on later protocol versions."
+                    );
+                    version = newer_version;
+                }
+                None => {
+                    assert_eq!(index, length - 1, "Only the final entry never expires.");
+                }
+            }
+        }
     }
 }
