@@ -2738,22 +2738,32 @@ mod tests {
             "an uneven split must stay unreachable, or this search is no longer exhaustive",
         );
 
+        // Every candidate has to be a real, admissible shape. Skipping one
+        // quietly would let a parameter change shrink the search to nothing while
+        // the test still passed, so anything that does not fit or does not
+        // validate fails here instead.
         let mut worst: Option<(usize, u64, Gas)> = None;
         for copies in 1..=usize::try_from(limits.max_actions_per_receipt).unwrap() {
-            // The most keys per action the per-receipt cap leaves room for.
+            // The most keys per action the per-receipt cap leaves room for. With
+            // the current parameters this is at least 10.
             let keys = limits.max_universal_state_init_keys / copies as u64;
-            let Some(tx) = padded_tx(keys.max(1), copies) else { continue };
+            assert!(keys > 0, "{copies} actions must leave room for at least one key each");
+            let tx = padded_tx(keys, copies).unwrap_or_else(|| {
+                panic!("{copies} actions x {keys} keys must fit in {max_size} B")
+            });
             let burnt =
                 tx_cost(config, &tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
-            if validate_transaction(config, tx, PROTOCOL_VERSION).is_err() {
-                continue;
+            if let Err((err, _)) = validate_transaction(config, tx, PROTOCOL_VERSION) {
+                panic!(
+                    "{copies} actions x {keys} keys must be a shape the validator accepts: {err}"
+                );
             }
             if worst.is_none_or(|(_, _, seen)| burnt > seen) {
                 worst = Some((copies, keys, burnt));
             }
         }
 
-        let (copies, keys, burnt) = worst.expect("some shape has to be admissible");
+        let (copies, keys, burnt) = worst.expect("the loop runs at least once");
         println!(
             "[worst accepted] {copies} actions x {keys} keys = {} total, burning {burnt} at \
              conversion, {:.1}% of the {budget} budget",
