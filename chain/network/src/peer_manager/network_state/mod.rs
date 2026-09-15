@@ -2,10 +2,11 @@ use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
-    EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
-    StateResponseReceived, TxStatusRequest, TxStatusResponse,
+    ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncBatchRequestMessage,
+    EpochSyncBatchResponseMessage, EpochSyncManifestRequestMessage,
+    EpochSyncManifestResponseMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessage, ProcessTxRequest, SpiceChunkEndorsementMessage, StateRequestHeader,
+    StateRequestPart, StateResponse, StateResponseReceived, TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::outgoing_queue_limiter::OutgoingQueueLimiter;
@@ -53,6 +54,7 @@ use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{new_owned_future_spawner, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
+use near_primitives::epoch_sync::MAX_UNCOMPRESSED_BATCH_SIZE_V1;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -93,6 +95,10 @@ pub(crate) const INCOMING_SEMAPHORE_PERMITS: usize = 1_000_000_000;
 
 /// Number of bytes reserved for the epoch sync response
 pub(crate) const EPOCH_SYNC_RESPONSE_BYTES: usize = 300 * 1024 * 1024;
+
+pub(crate) const EPOCH_SYNC_MANIFEST_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
+pub(crate) const EPOCH_SYNC_BATCH_RESPONSE_BYTES: usize = MAX_UNCOMPRESSED_BATCH_SIZE_V1.0 as usize;
 
 // Number of bytes reserved for the state sync response
 pub(crate) const STATE_SYNC_RESPONSE_BYTES: usize = 30 * 1024 * 1024;
@@ -1344,6 +1350,65 @@ impl NetworkState {
                 });
                 None
             }
+            PeerMessage::EpochSyncManifestRequest => {
+                if let Some(response_permit) =
+                    self.outgoing_queue_limiter.try_acquire(EPOCH_SYNC_MANIFEST_RESPONSE_BYTES)
+                {
+                    self.client.send(EpochSyncManifestRequestMessage {
+                        from_peer: peer_id,
+                        recv_permit,
+                        response_permit,
+                    });
+                } else {
+                    metrics::MessageDropped::OutgoingQueueLimitExceeded
+                        .inc_msg_type("EpochSyncManifestResponse");
+                    tracing::warn!(
+                        target: "network",
+                        %peer_id,
+                        "outgoing queue saturated; dropping epoch sync manifest request",
+                    );
+                }
+                None
+            }
+            PeerMessage::EpochSyncManifestResponse(manifest) => {
+                self.client.send(EpochSyncManifestResponseMessage {
+                    from_peer: peer_id,
+                    manifest,
+                    recv_permit,
+                });
+                None
+            }
+            PeerMessage::EpochSyncBatchRequest { batch_index } => {
+                if let Some(response_permit) =
+                    self.outgoing_queue_limiter.try_acquire(EPOCH_SYNC_BATCH_RESPONSE_BYTES)
+                {
+                    self.client.send(EpochSyncBatchRequestMessage {
+                        from_peer: peer_id,
+                        batch_index,
+                        recv_permit,
+                        response_permit,
+                    });
+                } else {
+                    metrics::MessageDropped::OutgoingQueueLimitExceeded
+                        .inc_msg_type("EpochSyncChunkResponse");
+                    tracing::warn!(
+                        target: "network",
+                        %peer_id,
+                        batch_index,
+                        "outgoing queue saturated; dropping epoch sync chunk request",
+                    );
+                }
+                None
+            }
+            PeerMessage::EpochSyncBatchResponse { batch_index, batch } => {
+                self.client.send(EpochSyncBatchResponseMessage {
+                    from_peer: peer_id,
+                    batch_index,
+                    batch,
+                    recv_permit,
+                });
+                None
+            }
             PeerMessage::OptimisticBlock(ob) => {
                 self.client.send(
                     OptimisticBlockMessage {
@@ -1355,7 +1420,19 @@ impl NetworkState {
                 );
                 None
             }
-            msg => {
+
+            PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
+            | PeerMessage::Tier3Handshake(_)
+            | PeerMessage::HandshakeFailure(_, _)
+            | PeerMessage::Disconnect(_)
+            | PeerMessage::SyncSnapshotHosts(_)
+            | PeerMessage::LastEdge(_)
+            | PeerMessage::SyncRoutingTable(_)
+            | PeerMessage::RequestUpdateNonce(_)
+            | PeerMessage::SyncAccountsData(_)
+            | PeerMessage::PeersRequest(_)
+            | PeerMessage::PeersResponse(_) => {
                 tracing::error!(target: "network", ?msg, "peer received unexpected type");
                 None
             }

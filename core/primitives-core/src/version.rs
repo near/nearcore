@@ -353,6 +353,7 @@ pub enum ProtocolFeature {
     FixDelegateActionDepositWithFunctionCallError,
     Spice,
     ContinuousEpochSync,
+    BatchedEpochSync,
     /// Fix `action_delete_account` not subtracting the global contract
     /// identifier storage usage. Previously only local contract code was
     /// subtracted, overstating storage usage for accounts with global
@@ -630,6 +631,7 @@ impl ProtocolFeature {
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::BatchedEpochSync => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
