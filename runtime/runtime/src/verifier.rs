@@ -2591,6 +2591,19 @@ mod tests {
         assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
     }
 
+    fn universal_state_init(num_keys: u64, value_len: usize) -> UniversalStateInit {
+        let access_keys = (0..num_keys)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"pad".to_vec(), vec![0u8; value_len])]),
+            access_keys,
+        })
+    }
+
     /// A self-signed state-init transaction committing to `num_keys` access keys
     /// and carrying one data entry of `value_len` bytes. Padding the entry grows
     /// the transaction by exactly `value_len`, which is how the size-limit case
@@ -2602,17 +2615,7 @@ mod tests {
     ) -> SignedTransaction {
         let placeholder: AccountId = "unused.near".parse().unwrap();
         let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
-        let access_keys = (0..num_keys)
-            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
-            .map(|key| PublicKeyHandle::from(key.public_key()))
-            .collect::<BTreeSet<_>>();
-        assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
-        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: None,
-            data: BTreeMap::from([(b"pad".to_vec(), vec![0u8; value_len])]),
-            access_keys,
-        });
-        let raw_state_init = state_init.to_raw();
+        let raw_state_init = universal_state_init(num_keys, value_len).to_raw();
         let account_id = derive_universal_account_id(&raw_state_init);
         let actions = (0..copies)
             .map(|_| {
@@ -2693,6 +2696,47 @@ mod tests {
             let tx = bootstrap_state_init_tx(keys, padding, copies);
             (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
         };
+
+        // Only equal splits are reachable, which is what makes this search
+        // exhaustive over the shapes that exist rather than merely over the ones
+        // it happens to build. Every action in a receipt shares its receiver, and
+        // a state init must derive to that receiver, so the copies have to be
+        // byte identical: keys cannot be spread unevenly across them and the
+        // padding cannot differ between them. The leftover
+        // `max_universal_state_init_keys % copies` keys, and the up to
+        // `copies - 1` padding bytes integer division drops, are therefore
+        // genuinely unusable rather than untested.
+        let first = universal_state_init(600, 0);
+        let second = universal_state_init(424, 0);
+        let uneven = SignedTransaction::from_actions(
+            1,
+            "unused.near".parse().unwrap(),
+            derive_universal_account_id(&first.to_raw()),
+            &InMemorySigner::from_seed(
+                "unused.near".parse().unwrap(),
+                KeyType::ED25519,
+                "committed",
+            ),
+            [first, second]
+                .into_iter()
+                .map(|state_init| {
+                    Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                        state_init: state_init.to_raw(),
+                        deposit: Balance::ZERO,
+                    }))
+                })
+                .collect(),
+            CryptoHash::default(),
+        );
+        assert!(
+            matches!(
+                validate_transaction(config, uneven, PROTOCOL_VERSION).map_err(|(err, _)| err),
+                Err(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+                ))
+            ),
+            "an uneven split must stay unreachable, or this search is no longer exhaustive",
+        );
 
         let mut worst: Option<(usize, u64, Gas)> = None;
         for copies in 1..=usize::try_from(limits.max_actions_per_receipt).unwrap() {
