@@ -1,6 +1,7 @@
-use crate::sharding::{EncodedShardChunkBody, ReceiptProof};
+use crate::sharding::{ChunkHash, EncodedShardChunkBody, ReceiptProof};
 use crate::state::PartialState;
 use crate::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
+use crate::stateless_validation::state_witness::ChunkStateTransition;
 use crate::transaction::SignedTransaction;
 use crate::types::SpiceChunkId;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -23,7 +24,9 @@ pub enum SpiceChunkStateWitness {
 /// - removed chunk_header, epoch_id, new_transactions,
 /// - added chunk_id, execution_result_hash,
 /// - changed source_receipt_proofs key from chunk hash to shard id and adjusted comment for spice,
-/// - renamed implicit_transitions to resharding_transitions and adjusted comment.
+/// - replaced implicit_transitions with boundary: under spice a missing chunk is an
+///   empty new chunk and needs no implicit transition, so the field here exists solely
+///   for the spice activation boundary
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct SpiceChunkStateWitnessV1 {
     /// Witness contains information to derive execution results of chunk corresponding to
@@ -59,6 +62,20 @@ pub struct SpiceChunkStateWitnessV1 {
     /// verify the invalidity. When present, validators accept empty
     /// transactions instead of the chunk header's tx_root.
     pub proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
+    /// Present only on a witness of the spice activation parent, whose chunk was
+    /// applied pre-spice.
+    pub boundary: Option<SpiceBoundaryWitnessData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceBoundaryWitnessData {
+    /// One proof per chunk included between the target shard's previous inclusion
+    /// (exclusive) and the anchor (inclusive), keyed by chunk hash and verified
+    /// against that chunk's `prev_outgoing_receipts_root`, as in the pre-spice
+    /// witness. Replaces `source_receipt_proofs`, which is empty.
+    pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    /// Old-chunk transitions to replay after the main transition, oldest first.
+    pub implicit_transitions: Vec<ChunkStateTransition>,
 }
 
 impl SpiceChunkStateWitness {
@@ -79,6 +96,29 @@ impl SpiceChunkStateWitness {
             transactions,
             contract_accesses,
             proof_of_invalid_chunk,
+            boundary: None,
+        })
+    }
+
+    /// A witness of the spice activation parent. Pre-spice blocks hold no invalid
+    /// chunks, so there is no proof of one to carry.
+    pub fn new_boundary(
+        chunk_id: SpiceChunkId,
+        pre_state: PartialState,
+        boundary: SpiceBoundaryWitnessData,
+        applied_receipts_hash: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+        contract_accesses: BTreeSet<CodeHash>,
+    ) -> Self {
+        Self::V1(SpiceChunkStateWitnessV1 {
+            chunk_id,
+            pre_state,
+            source_receipt_proofs: HashMap::new(),
+            applied_receipts_hash,
+            transactions,
+            contract_accesses,
+            proof_of_invalid_chunk: None,
+            boundary: Some(boundary),
         })
     }
 
@@ -131,6 +171,12 @@ impl SpiceChunkStateWitness {
     pub fn proof_of_invalid_chunk(&self) -> Option<&EncodedShardChunkBody> {
         match self {
             Self::V1(witness) => witness.proof_of_invalid_chunk.as_deref(),
+        }
+    }
+
+    pub fn boundary(&self) -> Option<&SpiceBoundaryWitnessData> {
+        match self {
+            Self::V1(witness) => witness.boundary.as_ref(),
         }
     }
 }

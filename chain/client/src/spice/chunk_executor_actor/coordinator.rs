@@ -9,6 +9,7 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
+use near_chain::spice::boundary::is_spice_activation_parent;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
@@ -189,8 +190,12 @@ impl ChunkExecutorActor {
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         // A block from a pre-spice epoch was already executed synchronously as part
         // of block processing and has no spice state to work from, so this returns
-        // without touching it.
+        // without touching it — except an activation parent, whose committed
+        // pre-spice results bootstrap the boundary.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
+                self.bootstrap_boundary_source_block(block_hash)?;
+            }
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -203,6 +208,19 @@ impl ChunkExecutorActor {
         // finalize trigger never fires; finalize here instead.
         if self.all_tracked_shards_applied(block_hash)? {
             self.finalize_block(block_hash)?;
+        }
+        Ok(())
+    }
+
+    /// Runs the boundary bootstrap of the activation parent `block_hash` on every
+    /// tracked shard's executor.
+    fn bootstrap_boundary_source_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let block = self.chain_store.get_block(block_hash)?;
+        self.reconcile_tracked_shards(block_hash)?;
+        for executor in self.per_shard_executors.values() {
+            if let Err(err) = executor.bootstrap_boundary_source_block(&block) {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, shard_uid = ?executor.shard_uid(), "failed boundary bootstrap for shard");
+            }
         }
         Ok(())
     }
@@ -338,6 +356,30 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
+    /// Recover after a crash around an activation parent: the boundary bootstrap's
+    /// endorsement and receipt sends are not persisted, so re-run it.
+    /// A no-op when neither is an activation parent.
+    fn recover_boundary_bootstrap(&mut self) -> Result<(), Error> {
+        let mut candidates = Vec::new();
+        match self.chain_store.head() {
+            Ok(head) => candidates.push(head.last_block_hash),
+            Err(Error::DBNotFoundErr(_)) => {}
+            Err(err) => return Err(err),
+        }
+        match self.chain_store.spice_execution_head() {
+            Ok(execution_head) => candidates.push(execution_head.last_block_hash),
+            Err(Error::DBNotFoundErr(_)) => {}
+            Err(err) => return Err(err),
+        }
+        candidates.dedup();
+        for block_hash in candidates {
+            if is_spice_activation_parent(self.epoch_manager.as_ref(), &block_hash)? {
+                self.bootstrap_boundary_source_block(&block_hash)?;
+            }
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn pending_receipts_count(&self) -> usize {
         // Sum across per-shard trackers. Matches the old coordinator-side count
@@ -351,6 +393,15 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
     fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
+        }
+        // The head can be an activation parent, which is still pre-spice, so this
+        // must run before the spice-at-head gate below.
+        if let Err(err) = self.recover_boundary_bootstrap() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to re-run boundary bootstrap on startup",
+            );
         }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active
@@ -391,14 +442,39 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
         let to_shard_id = *to_shard;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
-        // TODO(spice-data-distribution): a dropped delivery leaves the data manager's item
-        // parked with no verification result until it expires; once pulls exist that is a
-        // proof never re-fetched. Create the executor for a shard tracked as of the source
-        // block instead of dropping (#16275).
+        // A receipt for a shard this node does track can arrive before anything created
+        // the executor, and the push is not retried, so create it here if the shard
+        // is tracked as of the source block.
+        // TODO(spice-resharding): anchoring on the source block (or the head when it
+        // is not received yet) is not enough when the source block is in a different
+        // shard layout.
+        if self.executor_for_shard_id(to_shard_id).is_none() {
+            let anchor = if self.chain_store.get_block_header(&block_hash).is_ok() {
+                block_hash
+            } else {
+                match self.chain_store.head() {
+                    Ok(head) => head.last_block_hash,
+                    Err(err) => {
+                        tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read head looking up tracking for a receipt");
+                        return;
+                    }
+                }
+            };
+            let tracked = match self.shard_tracker.tracked_shard_uids_this_or_next_epoch(&anchor) {
+                Ok(tracked) => tracked,
+                Err(err) => {
+                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to look up tracked shards for a receipt");
+                    return;
+                }
+            };
+            if let Some(shard_uid) =
+                tracked.into_iter().find(|shard_uid| shard_uid.shard_id() == to_shard_id)
+            {
+                self.get_or_create_per_shard_executor(shard_uid);
+            }
+        }
+        // TODO(spice-data-distribution): dropping leaves the data manager's item parked
+        // with no verification result until it expires (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;

@@ -31,7 +31,7 @@ use near_primitives::utils::{
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::{DBCol, Store};
+use near_store::{DBCol, Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -147,7 +147,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than a spice
+    /// activation parent, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -358,6 +359,10 @@ impl SpiceCoreReader {
         while current_hash != *stop_header.hash() {
             let block = self.chain_store.get_block(&current_hash)?;
             if block.header().height() <= stop_header.height() {
+                break;
+            }
+            // No core statements exist at or below the activation boundary.
+            if !block.is_spice_block() {
                 break;
             }
             for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
@@ -957,8 +962,16 @@ fn get_uncertified_chunks(
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block = chain_store.get_block(block_hash)?;
 
-    if block.header().is_genesis() || !block.is_spice_block() {
+    if block.header().is_genesis() {
         Ok(vec![])
+    } else if !block.is_spice_block() {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return Ok(vec![]);
+        }
+        Ok(chain_store
+            .store_ref()
+            .get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
+            .unwrap_or_default())
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
@@ -972,6 +985,15 @@ fn get_uncertified_chunks(
 
         Ok(uncertified_chunks)
     }
+}
+
+/// The only writer of `DBCol::uncertified_chunks`, so the encoding has one owner.
+pub(crate) fn save_uncertified_chunks(
+    store_update: &mut StoreUpdate,
+    block_hash: &CryptoHash,
+    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+) {
+    store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
 }
 
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
@@ -1050,11 +1072,13 @@ pub fn record_uncertified_chunks_for_block(
     // one, so its designated validators can act from this block on. Computed before this block's
     // own chunks are added: they are the oldest only when nothing carries over, and this block's
     // header is not in the store yet.
-    let oldest_uncertified_block_hash = find_oldest_uncertified_block_header(
+    let oldest_uncertified_header = find_oldest_uncertified_block_header(
         chain_store_update.chain_store(),
         &uncertified_chunks,
-    )?
-    .map_or_else(|| *block.hash(), |header| *header.hash());
+    )?;
+    observe_certification_lag(block, oldest_uncertified_header.as_deref());
+    let oldest_uncertified_block_hash =
+        oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
 
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
     uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
@@ -1091,11 +1115,7 @@ pub fn record_uncertified_chunks_for_block(
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
     let mut store_update = chain_store_update.chain_store().store_ref().store_update();
-    store_update.insert_ser(
-        DBCol::uncertified_chunks(),
-        block.header().hash().as_ref(),
-        &uncertified_chunks,
-    );
+    save_uncertified_chunks(&mut store_update, block.header().hash(), &uncertified_chunks);
     chain_store_update.merge(store_update);
     Ok(())
 }
@@ -1290,6 +1310,12 @@ pub fn record_spice_endorsement_stats_for_block(
     );
     chain_store_update.merge(store_update);
     Ok(())
+}
+
+fn observe_certification_lag(block: &Block, oldest_uncertified_header: Option<&BlockHeader>) {
+    let age = oldest_uncertified_header
+        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
+    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(age as i64);
 }
 
 fn find_oldest_uncertified_block_header(

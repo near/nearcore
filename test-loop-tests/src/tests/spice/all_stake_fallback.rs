@@ -8,6 +8,7 @@ use near_async::time::Duration;
 use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
 };
+use near_chain::spice::boundary::is_spice_activation_parent;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -15,11 +16,13 @@ use near_primitives::block::BlockHeader;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ShardId,
-    SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion,
+    ShardId, SpiceChunkId,
 };
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::ProtocolFeature;
 use std::collections::HashSet;
 
 /// Shards in [`FallbackSetup`].
@@ -31,6 +34,7 @@ const NUM_SHARDS: NumShards = 6;
 #[derive(Default)]
 struct FallbackSetup {
     epoch_length: Option<BlockHeightDelta>,
+    protocol_version: Option<ProtocolVersion>,
     user_accounts: Vec<(AccountId, Balance)>,
 }
 
@@ -41,6 +45,11 @@ impl FallbackSetup {
 
     fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = Some(epoch_length);
+        self
+    }
+
+    fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        self.protocol_version = Some(protocol_version);
         self
     }
 
@@ -70,6 +79,9 @@ impl FallbackSetup {
             .validators_spec(validators_spec);
         if let Some(epoch_length) = self.epoch_length {
             genesis_builder = genesis_builder.epoch_length(epoch_length);
+        }
+        if let Some(protocol_version) = self.protocol_version {
+            genesis_builder = genesis_builder.protocol_version(protocol_version);
         }
         for (account_id, balance) in self.user_accounts {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
@@ -342,6 +354,69 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     );
     let frontier = env.rpc_node().last_certified_block_header();
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
+}
+
+/// The protocol upgrade with every designated endorsement dropped: the activation
+/// parent can only certify via the all-stake fallback.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_activation_boundary_all_stake_fallback() {
+    init_test_logger();
+
+    // Longer than the fallback window, so certification can lag by a full window
+    // without the boundary chunks ever leaving the current epoch's uncertified set.
+    let epoch_length = 25;
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new()
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    // Cross the boundary (pre-spice epochs are unaffected by the drop), then locate
+    // the activation parent by walking down from the head.
+    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
+    let activation_parent = {
+        let node = env.node(0);
+        let chain_store = node.client().chain.chain_store();
+        let mut header = node.head_block().header().clone();
+        while header.is_spice() {
+            header = BlockHeader::clone(&chain_store.get_block_header(header.prev_hash()).unwrap());
+        }
+        header
+    };
+    assert!(
+        is_spice_activation_parent(
+            env.node(0).client().epoch_manager.as_ref(),
+            activation_parent.hash()
+        )
+        .unwrap()
+    );
+
+    // The activation parent must certify though its designated endorsements are all
+    // dropped: once the fallback window opens, carried by non-designated stake.
+    let boundary_height = activation_parent.height();
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= boundary_height,
+        Duration::seconds(300),
+    );
+    assert_certified_via_fallback(&env.node(0), &activation_parent);
+
+    // Certification keeps advancing into the spice epoch on the fallback alone.
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= boundary_height + 3,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
 }
 
 fn fallback_only_certification_schedule(
