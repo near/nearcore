@@ -2595,7 +2595,11 @@ mod tests {
     /// and carrying one data entry of `value_len` bytes. Padding the entry grows
     /// the transaction by exactly `value_len`, which is how the size-limit case
     /// below hits the limit on the nose.
-    fn bootstrap_state_init_tx(num_keys: u64, value_len: usize) -> SignedTransaction {
+    fn bootstrap_state_init_tx(
+        num_keys: u64,
+        value_len: usize,
+        copies: usize,
+    ) -> SignedTransaction {
         let placeholder: AccountId = "unused.near".parse().unwrap();
         let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
         let access_keys = (0..num_keys)
@@ -2610,15 +2614,20 @@ mod tests {
         });
         let raw_state_init = state_init.to_raw();
         let account_id = derive_universal_account_id(&raw_state_init);
+        let actions = (0..copies)
+            .map(|_| {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw_state_init.clone(),
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect();
         SignedTransaction::from_actions(
             1,
             account_id.clone(),
             account_id,
             &signer,
-            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init: raw_state_init,
-                deposit: Balance::ZERO,
-            }))],
+            actions,
             CryptoHash::default(),
         )
     }
@@ -2633,14 +2642,14 @@ mod tests {
     fn test_validate_transaction_rejects_over_cap_universal_state_init() {
         let config = RuntimeConfig::test();
         let max_keys = config.wasm_config.limit_config.max_universal_state_init_keys;
-        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0);
+        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0, 1);
 
         let (err, _) = validate_transaction(&config, bootstrap_tx(max_keys + 1), PROTOCOL_VERSION)
             .expect_err("a state init over the key cap must be rejected");
         assert_eq!(
             err,
             InvalidTxError::ActionsValidation(
-                ActionsValidationError::UniversalStateInitTooManyKeys {
+                ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
                     number_of_keys: max_keys + 1,
                     limit: max_keys,
                 }
@@ -2653,40 +2662,64 @@ mod tests {
 
     /// The most expensive state-init transaction the validator will accept, on
     /// the real parameters, still converts for less gas than a chunk gives
-    /// transactions: the key cap and the size limit together bound the
-    /// conversion burn.
+    /// transactions.
     ///
-    /// Worst case is both terms at once, a transaction at
-    /// `max_transaction_size` that also commits to
-    /// `max_universal_state_init_keys` keys. Conversion is not prepaid and is
-    /// not metered against the chunk's gas limit, so if this ever exceeded
-    /// `max_tx_gas` one transaction could crowd receipts out of a chunk.
+    /// The worst case is *searched for*, over every split of the action budget,
+    /// rather than assumed. An earlier version of this test built one action and
+    /// called it the worst case, which is how a per-action key cap passed review:
+    /// 94 copies of a 506-key payload commit 47,564 keys and burn 10x the budget,
+    /// and this test did not see it.
+    ///
+    /// Note the conversion burn *is* metered against the chunk, contrary to what
+    /// this test once claimed: `process_transactions` folds it into the same
+    /// counter `process_receipts` gates on, so an over-budget transaction stops
+    /// the shard executing receipts that chunk.
     #[test]
-    fn test_largest_universal_state_init_converts_within_the_tx_gas_budget() {
+    fn test_worst_accepted_universal_state_init_converts_within_the_tx_gas_budget() {
         let store = near_parameters::RuntimeConfigStore::new(None);
         let config = store.get_config(PROTOCOL_VERSION);
         let limits = &config.wasm_config.limit_config;
-        let max_keys = limits.max_universal_state_init_keys;
         let max_size = limits.max_transaction_size;
         let budget = config.congestion_control_config.max_tx_gas;
 
-        // Pad the data entry until the transaction is exactly at the size limit.
-        let without_padding =
-            bootstrap_state_init_tx(max_keys, 0).size_for_limits(PROTOCOL_VERSION);
-        let padding = usize::try_from(max_size - without_padding).unwrap();
-        let signed_tx = bootstrap_state_init_tx(max_keys, padding);
-        assert_eq!(signed_tx.size_for_limits(PROTOCOL_VERSION), max_size, "padding is exact");
+        // Pad each copy so the whole transaction sits at the size limit, since
+        // the per-byte send fee is part of the burn.
+        let padded_tx = |keys: u64, copies: usize| {
+            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits(PROTOCOL_VERSION);
+            if bare > max_size {
+                return None;
+            }
+            let padding = usize::try_from(max_size - bare).unwrap() / copies;
+            let tx = bootstrap_state_init_tx(keys, padding, copies);
+            (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
+        };
 
-        let burnt =
-            tx_cost(config, &signed_tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
-        assert!(
-            validate_transaction(config, signed_tx, PROTOCOL_VERSION).is_ok(),
-            "the worst case has to be one the validator actually accepts"
+        let mut worst: Option<(usize, u64, Gas)> = None;
+        for copies in 1..=usize::try_from(limits.max_actions_per_receipt).unwrap() {
+            // The most keys per action the per-receipt cap leaves room for.
+            let keys = limits.max_universal_state_init_keys / copies as u64;
+            let Some(tx) = padded_tx(keys.max(1), copies) else { continue };
+            let burnt =
+                tx_cost(config, &tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+            if validate_transaction(config, tx, PROTOCOL_VERSION).is_err() {
+                continue;
+            }
+            if worst.is_none_or(|(_, _, seen)| burnt > seen) {
+                worst = Some((copies, keys, burnt));
+            }
+        }
+
+        let (copies, keys, burnt) = worst.expect("some shape has to be admissible");
+        println!(
+            "[worst accepted] {copies} actions x {keys} keys = {} total, burning {burnt} at \
+             conversion, {:.1}% of the {budget} budget",
+            copies as u64 * keys,
+            100.0 * burnt.as_gas() as f64 / budget.as_gas() as f64,
         );
         assert!(
             burnt < budget,
-            "{max_keys} keys in a {max_size} B transaction burn {burnt} at conversion, \
-             against a per-chunk transaction budget of {budget}"
+            "the worst shape the validator accepts, {copies} actions of {keys} keys, burns \
+             {burnt} at conversion against a per-chunk transaction budget of {budget}"
         );
     }
 

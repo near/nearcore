@@ -2344,9 +2344,9 @@
           },
           {
             "additionalProperties": false,
-            "description": "A `UniversalStateInit` state init commits to more access keys than allowed.",
+            "description": "The state-init actions in one receipt commit to more access keys in total\nthan allowed.",
             "properties": {
-              "UniversalStateInitTooManyKeys": {
+              "TotalNumberOfStateInitKeysExceeded": {
                 "properties": {
                   "limit": {
                     "format": "uint64",
@@ -2367,9 +2367,9 @@
               }
             },
             "required": [
-              "UniversalStateInitTooManyKeys"
+              "TotalNumberOfStateInitKeysExceeded"
             ],
-            "title": "UniversalStateInitTooManyKeys",
+            "title": "TotalNumberOfStateInitKeysExceeded",
             "type": "object"
           },
           {
