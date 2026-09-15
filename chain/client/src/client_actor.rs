@@ -2057,7 +2057,7 @@ impl ClientActor {
     /// Verifies a block received while the node is syncing its state, and bans the sender if
     /// the block is invalid.
     fn validate_state_sync_block(
-        &mut self,
+        &self,
         block: &MaybeValidated<Arc<Block>>,
         peer_id: &PeerId,
     ) -> StateSyncBlockVerdict {
