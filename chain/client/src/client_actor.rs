@@ -39,6 +39,7 @@ use near_chain::ApplyChunksSpawner;
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
+    VerifyBlockHashAndSignatureResult,
 };
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice::chain::SpiceChainReader;
@@ -638,7 +639,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
         if was_requested || blocks_at_height.is_empty() {
             // This is a very sneaky piece of logic.
-            if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
+            if self.maybe_receive_state_sync_blocks(Arc::clone(&block), &peer_id) {
                 // A node is syncing its state. Don't consider receiving
                 // blocks other than the few special ones that State Sync expects.
                 return;
@@ -1049,6 +1050,25 @@ impl fmt::Display for SyncRequirement {
             }
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum StateSyncBlockVerdict {
+    Save,
+    Drop,
+}
+
+/// Where a block the node is looking for during state sync is stored. Notice that the sync
+/// hash block is stored differently from the rest.
+#[derive(Debug)]
+enum StateSyncBlockDestination {
+    /// The sync hash block waits in the orphan pool, to be processed once state sync has
+    /// completed.
+    OrphanPool,
+    /// The last block of the previous epoch. It does not need to be processed and goes straight to storage.
+    Storage,
+    /// An extra block before the prev block, needed for incoming receipts.
+    StorageWithRefcount,
 }
 
 impl ClientActor {
@@ -2034,6 +2054,39 @@ impl ClientActor {
         )
     }
 
+    /// Verifies a block received while the node is syncing its state, and bans the sender if
+    /// the block is invalid.
+    fn validate_state_sync_block(
+        &self,
+        block: &MaybeValidated<Arc<Block>>,
+        peer_id: &PeerId,
+    ) -> StateSyncBlockVerdict {
+        let block_hash = *block.hash();
+        match self.client.chain.verify_block_hash_and_signature(block) {
+            Ok(VerifyBlockHashAndSignatureResult::Correct) => {}
+            Ok(VerifyBlockHashAndSignatureResult::Incorrect) => {
+                byzantine_assert!(false);
+                tracing::error!(target: "client", ?block_hash, "block body hash or signature does not match the header during state sync");
+                self.client.ban_peer(peer_id.clone(), ReasonForBan::BadBlockHeader);
+                return StateSyncBlockVerdict::Drop;
+            }
+            Ok(VerifyBlockHashAndSignatureResult::CannotVerifyBecauseBlockIsOrphan) => {
+                tracing::debug!(target: "client", ?block_hash, "cannot verify block during state sync, the parent block is missing");
+                return StateSyncBlockVerdict::Drop;
+            }
+            Err(err) => {
+                tracing::error!(target: "client", ?err, ?block_hash, "failed to verify block during state sync");
+                return StateSyncBlockVerdict::Drop;
+            }
+        }
+        if let Err(err) = self.client.chain.validate_block(block) {
+            byzantine_assert!(false);
+            tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
+            return StateSyncBlockVerdict::Drop;
+        }
+        StateSyncBlockVerdict::Save
+    }
+
     /// Checks if the node is syncing its State and applies special logic in
     /// that case. A node usually ignores blocks that are too far ahead, but in
     /// case of a node syncing its state it is looking for specific blocks:
@@ -2043,7 +2096,7 @@ impl ClientActor {
     /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
-    fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>) -> bool {
+    fn maybe_receive_state_sync_blocks(&mut self, block: Arc<Block>, peer_id: &PeerId) -> bool {
         let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
             self.client.sync_handler.sync_status
         else {
@@ -2057,60 +2110,48 @@ impl ClientActor {
         let block: MaybeValidated<Arc<Block>> = Arc::clone(&block).into();
         let block_hash = *block.hash();
 
-        // Notice that the blocks are saved differently:
-        // * save_orphan() for the sync hash block
-        // * save_block() for the prev block and all the extra blocks
-        //
-        // The sync hash block is saved to the orphan pool where it will
-        // wait to be processed after state sync is completed.
-        //
-        // The other blocks do not need to be processed and are saved
-        // directly to storage.
-
-        if block_hash == sync_hash {
+        // Work out whether this is a block the node is looking for, and where it belongs,
+        // before verifying anything: a block the node is not looking for is ignored here just
+        // as it would be outside of state sync, so there is nothing to verify it against.
+        let destination = if block_hash == sync_hash {
             // The first block of the new epoch.
-            if let Err(err) = self.client.chain.validate_block(&block) {
-                byzantine_assert!(false);
-                tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
-            }
-            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save sync hash block");
-            self.client.chain.save_orphan(block, Provenance::NONE, false);
-            return true;
-        }
-
-        if &block_hash == header.prev_hash() {
+            StateSyncBlockDestination::OrphanPool
+        } else if &block_hash == header.prev_hash() {
             // The last block of the previous epoch.
-            if let Err(err) = self.client.chain.validate_block(&block) {
-                byzantine_assert!(false);
-                tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
+            StateSyncBlockDestination::Storage
+        } else {
+            let extra_block_hashes =
+                self.client.chain.get_extra_sync_block_hashes(&header.prev_hash());
+            tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: extra block hashes for state sync");
+            if !extra_block_hashes.contains(&block_hash) {
+                return true;
             }
-            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
-            // Prev sync block will have its refcount increased later when processing sync block.
-            if let Err(err) = self.client.chain.save_block(block) {
-                tracing::error!(target: "client", ?err, ?block_hash, "failed to save a block during state sync");
-            }
+            StateSyncBlockDestination::StorageWithRefcount
+        };
+
+        if self.validate_state_sync_block(&block, peer_id) == StateSyncBlockVerdict::Drop {
             return true;
         }
 
-        let extra_block_hashes = self.client.chain.get_extra_sync_block_hashes(&header.prev_hash());
-        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: extra block hashes for state sync");
-
-        if extra_block_hashes.contains(&block_hash) {
-            if let Err(err) = self.client.chain.validate_block(&block) {
-                byzantine_assert!(false);
-                tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
+        tracing::debug!(target: "sync", ?block_hash, ?destination, "maybe_receive_state_sync_blocks - save block");
+        match destination {
+            StateSyncBlockDestination::OrphanPool => {
+                self.client.chain.save_orphan(block, Provenance::NONE, false);
             }
-            // Extra blocks needed when there are missing chunks.
-            tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
-            if let Err(err) = self.client.chain.save_block(block) {
-                tracing::error!(target: "client", ?err, ?block_hash, "failed to save a block during state sync");
-            } else {
-                // save_block() does not increase refcount, and for extra blocks we need to increase the refcount manually.
-                let mut store_update = self.client.chain.mut_chain_store().store_update();
-                store_update.inc_block_refcount(&block_hash).unwrap();
-                store_update.commit().unwrap();
+            StateSyncBlockDestination::Storage => {
+                if let Err(err) = self.client.chain.save_block(block) {
+                    tracing::error!(target: "client", ?err, ?block_hash, "failed to save a block during state sync");
+                }
             }
-            return true;
+            StateSyncBlockDestination::StorageWithRefcount => {
+                if let Err(err) = self.client.chain.save_block(block) {
+                    tracing::error!(target: "client", ?err, ?block_hash, "failed to save a block during state sync");
+                } else {
+                    let mut store_update = self.client.chain.mut_chain_store().store_update();
+                    store_update.inc_block_refcount(&block_hash).unwrap();
+                    store_update.commit().unwrap();
+                }
+            }
         }
         true
     }
