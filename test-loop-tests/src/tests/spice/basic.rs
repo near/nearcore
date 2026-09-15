@@ -447,10 +447,7 @@ fn test_restart_rpc_node() {
 }
 
 #[test]
-// A restarted producer catches up only by re-requesting the receipt-proof pushes it
-// missed while down, and receipt proofs currently have no pull path.
-// TODO(spice-data-distribution): re-enable once receipt proofs have a pull path (#16275).
-#[ignore = "needs receipt-proof pull recovery"]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_restart_producer_node() {
     init_test_logger();
 
@@ -522,7 +519,11 @@ fn test_restart_producer_node() {
         env.node_for_account(&stable_account).head().height
     );
 
-    env.runner_for_account(&restart_account).run_for_number_of_blocks(10);
+    // Catch-up re-requests the missed receipt proofs one height at a time: only the
+    // execution frontier's apply attempt can see which proofs it misses, and each
+    // height waits out the pull's grace delay. Most of the block budget goes to that
+    // walk, since syncing the block backlog itself advances the head almost instantly.
+    env.runner_for_account(&restart_account).run_for_number_of_blocks(20);
 
     let view_account_result =
         env.node_for_account(&restart_account).view_account_query(&receiver).unwrap();

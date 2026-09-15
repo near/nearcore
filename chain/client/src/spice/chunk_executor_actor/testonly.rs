@@ -94,6 +94,7 @@ impl TestonlySyncChunkExecutorActor {
             }),
             witness: noop().into_sender(),
             data_verification: noop().into_sender(),
+            missing_receipt_proofs: noop().into_sender(),
         };
         Self {
             actor: ChunkExecutorActor::new(
