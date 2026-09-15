@@ -92,12 +92,24 @@ impl ToString for ShardSyncStatus {
     }
 }
 
+/// Block heights that bound state sync, as of its last iteration.
+#[derive(Clone, Copy, Debug)]
+pub struct StateSyncHeights {
+    pub sync_block: BlockHeight,
+    /// Once `highest` passes this, the node wipes its database and restarts.
+    pub stale_deadline: BlockHeight,
+    pub highest: BlockHeight,
+}
+
 #[derive(Clone, Debug)]
 pub struct StateSyncStatus {
     pub sync_hash: CryptoHash,
     pub sync_status: HashMap<ShardId, ShardSyncStatus>,
     pub download_tasks: Vec<String>,
     pub computation_tasks: Vec<String>,
+    /// Remembered so progress stays complete after a shard passes download.
+    pub parts_per_shard: HashMap<ShardId, u64>,
+    pub heights: Option<StateSyncHeights>,
 }
 
 impl StateSyncStatus {
@@ -107,7 +119,30 @@ impl StateSyncStatus {
             sync_status: HashMap::new(),
             download_tasks: Vec::new(),
             computation_tasks: Vec::new(),
+            parts_per_shard: HashMap::new(),
+            heights: None,
         }
+    }
+
+    /// State parts downloaded and total parts across every shard being synced.
+    /// A shard past the download phase counts as fully downloaded.
+    pub fn parts_progress(&self) -> (u64, u64) {
+        let mut downloaded = 0;
+        let mut total = 0;
+        for (shard_id, shard_parts) in &self.parts_per_shard {
+            total += shard_parts;
+            downloaded += match self.sync_status.get(shard_id) {
+                Some(ShardSyncStatus::StateDownloadHeader) => 0,
+                Some(ShardSyncStatus::StateDownloadParts { done, .. }) => *done,
+                _ => *shard_parts,
+            };
+        }
+        (downloaded, total)
+    }
+
+    /// Blocks left before the sync hash goes stale.
+    pub fn deadline_headroom(&self) -> Option<BlockHeightDelta> {
+        self.heights.map(|heights| heights.stale_deadline.saturating_sub(heights.highest))
     }
 }
 

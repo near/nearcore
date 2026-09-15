@@ -1,11 +1,11 @@
 use crate::config_updater::ConfigUpdater;
+use crate::state_sync_progress::{StateSyncProgressTracker, SyncRates, format_state_sync_progress};
 use crate::{SyncStatus, metrics};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
 use near_chain_configs::ClientConfig;
-use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -70,6 +70,7 @@ pub struct InfoHelper {
     prev_sync_requirement: Option<String>,
     /// Number of validators (block + chunk producers) per epoch, cached for a small number of epochs.
     num_validators_per_epoch: LruCache<EpochId, usize>,
+    state_sync_progress: StateSyncProgressTracker,
 }
 
 impl InfoHelper {
@@ -95,7 +96,13 @@ impl InfoHelper {
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
             num_validators_per_epoch: LruCache::new(NonZeroUsize::new(3).unwrap()),
+            state_sync_progress: StateSyncProgressTracker::default(),
         }
+    }
+
+    /// Rates tracked across ticks, for one-shot callers such as the debug status.
+    pub fn sync_rates(&self) -> Option<SyncRates> {
+        self.state_sync_progress.rates()
     }
 
     pub fn chunk_processed(&self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
@@ -400,7 +407,8 @@ impl InfoHelper {
     ) {
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = display_sync_status(sync_status, head);
+        let sync_rates = self.state_sync_progress.update_rates_and_warn(&self.clock, sync_status);
+        let sync_status_log = display_sync_status(sync_status, head, sync_rates);
         let validator_info_log = validator_info
             .as_ref()
             .map(|info| {
@@ -699,7 +707,11 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
     }
 }
 
-pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+pub fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    sync_rates: Option<SyncRates>,
+) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -737,14 +749,9 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                 current_height
             )
         }
-        SyncStatus::StateSync(StateSyncStatus {
-            sync_hash,
-            sync_status: shard_statuses,
-            download_tasks,
-            computation_tasks,
-        }) => {
-            let mut res = format!("State {:?}", sync_hash);
-            let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
+        SyncStatus::StateSync(status) => {
+            let mut res = format!("State {:?}", status.sync_hash);
+            let mut shard_statuses: Vec<_> = status.sync_status.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.to_string(),).unwrap();
@@ -752,10 +759,13 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             write!(
                 res,
                 " ({} downloads, {} computations)",
-                download_tasks.len(),
-                computation_tasks.len()
+                status.download_tasks.len(),
+                status.computation_tasks.len()
             )
             .unwrap();
+            if let Some(progress) = format_state_sync_progress(status, sync_rates) {
+                write!(res, " {progress}").unwrap();
+            }
             res
         }
     }
