@@ -489,7 +489,7 @@ impl WasmtimeVM {
             let max_elements_per_contract_table =
                 max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
             let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
-            // Protocol version 157 adds the globals limit and raises this cap together.
+            // Protocol version 88 adds the globals limit and raises this cap together.
             let max_core_instance_size = if config.limit_config.max_globals_per_contract.is_some() {
                 MAX_CORE_INSTANCE_SIZE
             } else {
