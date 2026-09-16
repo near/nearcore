@@ -1,16 +1,17 @@
 use crate::env::test_env::TestEnv;
 use near_async::messaging::IntoMultiSender;
-use near_async::time::Clock;
+use near_async::time::{Clock, Duration};
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::sync::block::BlockSync;
+use near_client::sync::peers::{PEER_FAILURE_COOLDOWN_SECONDS, PeerAdvertisedHead, PeerSelector};
 use near_crypto::{KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::{
-    NetworkRequests, PeerAdvertisedHead, PeerInfo, PeerManagerMessageRequest,
-};
+use near_network::types::{NetworkRequests, PeerInfo, PeerManagerMessageRequest};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -40,7 +41,11 @@ fn check_hashes_from_network_adapter(
     assert_eq!(collected_hashes, expected_hashes.into_iter().collect::<HashSet<_>>());
 }
 
-fn create_highest_height_peer_infos(num_peers: usize) -> Vec<PeerAdvertisedHead> {
+fn peer_selector() -> PeerSelector {
+    PeerSelector::new(Duration::seconds(PEER_FAILURE_COOLDOWN_SECONDS), StdRng::seed_from_u64(1))
+}
+
+fn create_peer_advertised_heads(num_peers: usize) -> Vec<PeerAdvertisedHead> {
     (0..num_peers)
         .map(|_| PeerAdvertisedHead {
             peer_info: PeerInfo {
@@ -48,10 +53,8 @@ fn create_highest_height_peer_infos(num_peers: usize) -> Vec<PeerAdvertisedHead>
                 addr: None,
                 account_id: None,
             },
-            genesis_id: Default::default(),
             highest_block_height: 0,
             highest_block_hash: Default::default(),
-            tracked_shards: vec![],
             archival: false,
         })
         .collect()
@@ -83,12 +86,12 @@ fn test_block_sync() {
         env.process_block(0, block, Provenance::PRODUCED);
     }
     let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
-    let peer_infos = create_highest_height_peer_infos(2);
+    let peer_infos = create_peer_advertised_heads(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
     // fetch three blocks at a time
     for i in 0..3 {
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
 
         let expected_blocks: Vec<_> =
             blocks[i * max_block_requests..(i + 1) * max_block_requests].to_vec();
@@ -104,7 +107,7 @@ fn test_block_sync() {
 
     // Now test when the node receives the block out of order
     // fetch the next three blocks
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests).map(|h| *blocks[h].hash()).collect(),
@@ -116,7 +119,7 @@ fn test_block_sync() {
     );
 
     // the next block sync should not request block[4*max_block_requests-1] again
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
     check_hashes_from_network_adapter(
         &network_adapter,
         (3 * max_block_requests..4 * max_block_requests - 1).map(|h| *blocks[h].hash()).collect(),
@@ -130,7 +133,7 @@ fn test_block_sync() {
             .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
@@ -156,20 +159,20 @@ fn test_block_sync_archival() {
         env.process_block(0, block, Provenance::PRODUCED);
     }
     let block_headers = blocks.iter().map(|b| b.header().clone().into()).collect::<Vec<_>>();
-    let peer_infos = create_highest_height_peer_infos(2);
+    let peer_infos = create_peer_advertised_heads(2);
     env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     // We don't have archival peers, and thus cannot request any blocks
     assert_eq!(requested_block_hashes, HashSet::new());
 
-    let mut peer_infos = create_highest_height_peer_infos(2);
+    let mut peer_infos = create_peer_advertised_heads(2);
     for peer in &mut peer_infos {
         peer.archival = true;
     }
 
-    block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+    block_sync.block_sync(&env.clients[1].chain, &peer_infos, &mut peer_selector()).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
     assert_eq!(
         requested_block_hashes,

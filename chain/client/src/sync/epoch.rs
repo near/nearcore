@@ -1,4 +1,5 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -14,8 +15,7 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
-    NetworkRequestWithPermit, NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter,
-    PeerManagerMessageRequest,
+    NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -32,7 +32,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{Store, metrics};
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -129,7 +128,8 @@ impl EpochSync {
     pub fn run(
         &self,
         status: &mut EpochSyncStatus,
-        highest_height_peers: &[PeerAdvertisedHead],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), Error> {
         match status {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
@@ -143,9 +143,8 @@ impl EpochSync {
             EpochSyncStatus::Done => return Ok(()),
         }
 
-        // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
-        let peer = highest_height_peers
-            .choose(&mut rand::thread_rng())
+        let peer = peer_selector
+            .pick(peers_ahead, self.clock.now_utc())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
         tracing::info!(target: "sync", peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");

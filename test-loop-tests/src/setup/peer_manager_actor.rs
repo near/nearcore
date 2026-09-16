@@ -32,9 +32,9 @@ use near_network::state_witness::{
 };
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerAdvertisedHead, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo, SnapshotHostEvent,
-    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
+    PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
+    ReasonForBan, SetChainInfo, SnapshotHostEvent, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
@@ -230,18 +230,6 @@ impl TestLoopPeerManagerActor {
         let now = self.clock.now();
         let future = self.client_sender.send_async(
             SetNetworkInfo(NetworkInfo {
-                highest_height_peers: self
-                    .last_block_headers
-                    .iter()
-                    .map(|(peer_info, header)| PeerAdvertisedHead {
-                        archival: self.shared_state.is_peer_archival(&peer_info.id),
-                        genesis_id: self.genesis_id.clone(),
-                        highest_block_hash: *header.hash(),
-                        highest_block_height: header.height(),
-                        tracked_shards: vec![],
-                        peer_info: peer_info.clone(),
-                    })
-                    .collect(),
                 connected_peers: self
                     .last_block_headers
                     .iter()

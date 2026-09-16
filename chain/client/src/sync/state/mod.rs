@@ -6,7 +6,7 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::peers::SyncPeers;
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector, SyncPeers};
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use futures::future::BoxFuture;
@@ -22,9 +22,7 @@ use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::StateResponse;
-use near_network::types::{
-    PeerAdvertisedHead, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::{StatePart, StatePartIndex};
@@ -33,8 +31,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -258,7 +254,8 @@ impl StateSync {
         &mut self,
         chain: &Chain,
         block_header: &BlockHeader,
-        highest_height_peers: &[PeerAdvertisedHead],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Vec<(CryptoHash, PeerId)> {
         let now = self.clock.now_utc();
 
@@ -271,7 +268,6 @@ impl StateSync {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        let mut rng = thread_rng();
         for hash in needed_block_hashes {
             let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
@@ -285,7 +281,7 @@ impl StateSync {
                 continue;
             }
 
-            let peer_info = highest_height_peers.choose(&mut rng);
+            let peer_info = peer_selector.pick(peers_ahead, now);
             let Some(peer_info) = peer_info else {
                 tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
                 continue;
@@ -309,6 +305,7 @@ impl StateSync {
         shard_tracker: &ShardTracker,
         chain: &mut Chain,
         peers: &SyncPeers,
+        peer_selector: &mut PeerSelector,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let sync_hash = sync_status.sync_hash;
@@ -321,7 +318,7 @@ impl StateSync {
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         let blocks_to_request =
-            self.request_sync_blocks(chain, &block_header, peers.highest_height_peers);
+            self.request_sync_blocks(chain, &block_header, &peers.peers_ahead, peer_selector);
         if !blocks_to_request.is_empty() {
             return Ok(StateSyncResult::NeedBlocks(blocks_to_request));
         }
