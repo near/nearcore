@@ -4,10 +4,10 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use crate::logic::logic::Promise;
-use crate::logic::recorded_storage_counter::RecordedStorageCounter;
-use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::logic::host as logic;
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -15,14 +15,13 @@ use crate::{
     imports, prepare,
 };
 use core::mem::transmute;
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Balance;
 use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -34,7 +33,6 @@ use wasmtime::{
     WasmBacktraceDetails,
 };
 
-mod logic;
 #[cfg(test)]
 mod test_instance_limits;
 #[cfg(test)]
@@ -295,33 +293,22 @@ enum Export<T> {
 pub struct Ctx {
     memory: Export<Memory>,
     limits: StoreLimits,
-    /// Provides access to the components outside the Wasm runtime for operations on the trie and
-    /// receipts creation.
-    ext: &'static mut dyn External,
-    /// Part of Context API and Economics API that was extracted from the receipt.
-    context: &'static VMContext,
+    /// The runtime-independent state the host functions operate on.
+    host: HostCtx<'static>,
+}
 
-    /// All gas and economic parameters required during contract execution.
-    config: Arc<Config>,
-    /// Fees charged for various operations that contract may execute.
-    fees_config: Arc<RuntimeFeesConfig>,
+impl Deref for Ctx {
+    type Target = HostCtx<'static>;
 
-    /// Current amount of locked tokens, does not automatically change when staking transaction is
-    /// issued.
-    current_account_locked_balance: Balance,
-    /// Registers can be used by the guest to store blobs of data without moving them across
-    /// host-guest boundary.
-    registers: Registers,
-    /// The DAG of promises, indexed by promise id.
-    promises: Vec<Promise>,
+    fn deref(&self) -> &Self::Target {
+        &self.host
+    }
+}
 
-    /// Stores the amount of stack space remaining
-    remaining_stack: u64,
-
-    /// Tracks size of the recorded trie storage proof.
-    recorded_storage_counter: RecordedStorageCounter,
-
-    result_state: ExecutionResultState,
+impl DerefMut for Ctx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.host
+    }
 }
 
 impl Ctx {
@@ -352,26 +339,10 @@ impl Ctx {
             .table_elements(max_elements_per_contract_table)
             .build();
 
-        let current_account_locked_balance = context.account_locked_balance;
-        let config = Arc::clone(&result_state.config);
-        let recorded_storage_counter = RecordedStorageCounter::new(
-            ext.storage_proof_size_before_receipt(),
-            result_state.config.limit_config.per_receipt_storage_proof_size_limit,
-        );
-        let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
         Self {
             memory: Export::Unresolved(memory),
             limits,
-            ext,
-            context,
-            config,
-            fees_config,
-            current_account_locked_balance,
-            recorded_storage_counter,
-            registers: Default::default(),
-            promises: vec![],
-            remaining_stack,
-            result_state,
+            host: HostCtx::new(ext, context, fees_config, result_state),
         }
     }
 }
@@ -1039,7 +1010,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
         store.limiter(|ctx| &mut ctx.limits);
         let Some(_permit) = concurrency.try_acquire(num_tables) else {
-            let Ctx { result_state, .. } = store.into_data();
+            let result_state = store.into_data().host.into_result_state();
             return Ok(VMOutcome::abort(
                 result_state,
                 FunctionCallError::LinkError { msg: "failed to acquire execution slot".into() },
@@ -1049,7 +1020,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             Ok(instance) => instance,
             Err(err) => {
                 let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
+                let result_state = store.into_data().host.into_result_state();
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
@@ -1105,13 +1076,13 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             };
             if let Err(err) = start.call(&mut store, &[], &mut []) {
                 let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
+                let result_state = store.into_data().host.into_result_state();
                 return Ok(VMOutcome::abort(result_state, err));
             }
         }
 
         let res = call(&mut store, instance, &method);
-        let Ctx { result_state, .. } = store.into_data();
+        let result_state = store.into_data().host.into_result_state();
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
             RunOutcome::AbortNop(error) => {

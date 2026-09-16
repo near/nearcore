@@ -134,7 +134,7 @@ impl WasmtimeTestLogic<'_> {
         register_id: u64,
         data: &[u8],
     ) -> Result<(), VMLogicError> {
-        let ctx = self.store.data_mut();
+        let ctx = &mut self.store.data_mut().host;
         ctx.registers.set(
             &mut ctx.result_state.gas_counter,
             &ctx.config.limit_config,
@@ -144,6 +144,6 @@ impl WasmtimeTestLogic<'_> {
     }
 
     pub(crate) fn compute_outcome(self) -> VMOutcome {
-        self.store.into_data().result_state.compute_outcome()
+        self.store.into_data().host.into_result_state().compute_outcome()
     }
 }
