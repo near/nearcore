@@ -1297,7 +1297,7 @@ pub fn record_spice_endorsement_stats_for_block(
 fn observe_certification_lag(block: &Block, oldest_uncertified_header: Option<&BlockHeader>) {
     let height_delta = oldest_uncertified_header
         .map_or(0, |header| block.header().height().saturating_sub(header.height()));
-    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(height_delta as i64);
+    metrics::SPICE_CERTIFICATION_LAG.set(height_delta as i64);
 }
 
 fn find_oldest_uncertified_block_header(
