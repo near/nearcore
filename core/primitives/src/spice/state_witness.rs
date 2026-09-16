@@ -17,16 +17,17 @@ use std::fmt::Debug;
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum SpiceChunkStateWitness {
-    V1(SpiceChunkStateWitnessV1) = 0,
+    /// Witness of the spice activation parent, whose chunk was applied pre-spice.
+    Boundary(SpiceBoundaryChunkStateWitness) = 0,
+    V1(SpiceChunkStateWitnessV1) = 1,
 }
 
 /// There are following differences with ChunkStateWitnessV2
 /// - removed chunk_header, epoch_id, new_transactions,
 /// - added chunk_id, execution_result_hash,
 /// - changed source_receipt_proofs key from chunk hash to shard id and adjusted comment for spice,
-/// - replaced implicit_transitions with boundary: under spice a missing chunk is an
-///   empty new chunk and needs no implicit transition, so the field here exists solely
-///   for the spice activation boundary
+/// - removed implicit_transitions: under spice a missing chunk is an empty new chunk and
+///   needs no implicit transition.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct SpiceChunkStateWitnessV1 {
     /// Witness contains information to derive execution results of chunk corresponding to
@@ -62,18 +63,31 @@ pub struct SpiceChunkStateWitnessV1 {
     /// verify the invalidity. When present, validators accept empty
     /// transactions instead of the chunk header's tx_root.
     pub proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
-    /// Present only on a witness of the spice activation parent, whose chunk was
-    /// applied pre-spice.
-    pub boundary: Option<SpiceBoundaryWitnessData>,
 }
 
+/// Witness of the spice activation parent. Its chunk was applied pre-spice, so
+/// receipts are sourced and missing chunks replayed the pre-spice way. Pre-spice
+/// blocks hold no invalid chunks, so there is no proof of one to carry.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct SpiceBoundaryWitnessData {
+pub struct SpiceBoundaryChunkStateWitness {
+    /// Witness contains information to derive execution results of chunk corresponding to
+    /// chunk_id.
+    pub chunk_id: SpiceChunkId,
+    /// Recorded partial state before the chunk's main state transition.
+    pub pre_state: PartialState,
     /// One proof per chunk included between the target shard's previous inclusion
     /// (exclusive) and the anchor (inclusive), keyed by chunk hash and verified
     /// against that chunk's `prev_outgoing_receipts_root`, as in the pre-spice
-    /// witness. Replaces `source_receipt_proofs`, which is empty.
+    /// witness.
     pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    /// Hash of the borsh-encoded receipts to apply, in application order.
+    pub applied_receipts_hash: CryptoHash,
+    /// The transactions to apply. These must be in the correct order in which
+    /// they are to be applied.
+    pub transactions: Vec<SignedTransaction>,
+    /// Code hashes of the contracts accessed during chunk application. Validators
+    /// check the contract accesses message against this and fetch missing code.
+    pub contract_accesses: BTreeSet<CodeHash>,
     /// Old-chunk transitions to replay after the main transition, oldest first.
     pub implicit_transitions: Vec<ChunkStateTransition>,
 }
@@ -96,87 +110,57 @@ impl SpiceChunkStateWitness {
             transactions,
             contract_accesses,
             proof_of_invalid_chunk,
-            boundary: None,
-        })
-    }
-
-    /// A witness of the spice activation parent. Pre-spice blocks hold no invalid
-    /// chunks, so there is no proof of one to carry.
-    pub fn new_boundary(
-        chunk_id: SpiceChunkId,
-        pre_state: PartialState,
-        boundary: SpiceBoundaryWitnessData,
-        applied_receipts_hash: CryptoHash,
-        transactions: Vec<SignedTransaction>,
-        contract_accesses: BTreeSet<CodeHash>,
-    ) -> Self {
-        Self::V1(SpiceChunkStateWitnessV1 {
-            chunk_id,
-            pre_state,
-            source_receipt_proofs: HashMap::new(),
-            applied_receipts_hash,
-            transactions,
-            contract_accesses,
-            proof_of_invalid_chunk: None,
-            boundary: Some(boundary),
         })
     }
 
     pub fn chunk_id(&self) -> &SpiceChunkId {
         match self {
             Self::V1(witness) => &witness.chunk_id,
+            Self::Boundary(witness) => &witness.chunk_id,
         }
     }
 
     pub fn pre_state(&self) -> &PartialState {
         match self {
             Self::V1(witness) => &witness.pre_state,
+            Self::Boundary(witness) => &witness.pre_state,
         }
     }
 
     /// Merge contract bytes into the recorded pre-state's trie values.
     pub fn merge_contracts(&mut self, contracts: Vec<CodeBytes>) {
-        match self {
-            Self::V1(witness) => {
-                let PartialState::TrieValues(values) = &mut witness.pre_state;
-                values.extend(contracts.into_iter().map(|code| code.0));
-            }
-        }
-    }
-
-    pub fn source_receipt_proofs(&self) -> &HashMap<ShardId, ReceiptProof> {
-        match self {
-            Self::V1(witness) => &witness.source_receipt_proofs,
-        }
+        let PartialState::TrieValues(values) = match self {
+            Self::V1(witness) => &mut witness.pre_state,
+            Self::Boundary(witness) => &mut witness.pre_state,
+        };
+        values.extend(contracts.into_iter().map(|code| code.0));
     }
 
     pub fn applied_receipts_hash(&self) -> &CryptoHash {
         match self {
             Self::V1(witness) => &witness.applied_receipts_hash,
+            Self::Boundary(witness) => &witness.applied_receipts_hash,
         }
     }
 
     pub fn transactions(&self) -> &[SignedTransaction] {
         match self {
             Self::V1(witness) => &witness.transactions,
+            Self::Boundary(witness) => &witness.transactions,
         }
     }
 
     pub fn contract_accesses(&self) -> &BTreeSet<CodeHash> {
         match self {
             Self::V1(witness) => &witness.contract_accesses,
+            Self::Boundary(witness) => &witness.contract_accesses,
         }
     }
 
     pub fn proof_of_invalid_chunk(&self) -> Option<&EncodedShardChunkBody> {
         match self {
             Self::V1(witness) => witness.proof_of_invalid_chunk.as_deref(),
-        }
-    }
-
-    pub fn boundary(&self) -> Option<&SpiceBoundaryWitnessData> {
-        match self {
-            Self::V1(witness) => witness.boundary.as_ref(),
+            Self::Boundary(_) => None,
         }
     }
 }

@@ -1,6 +1,5 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
-use crate::spice::boundary::{check_pre_spice_execution_result, is_spice_activation_parent};
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -30,6 +29,8 @@ use near_store::{DBCol, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+
+mod boundary;
 
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(Debug, Clone, PartialEq)]
@@ -137,33 +138,19 @@ impl SpiceCoreWriterActor {
         store_update
     }
 
-    /// `None` when the boundary tripwire rejects the result: one bad chunk must not
-    /// cost the block its other core statements.
     fn save_execution_result(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
-    ) -> Option<StoreUpdate> {
-        if let Err(err) = check_pre_spice_execution_result(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &SpiceChunkId { block_hash: *block_hash, shard_id },
-            execution_result,
-        ) {
-            tracing::error!(
-                target: "spice_core_writer",
-                ?err,
-                %block_hash,
-                %shard_id,
-                "not saving execution result",
-            );
-            return None;
+    ) -> StoreUpdate {
+        let mut store_update = self.chain_store.store().store_update();
+        if self.boundary_rejects_execution_result(block_hash, shard_id, execution_result) {
+            return store_update;
         }
         let key = get_execution_results_key(block_hash, shard_id);
-        let mut store_update = self.chain_store.store().store_update();
         store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
-        Some(store_update)
+        store_update
     }
 
     fn save_uncertified_execution_result(
@@ -281,13 +268,11 @@ impl SpiceCoreWriterActor {
 
             assert_eq!(&chunk_id.block_hash, block.header().hash());
             let execution_result = execution_results.get(&chunk_execution_result_hash).unwrap();
-            if let Some(update) = self.save_execution_result(
+            store_update.merge(self.save_execution_result(
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
                 execution_result,
-            ) {
-                store_update.merge(update);
-            }
+            ));
         }
 
         for execution_result in execution_results.values() {
@@ -562,13 +547,11 @@ impl SpiceCoreWriterActor {
                         .insert(endorsement.account_id().clone());
                 }
                 SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                    if let Some(update) = self.save_execution_result(
+                    store_update.merge(self.save_execution_result(
                         &chunk_id.block_hash,
                         chunk_id.shard_id,
                         execution_result,
-                    ) {
-                        store_update.merge(update);
-                    }
+                    ));
                     in_block_execution_results.insert(chunk_id);
                 }
             };
@@ -596,13 +579,11 @@ impl SpiceCoreWriterActor {
             )? {
                 let execution_result = self.get_uncertified_execution_result(&chunk_execution_result_hash)
                     .expect("for each endorsement we should save corresponding uncertified execution result");
-                if let Some(update) = self.save_execution_result(
+                store_update.merge(self.save_execution_result(
                     &chunk_id.block_hash,
                     chunk_id.shard_id,
                     &execution_result,
-                ) {
-                    store_update.merge(update);
-                }
+                ));
             }
         }
 
@@ -613,19 +594,9 @@ impl SpiceCoreWriterActor {
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
         // A pre-spice block carries no core statements and needs no certification,
-        // so there is nothing to record for it — except an activation parent, whose
-        // chunks' endorsements can arrive before the block and wait as pending.
+        // so there is nothing to record for it.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), &block_hash)? {
-                let block = self.chain_store.get_block(&block_hash)?;
-                let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
-                if !pending_endorsements.is_empty() {
-                    let store_update =
-                        self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
-                    store_update.commit();
-                    self.try_sending_execution_result_endorsed(&block_hash)?;
-                }
-            }
+            self.handle_processed_activation_parent(&block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();

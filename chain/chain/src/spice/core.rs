@@ -3,6 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
+use crate::spice::boundary::seeded_uncertified_chunks;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -965,13 +966,7 @@ fn get_uncertified_chunks(
     if block.header().is_genesis() {
         Ok(vec![])
     } else if !block.is_spice_block() {
-        if !cfg!(feature = "protocol_feature_spice") {
-            return Ok(vec![]);
-        }
-        Ok(chain_store
-            .store_ref()
-            .get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
-            .unwrap_or_default())
+        Ok(seeded_uncertified_chunks(chain_store, block_hash))
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())

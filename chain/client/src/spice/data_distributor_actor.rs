@@ -28,7 +28,7 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
-use near_chain::spice::boundary::is_spice_activation_parent;
+use near_chain::spice::boundary::{spice_producers_epoch_id, spice_tracking_prev_hash};
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
@@ -671,11 +671,7 @@ impl SpiceDataDistributorActor {
         block: &Block,
     ) -> Result<(HashSet<AccountId>, Vec<AccountId>), Error> {
         let producers_epoch_id =
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), block.hash())? {
-                self.epoch_manager.get_epoch_id_from_prev_block(block.hash())?
-            } else {
-                *block.header().epoch_id()
-            };
+            spice_producers_epoch_id(self.epoch_manager.as_ref(), block.hash())?;
         let (recipients, producers) = match data_id {
             SpiceDataIdentifier::ReceiptProof { from_shard_id, to_shard_id, block_hash } => {
                 debug_assert_eq!(block.hash(), block_hash);
@@ -1406,18 +1402,13 @@ impl SpiceDataDistributorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
 
-        let self_produced_prev_hash =
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
-                block_hash
-            } else {
-                block.header().prev_hash()
-            };
+        let tracking_prev_hash = spice_tracking_prev_hash(self.epoch_manager.as_ref(), &block)?;
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
                 self.shard_tracker.should_apply_chunk(
                     ApplyChunksMode::IsCaughtUp,
-                    self_produced_prev_hash,
+                    &tracking_prev_hash,
                     *shard_id,
                 )
             })

@@ -9,7 +9,6 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
-use near_chain::spice::boundary::is_spice_activation_parent;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
@@ -31,6 +30,8 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::instrument;
+
+mod boundary;
 
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStoreAdapter,
@@ -190,12 +191,9 @@ impl ChunkExecutorActor {
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         // A block from a pre-spice epoch was already executed synchronously as part
         // of block processing and has no spice state to work from, so this returns
-        // without touching it — except an activation parent, whose committed
-        // pre-spice results bootstrap the boundary.
+        // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
-                self.bootstrap_boundary_source_block(block_hash)?;
-            }
+            self.bootstrap_activation_parent(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -208,19 +206,6 @@ impl ChunkExecutorActor {
         // finalize trigger never fires; finalize here instead.
         if self.all_tracked_shards_applied(block_hash)? {
             self.finalize_block(block_hash)?;
-        }
-        Ok(())
-    }
-
-    /// Runs the boundary bootstrap of the activation parent `block_hash` on every
-    /// tracked shard's executor.
-    fn bootstrap_boundary_source_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let block = self.chain_store.get_block(block_hash)?;
-        self.reconcile_tracked_shards(block_hash)?;
-        for executor in self.per_shard_executors.values() {
-            if let Err(err) = executor.bootstrap_boundary_source_block(&block) {
-                tracing::error!(target: "chunk_executor", ?err, %block_hash, shard_uid = ?executor.shard_uid(), "failed boundary bootstrap for shard");
-            }
         }
         Ok(())
     }
@@ -353,30 +338,6 @@ impl ChunkExecutorActor {
             next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
 
-        Ok(())
-    }
-
-    /// Recover after a crash around an activation parent: the boundary bootstrap's
-    /// endorsement and receipt sends are not persisted, so re-run it.
-    /// A no-op when neither is an activation parent.
-    fn recover_boundary_bootstrap(&mut self) -> Result<(), Error> {
-        let mut candidates = Vec::new();
-        match self.chain_store.head() {
-            Ok(head) => candidates.push(head.last_block_hash),
-            Err(Error::DBNotFoundErr(_)) => {}
-            Err(err) => return Err(err),
-        }
-        match self.chain_store.spice_execution_head() {
-            Ok(execution_head) => candidates.push(execution_head.last_block_hash),
-            Err(Error::DBNotFoundErr(_)) => {}
-            Err(err) => return Err(err),
-        }
-        candidates.dedup();
-        for block_hash in candidates {
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), &block_hash)? {
-                self.bootstrap_boundary_source_block(&block_hash)?;
-            }
-        }
         Ok(())
     }
 

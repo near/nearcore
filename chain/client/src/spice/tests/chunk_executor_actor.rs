@@ -1208,6 +1208,7 @@ fn test_witness_is_valid() {
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &state_witness,
             &block,
+            &prev_block,
             &prev_block_execution_results,
             actor.actor.epoch_manager.as_ref(),
             &actor.chain.chain_store,

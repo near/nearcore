@@ -4,9 +4,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
-use near_chain::spice::boundary::{
-    anchor_and_replay_blocks, execution_result_from_pre_spice_child, is_spice_activation_parent,
-};
+use near_chain::spice::boundary::spice_producers_epoch_id;
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -34,7 +32,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{BlockExecutionResults, ShardId, SpiceChunkId};
+use near_primitives::types::{BlockExecutionResults, SpiceChunkId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
@@ -43,6 +41,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::repeat_n;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+
+mod boundary;
 
 // Each pending chunk stores the uncompressed witness plus uncompressed contracts.
 // In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
@@ -333,43 +333,6 @@ impl SpiceChunkValidatorActor {
         }
     }
 
-    fn prev_execution_results_for_witness(
-        &self,
-        block: &Arc<Block>,
-        prev_block: &Block,
-        shard_id: ShardId,
-    ) -> Result<Option<(BlockExecutionResults, Arc<Block>)>, Error> {
-        if !block.is_spice_block() {
-            let (anchor_block, _replay_blocks) = anchor_and_replay_blocks(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                block.as_ref(),
-                shard_id,
-            )?;
-            let (_, prev_shard_id, _) = self
-                .epoch_manager
-                .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
-            let prev_result = execution_result_from_pre_spice_child(
-                self.epoch_manager.as_ref(),
-                &anchor_block,
-                shard_id,
-            )?
-            .ok_or_else(|| {
-                Error::Other(format!(
-                    "anchor block {} includes no chunk of shard {}",
-                    anchor_block.hash(),
-                    shard_id
-                ))
-            })?;
-            let results =
-                BlockExecutionResults(HashMap::from([(prev_shard_id, Arc::new(prev_result))]));
-            Ok(Some((results, anchor_block)))
-        } else {
-            let results = self.core_reader.get_block_execution_results(prev_block.header())?;
-            Ok(results.map(|results| (results, Arc::clone(block))))
-        }
-    }
-
     fn witness_processing_readiness(
         &self,
         witness: &SpiceChunkStateWitness,
@@ -389,10 +352,14 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err),
         };
+        if !block.is_spice_block() {
+            let context = self.boundary_witness_validation_context(block, shard_id)?;
+            return Ok(WitnessProcessingReadiness::Ready(context));
+        }
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
-        let Some((prev_block_execution_results, anchor_block)) =
-            self.prev_execution_results_for_witness(&block, &prev_block, shard_id)?
+        let Some(prev_block_execution_results) =
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -402,36 +369,25 @@ impl SpiceChunkValidatorActor {
             return Ok(WitnessProcessingReadiness::NotReady);
         };
 
-        let prev_validator_proposals = if !block.is_spice_block() {
-            let (_, prev_shard_id, _) = self
-                .epoch_manager
-                .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
-            let prev_execution_result =
-                prev_block_execution_results.0.get(&prev_shard_id).ok_or_else(|| {
-                    Error::Other(format!(
-                        "no previous execution result for shard {} at anchor {}",
-                        shard_id,
-                        anchor_block.hash()
-                    ))
-                })?;
-            prev_execution_result.chunk_extra.validator_proposals().collect()
-        } else {
-            match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
-                Ok(proposals) => proposals,
-                Err(err) => {
-                    tracing::debug!(
+        let prev_validator_proposals = match self
+            .core_reader
+            .prev_validator_proposals(prev_block.hash(), shard_id)
+        {
+            Ok(proposals) => proposals,
+            Err(err) => {
+                tracing::debug!(
                         target: "spice_chunk_validator",
                         ?chunk_id,
                         prev_block_hash = ?prev_block.hash(),
                         ?err,
                         "witness for block isn't ready for processing; missing execution results for validator proposals");
-                    return Ok(WitnessProcessingReadiness::NotReady);
-                }
+                return Ok(WitnessProcessingReadiness::NotReady);
             }
         };
 
         Ok(WitnessProcessingReadiness::Ready(WitnessValidationContext {
             block,
+            prev_block,
             prev_block_execution_results,
             prev_validator_proposals,
         }))
@@ -522,6 +478,7 @@ impl SpiceChunkValidatorActor {
         &self,
         WitnessValidationContext {
             block,
+            prev_block,
             prev_block_execution_results,
             prev_validator_proposals,
         }: &WitnessValidationContext,
@@ -535,6 +492,7 @@ impl SpiceChunkValidatorActor {
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &witness,
             &block,
+            &prev_block,
             &prev_block_execution_results,
             self.epoch_manager.as_ref(),
             &self.chain_store,
@@ -628,15 +586,8 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err.into()),
         };
-        // An activation parent's accesses come from the boundary bootstrap, which runs
-        // on the nodes tracking the shard under spice, so its producers are keyed on
-        // the next block's epoch — the same rule data distribution uses.
         let producers_epoch_id =
-            if is_spice_activation_parent(self.epoch_manager.as_ref(), &chunk_id.block_hash)? {
-                self.epoch_manager.get_epoch_id_from_prev_block(&chunk_id.block_hash)?
-            } else {
-                epoch_id
-            };
+            spice_producers_epoch_id(self.epoch_manager.as_ref(), &chunk_id.block_hash)?;
         let producers = self
             .epoch_manager
             .get_epoch_chunk_producers_for_shard(&producers_epoch_id, chunk_id.shard_id)?;
@@ -968,6 +919,7 @@ enum WitnessProcessingReadiness {
 
 struct WitnessValidationContext {
     block: Arc<Block>,
+    prev_block: Arc<Block>,
     prev_block_execution_results: BlockExecutionResults,
     prev_validator_proposals: Vec<ValidatorStake>,
 }

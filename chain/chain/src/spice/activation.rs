@@ -59,6 +59,36 @@ fn spice_activation_imminent_at_head(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
+fn spice_enabled_or_imminent_at_head(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<bool, Error> {
+    Ok(spice_enabled_at_head(chain_store)?
+        || spice_activation_imminent_at_head(chain_store, epoch_manager)?)
+}
+
+/// Whether a spice message about `block_hash` is about the activation parent, whose
+/// boundary data legitimately arrives while the block is still pre-spice.
+fn is_activation_parent_or_log(
+    epoch_manager: &dyn EpochManagerAdapter,
+    kind: SpiceMessageKind,
+    block_hash: &CryptoHash,
+) -> bool {
+    match is_spice_activation_parent(epoch_manager, block_hash) {
+        Ok(is_activation_parent) => is_activation_parent,
+        Err(err) => {
+            tracing::debug!(
+                target: "spice_activation",
+                ?err,
+                kind = kind.as_str(),
+                %block_hash,
+                "cannot verify activation parent for spice message, dropping",
+            );
+            false
+        }
+    }
+}
+
 pub fn spice_relevant_block(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -146,23 +176,8 @@ impl SpiceMessageGate {
         unit: DropUnit,
     ) -> bool {
         let enabled = match spice_enabled_for_block(chain_store, block_hash) {
-            Ok(true) => true,
-            Ok(false) => match is_spice_activation_parent(epoch_manager, block_hash) {
-                Ok(is_activation_parent) => is_activation_parent,
-                Err(err) => {
-                    tracing::debug!(
-                        target: "spice_activation",
-                        ?err,
-                        kind = kind.as_str(),
-                        %block_hash,
-                        "cannot verify activation parent for spice message, dropping",
-                    );
-                    false
-                }
-            },
-            Err(_) => match spice_enabled_at_head(chain_store).and_then(|enabled| {
-                Ok(enabled || spice_activation_imminent_at_head(chain_store, epoch_manager)?)
-            }) {
+            Ok(enabled) => enabled || is_activation_parent_or_log(epoch_manager, kind, block_hash),
+            Err(_) => match spice_enabled_or_imminent_at_head(chain_store, epoch_manager) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
                 // this chain, so we cannot claim spice is active on it.

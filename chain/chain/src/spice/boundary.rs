@@ -10,12 +10,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    ChunkExecutionResult, EpochId, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::version::ProtocolFeature;
-use near_store::StoreUpdate;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::{DBCol, StoreUpdate};
 use std::sync::Arc;
 
 /// Whether `block_hash` is a spice activation parent: a last block of the last
@@ -36,6 +36,18 @@ pub fn is_spice_activation_parent(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
+/// Seeds what the activation boundary needs when `block` is an activation parent
+/// or a first spice block; a no-op otherwise.
+pub fn seed_activation_boundary(
+    store_update: &mut StoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+    parent_header: &BlockHeader,
+) -> Result<(), Error> {
+    seed_boundary_uncertified_chunks(store_update, epoch_manager, block)?;
+    seed_execution_heads_at_activation(store_update, block, parent_header)
+}
+
 /// Seeds the spice execution heads when `block` is a first spice block, i.e. when
 /// `parent_header` is still pre-spice; a no-op otherwise.
 pub fn seed_execution_heads_at_activation(
@@ -43,7 +55,7 @@ pub fn seed_execution_heads_at_activation(
     block: &Block,
     parent_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if parent_header.is_spice() {
+    if !block.is_spice_block() || parent_header.is_spice() {
         return Ok(());
     }
     let mut adapter = store_update.chain_store_update();
@@ -100,6 +112,49 @@ pub fn seed_boundary_uncertified_chunks(
     let uncertified_chunks = boundary_uncertified_chunks(epoch_manager, block)?;
     save_uncertified_chunks(store_update, block.hash(), &uncertified_chunks);
     Ok(())
+}
+
+/// The seeded uncertified-chunks row of the pre-spice `block_hash`: present only for
+/// an activation parent, empty otherwise.
+pub(crate) fn seeded_uncertified_chunks(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+) -> Vec<SpiceUncertifiedChunkInfo> {
+    if !cfg!(feature = "protocol_feature_spice") {
+        return vec![];
+    }
+    chain_store
+        .store_ref()
+        .get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
+        .unwrap_or_default()
+}
+
+/// The epoch whose chunk producers produce the spice data of `block_hash`: its own,
+/// or for an activation parent the next one, whose producers run the boundary
+/// bootstrap.
+pub fn spice_producers_epoch_id(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<EpochId, Error> {
+    if is_spice_activation_parent(epoch_manager, block_hash)? {
+        Ok(epoch_manager.get_epoch_id_from_prev_block(block_hash)?)
+    } else {
+        Ok(epoch_manager.get_epoch_id(block_hash)?)
+    }
+}
+
+/// The prev hash shard tracking of `block`'s spice applications is keyed on: `block`
+/// itself for an activation parent, whose chunks are bootstrapped by the shards
+/// tracked in the first spice epoch.
+pub fn spice_tracking_prev_hash(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &Block,
+) -> Result<CryptoHash, Error> {
+    if is_spice_activation_parent(epoch_manager, block.hash())? {
+        Ok(*block.hash())
+    } else {
+        Ok(*block.header().prev_hash())
+    }
 }
 
 /// Synthesizes the `ChunkExecutionResult` of shard `shard_id` of the activation parent
