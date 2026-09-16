@@ -12,6 +12,8 @@ use near_primitives_core::types::{AccountId, ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeSet, HashSet};
+use std::io;
+use std::mem;
 use std::sync::Arc;
 
 /// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
@@ -434,7 +436,7 @@ impl ContractCodeResponseV1 {
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self { next_chunk, compressed_contracts })
     }
 }
@@ -481,7 +483,7 @@ impl ContractCodeResponseV2Inner {
         contracts: &Vec<CodeBytes>,
         responder: &AccountId,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self {
             next_chunk,
             responder: responder.clone(),
@@ -495,7 +497,88 @@ impl ContractCodeResponseV2Inner {
 /// corresponds to the size of borsh-serialized ContractCodeResponse.
 pub const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
+/// Maximum total uncompressed contract code one request may cover, across all the responses that
+/// answer it. Bounds the memory a requester commits to assembling an answer and the traffic a
+/// producer sends for one request: a producer does not serve a set past this, and a requester that
+/// finds itself past it gives the request up. A multiple of the per-response cap, so one full
+/// response always fits.
+pub const MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE: u64 =
+    RESPONSES_PER_REQUEST * MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE;
+/// How many full responses one request may span: the knob behind
+/// `MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE`.
+const RESPONSES_PER_REQUEST: u64 = 4;
 const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
+
+/// Total uncompressed size of `codes`.
+pub fn total_code_size<'a>(codes: impl IntoIterator<Item = &'a CodeBytes>) -> u64 {
+    codes.into_iter().map(|code| code.0.len() as u64).sum()
+}
+
+/// Contract codes collected to answer one request, refusing to grow past
+/// `MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE`.
+#[derive(Default)]
+pub struct BoundedContractCodes {
+    codes: Vec<CodeBytes>,
+    total_size: u64,
+}
+
+impl BoundedContractCodes {
+    /// Adds `code` and returns true, or returns false once the set would pass the cap. The size
+    /// counted then includes the refused code, so a log of it shows what was asked for.
+    pub fn push(&mut self, code: CodeBytes) -> bool {
+        self.total_size += code.0.len() as u64;
+        if self.total_size > MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE {
+            return false;
+        }
+        self.codes.push(code);
+        true
+    }
+
+    pub fn total_size(&self) -> u64 {
+        self.total_size
+    }
+
+    pub fn into_codes(self) -> Vec<CodeBytes> {
+        self.codes
+    }
+}
+
+/// Compresses contracts for one response, erroring if they would not fit it. Group
+/// them with `split_contracts_for_response` first.
+fn encode_response_contracts(contracts: &Vec<CodeBytes>) -> io::Result<CompressedContractCode> {
+    let (compressed, size) = CompressedContractCode::encode(contracts)?;
+    if size as u64 > MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE {
+        return Err(io::Error::other(format!(
+            "contract code response of {size} bytes exceeds the decode limit of \
+             {MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE} bytes"
+        )));
+    }
+    Ok(compressed)
+}
+
+/// Splits contracts into groups that each fit one `ContractCodeResponse`.
+///
+/// Order is kept. A set that already fits comes back as a single group, and an empty
+/// set as a single empty group, so a request always gets at least one response.
+pub fn split_contracts_for_response(contracts: Vec<CodeBytes>) -> Vec<Vec<CodeBytes>> {
+    let cap = MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE as usize;
+    let empty_len =
+        borsh::object_length(&Vec::<CodeBytes>::new()).expect("borsh length of an in-memory vec");
+    let mut groups = Vec::new();
+    let mut current = Vec::new();
+    let mut current_len = empty_len;
+    for code in contracts {
+        let item_len = borsh::object_length(&code).expect("borsh length of in-memory bytes");
+        if !current.is_empty() && current_len + item_len > cap {
+            groups.push(mem::take(&mut current));
+            current_len = empty_len;
+        }
+        current_len += item_len;
+        current.push(code);
+    }
+    groups.push(current);
+    groups
+}
 
 /// This is the compressed version of a list of borsh-serialized contract code.
 #[derive(
@@ -982,7 +1065,7 @@ pub struct SpiceContractCodeResponseV1 {
 
 impl SpiceContractCodeResponseV1 {
     pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self { chunk_id, compressed_contracts })
     }
 }
@@ -990,8 +1073,11 @@ impl SpiceContractCodeResponseV1 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChunkContractAccesses, CodeHash, MainTransitionKey, PartialEncodedContractDeploys,
-        PartialEncodedContractDeploysPart,
+        ChunkContractAccesses, CodeBytes, CodeHash,
+        MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE,
+        MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE, MainTransitionKey,
+        PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
+        split_contracts_for_response,
     };
     use crate::stateless_validation::ChunkProductionKey;
     use crate::test_utils::create_test_signer;
@@ -1107,5 +1193,27 @@ mod tests {
         let (key, part): (_, PartialEncodedContractDeploysPart) = deploys.into();
         assert_eq!(key, test_key());
         assert_eq!(part.part_ord, 3);
+    }
+
+    /// A request always gets at least one response: an empty set travels as one empty group.
+    #[test]
+    fn empty_contract_set_is_a_single_empty_response() {
+        assert_eq!(split_contracts_for_response(vec![]), vec![Vec::<CodeBytes>::new()]);
+    }
+
+    /// A set that fits one response still travels as one.
+    #[test]
+    fn contract_set_that_fits_is_a_single_response() {
+        let contracts: Vec<CodeBytes> = (0..3u8).map(|i| CodeBytes(vec![i; 1000].into())).collect();
+        assert_eq!(split_contracts_for_response(contracts.clone()), vec![contracts]);
+    }
+
+    /// Keeps the two caps consistent: one response is never larger than what a request may cover.
+    #[test]
+    fn per_request_cap_covers_a_full_response() {
+        assert!(
+            MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE
+                >= MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE
+        );
     }
 }
