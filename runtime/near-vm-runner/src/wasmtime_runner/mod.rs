@@ -490,6 +490,12 @@ impl WasmtimeVM {
             let max_elements_per_contract_table =
                 max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
             let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
+            // Protocol version 157 adds the globals limit and raises this cap together.
+            let max_core_instance_size = if config.limit_config.max_globals_per_contract.is_some() {
+                MAX_CORE_INSTANCE_SIZE
+            } else {
+                LEGACY_MAX_CORE_INSTANCE_SIZE
+            };
 
             let mut pooling_config = PoolingAllocationConfig::default();
             pooling_config
@@ -502,11 +508,7 @@ impl WasmtimeVM {
                 .total_tables(max_tables)
                 .max_memories_per_module(1)
                 .max_tables_per_module(max_tables_per_contract)
-                .max_core_instance_size(if config.limit_config.max_globals_per_contract.is_some() {
-                    MAX_CORE_INSTANCE_SIZE
-                } else {
-                    LEGACY_MAX_CORE_INSTANCE_SIZE
-                })
+                .max_core_instance_size(max_core_instance_size)
                 .table_keep_resident(max_elements_per_contract_table);
 
             engine_config
