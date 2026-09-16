@@ -27,6 +27,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -73,8 +74,12 @@ impl WitnessCacheKey {
 enum TrackerUpdate {
     /// Applies to the one entry named by the key, creating it if it does not exist yet.
     Keyed(WitnessCacheKey, CacheUpdate),
-    /// Applies to every entry under `chunk` that is waiting for exactly `hashes`.
-    Contracts { chunk: ChunkProductionKey, hashes: HashSet<CodeHash>, codes: Vec<CodeBytes> },
+    /// Applies to every entry under `chunk` whose outstanding request covers `hashes`.
+    Contracts {
+        chunk: ChunkProductionKey,
+        hashes: HashSet<CodeHash>,
+        codes: Vec<(CodeHash, CodeBytes)>,
+    },
 }
 
 impl TrackerUpdate {
@@ -89,9 +94,14 @@ impl TrackerUpdate {
 enum AccessedContractsState {
     /// Haven't received `ChunkContractAccesses` message yet.
     Unknown,
-    /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
-    /// waiting for response from the chunk producer.
-    Requested { contract_hashes: HashSet<CodeHash>, requested_at: Instant },
+    /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`. The producer
+    /// answers in several responses when the set does not fit one, so codes collect
+    /// in `received` until every requested hash is in.
+    Requested {
+        contract_hashes: HashSet<CodeHash>,
+        received: HashMap<CodeHash, CodeBytes>,
+        requested_at: Instant,
+    },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
 }
@@ -126,10 +136,10 @@ struct CacheEntry {
 enum CacheUpdate {
     WitnessPart(Box<VersionedPartialEncodedStateWitness>, Arc<ReedSolomonEncoder>),
     AccessedContractHashes(HashSet<CodeHash>),
-    /// Received codes together with their hashes, computed once by the caller since they are
+    /// Received codes paired with their hashes, which the caller computes once since they are
     /// needed both to find the entry and to check it.
     AccessedContractCodes {
-        codes: Vec<CodeBytes>,
+        codes: Vec<(CodeHash, CodeBytes)>,
         hashes: HashSet<CodeHash>,
     },
 }
@@ -168,7 +178,11 @@ impl CacheEntry {
             }
         };
         let contracts_size = match &self.accessed_contracts {
-            AccessedContractsState::Unknown | AccessedContractsState::Requested { .. } => 0,
+            AccessedContractsState::Unknown => 0,
+            // Codes already delivered towards an incomplete set are held here.
+            AccessedContractsState::Requested { received, .. } => {
+                received.values().map(|code| code.0.len()).sum()
+            }
             AccessedContractsState::Received(contracts) => {
                 contracts.iter().map(|code| code.0.len()).sum()
             }
@@ -278,6 +292,7 @@ impl CacheEntry {
             AccessedContractsState::Unknown => {
                 self.accessed_contracts = AccessedContractsState::Requested {
                     contract_hashes,
+                    received: HashMap::new(),
                     requested_at: self.clock.now(),
                 };
             }
@@ -289,46 +304,58 @@ impl CacheEntry {
 
     fn set_received_contracts(
         &mut self,
-        contract_codes: Vec<CodeBytes>,
+        contract_codes: Vec<(CodeHash, CodeBytes)>,
         actual: HashSet<CodeHash>,
     ) {
-        match &self.accessed_contracts {
-            AccessedContractsState::Requested { contract_hashes, requested_at } => {
-                let expected = contract_hashes;
-                if actual != *expected {
+        let (contract_codes, requested_at) = match &mut self.accessed_contracts {
+            AccessedContractsState::Requested { contract_hashes, received, requested_at } => {
+                // Any unrequested code drops the whole response.
+                if !actual.is_subset(contract_hashes) {
                     tracing::warn!(
                         target: "client",
                         ?actual,
-                        ?expected,
-                        "received contracts hashes do not match the requested ones"
+                        expected = ?contract_hashes,
+                        "received contract codes that were not requested"
                     );
                     return;
                 }
-                let now = self.clock.now();
-                let shard_id_label = self.shard_id.to_string();
-                metrics::RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME
-                    .with_label_values(&[&shard_id_label])
-                    .observe(now.signed_duration_since(*requested_at).as_seconds_f64());
-                if let WitnessPartsState::Decoded { decoded_at, .. } = &self.witness_parts {
-                    metrics::WITNESS_ACCESSED_CONTRACT_CODES_DELAY
-                        .with_label_values(&[&shard_id_label])
-                        .observe(now.signed_duration_since(*decoded_at).as_seconds_f64());
+                for (hash, code) in contract_codes {
+                    received.entry(hash).or_insert(code);
                 }
-                self.accessed_contracts = AccessedContractsState::Received(contract_codes);
+                if received.len() < contract_hashes.len() {
+                    return;
+                }
+                let contracts = mem::take(received).into_values().collect();
+                (contracts, *requested_at)
             }
             AccessedContractsState::Unknown => {
                 tracing::warn!(target: "client", "received accessed contracts without sending a request");
+                return;
             }
             AccessedContractsState::Received(_) => {
                 tracing::warn!(target: "client", "already received accessed contract codes");
+                return;
             }
+        };
+        let now = self.clock.now();
+        let shard_id_label = self.shard_id.to_string();
+        metrics::RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME
+            .with_label_values(&[&shard_id_label])
+            .observe(now.signed_duration_since(requested_at).as_seconds_f64());
+        if let WitnessPartsState::Decoded { decoded_at, .. } = &self.witness_parts {
+            metrics::WITNESS_ACCESSED_CONTRACT_CODES_DELAY
+                .with_label_values(&[&shard_id_label])
+                .observe(now.signed_duration_since(*decoded_at).as_seconds_f64());
         }
+        self.accessed_contracts = AccessedContractsState::Received(contract_codes);
     }
 
+    /// Whether the entry has a request outstanding that covers all of `hashes`.
     fn is_awaiting_contracts(&self, hashes: &HashSet<CodeHash>) -> bool {
         matches!(
             &self.accessed_contracts,
-            AccessedContractsState::Requested { contract_hashes, .. } if contract_hashes == hashes
+            AccessedContractsState::Requested { contract_hashes, .. }
+                if hashes.is_subset(contract_hashes)
         )
     }
 
@@ -372,7 +399,7 @@ impl CacheEntry {
                 // We want to avoid copying decoded witness, so we move it out of the state
                 // and reset it to Empty.
                 let WitnessPartsState::Decoded { decode_result, .. } =
-                    std::mem::replace(&mut self.witness_parts, WitnessPartsState::Empty)
+                    mem::replace(&mut self.witness_parts, WitnessPartsState::Empty)
                 else {
                     unreachable!()
                 };
@@ -385,10 +412,9 @@ impl CacheEntry {
             AccessedContractsState::Received(_) => {
                 // We want to avoid copying contracts, so we move them out of the state
                 // and reset it to Unknown.
-                let AccessedContractsState::Received(contracts) = std::mem::replace(
-                    &mut self.accessed_contracts,
-                    AccessedContractsState::Unknown,
-                ) else {
+                let AccessedContractsState::Received(contracts) =
+                    mem::replace(&mut self.accessed_contracts, AccessedContractsState::Unknown)
+                else {
                     unreachable!()
                 };
                 contracts
@@ -418,7 +444,8 @@ impl ShardWitnessTracker {
         self.parts_cache.iter().map(|(_, entry)| entry.total_size()).sum()
     }
 
-    /// Finds every entry under `chunk` that is waiting for exactly `hashes`.
+    /// Finds every entry under `chunk` whose outstanding request covers `hashes`. The producer
+    /// may answer a request in several responses, so one response can carry a subset of it.
     fn find_pending_contracts(
         &self,
         chunk: &ChunkProductionKey,
@@ -530,7 +557,9 @@ impl PartialEncodedStateWitnessTracker {
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
-        let hashes: HashSet<CodeHash> = codes.iter().map(CodeBytes::hash).collect();
+        let codes: Vec<(CodeHash, CodeBytes)> =
+            codes.into_iter().map(|code| (code.hash(), code)).collect();
+        let hashes: HashSet<CodeHash> = codes.iter().map(|(hash, _)| hash.clone()).collect();
         self.process_update(TrackerUpdate::Contracts { chunk: key, hashes, codes })
     }
 

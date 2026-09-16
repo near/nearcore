@@ -12,6 +12,8 @@ use near_primitives_core::types::{AccountId, ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeSet, HashSet};
+use std::io;
+use std::mem;
 use std::sync::Arc;
 
 /// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
@@ -434,7 +436,7 @@ impl ContractCodeResponseV1 {
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self { next_chunk, compressed_contracts })
     }
 }
@@ -481,7 +483,7 @@ impl ContractCodeResponseV2Inner {
         contracts: &Vec<CodeBytes>,
         responder: &AccountId,
     ) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self {
             next_chunk,
             responder: responder.clone(),
@@ -496,6 +498,43 @@ impl ContractCodeResponseV2Inner {
 pub const MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE: u64 =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
 const CONTRACT_CODE_RESPONSE_COMPRESSION_LEVEL: i32 = 3;
+
+/// Compresses contracts for one response, erroring if they would not fit it. Group
+/// them with `split_contracts_for_response` first.
+fn encode_response_contracts(contracts: &Vec<CodeBytes>) -> io::Result<CompressedContractCode> {
+    let (compressed, size) = CompressedContractCode::encode(contracts)?;
+    if size as u64 > MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE {
+        return Err(io::Error::other(format!(
+            "contract code response of {size} bytes exceeds the decode limit of \
+             {MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE} bytes"
+        )));
+    }
+    Ok(compressed)
+}
+
+/// Splits contracts into groups that each fit one `ContractCodeResponse`.
+///
+/// Order is kept. A set that already fits comes back as a single group, and an empty
+/// set as a single empty group, so a request always gets at least one response.
+pub fn split_contracts_for_response(contracts: Vec<CodeBytes>) -> Vec<Vec<CodeBytes>> {
+    let cap = MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE as usize;
+    let empty_len =
+        borsh::object_length(&Vec::<CodeBytes>::new()).expect("borsh length of an in-memory vec");
+    let mut groups = Vec::new();
+    let mut current = Vec::new();
+    let mut current_len = empty_len;
+    for code in contracts {
+        let item_len = borsh::object_length(&code).expect("borsh length of in-memory bytes");
+        if !current.is_empty() && current_len + item_len > cap {
+            groups.push(mem::take(&mut current));
+            current_len = empty_len;
+        }
+        current_len += item_len;
+        current.push(code);
+    }
+    groups.push(current);
+    groups
+}
 
 /// This is the compressed version of a list of borsh-serialized contract code.
 #[derive(
@@ -982,7 +1021,7 @@ pub struct SpiceContractCodeResponseV1 {
 
 impl SpiceContractCodeResponseV1 {
     pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
-        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        let compressed_contracts = encode_response_contracts(contracts)?;
         Ok(Self { chunk_id, compressed_contracts })
     }
 }

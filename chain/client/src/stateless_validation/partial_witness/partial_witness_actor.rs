@@ -38,7 +38,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
     ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST, MainTransitionKey,
-    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
+    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart, split_contracts_for_response,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -1251,11 +1251,14 @@ impl PartialWitnessActor {
         }
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
         let signer = self.my_validator_signer()?;
-        let response =
-            ContractCodeResponse::encode(key.clone(), &contracts, &signer, protocol_version)?;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
-        ));
+        // The set may not fit one response; the requester reassembles the groups.
+        for group in split_contracts_for_response(contracts) {
+            let response =
+                ContractCodeResponse::encode(key.clone(), &group, &signer, protocol_version)?;
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
+            ));
+        }
         Ok(())
     }
 

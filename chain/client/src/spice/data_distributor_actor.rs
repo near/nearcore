@@ -60,7 +60,7 @@ use near_primitives::spice::partial_data::SpiceVerifiedPartialData;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse,
+    SpiceContractCodeRequest, SpiceContractCodeResponse, split_contracts_for_response,
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
@@ -1822,11 +1822,15 @@ impl SpiceDataDistributorActor {
             }
         }
 
-        let response =
-            SpiceContractCodeResponse::encode(chunk_id, &contracts).map_err(Error::StoreIoError)?;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpiceContractCodeResponse(requester, response),
-        ));
+        // The set may not fit one response. `handle_spice_contract_code_response`
+        // resolves contracts incrementally, so the groups reassemble on the requester.
+        for group in split_contracts_for_response(contracts) {
+            let response = SpiceContractCodeResponse::encode(chunk_id.clone(), &group)
+                .map_err(Error::StoreIoError)?;
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeResponse(requester.clone(), response),
+            ));
+        }
         Ok(())
     }
 
