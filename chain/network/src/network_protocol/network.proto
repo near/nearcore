@@ -462,6 +462,21 @@ message OptimisticBlock {
   CryptoHash hash = 3;
 }
 
+message EpochSyncManifestRequest {}
+
+message EpochSyncManifestResponse {
+  bytes compressed_manifest = 1;
+}
+
+message EpochSyncBatchRequest {
+  uint64 batch_index = 1;
+}
+
+message EpochSyncBatchResponse {
+  uint64 batch_index = 1;
+  bytes compressed_batch = 2;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -517,6 +532,10 @@ message PeerMessage {
 
     EpochSyncRequest epoch_sync_request = 34;
     EpochSyncResponse epoch_sync_response = 35;
+    EpochSyncManifestRequest epoch_sync_manifest_request = 38;
+    EpochSyncManifestResponse epoch_sync_manifest_response = 39;
+    EpochSyncBatchRequest epoch_sync_batch_request = 40;
+    EpochSyncBatchResponse epoch_sync_batch_response = 41;
 
     OptimisticBlock optimistic_block = 36;
     RoutedMessageV3 routed_v3 = 37;

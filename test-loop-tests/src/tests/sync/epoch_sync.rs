@@ -1,10 +1,16 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+#[cfg(feature = "nightly")]
+use crate::setup::peer_manager_actor::HandlerResult;
+#[cfg(feature = "nightly")]
+use crate::setup::state::NodeExecutionData;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use borsh::BorshDeserialize;
 use itertools::Itertools;
+#[cfg(feature = "nightly")]
+use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
@@ -13,6 +19,8 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
+#[cfg(feature = "nightly")]
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::merkle::PartialMerkleTree;
@@ -22,6 +30,10 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
+#[cfg(feature = "nightly")]
+use std::sync::Arc;
+#[cfg(feature = "nightly")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const NUM_CLIENTS: usize = 4;
 
@@ -159,6 +171,79 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
     env
+}
+
+/// Counts the epoch sync responses the nodes serve, split by which of the two epoch sync
+/// protocols they belong to.
+#[cfg(feature = "nightly")]
+#[derive(Clone, Default)]
+struct EpochSyncTrafficCounter {
+    monolithic_responses: Arc<AtomicUsize>,
+    manifest_responses: Arc<AtomicUsize>,
+    batch_responses: Arc<AtomicUsize>,
+}
+
+#[cfg(feature = "nightly")]
+impl EpochSyncTrafficCounter {
+    fn install(env: &mut TestLoopEnv) -> Self {
+        let counter = Self::default();
+        for node in &env.node_datas {
+            counter.install_on(&mut env.test_loop.data, node);
+        }
+        counter
+    }
+
+    fn install_on(&self, data: &mut TestLoopData, node: &NodeExecutionData) {
+        let counter = self.clone();
+        let peer_actor = data.get_mut(&node.peer_manager_sender.actor_handle());
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
+            match &request {
+                NetworkRequests::EpochSyncResponse { .. } => {
+                    counter.monolithic_responses.fetch_add(1, Ordering::Relaxed);
+                }
+                NetworkRequests::EpochSyncManifestResponse { .. } => {
+                    counter.manifest_responses.fetch_add(1, Ordering::Relaxed);
+                }
+                NetworkRequests::EpochSyncBatchResponse { .. } => {
+                    counter.batch_responses.fetch_add(1, Ordering::Relaxed);
+                }
+                _ => {}
+            };
+            HandlerResult::Unhandled(request)
+        }));
+    }
+
+    /// Asserts the bootstrap went over the batched protocol and not the monolithic one.
+    fn assert_batched_sync_used(&self) {
+        assert!(
+            self.manifest_responses.load(Ordering::Relaxed) > 0,
+            "no epoch sync manifest was served"
+        );
+        assert!(
+            self.batch_responses.load(Ordering::Relaxed) > 0,
+            "no epoch sync proof batch was served"
+        );
+        assert_eq!(
+            self.monolithic_responses.load(Ordering::Relaxed),
+            0,
+            "a whole-proof epoch sync response was served while batched epoch sync is enabled",
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "nightly")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_batched_epoch_sync_from_genesis() {
+    init_test_logger();
+    assert!(
+        ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION),
+        "this test requires batched epoch sync to be enabled",
+    );
+    let mut env = setup_initial_blockchain(20);
+    let counter = EpochSyncTrafficCounter::install(&mut env);
+    bootstrap_node_via_epoch_sync(env, 0);
+    counter.assert_batched_sync_used();
 }
 
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
