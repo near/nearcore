@@ -159,7 +159,7 @@ fn test_forged_sync_block_body_is_rejected() {
         }),
     );
 
-    // Let the victim reject the forgery, wait out `block_request_timeout` (60s), re-request
+    // Let the victim reject the forgery, wait out `block_request_timeout` (100 ms), re-request
     // from another peer and finish syncing.
     let source_handle = env.node_datas[0].client_sender.actor_handle();
     let head_handle = victim_handle;

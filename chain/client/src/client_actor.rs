@@ -1065,7 +1065,8 @@ enum StateSyncBlockDestination {
     /// The sync hash block waits in the orphan pool, to be processed once state sync has
     /// completed.
     OrphanPool,
-    /// The last block of the previous epoch. It does not need to be processed and goes straight to storage.
+    /// The block before the sync hash block. It does not need to be processed and goes straight to
+    /// storage.
     Storage,
     /// An extra block before the prev block, needed for incoming receipts.
     StorageWithRefcount,
@@ -2080,8 +2081,12 @@ impl ClientActor {
             }
         }
         if let Err(err) = self.client.chain.validate_block(block) {
-            byzantine_assert!(false);
-            tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
+            if err.is_bad_data() {
+                byzantine_assert!(false);
+                tracing::error!(target: "client", ?err, ?block_hash, "received an invalid block during state sync");
+            } else {
+                tracing::debug!(target: "client", ?err, ?block_hash, "could not validate block during state sync, will re-request");
+            }
             return StateSyncBlockVerdict::Drop;
         }
         StateSyncBlockVerdict::Save
@@ -2114,10 +2119,10 @@ impl ClientActor {
         // before verifying anything: a block the node is not looking for is ignored here just
         // as it would be outside of state sync, so there is nothing to verify it against.
         let destination = if block_hash == sync_hash {
-            // The first block of the new epoch.
+            // The sync hash block.
             StateSyncBlockDestination::OrphanPool
         } else if &block_hash == header.prev_hash() {
-            // The last block of the previous epoch.
+            // The block before the sync hash block.
             StateSyncBlockDestination::Storage
         } else {
             let extra_block_hashes =
