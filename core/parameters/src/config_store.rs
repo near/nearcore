@@ -56,10 +56,9 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (84, include_config!("84.yaml")),
     (85, include_config!("85.yaml")),
     (87, include_config!("87.yaml")),
+    (88, include_config!("88.yaml")),
     (129, include_config!("129.yaml")),
     (155, include_config!("155.yaml")),
-    // Cap the number of defined globals per contract.
-    (157, include_config!("157.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
