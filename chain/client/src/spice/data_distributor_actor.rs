@@ -3,11 +3,13 @@ use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::get_contract_accesses;
 use crate::spice::chunk_executor_actor::get_receipt_proof;
 use crate::spice::chunk_executor_actor::get_witness;
-use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
-use crate::spice::data_manager::{SpiceData, VerifiedCodedPart};
+pub use crate::spice::data_manager::DataId;
+use crate::spice::data_manager::{
+    DataManagerError, Policies, ReceivedParts, SpiceData, SpiceDataManager, VerifiedCodedPart,
+};
 use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::MultiSend;
@@ -18,7 +20,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
-use near_async::time::Duration;
+use near_async::time::{Clock, Duration};
 use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
@@ -103,12 +105,8 @@ pub(crate) enum Error {
     InvalidCommitmentHash,
     #[error("receipt proof id to_shard_id is invalid")]
     InvalidReceiptToShardId,
-    #[error("decoded receipt proof to_shard_id is invalid")]
-    InvalidDecodedReceiptToShardId,
     #[error("receipt proof id from_shard_id is invalid")]
     InvalidReceiptFromShardId,
-    #[error("decoded receipt proof from_shard_id is invalid")]
-    InvalidDecodedReceiptFromShardId,
     #[error("parts is empty")]
     PartsIsEmpty,
     #[error("decoded data doesn't match id")]
@@ -125,6 +123,8 @@ pub(crate) enum Error {
     StoreIoError(std::io::Error),
     #[error("malformed data request: {0}")]
     MalformedRequest(MalformedDataRequest),
+    #[error("data manager error: {0}")]
+    DataManager(#[from] DataManagerError),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -260,6 +260,10 @@ pub struct SpiceDataDistributorActor {
     /// Production observability is [`metrics::SPICE_MALFORMED_DATA_REQUESTS`].
     #[cfg(feature = "test_features")]
     malformed_data_requests: HashMap<MalformedDataRequest, u64>,
+
+    /// Fetch engine for receipt proofs; witnesses stay on `waiting_on_data` until they
+    /// switch over too.
+    data_manager: SpiceDataManager,
 }
 
 struct DistributionData {
@@ -287,6 +291,7 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
 pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
+    pub data_verification: Sender<DataVerification>,
 }
 
 struct DataPartsEntry {
@@ -321,6 +326,35 @@ pub struct SpiceDistributorOutgoingReceipts {
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
     pub contract_accesses: HashSet<CodeHash>,
+}
+
+/// Consumer's verification result on data the engine delivered.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataVerification {
+    /// Consumer verified and persisted the delivered data.
+    Ok(DataId),
+    /// Consumer verified the delivered data and found it invalid. Reporting it bans
+    /// the decoded commitment, so it must never mean the check could not run.
+    Failed(DataId),
+}
+
+impl Handler<DataVerification> for SpiceDataDistributorActor {
+    fn handle(&mut self, verification: DataVerification) {
+        let (data_id, result) = match verification {
+            DataVerification::Ok(data_id) => {
+                let result = self.data_manager.on_verified(&data_id);
+                (data_id, result)
+            }
+            DataVerification::Failed(data_id) => {
+                let result = self.data_manager.on_failed(&data_id);
+                (data_id, result)
+            }
+        };
+        if let Err(err) = result {
+            // A verification result can race item expiry, so failing to apply one is not an error.
+            tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring expired data verification result");
+        }
+    }
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -467,11 +501,18 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.process_pending_partial_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
         }
+        match self.chain_store.spice_final_execution_head() {
+            Ok(head) => self.data_manager.on_final_execution_head(head.height),
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when reading the final execution head");
+            }
+        }
     }
 }
 
 impl SpiceDataDistributorActor {
     pub fn new(
+        clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
@@ -487,7 +528,13 @@ impl SpiceDataDistributorActor {
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
+        let data_manager = SpiceDataManager::new(
+            clock,
+            DATA_PARTS_RATIO,
+            Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
+        );
         Self {
+            data_manager,
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
             rs_encoders: ReedSolomonEncoderCache::new(DATA_PARTS_RATIO),
@@ -519,6 +566,12 @@ impl SpiceDataDistributorActor {
     #[cfg(feature = "test_features")]
     pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
         self.spice_gate.dropped_count(kind)
+    }
+
+    /// Whether the data manager tracks an item for `id`, in any state.
+    #[cfg(test)]
+    pub(crate) fn is_tracking(&self, id: &DataId) -> bool {
+        self.data_manager.is_tracking(id)
     }
 
     /// How many data requests this actor rejected for `reason`.
@@ -723,9 +776,47 @@ impl SpiceDataDistributorActor {
             return Err(Error::SenderIsNotProducer);
         }
 
-        // It's possible that waiting_on_data wasn't populated yet if we received data after block
+        // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
         self.start_waiting_on_data(block.hash())?;
+
+        match &id {
+            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
+                match self.data_manager.on_parts_received(
+                    &sender,
+                    &data_id,
+                    &commitment,
+                    parts,
+                    producers.len(),
+                ) {
+                    Ok(ReceivedParts::Complete(SpiceData::ReceiptProof(receipt_proof))) => {
+                        self.executor_sender
+                            .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+                        Ok(())
+                    }
+                    Ok(ReceivedParts::Complete(SpiceData::StateWitness(_))) => {
+                        unreachable!("decode checked the data against its receipt-proof id")
+                    }
+                    Ok(ReceivedParts::Collecting) => Ok(()),
+                    Ok(ReceivedParts::NotWanted) => Err(Error::DataIsIrrelevant(id)),
+                    Err(err) => Err(err.into()),
+                }
+            }
+            SpiceDataIdentifier::Witness { .. } => {
+                self.receive_witness_data_with_block(id, commitment, parts, block, &producers)
+            }
+        }
+    }
+
+    fn receive_witness_data_with_block(
+        &mut self,
+        id: SpiceDataIdentifier,
+        commitment: SpiceDataCommitment,
+        parts: Vec<SpiceDataPart>,
+        block: &Block,
+        producers: &[AccountId],
+    ) -> Result<(), Error> {
         if !self.waiting_on_data.contains_key(&id) {
             self.start_waiting_on_pushed_fallback_witness(&id, block)?;
         }
@@ -753,8 +844,8 @@ impl SpiceDataDistributorActor {
             if decoded {
                 break;
             }
-            // TODO(spice-data-distribution): C1a routes ingress through the engine's
-            // insert_part; the unwrap below goes with the old tracker.
+            // TODO(spice-data-distribution): witness ingress moves onto the engine's
+            // insert_part; the unwrap below goes with the old tracker (#16275).
             let verified =
                 VerifiedCodedPart::verify(&commitment, total_parts, part_ord, part, &merkle_proof)
                     .map_err(|_| Error::InvalidCommitment)?;
@@ -779,47 +870,26 @@ impl SpiceDataDistributorActor {
                     if data_hash != commitment.hash {
                         return Err(Error::InvalidCommitmentHash);
                     }
-                    match data {
-                        SpiceData::ReceiptProof(receipt_proof) => {
-                            let SpiceDataIdentifier::ReceiptProof {
-                                block_hash,
-                                from_shard_id,
-                                to_shard_id,
-                            } = id
-                            else {
-                                return Err(Error::IdAndDataMismatch);
-                            };
-                            if to_shard_id != receipt_proof.1.to_shard_id {
-                                return Err(Error::InvalidDecodedReceiptToShardId);
-                            }
-                            if from_shard_id != receipt_proof.1.from_shard_id {
-                                return Err(Error::InvalidDecodedReceiptFromShardId);
-                            }
-                            self.executor_sender.send(ExecutorIncomingUnverifiedReceipts {
-                                receipt_proof,
-                                block_hash,
-                            });
-                        }
-                        SpiceData::StateWitness(witness) => {
-                            let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
-                                return Err(Error::IdAndDataMismatch);
-                            };
-                            let chunk_id = witness.chunk_id();
-                            if &chunk_id.shard_id != shard_id {
-                                return Err(Error::InvalidDecodedWitnessShardId);
-                            }
-                            if &chunk_id.block_hash != block_hash {
-                                return Err(Error::InvalidDecodedWitnessBlockHash);
-                            }
-                            self.witness_validator_sender.send(
-                                SpiceChunkStateWitnessMessage {
-                                    witness: *witness,
-                                    raw_witness_size: encoded_length as usize,
-                                }
-                                .span_wrap(),
-                            );
-                        }
+                    let SpiceData::StateWitness(witness) = data else {
+                        return Err(Error::IdAndDataMismatch);
+                    };
+                    let SpiceDataIdentifier::Witness { block_hash, shard_id } = &id else {
+                        unreachable!("only witness ids take this path");
+                    };
+                    let chunk_id = witness.chunk_id();
+                    if &chunk_id.shard_id != shard_id {
+                        return Err(Error::InvalidDecodedWitnessShardId);
                     }
+                    if &chunk_id.block_hash != block_hash {
+                        return Err(Error::InvalidDecodedWitnessBlockHash);
+                    }
+                    self.witness_validator_sender.send(
+                        SpiceChunkStateWitnessMessage {
+                            witness: *witness,
+                            raw_witness_size: encoded_length as usize,
+                        }
+                        .span_wrap(),
+                    );
                 }
                 reed_solomon::InsertPartResult::Decoded(Err(err)) => {
                     return Err(Error::DecodeError(err));
@@ -836,27 +906,10 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn is_data_known(&self, me: &AccountId, block: &Block, id: &SpiceDataIdentifier) -> bool {
-        match id {
-            SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                if receipt_proof_exists(
-                    &self.chain_store.store(),
-                    block_hash,
-                    *to_shard_id,
-                    *from_shard_id,
-                ) {
-                    return true;
-                }
-            }
-            SpiceDataIdentifier::Witness { block_hash, shard_id } => {
-                debug_assert_eq!(block_hash, block.hash());
-                if self.core_reader.endorsement_exists(block_hash, *shard_id, me) {
-                    return true;
-                }
-            }
-        }
-        false
+    /// Whether we already hold the artifact the witness exists to produce: our endorsement.
+    // TODO(spice-data-distribution): responsibility creep — remove when witnesses move onto the engine.
+    fn is_witness_known(&self, me: &AccountId, block_hash: &CryptoHash, shard_id: ShardId) -> bool {
+        self.core_reader.endorsement_exists(block_hash, shard_id, me)
     }
 
     fn verify_data_id(&self, id: &SpiceDataIdentifier, block: &Block) -> Result<(), Error> {
@@ -1274,7 +1327,7 @@ impl SpiceDataDistributorActor {
         if producers.contains(me)
             || self.waiting_on_data.contains_key(&id)
             || self.recently_decoded_data.contains(&id)
-            || self.is_data_known(me, chunk_block, &id)
+            || self.is_witness_known(me, &chunk_id.block_hash, chunk_id.shard_id)
         {
             return Ok(());
         }
@@ -1358,8 +1411,6 @@ impl SpiceDataDistributorActor {
             })
             .collect();
 
-        let mut new_ids = Vec::new();
-
         for shard_id in shard_layout.shard_ids() {
             // If we will apply chunk we will also produce endorsement so no need to request
             // witness from elsewhere.
@@ -1372,39 +1423,11 @@ impl SpiceDataDistributorActor {
                 shard_id,
                 block.header().height(),
             )?;
-            if validator_assignments.contains(me) {
-                new_ids.push(SpiceDataIdentifier::Witness { block_hash: *block_hash, shard_id });
-            }
-        }
-
-        let shards_we_apply_in_next_block: HashSet<ShardId> = shard_layout
-            .shard_ids()
-            .filter(|shard_id| {
-                let prev_hash = block.hash();
-                self.shard_tracker.should_apply_chunk(
-                    ApplyChunksMode::IsCaughtUp,
-                    prev_hash,
-                    *shard_id,
-                )
-            })
-            .collect();
-
-        for from_shard_id in shard_layout.shard_ids() {
-            // We need a receipts from a block only if we would want to apply a block after.
-            if shards_we_apply.contains(&from_shard_id) {
+            if !validator_assignments.contains(me) {
                 continue;
             }
-            // TODO(spice-resharding): Handle resharding
-            for to_shard_id in shards_we_apply_in_next_block.iter().copied() {
-                new_ids.push(SpiceDataIdentifier::ReceiptProof {
-                    block_hash: *block_hash,
-                    from_shard_id,
-                    to_shard_id,
-                });
-            }
-        }
 
-        for id in new_ids {
+            let id = SpiceDataIdentifier::Witness { block_hash: *block_hash, shard_id };
             let (_recipients, producers) = self.recipients_and_producers(&id, &block)?;
             assert!(!producers.contains(me));
 
@@ -1414,12 +1437,14 @@ impl SpiceDataDistributorActor {
             if self.recently_decoded_data.contains(&id) {
                 continue;
             }
-            if self.is_data_known(me, &block, &id) {
+            if self.is_witness_known(me, block_hash, shard_id) {
                 tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
                 continue;
             }
             self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
+
+        self.data_manager.on_block(block.header())?;
         Ok(())
     }
 

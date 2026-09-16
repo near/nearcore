@@ -142,9 +142,9 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-# Pinned to an exact version because we enable the `unstable` feature; any
-# release that touches the PQDSA APIs needs an explicit rebench.
-aws-lc-rs = { version = "=1.16.2", features = ["unstable"] }
+# Pinned to an exact version because ML-DSA performance affects gas costs;
+# releases that touch its implementation need an explicit rebench.
+aws-lc-rs = "=1.18.1"
 axum = { version = "0.8", features = ["http2", "macros"] }
 axum-test = "18.0"
 base64 = "0.21"
@@ -189,7 +189,6 @@ ed25519-dalek = { version = "2.2.0", default-features = false }
 enum-map = "2.1.0"
 ethabi = "18"
 expect-test = "1.3.0"
-finite-wasm = "0.5.1"
 finite-wasm-6 = { package = "finite-wasm", version = "0.6.1" }
 futures = "0.3.5"
 futures-util = "0.3"
@@ -209,7 +208,7 @@ landlock = "0.4.5"
 libc = "0.2"
 lru = "0.18.2"
 named-lock = "0.4.1"
-near-account-id = { version = "2.0.0", features = [
+near-account-id = { version = "3.0.0", features = [
     "internal_unstable",
     "serde",
     "borsh",

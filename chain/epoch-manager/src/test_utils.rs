@@ -231,8 +231,39 @@ pub fn setup_epoch_manager(
     reward_calculator: RewardCalculator,
     max_inflation_rate: Rational32,
 ) -> EpochManager {
+    setup_epoch_manager_at_version(
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        chunk_validator_only_kickout_threshold,
+        reward_calculator,
+        max_inflation_rate,
+        PROTOCOL_VERSION,
+    )
+}
+
+/// `setup_epoch_manager` with the genesis epoch pinned to `protocol_version` instead of
+/// `PROTOCOL_VERSION`, so features stabilized above it stay disabled. Record blocks with
+/// `record_block_with_version` (or `record_block_with_final_and_mask_at_version`) at the same
+/// version, otherwise the validators vote the chain up to `PROTOCOL_VERSION` at the first
+/// epoch boundary.
+pub fn setup_epoch_manager_at_version(
+    validators: Vec<(AccountId, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
+    reward_calculator: RewardCalculator,
+    max_inflation_rate: Rational32,
+    protocol_version: ProtocolVersion,
+) -> EpochManager {
     let store = create_test_store();
-    let config = epoch_config(
+    let config = epoch_config_at_version(
         epoch_length,
         num_shards,
         num_block_producer_seats,
@@ -241,6 +272,7 @@ pub fn setup_epoch_manager(
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
         max_inflation_rate,
+        protocol_version,
     );
     EpochManager::new(
         store.epoch_store(),
@@ -272,6 +304,31 @@ pub fn setup_default_epoch_manager(
         0,
         default_reward_calculator(),
         Ratio::new(0, 1),
+    )
+}
+
+/// `setup_default_epoch_manager` pinned to `protocol_version`, see
+/// [`setup_epoch_manager_at_version`].
+pub fn setup_default_epoch_manager_at_version(
+    validators: Vec<(AccountId, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    protocol_version: ProtocolVersion,
+) -> EpochManager {
+    setup_epoch_manager_at_version(
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        0,
+        default_reward_calculator(),
+        Ratio::new(0, 1),
+        protocol_version,
     )
 }
 
@@ -356,6 +413,32 @@ pub fn record_block_with_final_and_mask(
     last_final_height: BlockHeight,
     chunk_mask: Vec<bool>,
 ) {
+    record_block_with_final_and_mask_at_version(
+        em,
+        prev,
+        cur,
+        height,
+        last_final_hash,
+        last_final_height,
+        chunk_mask,
+        PROTOCOL_VERSION,
+    );
+}
+
+/// `record_block_with_final_and_mask` with the recorded block voting for
+/// `protocol_version` instead of `PROTOCOL_VERSION`. Pair with
+/// `setup_default_epoch_manager_at_version` to hold a whole chain below a feature's
+/// activation version.
+pub fn record_block_with_final_and_mask_at_version(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+    protocol_version: ProtocolVersion,
+) {
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
@@ -383,8 +466,8 @@ pub fn record_block_with_final_and_mask(
             vec![],
             chunk_mask,
             DEFAULT_TOTAL_SUPPLY,
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
+            protocol_version,
+            protocol_version,
             height * NUM_NS_IN_SECOND,
             chunk_endorsements,
             None,

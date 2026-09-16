@@ -880,17 +880,11 @@ impl WrappedTrieChanges {
                 continue;
             }
 
-            let storage_key = match change_with_trie_key.trie_key.get_account_id() {
-                // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
-                None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
-                    block_hash,
-                    &change_with_trie_key.trie_key,
-                    &self.shard_uid,
-                ),
-                // TrieKey has enough information to identify the shard it comes from.
-                _ => KeyForStateChanges::from_trie_key(block_hash, &change_with_trie_key.trie_key),
-            };
-
+            let storage_key = KeyForStateChanges::for_state_change(
+                block_hash,
+                &change_with_trie_key.trie_key,
+                &self.shard_uid,
+            );
             store_update.set_state_changes(storage_key, &change_with_trie_key);
         }
     }
@@ -944,6 +938,19 @@ impl KeyForStateChanges {
         let mut key = Self::new(block_hash, trie_key.len());
         trie_key.append_into(&mut key.0);
         key
+    }
+
+    /// The row key of one state change. A trie key naming no account does not say which
+    /// shard it belongs to, so its row key carries the shard uid.
+    pub fn for_state_change(
+        block_hash: &CryptoHash,
+        trie_key: &TrieKey,
+        shard_uid: &ShardUId,
+    ) -> Self {
+        match trie_key.get_account_id() {
+            Some(_) => Self::from_trie_key(block_hash, trie_key),
+            None => Self::delayed_receipt_key_from_trie_key(block_hash, trie_key, shard_uid),
+        }
     }
 
     /// Without changing the existing TrieKey format, encodes ShardUId into the row key.

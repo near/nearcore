@@ -464,9 +464,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.2"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a054912289d18629dc78375ba2c3726a3afe3ff71b4edba9dedfca0e3446d1fc"
+checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
 dependencies = [
  "aws-lc-sys",
  "untrusted 0.7.1",
@@ -475,14 +475,15 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.39.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fa7e52a4c5c547c741610a2c6f123f3881e409b714cd27e6798ef020c514f0a"
+checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
 dependencies = [
  "cc",
  "cmake",
  "dunce",
  "fs_extra",
+ "pkg-config",
 ]
 
 [[package]]
@@ -2304,22 +2305,6 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "finite-wasm"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aead728a69267399a7e8149e767372f693fa933aa53128a248fa7371844bb898"
-dependencies = [
- "bitvec",
- "dissimilar",
- "num-traits",
- "prefix-sum-vec",
- "thiserror 1.0.50",
- "wasm-encoder 0.27.0",
- "wasmparser 0.105.0",
- "wasmprinter 0.2.57",
-]
-
-[[package]]
-name = "finite-wasm"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f0ffc0c7068edefc6ad3ad9773158080db461cdba18bc4ea6b77baaffaff441"
@@ -3935,9 +3920,9 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "2.0.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bf7d8c37ea9408d536af7e998bd0d4f9699de1f6b0d12280d28ae46977c4501"
+checksum = "7d2c8642aeca89873dbcf2a2f74ff90cd87f6691f11b66aeed2af7c136192d10"
 dependencies = [
  "borsh",
  "schemars 1.2.1",
@@ -4129,6 +4114,7 @@ dependencies = [
  "near-dyn-configs",
  "near-epoch-manager",
  "near-external-storage",
+ "near-indexer-primitives",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -4180,12 +4166,20 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "near-async",
+ "near-chain",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-epoch-manager",
+ "near-jsonrpc",
+ "near-jsonrpc-primitives",
+ "near-network",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
+ "parking_lot 0.12.1",
  "tokio",
  "tracing",
 ]
@@ -4390,7 +4384,6 @@ name = "near-indexer"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "futures",
  "near-async",
  "near-chain-configs",
  "near-client",
@@ -4400,11 +4393,9 @@ dependencies = [
  "near-epoch-manager",
  "near-indexer-primitives",
  "near-o11y",
- "near-parameters",
  "near-primitives",
  "near-store",
  "nearcore",
- "node-runtime",
  "rocksdb",
  "tokio",
  "tracing",
@@ -4415,6 +4406,7 @@ name = "near-indexer-primitives"
 version = "0.0.0"
 dependencies = [
  "near-primitives",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -4432,6 +4424,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-epoch-manager",
+ "near-indexer-primitives",
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
@@ -4490,6 +4483,7 @@ dependencies = [
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
+ "near-indexer-primitives",
  "near-primitives",
  "near-schema-checker-lib",
  "near-time",
@@ -5104,8 +5098,7 @@ dependencies = [
  "ed25519-dalek",
  "enum-map",
  "expect-test",
- "finite-wasm 0.5.1",
- "finite-wasm 0.6.1",
+ "finite-wasm",
  "hex",
  "landlock",
  "libc",
@@ -5891,9 +5884,9 @@ dependencies = [
 
 [[package]]
 name = "pkg-config"
-version = "0.3.25"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "portable-atomic"
@@ -6874,9 +6867,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.28"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7160e3e10bf4535308537f3c4e1641468cd0e485175d6163087c0393c7d46643"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -6938,9 +6931,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -8669,15 +8662,6 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e77053dc709db790691d3732cfc458adc5acc881dec524965c608effdcd9c581"
-dependencies = [
- "leb128",
-]
-
-[[package]]
-name = "wasm-encoder"
 version = "0.236.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3108979166ab0d3c7262d2e16a2190ffe784b2a5beb963edef154b5e8e07680b"
@@ -8724,16 +8708,6 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.105.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83be9e0b3f9570dc1979a33ae7b89d032c73211564232b99976553e5c155ec32"
-dependencies = [
- "indexmap 1.9.2",
- "url",
-]
-
-[[package]]
-name = "wasmparser"
 version = "0.228.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3"
@@ -8769,16 +8743,6 @@ dependencies = [
  "indexmap 2.14.0",
  "semver",
  "serde",
-]
-
-[[package]]
-name = "wasmprinter"
-version = "0.2.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50b0e5ed7a74a065637f0d7798ce5f29cadb064980d24b0c82af5200122fa0d8"
-dependencies = [
- "anyhow",
- "wasmparser 0.105.0",
 ]
 
 [[package]]

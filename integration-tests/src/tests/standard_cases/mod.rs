@@ -511,6 +511,7 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
         AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::UniversalAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     };
 
@@ -551,6 +552,10 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         }
         AccountType::EthImplicitAccount => {
             // A transfer to ETH-implicit address does not create access key.
+            assert!(view_access_key.is_err());
+        }
+        AccountType::UniversalAccount => {
+            // A transfer to a universal address does not create an access key.
             assert!(view_access_key.is_err());
         }
         AccountType::NamedAccount => std::panic!("must be implicit"),
@@ -634,7 +639,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
                     create_account_fee.checked_add(add_access_key_fee).unwrap().gas,
                 ))
                 .unwrap(),
-            AccountType::EthImplicitAccount | AccountType::NearDeterministicAccount => {
+            AccountType::EthImplicitAccount
+            | AccountType::NearDeterministicAccount
+            | AccountType::UniversalAccount => {
                 // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
                 fee_helper
                     .create_account_transfer_full_key_cost_fail_on_create_account()

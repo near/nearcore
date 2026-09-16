@@ -237,12 +237,12 @@ fn setup_account(env: &mut TestLoopEnv, account_id: &AccountId, account_parent_i
     assert_matches!(execute_setup_tx(env, tx), FinalExecutionStatus::SuccessValue(_));
 }
 
-/// Deploy the congestion-control test contract (provides `loop_forever`),
+/// Deploy the compact test contract (provides `loop_forever`),
 /// advance the chain to complete it, and verify a call burns all its gas.
 fn setup_contract(env: &mut TestLoopEnv) {
     let parent: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
     let signer = InMemorySigner::test_signer(&parent);
-    let contract = near_test_contracts::congestion_control_test_contract();
+    let contract = near_test_contracts::compact_test_contract();
 
     let block_hash = env.validator().head().last_block_hash;
     let nonce = env.validator().get_next_nonce(&parent);

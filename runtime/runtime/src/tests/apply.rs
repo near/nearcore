@@ -11,19 +11,26 @@ use crate::{
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
+use itertools::Itertools;
+use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+    AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
-use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
+use near_primitives::action::{
+    Action, DeleteAccountAction, DeterministicStateInitAction, GlobalContractIdentifier,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
+};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
+};
+use near_primitives::deterministic_account_id::{
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
@@ -31,7 +38,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0,
+    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
+    ReceiptEnum, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -42,23 +50,26 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
     SignedTransaction, TransactionNonce, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
     ShardId, StateChangeCause,
 };
-use near_primitives::utils::create_receipt_id_from_transaction;
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::utils::{
+    create_receipt_id_from_transaction, derive_near_deterministic_account_id,
+};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
     MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, set_access_key,
-    set_account,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
+    set_access_key, set_account,
 };
-use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::HashSet;
+use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -248,6 +259,97 @@ fn test_apply_check_balance_validation_rewards() {
             Default::default(),
         )
         .unwrap();
+}
+
+/// An uninitialized account in `stake_info` must be skipped rather than
+/// written to, since it has no locked balance and `set_locked` would
+/// fail the whole chunk over it. Skipping is only allowed while nothing
+/// is owed, so this covers each of the three amounts that need locked balance:
+/// maximum of stakes, reward, and last proposal.
+#[test]
+fn test_apply_validator_update_uninitialized_account() {
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+
+    // Put an uninitialized account in the trie and name it in `stake_info` with
+    // a zero max stake, which is what the tail of a stake return looks like.
+    let uninitialized: AccountId =
+        // cspell:disable-next-line
+        "0u4bwt6zbknvvcyzmfnfhitcfzatxtthkbzdcm4zwezyf7zwe6pnc4c".parse().unwrap();
+    let balance = Balance::from_near(1);
+    let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+    set_account(
+        &mut state,
+        uninitialized.clone(),
+        &Account::new_uninitialized(balance, 100, initial_nonce_value(1)),
+    );
+    state.commit(StateChangeCause::InitialState);
+    let trie_changes = state.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let apply_with = |max_of_stakes: Balance, reward: Option<Balance>, proposal| {
+        let entry = |amount: Option<Balance>| -> HashMap<AccountId, Balance> {
+            amount.map(|amount| (uninitialized.clone(), amount)).into_iter().collect()
+        };
+        let validator_accounts_update = ValidatorAccountsUpdate {
+            stake_info: vec![(uninitialized.clone(), max_of_stakes)].into_iter().collect(),
+            validator_rewards: entry(reward),
+            last_proposals: entry(proposal),
+            protocol_treasury_account_id: None,
+        };
+        runtime.apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &Some(validator_accounts_update),
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+    };
+
+    // Nothing owed is what the skip is for, and applying at all is the property
+    // under test: an inconsistent-state error would be a failed chunk.
+    let result = apply_with(Balance::ZERO, None, None)
+        .expect("an uninitialized account in stake_info must not fail the chunk");
+    let mut store_update = tries.store_update();
+    let new_root =
+        tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+    let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+    let account = get_account(&state, &uninitialized).unwrap().unwrap();
+    assert!(!account.is_initialized(), "the skip must leave the account untouched");
+    assert_eq!(account.amount(), balance);
+
+    // A zero-valued entry is ordinary and owes nothing: the reward calculator
+    // records a zero reward for a validator that stayed below the online
+    // threshold, and a zero proposal is how unstaking is expressed. Testing for
+    // the presence of a key rather than a positive amount would fail here.
+    apply_with(Balance::ZERO, Some(Balance::ZERO), Some(Balance::ZERO))
+        .expect("zero-valued reward and proposal entries must not fail the chunk");
+
+    // Each of the three needs locked balance the account cannot have.
+    let owed = Balance::from_near(1);
+    let cases = [
+        ("a max of stakes", apply_with(owed, None, None)),
+        ("a reward", apply_with(Balance::ZERO, Some(owed), None)),
+        ("a last proposal", apply_with(Balance::ZERO, None, Some(owed))),
+    ];
+    for (what, result) in cases {
+        let err = result
+            .err()
+            .unwrap_or_else(|| panic!("{what} owed to an uninitialized account must fail"));
+        assert!(
+            matches!(err, RuntimeError::StorageError(StorageError::StorageInconsistentState(_))),
+            "unexpected error for {what}: {err:?}"
+        );
+    }
 }
 
 #[test]
@@ -1925,6 +2027,243 @@ fn test_validation_rejects_missing_contract_code() {
 #[should_panic(expected = "contract code is missing from the trie")]
 fn test_tracked_shard_apply_asserts_on_missing_contract_code() {
     let _ = apply_call_to_contract_missing_from_witness(ApplyChunkReason::UpdateTrackedShard);
+}
+
+/// Deploys the test contract as a global contract by code hash, points alice at
+/// it, records a witness for a call to it (which excludes the contract body),
+/// then applies that call over the recorded storage as a chunk validator.
+///
+/// With `include_key_proof` the recorded storage also holds the trie nodes that
+/// prove the global contract key exists. A producer that wants to pass the
+/// missing body off as a never-deployed contract can supply at most that: the
+/// proof is bound to the state root, so it cannot show the key as absent.
+fn apply_call_to_global_contract_missing_from_witness(
+    include_key_proof: bool,
+) -> Result<ApplyResult, RuntimeError> {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let code_hash = *contract_code.hash();
+    let code_key = TrieKey::GlobalContractCode {
+        identifier: GlobalContractCodeIdentifier::CodeHash(code_hash),
+    };
+    let code_key_bytes = code_key.to_vec();
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    state_update.set(code_key, contract_code.code().to_vec());
+    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    alice.set_contract(AccountContract::Global(code_hash)).unwrap();
+    set_account(&mut state_update, alice_account(), &alice);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+    let trie =
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
+    if include_key_proof {
+        // The recording trie captures the nodes this read visits, so the
+        // witness ends up carrying the proof that the key exists.
+        assert!(trie.contains_key(&code_key_bytes, AccessOptions::DEFAULT).unwrap());
+    }
+    let apply_result = runtime
+        .apply(
+            trie,
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(call_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(code_hash)])
+    );
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A validator with an empty compiled-contract cache has no source for the
+    // body other than the witness, which excludes it.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        &receipts,
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    )
+}
+
+/// A witness that omits the body of an existing global contract must not
+/// validate as a call to a missing contract. Without the key nodes in the
+/// witness the existence check itself fails as a missing trie value.
+#[test]
+fn test_validation_rejects_missing_global_contract_code() {
+    assert_matches!(
+        apply_call_to_global_contract_missing_from_witness(false),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(_)))
+    );
+}
+
+/// Same as above, but the witness proves the global contract key exists. The
+/// existence check passes and the missing body is rejected as an incomplete
+/// witness, like for account-local code.
+#[test]
+fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    assert_matches!(
+        apply_call_to_global_contract_missing_from_witness(true),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == *contract_code.hash()
+    );
+}
+
+/// The hash of a global contract that is never deployed in these tests.
+fn missing_global_contract_hash() -> CryptoHash {
+    hash(b"global contract that was never deployed")
+}
+
+fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(
+        &call_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::CodeDoesNotExist { .. }
+            )),
+            ..
+        }))
+    );
+}
+
+/// Points alice at a global contract hash that was never deployed, calls it as
+/// the chunk producer and replays the recorded witness as a chunk validator
+/// running `validator_protocol_version`. ETH implicit accounts are created this
+/// way, with a hardcoded wallet contract hash and no existence check. The
+/// producer must fail the call with `CodeDoesNotExist` instead of treating the
+/// missing code as an inconsistent state; the validator's verdict is returned
+/// together with the call's receipt id.
+fn apply_call_to_missing_global_contract(
+    validator_protocol_version: ProtocolVersion,
+) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
+    set_account(&mut state_update, alice_account(), &alice);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "rlp_execute".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+
+    // The chunk producer applies with a full trie and records the witness.
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_code_does_not_exist(&apply_result, call_id);
+    // There is no code to distribute to validators.
+    assert!(apply_result.contract_updates.contract_accesses.is_empty());
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A chunk validator replays the call over the recorded storage.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    apply_state.current_protocol_version = validator_protocol_version;
+    let apply_result = runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        &receipts,
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    );
+    (call_id, apply_result)
+}
+
+/// The witness proves the global contract key is absent, so the validator
+/// reaches the same `CodeDoesNotExist` outcome as the producer.
+#[test]
+fn test_call_to_missing_global_contract_fails_gracefully() {
+    let (call_id, apply_result) = apply_call_to_missing_global_contract(PROTOCOL_VERSION);
+    assert_code_does_not_exist(&apply_result.unwrap(), call_id);
+}
+
+/// Before the feature a validator does not consult the absence proof and
+/// rejects the witness as incomplete, as it does for any missing code body.
+#[test]
+fn test_call_to_missing_global_contract_rejected_before_feature() {
+    let feature_version = ProtocolFeature::FailCallToMissingGlobalContract.protocol_version();
+    let (_, apply_result) = apply_call_to_missing_global_contract(feature_version - 1);
+    assert_matches!(
+        apply_result,
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == missing_global_contract_hash()
+    );
 }
 
 /// Deploys the test contract to alice and returns the resulting state root.
@@ -5340,10 +5679,6 @@ fn test_promise_input_size_limit_does_not_bloat_witness() {
 /// is conserved now that the host exec fee also uses `trie_id_len()`.
 #[test]
 fn test_gas_key_add_key_conserves_supply() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let initial_balance = Balance::from_near(1_000_000);
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account()],
@@ -5456,10 +5791,6 @@ fn test_gas_key_add_key_conserves_supply() {
 /// `config.rs` now does.
 #[test]
 fn test_gas_key_transfer_send_fee_uses_wire_length() {
-    if !ProtocolFeature::FixMlDsaCostCharging.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: FixMlDsaCostCharging not enabled at PROTOCOL_VERSION");
-        return;
-    }
     let config = RuntimeConfig::test();
     let receiver = alice_account();
     let ed25519_key = SecretKey::from_seed(KeyType::ED25519, "gas-key-seed").public_key();
@@ -5482,5 +5813,1504 @@ fn test_gas_key_transfer_send_fee_uses_wire_length() {
     assert_eq!(
         measured_delta, expected_delta,
         "gas-key send fee must scale with wire length (len), not trie_id_len",
+    );
+}
+
+/// Reproduces the problem fixed by `GlobalContractSameChunkCallFix`.
+/// Deploying a global contract and calling it in the same chunk should work, even without contract
+/// cache.
+#[test]
+fn test_global_contract_same_chunk_call_succeeds_with_cold_cache() {
+    let owner: AccountId = "global_owner.near".parse().unwrap();
+    let user = alice_account();
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![user.clone(), owner.clone()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let user_signer = signers[0].clone();
+    // A cache that never serves the artifact, forcing the same-chunk call to
+    // depend on the recorded deploy (or on committed storage, which is absent).
+    apply_state.cache = Some(Box::new(NoContractRuntimeCache));
+
+    let code = ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None);
+
+    // 1) Distribute the global contract (AccountId identifier mode).
+    let distribution_receipt = Receipt::new_global_contract_distribution(
+        owner.clone(),
+        GlobalContractDistributionReceipt::new(
+            GlobalContractIdentifier::AccountId(owner.clone()),
+            apply_state.shard_id,
+            vec![],
+            code.code().to_vec().into(),
+            0,
+        ),
+    );
+
+    // 2) Point the user account at the global contract.
+    let use_receipt = create_receipt_with_actions(
+        user.clone(),
+        user_signer.clone(),
+        vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::AccountId(owner),
+        }))],
+    );
+
+    // 3) Call the global contract from the user account, in the same chunk.
+    let call_receipt = create_receipt_with_actions(
+        user,
+        user_signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: Gas::from_teragas(10),
+            deposit: Balance::ZERO,
+        }))],
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[distribution_receipt, use_receipt, call_receipt.clone()],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // The same-chunk call must execute, not degrade to a CodeDoesNotExist no-op.
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == *call_receipt.receipt_id())
+        .expect("function call outcome should be present");
+    assert_matches!(
+        call_outcome.outcome.status,
+        ExecutionStatus::SuccessValue(_),
+        "same-chunk call to a just-distributed global contract must succeed with a cold cache"
+    );
+
+    // The body is fetched from the contract tracker so the call succeeds, but the global contract
+    // is deliberately not broadcast to chunk validators as a deploy: the global contract
+    // distribution protocol already delivers the code network-wide.
+    assert!(
+        apply_result.contract_updates.contract_deploy_hashes().is_empty(),
+        "global contracts must not be re-broadcast as deploys"
+    );
+}
+/// Self-signed `UniversalStateInit`: the one transaction an account can send
+/// before it holds any access key.
+///
+/// These run at the `Runtime::apply` level rather than through test-loop so a
+/// chunk's exact transaction list can be handed over, which matters for the
+/// same-chunk and replay cases.
+mod self_signed_state_init {
+    use super::*;
+    use near_crypto::PublicKeyHandle;
+    use near_primitives::account::Account;
+    use near_primitives::action::{
+        AddKeyAction, GlobalContractIdentifier, StakeAction, UniversalStateInitAction,
+        UseGlobalContractAction,
+    };
+    use near_primitives::types::Nonce;
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::derive_universal_account_id;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Height at which the funding receipt is taken to have created the account.
+    /// Strictly below `apply_state.block_height`, as it always is in practice:
+    /// transactions are converted against the previous chunk's post-state, so an
+    /// account cannot be seen in the chunk that created it.
+    const CREATION_HEIGHT: BlockHeight = 1;
+
+    fn signer_for(seed: &str) -> Arc<Signer> {
+        Arc::new(InMemorySigner::from_secret_key(
+            "unused.near".parse().unwrap(),
+            SecretKey::from_seed(KeyType::ED25519, seed),
+        ))
+    }
+
+    fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: keys.iter().cloned().map(PublicKeyHandle::from).collect::<BTreeSet<_>>(),
+        })
+    }
+
+    /// A runtime whose only account is a funded, uninitialized `0u` account,
+    /// exactly as a transfer to an uninitialized `0u` id would leave it.
+    fn setup(
+        account_id: &AccountId,
+        balance: Balance,
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, impl EpochInfoProvider + use<>) {
+        // `use<>`: the provider borrows nothing, but edition 2024 would otherwise
+        // capture `account_id`'s lifetime and keep it borrowed for the whole test.
+        let epoch_info_provider = MockEpochInfoProvider::default();
+        let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().build();
+        let runtime = Runtime::new();
+        let mut initial_state = tries.new_trie_update(shard_uid, MerkleHash::default());
+        let config = RuntimeConfig::test();
+        set_account(
+            &mut initial_state,
+            account_id.clone(),
+            &Account::new_uninitialized(
+                balance,
+                config.fees.storage_usage_config.num_bytes_account,
+                initial_nonce_value(CREATION_HEIGHT),
+            ),
+        );
+        initial_state.commit(StateChangeCause::InitialState);
+        let trie_changes = initial_state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+
+        let shards_congestion_info = shard_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
+        let apply_state = ApplyState {
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height: CREATION_HEIGHT + 1,
+            prev_block_hash: Default::default(),
+            shard_id: shard_uid.shard_id(),
+            epoch_id: Default::default(),
+            epoch_height: 0,
+            gas_price: GAS_PRICE,
+            block_timestamp: 100,
+            gas_limit: Some(Gas::from_teragas(1000)),
+            random_seed: Default::default(),
+            current_protocol_version: PROTOCOL_VERSION,
+            config: Arc::new(config),
+            next_wasm_config: None,
+            cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
+            is_new_chunk: true,
+            save_receipt_to_tx: false,
+            congestion_info: BlockCongestionInfo::new(shards_congestion_info),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
+        };
+        (runtime, tries, root, apply_state, epoch_info_provider)
+    }
+
+    /// The only nonce a bootstrap may carry, since the check is forced Strict.
+    fn expected_nonce() -> Nonce {
+        initial_nonce_value(CREATION_HEIGHT) + 1
+    }
+
+    fn bootstrap_tx(
+        signer: &Signer,
+        state_init: &UniversalStateInit,
+        account_id: &AccountId,
+        nonce: Nonce,
+        extra_actions: Vec<Action>,
+    ) -> SignedTransaction {
+        let mut actions = vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit: Balance::ZERO,
+        }))];
+        actions.extend(extra_actions);
+        SignedTransaction::from_actions(
+            nonce,
+            account_id.clone(),
+            account_id.clone(),
+            signer,
+            actions,
+            CryptoHash::default(),
+        )
+    }
+
+    fn apply_txs(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &ApplyState,
+        epoch_info_provider: &impl EpochInfoProvider,
+        txs: Vec<SignedTransaction>,
+    ) -> (CryptoHash, Vec<ExecutionOutcomeWithId>) {
+        let n = txs.len();
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                apply_state,
+                &[],
+                SignedValidPeriodTransactions::new(txs, vec![true; n]),
+                epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        let mut store_update = tries.store_update();
+        let new_root =
+            tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+        (new_root, result.outcomes)
+    }
+
+    /// The happy path: an account with no access key signs for itself, the state
+    /// init installs its keys, and the account's pre-key nonce is consumed.
+    #[test]
+    fn self_signed_init_succeeds_and_consumes_nonce() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-ok");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized(), "the state init must have run");
+        // The installed key carries its own nonce from here on, so the account's
+        // pre-key nonce is gone.
+        assert_eq!(account.bootstrap_nonce(), None);
+        assert!(
+            get_access_key(&state, &account_id, &signer.public_key()).unwrap().is_some(),
+            "the committed key must be installed"
+        );
+    }
+
+    /// The replay this whole design exists to stop. Re-submitting the identical
+    /// signed bytes after a successful init must fail: the account is
+    /// initialized, so the ordinary path applies, and the installed key's nonce
+    /// already exceeds the one the transaction carries.
+    #[test]
+    fn same_bootstrap_cannot_be_replayed() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-replay");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx.clone()]);
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+
+        apply_state.block_height += 1;
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            ))
+        );
+    }
+
+    /// Forced Strict means exactly one nonce is admissible. A Monotonic-looking
+    /// nonce that is merely "greater than the floor" is what would leave a
+    /// replay window once the installed keys take over, so it is rejected.
+    #[test]
+    fn only_one_nonce_is_admissible() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-strict");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        for nonce in [expected_nonce() - 1, expected_nonce() + 1, expected_nonce() + 999] {
+            let (runtime, tries, root, apply_state, epoch) =
+                setup(&account_id, Balance::from_near(10));
+            let tx = bootstrap_tx(&signer, &state_init, &account_id, nonce, vec![]);
+            let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+            assert_matches!(
+                outcomes[0].outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidNonce { .. }
+                )),
+                "nonce {nonce} should not be admissible",
+            );
+        }
+    }
+
+    /// Two bootstraps carrying the same nonce in one chunk. The first consumes
+    /// it through the cached account, so the second must see the advanced value
+    /// rather than a freshly read one and be rejected.
+    #[test]
+    fn two_bootstraps_with_one_nonce_in_chunk() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-same-chunk");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        // Same nonce, different action lists, so they are distinct transactions
+        // and in-chunk hash dedup does not hide the nonce check.
+        let first = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let second = bootstrap_tx(
+            &signer,
+            &state_init,
+            &account_id,
+            expected_nonce(),
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        );
+        let (_, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![first, second]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        assert_matches!(
+            outcomes[1].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            )),
+            "the second must see the nonce the first consumed"
+        );
+    }
+
+    /// A bootstrap-shaped transaction carrying a gas-key nonce index. Both other
+    /// verifiers assert on that discriminator, so if the branch order is ever
+    /// got wrong this is a panic inside `process_transactions`, i.e. a failed
+    /// chunk rather than a failed transaction.
+    #[test]
+    fn gas_key_nonce_index_is_not_bootstrap() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-nonce-index");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        let tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(expected_nonce(), 0),
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        // Not a bootstrap, so it falls through to the ordinary path and is
+        // rejected for the key it does not have.
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(_)
+            ))
+        );
+    }
+
+    /// A key the account id does not commit to cannot bootstrap it, even though
+    /// the transaction is otherwise shaped like one. Without this the state init
+    /// bytes are public, so anyone could spend the account's balance.
+    #[test]
+    fn uncommitted_key_cannot_bootstrap() {
+        init_test_logger();
+        let committed = signer_for("bootstrap-committed");
+        let outsider = signer_for("bootstrap-outsider");
+        let state_init = state_init_for(&[committed.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        let tx = bootstrap_tx(&outsider, &state_init, &account_id, expected_nonce(), vec![]);
+        let (new_root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(_)
+            ))
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "a rejected bootstrap must not install state");
+        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+    }
+
+    /// A state init whose storage the account cannot stake for. The action fails
+    /// and its state is rolled back, but the conversion was already charged and
+    /// committed, so the nonce must be consumed all the same. Otherwise the same
+    /// bytes could be resubmitted until the balance was burnt away.
+    #[test]
+    fn failed_init_still_consumes_nonce() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-too-big");
+        // Well past the 770-byte zero-balance exemption, so a real stake is
+        // required, and more of it than the account holds.
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"k".to_vec(), vec![0u8; 100_000])]),
+            access_keys: BTreeSet::from([PublicKeyHandle::from(signer.public_key())]),
+        });
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let balance = Balance::from_millinear(500);
+        let (runtime, tries, root, mut apply_state, epoch) = setup(&account_id, balance);
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx.clone()]);
+        // The transaction converted, so it reports a receipt id; the receipt is
+        // what fails, and it has to fail on the storage stake rather than on
+        // anything else, or the test would pass for the wrong reason.
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| matches!(outcome.outcome.status, ExecutionStatus::Failure(_)))
+            .expect("the state init receipt must have failed");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::LackBalanceForState { .. }),
+            "the init must fail on storage staking, not something else"
+        );
+
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "the oversized state init must not have installed");
+        assert_eq!(
+            account.bootstrap_nonce(),
+            Some(expected_nonce()),
+            "a failed init must still consume the nonce"
+        );
+        assert!(account.amount() < balance, "conversion fees are charged regardless");
+
+        // And the identical bytes are now dead.
+        apply_state.block_height += 1;
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            ))
+        );
+    }
+
+    /// A self-signed state init against an account that is *already* initialized,
+    /// signed with a key added later that the account id does not commit to.
+    ///
+    /// This is legal today and must stay legal: it is how a deposit top-up is
+    /// sent, relying on the state init being idempotent. It is only reachable
+    /// because the key-membership condition classifies rather than rejects, so
+    /// the transaction falls through to the ordinary access-key path.
+    #[test]
+    fn added_key_can_still_send_idempotent_init() {
+        init_test_logger();
+        let committed = signer_for("idempotent-committed");
+        let added = signer_for("idempotent-added");
+        let state_init = state_init_for(&[committed.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        // Initialize the account, then give it a key outside the state init.
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = get_account(&state, &account_id).unwrap().unwrap();
+        account.initialize().unwrap();
+        set_account(&mut state, account_id.clone(), &account);
+        let mut access_key = AccessKey::full_access();
+        access_key.nonce = initial_nonce_value(CREATION_HEIGHT);
+        set_access_key(&mut state, account_id.clone(), added.public_key(), &access_key);
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        let tx = bootstrap_tx(&added, &state_init, &account_id, expected_nonce(), vec![]);
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::SuccessReceiptId(_),
+            "an added key must still be able to send an idempotent state init"
+        );
+    }
+
+    /// The funding receipt seeds the account's nonce from the height it runs at,
+    /// which is what `recreated_account_rejects_old_bootstrap` rests on: a
+    /// seed that ignored the height would let the old bootstrap through the second
+    /// time. Every other test here writes the account straight into the trie, so
+    /// this is the only one that covers the seeding itself.
+    #[test]
+    fn funding_transfer_seeds_nonce_from_its_height() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-seeded");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let seeded_at = |height: BlockHeight| -> Nonce {
+            let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) =
+                setup_runtime(
+                    vec![alice_account()],
+                    Balance::from_near(1_000_000),
+                    Balance::ZERO,
+                    Gas::from_teragas(1000),
+                );
+            apply_state.block_height = height;
+            let receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::hash_borsh(height),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: signers[0].public_key(),
+                    gas_price: GAS_PRICE,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction {
+                        deposit: Balance::from_near(1),
+                    })],
+                }),
+            });
+            let shard_uid = ShardUId::single_shard();
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(shard_uid, root),
+                    &None,
+                    &apply_state,
+                    &[receipt],
+                    SignedValidPeriodTransactions::empty(),
+                    &epoch_info_provider,
+                    Default::default(),
+                )
+                .unwrap();
+            let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+            let state = tries.new_trie_update(shard_uid, root);
+            let account = get_account(&state, &account_id).unwrap().unwrap();
+            assert!(!account.is_initialized(), "a transfer alone must not initialize the account");
+            account.bootstrap_nonce().expect("an uninitialized account carries the nonce")
+        };
+
+        // Never height 1, where the seed is zero and a constant matches it by
+        // accident, and two heights, so no single constant fits both.
+        for height in [5, 10] {
+            assert_eq!(
+                seeded_at(height),
+                initial_nonce_value(height),
+                "the nonce must come from the height the funding receipt ran at"
+            );
+        }
+    }
+
+    /// Delete the account, fund the same `0u` id again, and replay the original
+    /// bootstrap. This is the case the account-level nonce exists for: after a
+    /// successful init the installed key's nonce would stop a replay, but a
+    /// deletion takes every key row with it, so only the re-created record's own
+    /// seed stands between the old signed bytes and a second execution.
+    ///
+    /// Recreation is always at a strictly greater height than the original
+    /// creation (a transaction cannot even see the account in the chunk that
+    /// created it), so the fresh seed always exceeds the consumed nonce.
+    #[test]
+    fn recreated_account_rejects_old_bootstrap() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-recreated");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx.clone()]);
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+
+        // Delete the account and fund the same id again, as a deletion followed
+        // by a fresh transfer would. The new record is seeded from the later
+        // height at which that transfer's receipt ran.
+        let recreated_at = apply_state.block_height + 1;
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        remove_account(&mut state, &account_id).unwrap();
+        set_account(
+            &mut state,
+            account_id.clone(),
+            &Account::new_uninitialized(
+                Balance::from_near(10),
+                apply_state.config.fees.storage_usage_config.num_bytes_account,
+                initial_nonce_value(recreated_at),
+            ),
+        );
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        apply_state.block_height = recreated_at + 1;
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            )),
+            "the re-created account must not accept the previous incarnation's bootstrap"
+        );
+    }
+
+    /// Actions that need a set-up account, placed *before* the state init in a
+    /// self-signed transaction. This is the halt vector the uninitialized-account
+    /// guard exists for, and self-signing is what makes it reachable: the account
+    /// is its own actor, so `check_actor_permissions` waves these through and only
+    /// the account-state check stands between them and a setter that an
+    /// uninitialized account rejects, which is a failed chunk rather than a failed
+    /// action.
+    ///
+    /// The relayer-path versions of these are covered where the guard lives; this
+    /// pins the self-signed path, which did not exist when that guard was written.
+    #[test]
+    fn owner_only_actions_before_init_fail_gracefully() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-prefix");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let dangerous = [
+            // set_contract on an uninitialized account
+            Action::DeployContract(DeployContractAction { code: vec![] }),
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+            })),
+            // set_locked on an uninitialized account
+            Action::Stake(Box::new(StakeAction {
+                stake: Balance::from_yoctonear(1),
+                public_key: signer.public_key(),
+            })),
+            // Succeeds silently without the guard, installing a key the account
+            // id does not commit to and double-counting its storage.
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: signer.public_key(),
+                access_key: AccessKey::full_access(),
+            })),
+        ];
+        // `DeleteAccount` is deliberately absent: `DeleteActionMustBeFinal`
+        // rejects it before any of this, so it cannot precede the state init.
+        // As the *last* action it runs against an account the init has already
+        // initialized, and on its own the transaction is not a bootstrap at all.
+
+        for action in dangerous {
+            let (runtime, tries, root, apply_state, epoch) =
+                setup(&account_id, Balance::from_near(10));
+            let mut actions = vec![action.clone()];
+            actions.push(Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: state_init.to_raw(),
+                deposit: Balance::ZERO,
+            })));
+            let tx = SignedTransaction::from_actions(
+                expected_nonce(),
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                actions,
+                CryptoHash::default(),
+            );
+
+            // `apply` returning Ok at all is the property under test: a
+            // StorageError here would be a failed chunk, not a failed action.
+            let (new_root, outcomes) =
+                apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+            let receipt_outcome = outcomes
+                .iter()
+                .find(|o| matches!(o.outcome.status, ExecutionStatus::Failure(_)))
+                .unwrap_or_else(|| panic!("expected a failed receipt for {action:?}"));
+            assert_matches!(
+                &receipt_outcome.outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                    if matches!(err.kind, ActionErrorKind::AccountNotInitialized { .. }),
+                "expected a graceful rejection for {action:?}",
+            );
+
+            // The whole receipt rolled back, so the state init did not run.
+            let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+            let account = get_account(&state, &account_id).unwrap().unwrap();
+            assert!(!account.is_initialized(), "state must not be installed for {action:?}");
+            assert!(
+                get_access_key(&state, &account_id, &signer.public_key()).unwrap().is_none(),
+                "no key may be installed for {action:?}",
+            );
+        }
+    }
+
+    /// The other direction: an owner-only action placed *after* the state init
+    /// runs against an account the init has already initialized, so it is
+    /// allowed. Actions in one receipt run in order, and the init is what flips
+    /// the account, so the guard that refuses these before the init must not
+    /// refuse them here.
+    #[test]
+    fn owner_only_actions_after_init_succeed() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-suffix");
+        let other = signer_for("bootstrap-suffix-other");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        // A key the state init does not commit to, which only an `AddKey` after
+        // the init can install.
+        let add_key = Action::AddKey(Box::new(AddKeyAction {
+            public_key: other.public_key(),
+            access_key: AccessKey::full_access(),
+        }));
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![add_key]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| !matches!(outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_)))
+            .expect("the state init receipt must have an outcome");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::SuccessValue(_),
+            "an AddKey after the init must not be refused as AccountNotInitialized"
+        );
+
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized());
+        assert!(
+            get_access_key(&state, &account_id, &other.public_key()).unwrap().is_some(),
+            "the added key must be installed"
+        );
+    }
+
+    /// `DeleteAccount` as the final action, which `DeleteActionMustBeFinal`
+    /// makes the only position it can take. The init initializes the account and
+    /// the delete then removes it, both inside one receipt, so the account is
+    /// gone by the end of the chunk.
+    #[test]
+    fn delete_after_init_removes_account() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-then-delete");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let balance = Balance::from_near(10);
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, balance);
+
+        // The beneficiary has to exist, otherwise the balance transfer the delete
+        // sends it would come straight back as a refund.
+        let beneficiary: AccountId = "beneficiary.near".parse().unwrap();
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        set_account(
+            &mut state,
+            beneficiary.clone(),
+            &Account::new(Balance::from_near(1), Balance::ZERO, AccountContract::None, 100),
+        );
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        let delete = Action::DeleteAccount(DeleteAccountAction { beneficiary_id: beneficiary });
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![delete]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        let receipt_outcome = outcomes
+            .iter()
+            .find(|outcome| !matches!(outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_)))
+            .expect("the state init receipt must have an outcome");
+        assert_matches!(
+            &receipt_outcome.outcome.status,
+            ExecutionStatus::SuccessValue(_),
+            "initializing and then deleting in one receipt must succeed"
+        );
+
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(
+            get_account(&state, &account_id).unwrap().is_none(),
+            "the account must be gone once the delete has run"
+        );
+    }
+
+    /// A committed key that was deleted after the account was initialized cannot
+    /// bootstrap it again. The account id commits to the original key set
+    /// forever, so without the initialized check a revoked key would be able to
+    /// re-authorize itself.
+    #[test]
+    fn revoked_key_cannot_re_bootstrap() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-revoked");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+
+        // Initialize the account but leave it with no access key at all, as a
+        // `DeleteKey` of the last committed key would.
+        let mut state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = get_account(&state, &account_id).unwrap().unwrap();
+        account.initialize().unwrap();
+        set_account(&mut state, account_id.clone(), &account);
+        state.commit(StateChangeCause::InitialState);
+        let trie_changes = state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(_)
+            )),
+            "an initialized account is never a bootstrap candidate"
+        );
+    }
+
+    /// Naming somebody else's uninitialized account as the signer must not let
+    /// the attacker spend its balance on their own state init. The transaction is
+    /// not a bootstrap, because the state init does not derive to the signer.
+    #[test]
+    fn victims_account_cannot_be_named_as_signer() {
+        init_test_logger();
+        let attacker = signer_for("bootstrap-attacker");
+        let victim_key = signer_for("bootstrap-victim");
+        let attacker_init = state_init_for(&[attacker.public_key()]);
+        let victim_init = state_init_for(&[victim_key.public_key()]);
+        let victim_id = derive_universal_account_id(&victim_init.to_raw());
+        let balance = Balance::from_near(10);
+        let (runtime, tries, root, apply_state, epoch) = setup(&victim_id, balance);
+
+        // Signed by the attacker's own key, paid for by the victim, installing
+        // the attacker's state init.
+        let tx = SignedTransaction::from_actions(
+            expected_nonce(),
+            victim_id.clone(),
+            victim_id.clone(),
+            &attacker,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: attacker_init.to_raw(),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let (new_root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(_))
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        let account = get_account(&state, &victim_id).unwrap().unwrap();
+        assert_eq!(account.amount(), balance, "the victim must not be charged");
+        assert_eq!(account.bootstrap_nonce(), Some(initial_nonce_value(CREATION_HEIGHT)));
+    }
+
+    /// Two self-signed state inits for one account, signed by two different keys
+    /// the state init commits to. Only the first can ever take effect; what the
+    /// second does depends on the nonce it carries, so both outcomes are pinned.
+    #[test]
+    fn second_key_cannot_repeat_bootstrap() {
+        init_test_logger();
+        let first = signer_for("two-keys-first");
+        let second = signer_for("two-keys-second");
+        let state_init = state_init_for(&[first.public_key(), second.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        // Consecutive chunks. By the time the second is converted the account is
+        // initialized, so it is no longer a bootstrap: it takes the ordinary path
+        // against the key the state init installed, whose nonce is seeded from
+        // the execution height and so already exceeds the one it carries.
+        let (runtime, tries, root, mut apply_state, epoch) =
+            setup(&account_id, Balance::from_near(10));
+        let tx1 = bootstrap_tx(&first, &state_init, &account_id, expected_nonce(), vec![]);
+        let (root, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx1]);
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+
+        apply_state.block_height += 1;
+        let tx2 = bootstrap_tx(&second, &state_init, &account_id, expected_nonce(), vec![]);
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx2]);
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            )),
+            "the second key must not be able to repeat the bootstrap"
+        );
+
+        // Same chunk, same nonce: the account is still uninitialized when both
+        // are converted, so the second is a bootstrap too, and it is the account
+        // nonce the first consumed that stops it.
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+        let tx1 = bootstrap_tx(&first, &state_init, &account_id, expected_nonce(), vec![]);
+        let tx2 = bootstrap_tx(&second, &state_init, &account_id, expected_nonce(), vec![]);
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx1, tx2]);
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        assert_matches!(
+            outcomes[1].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidNonce { .. }
+            ))
+        );
+
+        // Same chunk, sequential nonces: both are admitted and both are charged.
+        // The second's state init is a no-op, because by the time its receipt
+        // runs the first has already initialized the account. This is the
+        // deliberate idempotency that lets a relayer prepend an init it is not
+        // sure is needed, so it is not an error.
+        let (runtime, tries, root, apply_state, epoch) = setup(&account_id, Balance::from_near(10));
+        let tx1 = bootstrap_tx(&first, &state_init, &account_id, expected_nonce(), vec![]);
+        let tx2 = bootstrap_tx(&second, &state_init, &account_id, expected_nonce() + 1, vec![]);
+        let (new_root, outcomes) =
+            apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx1, tx2]);
+        assert_matches!(outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+        assert_matches!(
+            outcomes[1].outcome.status,
+            ExecutionStatus::SuccessReceiptId(_),
+            "a sequential nonce is admissible; the init itself is idempotent"
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        assert!(get_account(&state, &account_id).unwrap().unwrap().is_initialized());
+    }
+
+    /// An account that does not exist at all is not a bootstrap candidate: the
+    /// flow requires the account to have been funded first.
+    #[test]
+    fn missing_account_is_not_bootstrap() {
+        init_test_logger();
+        let signer = signer_for("bootstrap-missing");
+        let state_init = state_init_for(&[signer.public_key()]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+        // Set up around a *different* account, so this one was never funded.
+        let other = derive_universal_account_id(&state_init_for(&[]).to_raw());
+        let (runtime, tries, root, apply_state, epoch) = setup(&other, Balance::from_near(10));
+
+        let tx = bootstrap_tx(&signer, &state_init, &account_id, expected_nonce(), vec![]);
+        let (_, outcomes) = apply_txs(&runtime, &tries, root, &apply_state, &epoch, vec![tx]);
+
+        assert_matches!(
+            outcomes[0].outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidSignerId { .. } | InvalidTxError::SignerDoesNotExist { .. }
+            ))
+        );
+    }
+}
+
+/// A relayer creating a `0u` account from nothing: the transfer that funds the
+/// account is also what creates it, so the rest of the batch runs against an
+/// account nobody had to set up first.
+///
+/// This is the one implicit kind whose creating transfer may be followed by other
+/// actions, so most of these tests are about what such a batch still may *not*
+/// do. They run at the `Runtime::apply` level to keep the receipt's action list
+/// exact.
+mod relayer_funded_state_init {
+    use super::*;
+    use near_crypto::PublicKeyHandle;
+    use near_primitives::action::UniversalStateInitAction;
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::{
+        derive_eth_implicit_account_id, derive_near_implicit_account_id,
+        derive_universal_account_id,
+    };
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn funding() -> Balance {
+        Balance::from_near(5)
+    }
+
+    /// What the relayer starts with, so a test can check the funding came out of
+    /// its balance rather than out of nowhere.
+    fn relayer_start() -> Balance {
+        Balance::from_near(100)
+    }
+
+    fn state_init_for(keys: &[PublicKey]) -> UniversalStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys: keys.iter().cloned().map(PublicKeyHandle::from).collect::<BTreeSet<_>>(),
+        })
+    }
+
+    fn state_init_action(state_init: &UniversalStateInit) -> Action {
+        Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: state_init.to_raw(),
+            deposit: Balance::ZERO,
+        }))
+    }
+
+    fn add_key_action(public_key: &PublicKey) -> Action {
+        Action::AddKey(Box::new(AddKeyAction {
+            public_key: public_key.clone(),
+            access_key: AccessKey::full_access(),
+        }))
+    }
+
+    /// Apply one relayer-signed transaction of `actions` addressed to `receiver`
+    /// and drain the receipts it produces, handing back the state it all left
+    /// behind. The signer is not the receiver, so the action receipt is buffered
+    /// rather than local and only runs in the round after the transaction.
+    fn apply_relayer_batch(
+        receiver: &AccountId,
+        actions: Vec<Action>,
+    ) -> (ShardTries, CryptoHash, Vec<ExecutionOutcomeWithId>) {
+        let (runtime, tries, mut root, mut apply_state, signers, epoch) = setup_runtime(
+            vec![alice_account()],
+            relayer_start(),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+        let shard_uid = ShardUId::single_shard();
+        let tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            receiver.clone(),
+            &signers[0],
+            actions,
+            CryptoHash::default(),
+        );
+
+        let mut outcomes = vec![];
+        let mut incoming = vec![];
+        let mut settled = false;
+        // The relayer is not the receiver, so the action receipt is buffered rather
+        // than run locally: round 0 converts the transaction, round 1 runs the
+        // batch, round 2 delivers the refunds. The fourth is slack, and the loop
+        // exits as soon as nothing is left in flight.
+        for round in 0..4 {
+            let result = runtime
+                .apply(
+                    tries.get_trie_for_shard(shard_uid, root),
+                    &None,
+                    &apply_state,
+                    &incoming,
+                    if round == 0 {
+                        SignedValidPeriodTransactions::new(vec![tx.clone()], vec![true])
+                    } else {
+                        SignedValidPeriodTransactions::empty()
+                    },
+                    &epoch,
+                    Default::default(),
+                )
+                .unwrap();
+            let delayed = result.delayed_receipts_count;
+            root = commit_apply_result(&result, &mut apply_state, &tries, shard_uid);
+            outcomes.extend(result.outcomes);
+            incoming = result.outgoing_receipts;
+            apply_state.block_height += 1;
+            if round > 0 && incoming.is_empty() && delayed == 0 {
+                settled = true;
+                break;
+            }
+        }
+        // Every assertion downstream reads the state the cascade left behind, so a
+        // run that stopped with a receipt still queued would be measuring a
+        // half-finished one, and could mask a failure or invent one.
+        assert!(settled, "receipt cascade did not settle within the round budget");
+        (tries, root, outcomes)
+    }
+
+    /// The outcome of the action receipt the batch ran as, looked up by the id the
+    /// transaction's own outcome points at. Taking the first outcome that is not a
+    /// `SuccessReceiptId` would be ambiguous: a refund receipt is an ordinary action
+    /// receipt and gets a full outcome of its own, with status `SuccessValue`.
+    fn receipt_outcome(outcomes: &[ExecutionOutcomeWithId]) -> &ExecutionOutcome {
+        let receipt_id = outcomes
+            .iter()
+            .find_map(|outcome| match outcome.outcome.status {
+                ExecutionStatus::SuccessReceiptId(receipt_id) => Some(receipt_id),
+                _ => None,
+            })
+            .expect("the transaction must produce an action receipt");
+        outcomes
+            .iter()
+            .find(|outcome| outcome.id == receipt_id)
+            .map(|outcome| &outcome.outcome)
+            .expect("the action receipt must have an outcome")
+    }
+
+    /// The flow this relaxation is for: one relayer-signed transaction brings a
+    /// `0u` account into existence, funds it, and installs the state its id is
+    /// the hash of.
+    #[test]
+    fn batch_creates_funds_and_initializes_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "relayer-funded").public_key();
+        let state_init = state_init_for(from_ref(&key));
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![
+                Action::Transfer(TransferAction { deposit: funding() }),
+                state_init_action(&state_init),
+            ],
+        );
+
+        assert_matches!(receipt_outcome(&outcomes).status, ExecutionStatus::SuccessValue(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(account.is_initialized(), "the batched state init must have run");
+        assert_eq!(account.amount(), funding(), "the transfer that created it must also fund it");
+        assert!(
+            get_access_key(&state, &account_id, &key).unwrap().is_some(),
+            "the committed key must be installed",
+        );
+        let relayer = get_account(&state, &alice_account()).unwrap().unwrap();
+        assert!(
+            relayer.amount() <= relayer_start().saturating_sub(funding()),
+            "the funding must leave the relayer's balance, not appear out of nowhere",
+        );
+    }
+
+    /// A lone transfer still creates a `0u` account, uninitialized. The relaxation
+    /// only adds a case, so the shape that worked before must keep working, and
+    /// this is the only test here that pins the `is_the_only_action` term.
+    #[test]
+    fn lone_transfer_creates_universal_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "lone-transfer").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() })],
+        );
+
+        assert_matches!(receipt_outcome(&outcomes).status, ExecutionStatus::SuccessValue(_));
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let account = get_account(&state, &account_id).unwrap().unwrap();
+        assert!(!account.is_initialized(), "a transfer alone must not install any state");
+        assert_eq!(account.amount(), funding());
+    }
+
+    /// The relaxation is about implicit ids, not about account creation in general:
+    /// a transfer to a name that does not exist must still fail, however lonely it
+    /// is. Pins the `is_implicit` term of the gate.
+    #[test]
+    fn lone_transfer_may_not_create_named_account() {
+        init_test_logger();
+        let account_id: AccountId = "not-there.near".parse().unwrap();
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() })],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a transfer must never create a named account",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, &account_id).unwrap().is_none());
+    }
+
+    /// The trap the `is_the_only_action` gate used to close. The state init lifts
+    /// the uninitialized guard, so the only thing between a relayer and somebody
+    /// else's `0u` address is `actor_id`: creating the account must leave it
+    /// pointing at the relayer. Without that, a relayer could add a key the id
+    /// does not commit to, or delete the account and take its balance.
+    #[test]
+    fn batch_may_not_take_over_account_it_creates() {
+        init_test_logger();
+        let owner = SecretKey::from_seed(KeyType::ED25519, "rightful-owner").public_key();
+        let relayer_key = SecretKey::from_seed(KeyType::ED25519, "relayer-hijack").public_key();
+        let state_init = state_init_for(&[owner]);
+        let account_id = derive_universal_account_id(&state_init.to_raw());
+
+        let takeovers = [
+            add_key_action(&relayer_key),
+            // Last position is the only one `DeleteActionMustBeFinal` allows,
+            // and it is where the account is already initialized.
+            Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+        ];
+
+        for takeover in takeovers {
+            let (tries, root, outcomes) = apply_relayer_batch(
+                &account_id,
+                vec![
+                    Action::Transfer(TransferAction { deposit: funding() }),
+                    state_init_action(&state_init),
+                    takeover.clone(),
+                ],
+            );
+
+            assert_matches!(
+                &receipt_outcome(&outcomes).status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                    if matches!(err.kind, ActionErrorKind::ActorNoPermission { .. }),
+                "a relayer must not inherit the authority of the account it created ({takeover:?})",
+            );
+            // The receipt rolled back, so not even the account survives.
+            let state = tries.new_trie_update(ShardUId::single_shard(), root);
+            assert!(get_account(&state, &account_id).unwrap().is_none());
+        }
+    }
+
+    /// Without a state init in front of it, the account the transfer creates is
+    /// uninitialized, which is inert for everything but its own init and a further
+    /// transfer.
+    #[test]
+    fn owner_only_action_without_init_is_refused() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "no-init-first").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(from_ref(&key)).to_raw());
+
+        let (tries, root, outcomes) = apply_relayer_batch(
+            &account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() }), add_key_action(&key)],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountNotInitialized { .. }),
+            "an uninitialized account must stay inert for an owner-only action",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, &account_id).unwrap().is_none());
+    }
+
+    /// The relaxation is for `0u` ids only. Every other implicit kind is fully
+    /// usable the moment it exists, so a transfer that creates one still has to
+    /// be the whole receipt: the batch does not create the account at all, which
+    /// leaves nothing for the actions after it to take over.
+    ///
+    /// Stable behaviour rather than a universal-accounts one, so the two tests
+    /// below run at every protocol version.
+    fn assert_batch_may_not_create(account_id: &AccountId, key: &PublicKey) {
+        let (tries, root, outcomes) = apply_relayer_batch(
+            account_id,
+            vec![Action::Transfer(TransferAction { deposit: funding() }), add_key_action(key)],
+        );
+
+        assert_matches!(
+            &receipt_outcome(&outcomes).status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a batched transfer must not create {account_id}",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert!(get_account(&state, account_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn batch_may_not_create_near_implicit_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "near-implicit").public_key();
+        assert_batch_may_not_create(
+            &derive_near_implicit_account_id(key.unwrap_as_ed25519()),
+            &key,
+        );
+    }
+
+    #[test]
+    fn batch_may_not_create_eth_implicit_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::SECP256K1, "eth-implicit").public_key();
+        assert_batch_may_not_create(
+            &derive_eth_implicit_account_id(key.unwrap_as_secp256k1()),
+            &key,
+        );
+    }
+
+    /// The other half of the old gate, untouched by the relaxation: refunds are
+    /// free, so they must not create an account, a `0u` one included.
+    #[test]
+    fn refund_may_not_create_universal_account() {
+        init_test_logger();
+        let key = SecretKey::from_seed(KeyType::ED25519, "refund-target").public_key();
+        let account_id = derive_universal_account_id(&state_init_for(&[key]).to_raw());
+        let (runtime, tries, root, apply_state, _signers, epoch) = setup_runtime(
+            vec![alice_account()],
+            Balance::from_near(100),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+
+        let result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                from_ref(&Receipt::new_balance_refund(&account_id, funding())),
+                SignedValidPeriodTransactions::empty(),
+                &epoch,
+                Default::default(),
+            )
+            .unwrap();
+        let mut store_update = tries.store_update();
+        let new_root =
+            tries.apply_all(&result.trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Assert on the reason, not just the absence: without this the test would
+        // also pass if the refund receipt were dropped instead of refused.
+        let [outcome] = &result.outcomes[..] else {
+            panic!("the refund receipt must produce exactly one outcome, got {:?}", result.outcomes)
+        };
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(err))
+                if matches!(err.kind, ActionErrorKind::AccountDoesNotExist { .. }),
+            "a refund to a missing `0u` id must fail with AccountDoesNotExist",
+        );
+        let state = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        assert!(
+            get_account(&state, &account_id).unwrap().is_none(),
+            "a refund must not bring a `0u` account into existence",
+        );
+    }
+}
+
+/// The worst state-init receipt validation accepts must not reserve a meaningful
+/// share of the shard's entire outgoing congestion budget.
+///
+/// Sized as the worst case a transaction can produce, which is all three limits
+/// at once: `max_actions_per_receipt` state-init actions, their entries summing
+/// to `max_state_init_entries`, padded out to `max_transaction_size`. Spreading
+/// the entries across the whole action budget is what a per-action limit failed
+/// to bound, so the receipt is validated here too: the bound is only meaningful
+/// for a receipt that would actually be admitted.
+#[test]
+fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() {
+    let config = RuntimeConfigStore::for_chain_id("mainnet").get_config(PROTOCOL_VERSION).clone();
+    let limits = &config.wasm_config.limit_config;
+    let cap = config.congestion_control_config.max_congestion_outgoing_gas;
+    let copies = usize::try_from(limits.max_actions_per_receipt).unwrap();
+    let entries_per_action = limits.max_state_init_entries / copies as u64;
+
+    // One of the entries carries the padding, so the count stays exact.
+    let state_init = |pad: usize| {
+        let mut data: BTreeMap<Vec<u8>, Vec<u8>> =
+            (0..entries_per_action - 1).map(|i| (i.to_le_bytes().to_vec(), Vec::new())).collect();
+        data.insert(b"pad".to_vec(), vec![0u8; pad]);
+        assert_eq!(data.len() as u64, entries_per_action, "entries per action must be exact");
+        DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
+            data,
+        })
+    };
+    // Pad each action until the actions together fill a whole transaction.
+    let per_action_budget = usize::try_from(limits.max_transaction_size).unwrap() / copies;
+    let pad = per_action_budget - borsh::object_length(&state_init(0)).unwrap();
+    let state_init = state_init(pad);
+    let payload_len = borsh::object_length(&state_init).unwrap();
+    assert!(
+        payload_len * copies <= usize::try_from(limits.max_transaction_size).unwrap(),
+        "the actions together must fit one transaction",
+    );
+
+    // Every action in a receipt shares its receiver and a state init has to
+    // derive to it, so the copies are necessarily byte identical.
+    let receiver_id = derive_near_deterministic_account_id(&state_init);
+    let actions = (0..copies)
+        .map(|_| {
+            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init: state_init.clone(),
+                deposit: Balance::ZERO,
+            }))
+        })
+        .collect_vec();
+    let total_entries = entries_per_action * copies as u64;
+    assert_eq!(total_entries, limits.max_state_init_entries, "must sit at the entry limit");
+    crate::action_validation::validate_actions(limits, &actions, &receiver_id, PROTOCOL_VERSION)
+        .expect("the worst case has to be one validation actually accepts");
+
+    let receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id,
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions,
+        }),
+    });
+
+    // The same bound for a key-bearing universal payload. Keys are the denser of
+    // the two: `add_full_access_key` exec is 101.765 Ggas against 200 Ggas for an
+    // entry, but a key is 33 wire bytes against an entry's minimum of 9, and the
+    // key cap is lower.
+    let keys_per_action = limits.max_universal_state_init_keys / copies as u64;
+    let universal = {
+        let access_keys = (0..keys_per_action)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, keys_per_action, "seeds must give distinct keys");
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys,
+        })
+    };
+    let universal_receiver = universal.derive_account_id();
+    let universal_actions = (0..copies)
+        .map(|_| {
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: universal.to_raw(),
+                deposit: Balance::ZERO,
+            }))
+        })
+        .collect_vec();
+    crate::action_validation::validate_actions(
+        limits,
+        &universal_actions,
+        &universal_receiver,
+        PROTOCOL_VERSION,
+    )
+    .expect("the key-bearing worst case has to be one validation accepts");
+    let universal_receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: universal_receiver,
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: universal_actions,
+        }),
+    });
+    let universal_congestion_gas =
+        compute_receipt_congestion_gas(&universal_receipt, &config).unwrap();
+    println!(
+        "[state init] {copies} actions x {keys_per_action} keys ({} total) reserve \
+         {universal_congestion_gas} of congestion, {:.2}% of the {cap} whole-shard cap",
+        copies as u64 * keys_per_action,
+        100.0 * universal_congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
+    );
+    assert!(
+        universal_congestion_gas.as_gas() * 5 < cap.as_gas(),
+        "a key-bearing state-init receipt reserves {universal_congestion_gas}, over a fifth of \
+         the whole-shard outgoing cap of {cap}"
+    );
+
+    let congestion_gas = compute_receipt_congestion_gas(&receipt, &config).unwrap();
+    println!(
+        "[state init] {copies} actions x {entries_per_action} entries ({total_entries} total) in \
+         {} B reserve {congestion_gas} of congestion, {:.2}% of the {cap} whole-shard cap",
+        payload_len * copies,
+        100.0 * congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
+    );
+    assert!(
+        congestion_gas < cap,
+        "one state-init receipt reserves {congestion_gas} of congestion, against a whole-shard \
+         outgoing cap of {cap}"
+    );
+    // A single receipt taking a large share of the shard's whole budget is the
+    // problem itself, not just exceeding it. The dominant term here is the
+    // per-action base fee, bounded by `max_actions_per_receipt`, rather than the
+    // entries. If this trips, reconsider the limits rather than the assertion.
+    assert!(
+        congestion_gas.as_gas() * 5 < cap.as_gas(),
+        "one state-init receipt reserves {congestion_gas}, over a fifth of the whole-shard \
+         outgoing cap of {cap}"
     );
 }

@@ -1190,7 +1190,7 @@ pub struct SpiceChunkEndorsementStats {
     pub expected: u32,
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ChunkStats,

@@ -32,7 +32,7 @@ This component defines the *protocol version* — a single `u32` that names the 
 
 Two distinct mechanisms, and only one is authoritative for mainnet consensus:
 
-1. **Compile-time (`cfg!(feature = "nightly"/"protocol_feature_spice")`)** only picks the *ceiling* — `PROTOCOL_VERSION` — that this binary will ever run/vote for (`core/primitives-core/src/version.rs:640`). Nightly-only features get activation versions above the stable ceiling (`FixContractLoadingCost => 129`, `ShuffleShardAssignments => 143`, `EarlyKickout => 152`, `Spice => 180`; `version.rs:579-586`) so a stable binary, capped at 86, can never reach them.
+1. **Compile-time (`cfg!(feature = "nightly"/"protocol_feature_spice")`)** only picks the *ceiling* — `PROTOCOL_VERSION` — that this binary will ever run/vote for (`core/primitives-core/src/version.rs:640`). Nightly-only features get activation versions above the stable ceiling (`FixContractLoadingCost => 129`, `ShuffleShardAssignments => 143`, `Spice => 180`; `version.rs:579-586`) so a stable binary, capped at 86, can never reach them. (`EarlyKickout` was nightly at 152 on this pinned tree; it has since been stabilized at 87.)
 2. **Runtime (`ProtocolFeature::enabled(current_version)`)** is authoritative: `protocol_version >= self.protocol_version()` (`core/primitives-core/src/version.rs:591-593`). Consensus code branches on the *epoch's* protocol version, not on cargo features. So the same stable binary changes behavior purely as a function of the number it observes on-chain.
 
 `protocol_version()` (`core/primitives-core/src/version.rs:458`) is a `const fn` giant match returning each variant's activation version. On this 2.13.0 tree the tail of the stable range is:
@@ -104,7 +104,8 @@ This component *is* the gating mechanism; it does not itself branch on features 
 | 84 | `Wasmtime` | `version.rs:558` |
 | 85 | Large batch: `GasKeys`, `DynamicResharding`, `DelegateV2`, `StrictNonce`, `PostQuantumSignatures`, `ExecutionMetadataV4`, … | `version.rs:559-575` |
 | 86 | `STABLE_PROTOCOL_VERSION`; sole named feature `EnforcePerReceiptStorageProofLimit` | `version.rs:576,628` |
-| 129/143/152/180 | Nightly/spice-only: `FixContractLoadingCost`, `ShuffleShardAssignments`, `EarlyKickout`, `Spice` | `version.rs:579-586` |
+| 129/143/180 | Nightly/spice-only: `FixContractLoadingCost`, `ShuffleShardAssignments`, `Spice` | `version.rs:579-586` |
+| 87 | `EarlyKickout` — nightly at 152 on this pinned tree, stabilized at 87 afterwards | `version.rs:583` |
 
 Note (2.13.0-specific): there is **no** `FixContractLoadingError` variant on this tree; the loading-cost feature present is nightly `FixContractLoadingCost` (v129). The PV-86 feature is `EnforcePerReceiptStorageProofLimit`, not any loading fix.
 

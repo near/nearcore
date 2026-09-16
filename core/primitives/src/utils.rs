@@ -7,12 +7,10 @@ use crate::universal_state_init::RawStateInit;
 use chrono;
 use chrono::DateTime;
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
-use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::account::id::AccountId;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::universal_account_id::{
-    encode_universal_account_id, is_universal_account_id,
-};
+use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
 use std::convert::AsRef;
 use std::fmt;
@@ -467,29 +465,6 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
-/// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-///
-/// `0u` universal ids are handled separately: `AccountType` has no variant for
-/// them, so they parse as `NamedAccount` and are recognized by their prefix.
-pub fn account_is_implicit(
-    account_id: &AccountId,
-    eth_implicit_accounts_enabled: bool,
-    universal_accounts_enabled: bool,
-) -> bool {
-    // TODO(universal-accounts): replace with an `AccountType::Universal` check
-    // once `near-account-id` supports 0u accounts.
-    if universal_accounts_enabled && is_universal_account_id(account_id.as_str()) {
-        return true;
-    }
-    if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
-    } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
-    }
-}
-
 /// Returns hex-encoded copy of the public key.
 /// This is a NEAR-implicit account ID which can be controlled by the corresponding ED25519 private key.
 pub fn derive_near_implicit_account_id(public_key: &ED25519PublicKey) -> AccountId {
@@ -581,8 +556,6 @@ mod tests {
         use crate::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
         use near_crypto::{MlDsa65PublicKeyHandle, PublicKeyHandle};
         use near_primitives_core::global_contract::GlobalContractIdentifier;
-        use near_primitives_core::universal_account_id::decode_universal_account_id;
-        use sha3::{Digest, Sha3_256};
         use std::collections::{BTreeMap, BTreeSet};
 
         let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
@@ -611,9 +584,6 @@ mod tests {
             assert_eq!(id.as_str(), expected);
             // The producer-side shorthand agrees with hashing the bytes it wrote.
             assert_eq!(state_init.derive_account_id(), id);
-            // The id decodes back to SHA3-256 of those bytes.
-            let hash: [u8; 32] = Sha3_256::digest(&raw.0).into();
-            assert_eq!(decode_universal_account_id(id.as_str()).unwrap(), hash);
         }
     }
 

@@ -1337,6 +1337,17 @@ pub enum ReceiptSource {
     ReceiptToTxGc = 3,
 }
 
+impl ReceiptSource {
+    /// Whether an entry tagged with this source records a receipt the chunk processed,
+    /// rather than an index entry to garbage-collect.
+    pub fn has_receipt_body(&self) -> bool {
+        match self {
+            ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => true,
+            ReceiptSource::ReceiptToTxGc => false,
+        }
+    }
+}
+
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
 #[derive(Debug)]
 pub struct ProcessedReceipt {

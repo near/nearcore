@@ -116,11 +116,14 @@ fn test_spice_partial_data_faults_with_dropped_pushes() {
         "the producers left alone still push enough parts to decode, so recovery never runs"
     );
     faults.lock().drop_from.extend(silent.iter().cloned());
+    // With every accesses message gone too, a recipient has nothing but what it pulls.
+    faults.lock().drop_contract_accesses_from.extend(producers.iter().cloned());
 
     run_past_certified_frontier(&mut env, &recipients[0], PULL_HEIGHTS);
 
     let observed = observed.lock();
     assert!(observed.dropped > 0, "no push was dropped");
+    assert!(observed.dropped_contract_accesses > 0, "no accesses message was dropped");
     for recipient in &recipients {
         assert!(
             observed.data_requests.contains_key(recipient),
@@ -196,6 +199,20 @@ fn test_spice_partial_data_faults_with_equivocating_producer() {
         observed.data_requests.is_empty(),
         "the conflicting commitment pushed a recipient into pulling"
     );
+    assert_endorsed(&observed, &recipients);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_partial_data_faults_with_dropped_contract_accesses() {
+    let Setup { mut env, producers, recipients, faults, observed } = setup();
+    faults.lock().drop_contract_accesses_from.extend(producers.iter().cloned());
+
+    run_past_certified_frontier(&mut env, &recipients[0], PUSH_HEIGHTS);
+
+    let observed = observed.lock();
+    assert!(observed.dropped_contract_accesses > 0, "no accesses message was dropped");
+    assert!(observed.data_requests.is_empty(), "the pushed parts were enough; nothing to pull");
     assert_endorsed(&observed, &recipients);
 }
 

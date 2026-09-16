@@ -827,7 +827,9 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
-                let response = future.await.unwrap().unwrap();
+                let Ok(Some(response)) = future.await else {
+                    return;
+                };
                 let future =
                     responder.send_async(BlockHeadersResponse(response, peer_id).span_wrap());
                 drop(future);
@@ -843,10 +845,11 @@ fn network_message_to_view_client_handler(
                 .view_client_sender
                 .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
-                let Some(response) = future.await.unwrap() else {
-                    // The peer may have GC'd this block. In production, the
-                    // requester would simply not receive a response and retry
-                    // with another peer. Mimic that by silently dropping.
+                // `Err` means the link to the peer is dropped, which is how a ban is modelled;
+                // `Ok(None)` means the peer may have GC'd this block. In production the
+                // requester simply receives no response and retries with another peer, so
+                // mimic that by silently dropping in both cases.
+                let Ok(Some(response)) = future.await else {
                     return;
                 };
                 let future = responder.send_async(

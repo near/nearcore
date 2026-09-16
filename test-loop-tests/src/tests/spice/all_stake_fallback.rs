@@ -200,6 +200,34 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn slow_test_spice_all_stake_fallback_certifies_without_accesses_messages() {
+    init_test_logger();
+
+    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
+    // The non-designated validators get the witness through the fallback push but never the
+    // producers' contract accesses, so they can only endorse from what the witness itself lists.
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(accounts.clone())
+        .build()
+        .drop(DropCondition::DesignatedSpiceEndorsements);
+    let (faults, observed) = env.install_spice_partial_data_faults();
+    faults.lock().drop_contract_accesses_from.extend(accounts);
+    assert_fallback_has_enough_stake(&env.node(0));
+
+    let target = env.node(0).last_certified_block_header().height() + 4;
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= target,
+        Duration::seconds(300),
+    );
+    let frontier = env.node(0).last_certified_block_header();
+    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    assert!(observed.lock().dropped_contract_accesses > 0, "no accesses message was dropped");
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_all_stake_fallback_certifies_across_epoch_boundary() {
     init_test_logger();
 

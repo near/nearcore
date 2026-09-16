@@ -563,7 +563,7 @@ impl WorkloadGenerator {
                 SignedTransaction::deploy_contract(
                     nonce,
                     account,
-                    near_test_contracts::rs_contract().into(),
+                    near_test_contracts::compact_test_contract().into(),
                     &create_user_test_signer(account).into(),
                     last_block_hash,
                 )
@@ -806,6 +806,15 @@ fn make_send_receipt_transaction(
     // Choose the size of the arguments so that the total receipt size is `target_receipt_size`.
     let args_size = target_receipt_size.as_u64().saturating_sub(base_receipt_size as u64);
 
+    // Binary layout the contract expects: args_size, then the receiver account id
+    // length-prefixed, then the method name. See the contract for the layout.
+    let receiver_bytes = receiver_account.as_bytes();
+    let mut args = Vec::with_capacity(9 + receiver_bytes.len() + method_name.len());
+    args.extend_from_slice(&args_size.to_le_bytes());
+    args.push(u8::try_from(receiver_bytes.len()).expect("account id fits in a byte"));
+    args.extend_from_slice(receiver_bytes);
+    args.extend_from_slice(method_name.as_bytes());
+
     SignedTransaction::call(
         nonce,
         sender_account.clone(),
@@ -813,13 +822,7 @@ fn make_send_receipt_transaction(
         &sender_signer,
         Balance::ZERO,
         "do_function_call_with_args_of_size".to_string(),
-        serde_json::json!({
-            "account_id": receiver_account,
-            "method_name": method_name,
-            "args_size": args_size
-        })
-        .to_string()
-        .into_bytes(),
+        args,
         Gas::from_teragas(300),
         last_block_hash,
     )

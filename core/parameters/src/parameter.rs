@@ -227,8 +227,13 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxReceiptTotalInputSize,
+    /// Max number of access keys the state-init actions in one receipt may commit to, in total.
+    MaxUniversalStateInitKeys,
+    /// Max number of storage entries the state-init actions in one receipt may carry, in total.
+    MaxStateInitEntries,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
+    MinContractSizePerLocal,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
@@ -249,7 +254,11 @@ pub enum Parameter {
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
+    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
+    // protocol version 70, where the feature is enabled.
     EthImplicitAccounts,
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 87, where the feature is enabled.
     UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
@@ -406,8 +415,11 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxReceiptTotalInputSize,
+            Parameter::MaxUniversalStateInitKeys,
+            Parameter::MaxStateInitEntries,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
+            Parameter::MinContractSizePerLocal,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,

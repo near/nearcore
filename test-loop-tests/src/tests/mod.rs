@@ -29,18 +29,17 @@ mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
-#[cfg(feature = "nightly")]
 mod early_kickout_boundary;
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 mod early_kickout_e2e;
-// `nightly` only, not `test_features`: shared with `sync::early_kickout_sync`.
-#[cfg(feature = "nightly")]
 mod early_kickout_probe;
 mod early_prepare_transactions;
+mod eth_implicit_missing_global_contract;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;
+mod gas_overflow_optimistic_block;
 mod genesis_chunk_request;
 mod global_contracts;
 mod global_contracts_distribution;
@@ -89,7 +88,6 @@ mod sync;
 mod tx_inclusion_with_missed_chunks;
 mod universal_account_id;
 mod unknown_prev_chunk_preemption;
-#[cfg(feature = "nightly")]
 mod v2_partial_witness_resolution;
 mod validator_key_check;
 mod view_requests;

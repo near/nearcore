@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_uninitialized_account_state_record_round_trip() {
         let account_id: AccountId = "alice.near".parse().unwrap();
-        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300);
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300, 7_000_000);
         let record =
             StateRecord::Account { account_id: account_id.clone(), account: account.clone() };
 

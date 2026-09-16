@@ -5,7 +5,7 @@ pub mod delegate;
 use crate::{
     deterministic_account_id::DeterministicAccountStateInit,
     trie_key::GlobalContractCodeIdentifier,
-    universal_state_init::{RawStateInit, UniversalStateInit},
+    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -503,6 +503,83 @@ impl Action {
                         .iter()
                         .any(Action::post_quantum_signatures_required)
             }
+        }
+    }
+
+    /// The state-init counts this action makes the receipt it belongs to pay
+    /// execution fees for.
+    ///
+    /// Both counts come back together on purpose. Each needs the same borsh
+    /// decode of the payload, and keeping them in one accessor is what stops the
+    /// two limits drifting apart.
+    ///
+    /// Exhaustive by design, so that a new action variant has to make the
+    /// decision explicitly rather than silently counting as zero. Do not
+    /// collapse the arms into a wildcard.
+    pub fn state_init_counts(&self) -> StateInitCounts {
+        match self {
+            // Carries a state init directly. A payload that does not decode
+            // describes nothing as far as this is concerned; it is rejected by
+            // action validation before it can run.
+            Action::DeterministicStateInit(a) => {
+                StateInitCounts { entries: a.state_init.data().len() as u64, keys: 0 }
+            }
+            Action::UniversalStateInit(a) => {
+                let counts = state_init_counts(&a.state_init);
+                StateInitCounts { entries: counts.num_entries, keys: counts.num_keys }
+            }
+            // Recursive: the inner actions become their own receipt, but the
+            // outer one prepays their fees, so their counts are part of what it
+            // reserves.
+            Action::Delegate(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::state_init_counts)
+                .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
+            Action::DelegateV2(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::state_init_counts)
+                .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
+            // No state init anywhere in these.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::AddKey(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => StateInitCounts::ZERO,
+        }
+    }
+}
+
+/// What the state-init actions of one receipt commit to, summed.
+///
+/// Both counts are bounded per receipt rather than per action, because every
+/// action in a receipt shares its receiver and a state init has to derive to that
+/// receiver: a receipt can carry many byte-identical copies and pays for each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateInitCounts {
+    /// Storage entries, priced at `..._state_init_per_entry`.
+    pub entries: u64,
+    /// Committed access keys, priced at `add_full_access_key`.
+    pub keys: u64,
+}
+
+impl StateInitCounts {
+    pub const ZERO: Self = Self { entries: 0, keys: 0 };
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            entries: self.entries.saturating_add(other.entries),
+            keys: self.keys.saturating_add(other.keys),
         }
     }
 }

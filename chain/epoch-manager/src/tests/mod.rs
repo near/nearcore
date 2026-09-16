@@ -9,7 +9,8 @@ use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_info, epoch_info_with_num_seats, hash_range, record_block,
     record_block_with_final_block_hash, record_block_with_version, record_blocks,
-    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
+    record_with_block_info, reward, setup_default_epoch_manager,
+    setup_default_epoch_manager_at_version, setup_epoch_manager, stake,
 };
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -34,6 +35,11 @@ use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
 use std::cmp::Ordering;
 use std::vec;
+
+/// Highest protocol version with EarlyKickout still off, for tests that must keep
+/// observing pre-activation behaviour after the feature stabilizes.
+const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
+    ProtocolFeature::EarlyKickout.protocol_version() - 1;
 
 #[test]
 fn test_stake_validator() {
@@ -1978,12 +1984,37 @@ fn test_finalize_epoch_large_epoch_length() {
     let stake_amount = Balance::from_yoctonear(1_000);
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
-    let mut epoch_manager =
-        setup_default_epoch_manager(validators, (BLOCK_CACHE_SIZE + 1) as u64, 1, 2, 90, 60);
+    // Pinned below EarlyKickout: its per-block seeder reads the aggregator once per block,
+    // so the exact walk count asserted below only holds while the feature is off. The
+    // caching invariant itself is protocol-independent, and the seed path has its own
+    // coverage in the early_kickout tests.
+    let mut epoch_manager = setup_default_epoch_manager_at_version(
+        validators,
+        (BLOCK_CACHE_SIZE + 1) as u64,
+        1,
+        2,
+        90,
+        60,
+        PV_BEFORE_EARLY_KICKOUT,
+    );
     let h = hash_range(BLOCK_CACHE_SIZE + 2);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block_with_version(
+        &mut epoch_manager,
+        CryptoHash::default(),
+        h[0],
+        0,
+        vec![],
+        PV_BEFORE_EARLY_KICKOUT,
+    );
     for i in 1..=(BLOCK_CACHE_SIZE + 1) {
-        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        record_block_with_version(
+            &mut epoch_manager,
+            h[i - 1],
+            h[i],
+            i as u64,
+            vec![],
+            PV_BEFORE_EARLY_KICKOUT,
+        );
     }
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[BLOCK_CACHE_SIZE + 1])).unwrap();
     assert_eq!(
@@ -1997,11 +2028,6 @@ fn test_finalize_epoch_large_epoch_length() {
             ("test2".parse().unwrap(), stake_amount)
         ]),
     );
-    // EarlyKickout's seed_chunk_producers reads the aggregator once per block, so
-    // the exact per-block walk count only holds with the feature compiled out. The
-    // caching invariant is protocol-independent and stays covered on stable; the
-    // kickout seed path is covered by the early_kickout tests.
-    #[cfg(not(feature = "nightly"))]
     assert_eq!(
         BLOCK_CACHE_SIZE + 2,
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
@@ -3768,7 +3794,6 @@ fn test_is_next_block_in_next_epoch_spice_gate() {
 ///
 /// Endorsements are built at the chunk height (`prev.height + 1`), which differs
 /// from the block height only when the block skips heights above its parent.
-#[cfg(feature = "nightly")]
 fn record_seeded_block(
     em: &mut EpochManager,
     hash: CryptoHash,
@@ -3814,7 +3839,6 @@ fn record_seeded_block(
 }
 
 /// Records the consecutive chain `h` (`h[0]` genesis) and seeds each anchor row.
-#[cfg(feature = "nightly")]
 fn record_seeded_anchored_chain(em: &mut EpochManager, h: &[CryptoHash]) {
     let mut prev = CryptoHash::default();
     for (height, hash) in h.iter().enumerate() {
@@ -3824,7 +3848,6 @@ fn record_seeded_anchored_chain(em: &mut EpochManager, h: &[CryptoHash]) {
 }
 
 /// Aggregator attributes chunk production via the anchor's DB row, not the canonical sampler.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_anchored_chunk_producers() {
     use near_primitives::utils::get_block_shard_id;
@@ -3888,7 +3911,6 @@ fn test_aggregator_anchored_chunk_producers() {
 
 /// Missing anchor row at the epoch's first block (the epoch-sync case) must fall
 /// back to the sampler without tripping the missing-row `debug_assert`.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_missing_epoch_first_block_row_falls_back() {
     use near_primitives::utils::get_block_shard_id;
@@ -3951,7 +3973,6 @@ fn test_aggregator_missing_epoch_first_block_row_falls_back() {
 /// Under a skip, the missing-row fallback must sample at `anchor.height + 2`, not
 /// the chunk height. With `prev` skipping above the grandparent anchor (the
 /// post-epoch-sync shape), those differ, so the producer is anchor-determined.
-#[cfg(feature = "nightly")]
 #[test]
 fn test_aggregator_skip_anchor_uses_anchor_height() {
     use near_primitives::utils::get_block_shard_id;

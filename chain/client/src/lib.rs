@@ -12,7 +12,7 @@ pub use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
     HandleOrphanWitnessOutcome,
 };
-pub use crate::view_client_actor::ViewClientActor;
+pub use crate::view_client_actor::{ViewClientActor, ViewClientRequestManager};
 pub use chunk_producer::ProduceChunkResult;
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
@@ -49,6 +49,7 @@ pub mod client_actor;
 mod config_updater;
 pub mod debug;
 pub mod gc_actor;
+pub mod indexer;
 mod info;
 pub mod metrics;
 pub mod pending_transaction_queue;

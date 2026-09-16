@@ -1,28 +1,18 @@
-use self::errors::FailedToFetchData;
-use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
+pub use fetchers::IndexerClientFetcher;
 use near_async::time::{Clock, Duration};
+pub use near_client::indexer::IndexerViewClientFetcher;
+use near_client::indexer::{self, FailedToFetchData};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_indexer_primitives::{
-    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
-    StreamerMessage,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptSource;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::ProtocolFeature;
-use near_primitives::views::{BlockView, ChunkView, ReceiptView};
+use near_indexer_primitives::StreamerMessage;
+use near_primitives::types::BlockHeight;
+use near_primitives::views::BlockView;
 use rocksdb::DB;
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-mod errors;
 mod fetchers;
 mod metrics;
-mod utils;
 
 const INTERVAL: Duration = Duration::milliseconds(250);
 
@@ -35,211 +25,14 @@ const INTERVAL: Duration = Duration::milliseconds(250);
 const MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS: u32 = 10;
 const LAST_SYNCED_BLOCK_HEIGHT_KEY: &[u8] = b"last_synced_block_height";
 
-/// This function supposed to return the entire `StreamerMessage`.
-/// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
-/// and returns everything together in one struct
+/// Fetches a block's chunks, outcomes, receipts and state changes into a streamer message.
 pub async fn build_streamer_message(
     client: &IndexerViewClientFetcher,
     block: BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
-
-    let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
-    let protocol_version = protocol_config_view.protocol_version;
-    let shard_ids = protocol_config_view.shard_layout.shard_ids();
-    let gas_price = if block.header.prev_hash == CryptoHash::default() {
-        block.header.gas_price
-    } else {
-        let prev_block = client.fetch_block(block.header.prev_hash).await?;
-        prev_block.header.gas_price
-    };
-    let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
-    let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
-
-    let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
-    let mut state_changes =
-        client.fetch_state_changes(block.header.hash, EpochId(block.header.epoch_id)).await?;
-    let mut indexer_shards = shard_ids
-        .map(|shard_id| IndexerShard {
-            shard_id,
-            chunk: None,
-            receipt_execution_outcomes: vec![],
-            state_changes: state_changes.remove(&shard_id).unwrap_or_default(),
-        })
-        .collect::<Vec<_>>();
-
-    // TODO(spice): Add indexer support for spice.
-    if ProtocolFeature::Spice.enabled(protocol_version) {
-        return Ok(StreamerMessage { block, shards: indexer_shards });
-    }
-
-    for chunk in chunks {
-        let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
-            chunk;
-
-        let outcomes = shards_outcomes
-            .remove(&header.shard_id)
-            .expect("execution outcomes for given shard should be present");
-        let outcome_count = outcomes.len();
-        let outcome_order: Vec<CryptoHash> =
-            outcomes.iter().map(|o| o.execution_outcome.id).collect();
-        let mut outcomes: HashMap<_, _> =
-            outcomes.into_iter().map(|outcome| (outcome.execution_outcome.id, outcome)).collect();
-        debug_assert_eq!(outcomes.len(), outcome_count);
-        let indexer_transactions = transactions
-            .into_iter()
-            .filter_map(|transaction| {
-                let outcome = outcomes.remove(&transaction.hash);
-                if outcome.is_none() {
-                    tracing::error!(
-                        target: INDEXER,
-                        tx_hash = %transaction.hash,
-                        shard_id = %header.shard_id,
-                        block_hash = %block.header.hash,
-                        "unexpected missing transaction outcome"
-                    );
-                }
-                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
-            })
-            .collect::<Vec<IndexerTransactionWithOutcome>>();
-        // All transaction outcomes have been removed.
-        let mut receipt_outcomes = outcomes;
-
-        // Local receipts recovered from shard-outcomes would miss the delayed ones.
-        let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            indexer_transactions
-                .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
-            &runtime_config,
-            gas_price,
-        );
-
-        let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome_id in outcome_order {
-            let Some(outcome) = receipt_outcomes.remove(&outcome_id) else {
-                // outcome_id corresponds to a transaction, already handled above
-                continue;
-            };
-
-            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
-            let Some(receipt) = receipt else {
-                // A receipt-execution outcome must have its receipt. A `None` here is
-                // unexpected; return an error so the streamer handles the error.
-                return Err(FailedToFetchData::String(format!(
-                    "missing receipt for execution outcome {} in block {}",
-                    execution_outcome.id, block.header.hash,
-                )));
-            };
-            receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
-        }
-
-        let instant_receipts =
-            fetch_instant_receipts(client, block.header.hash, header.shard_id).await;
-
-        // Find the shard index for the chunk by shard_id
-        let shard_index = protocol_config_view
-            .shard_layout
-            .get_shard_index(header.shard_id)
-            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
-
-        // Add receipt_execution_outcomes into corresponding indexer shard
-        indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
-        // Put the chunk into corresponding indexer shard
-        indexer_shards[shard_index].chunk = Some(IndexerChunkView {
-            author,
-            header,
-            transactions: indexer_transactions,
-            receipts: chunk_prev_outgoing_receipts,
-            local_receipts: chunk_local_receipts,
-            instant_receipts,
-        });
-    }
-
-    // By this point every shard the indexer streams has had its outcomes
-    // consumed by the per-chunk loop above. Any leftover in `shards_outcomes` is
-    // an outcome for a shard whose chunk was not streamed, which we can only
-    // observe in two situations:
-    //   (a) the indexer's `ShardTracker` excludes a shard the node itself
-    //       tracked (the node has the outcomes but the chunk was not streamed);
-    //   (b) the post-resharding edge case where a stale shard id is no longer
-    //       part of the new layout.
-    //
-    // Both are unexpected and would require a proper fix to surface correctly
-    // (reliably classifying transaction vs receipt outcomes, aligning the
-    // indexer's `ShardTracker` with the shards the node tracked, and handling
-    // the stale-shard-id case in the per-chunk loop). For now we log
-    // a warning so the indexer operator knows something is off.
-    //
-    // TODO: eliminate leftovers entirely by addressing (a) and (b) above
-    // and emitting these outcomes through the per-chunk loop.
-    if !shards_outcomes.is_empty() {
-        let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
-        tracing::warn!(
-            target: INDEXER,
-            block_hash = %block.header.hash,
-            leftover_shards = ?shards_outcomes.keys().collect::<Vec<_>>(),
-            leftover_outcomes,
-            "execution outcomes left after streaming all chunks; they are not included in the streamer message",
-        );
-    }
-
-    Ok(StreamerMessage { block, shards: indexer_shards })
-}
-
-/// Fetches instant receipts for a given block and shard.
-///
-/// Instant receipts (e.g. PromiseYield) may not have execution outcomes in the
-/// block where they are processed (they can be postponed and executed later),
-/// so each receipt is fetched directly from `DBCol::Receipts`.
-async fn fetch_instant_receipts(
-    view_client: &IndexerViewClientFetcher,
-    block_hash: CryptoHash,
-    shard_id: ShardId,
-) -> Vec<ReceiptView> {
-    let instant_receipt_ids: Vec<CryptoHash> =
-        match view_client.fetch_processed_receipt_ids(block_hash, shard_id).await {
-            Ok(metadata) => metadata
-                .into_iter()
-                .filter(|m| matches!(m.source(), ReceiptSource::Instant))
-                .map(|m| *m.receipt_id())
-                .collect(),
-            Err(err) => {
-                tracing::warn!(
-                    target: INDEXER,
-                    ?err,
-                    %block_hash,
-                    %shard_id,
-                    "unable to fetch processed receipt ids, instant_receipts will be empty",
-                );
-                return vec![];
-            }
-        };
-
-    let mut instant_receipts: Vec<ReceiptView> = vec![];
-    for receipt_id in instant_receipt_ids {
-        match view_client.fetch_receipt_by_id(receipt_id).await {
-            Ok(Some(receipt)) => instant_receipts.push(receipt),
-            Ok(None) => {
-                tracing::warn!(
-                    target: INDEXER,
-                    ?receipt_id,
-                    "instant receipt not found in store",
-                );
-            }
-            Err(err) => {
-                tracing::warn!(
-                    target: INDEXER,
-                    ?receipt_id,
-                    ?err,
-                    "unable to fetch instant receipt",
-                );
-            }
-        }
-    }
-    instant_receipts
+    indexer::build_streamer_message(client, block, shard_tracker).await
 }
 
 /// Whether the node reports it is fully synced and in a steady state. A failed

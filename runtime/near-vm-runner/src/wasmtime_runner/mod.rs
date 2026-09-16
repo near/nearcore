@@ -39,6 +39,8 @@ use wasmtime::{
 
 mod logic;
 #[cfg(test)]
+mod test_instance_limits;
+#[cfg(test)]
 pub(crate) mod test_logic;
 mod trap_classification;
 
@@ -49,10 +51,9 @@ mod trap_classification;
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
-/// Value used for [PoolingAllocationConfig::decommit_batch_size]
-///
-/// Wasmtime defaults to `1`
-const DECOMMIT_BATCH_SIZE: usize = MAX_CONCURRENCY as usize / 2;
+/// Number of freed linear-memory regions the Wasmtime pooling allocator lets
+/// accumulate before returning them to the OS. See [PoolingAllocationConfig::decommit_batch_size].
+const DECOMMIT_BATCH_SIZE: usize = 1;
 
 /// The default maximum amount of tables per module.
 ///
@@ -73,7 +74,16 @@ const GUEST_PAGE_SIZE: usize = 1 << 16;
 
 /// The maximum size, in bytes, of a core instance's `VMContext` runtime
 /// metadata slot that the pooling allocator reserves per instance.
-const MAX_CORE_INSTANCE_SIZE: usize = 1 << 20;
+///
+/// We should always hit `max_globals_per_contract` or
+/// `max_functions_number_per_contract` before hitting this limit of 2 MiB.
+/// Tests in [`test_instance_limits`] assert this property.
+const MAX_CORE_INSTANCE_SIZE: usize = 2 << 20;
+
+/// Older protocol versions use the 1 MiB limit that corresponds to the default
+/// value set in Wasmtime at the time. It may result in deserialization errors
+/// on some contracts.
+const LEGACY_MAX_CORE_INSTANCE_SIZE: usize = 1 << 20;
 
 #[derive(Hash, PartialEq, Eq)]
 struct VMKey {
@@ -568,6 +578,12 @@ impl WasmtimeVM {
             let max_elements_per_contract_table =
                 max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
             let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
+            // Protocol version 157 adds the globals limit and raises this cap together.
+            let max_core_instance_size = if config.limit_config.max_globals_per_contract.is_some() {
+                MAX_CORE_INSTANCE_SIZE
+            } else {
+                LEGACY_MAX_CORE_INSTANCE_SIZE
+            };
 
             let mut pooling_config = PoolingAllocationConfig::default();
             pooling_config
@@ -580,7 +596,7 @@ impl WasmtimeVM {
                 .total_tables(max_tables)
                 .max_memories_per_module(1)
                 .max_tables_per_module(max_tables_per_contract)
-                .max_core_instance_size(MAX_CORE_INSTANCE_SIZE)
+                .max_core_instance_size(max_core_instance_size)
                 .table_keep_resident(max_elements_per_contract_table);
 
             engine_config.allocation_strategy(InstanceAllocationStrategy::Pooling(pooling_config));
@@ -1054,15 +1070,11 @@ enum PreparationResult {
     Ready(ReadyContract),
 }
 
-/// This enum allows us to replicate the various [`VMOutcome`] states without moving [`VMLogic`]
+/// How running the contract's entry point ended, before it is turned into a [`VMOutcome`].
 ///
-/// If function like [`call`] where to rely on [`VMOutcome::ok`], for example, it would require
-/// ownership of [`VMLogic`], to acquire the inner [`ExecutionResultState`].
-/// `run`, however, owns [`VMLogic`] and creates a mutable borrow,
-/// which is then stored in a thread-local static as a raw pointer.
-/// This means that we need to be very careful to ensure that the reference created is only dropped
-/// after the module method call has returned.
-/// Moving the [`VMLogic`] would break this assertion.
+/// Building a [`VMOutcome`] consumes the [`ExecutionResultState`], which lives inside the [`Ctx`]
+/// owned by the wasmtime `Store` for as long as the module is running. [`call`] therefore only
+/// reports how the run ended; the outcome is built once the store has been consumed.
 enum RunOutcome {
     Ok,
     AbortNop(FunctionCallError),

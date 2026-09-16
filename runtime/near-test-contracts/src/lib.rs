@@ -144,8 +144,10 @@ pub fn estimator_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_estimator_contract"))
 }
 
-pub fn congestion_control_test_contract() -> &'static [u8] {
-    include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
+/// Deliberately small contract, for tests whose results depend on contract size.
+/// Read the contract's own docs before adding anything to it.
+pub fn compact_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_compact_test_contract"))
 }
 
 pub fn sharded_contract_test_contract() -> &'static [u8] {
@@ -161,7 +163,7 @@ fn smoke_test() {
     assert!(!fuzzing_contract().is_empty());
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
-    assert!(!congestion_control_test_contract().is_empty());
+    assert!(!compact_test_contract().is_empty());
     assert!(!sharded_contract_test_contract().is_empty());
 }
 

@@ -214,6 +214,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         spice_core_writer_adapter.bind(spice_core_writer_addr);
 
         let spice_data_distributor_actor = SpiceDataDistributorActor::new(
+            Clock::real(),
             epoch_manager.clone(),
             runtime.store().chain_store(),
             signer.clone(),
@@ -295,7 +296,9 @@ pub fn create_test_setup_with_accounts_and_validity(
         polling_config: Default::default(),
         limits_config: Default::default(),
         enable_debug_rpc: false,
+        enable_indexer_rpc: false,
         experimental_debug_pages_src_path: None,
+        indexer_max_concurrent_requests: 1,
         sharded_rpc: None,
     };
 

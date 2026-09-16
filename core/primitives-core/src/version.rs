@@ -409,6 +409,8 @@ pub enum ProtocolFeature {
     /// Allow creating `DeterministicStateInitAction` from a delegated action by
     /// fixing the receiver id check.
     FixDelegatedDeterministicStateInit,
+    /// Fix same-chunk calls to a just-distributed global contract by recording the deploy.
+    GlobalContractSameChunkCallFix,
     /// Emit `ExecutionMetadata::V4` from chunk producers. V4 carries a
     /// per-action `Vec<AccountContract>`: one entry per action in the
     /// receipt, recording the contract attached to the receiver account
@@ -483,6 +485,10 @@ pub enum ProtocolFeature {
     ///   verification, instead of on the signer shard, so it counts against the
     ///   right `compute_limit`.
     FixMlDsaCostCharging,
+    /// Calls to an account whose global contract was never deployed fail with
+    /// `CodeDoesNotExist`. Previously chunk validators rejected such a state
+    /// witness as incomplete, which stalled the shard.
+    FailCallToMissingGlobalContract,
     /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
@@ -621,15 +627,17 @@ impl ProtocolFeature {
             ProtocolFeature::RemoveGasRewards => 87,
             ProtocolFeature::EnforceStorageProofLimitForAllActions => 87,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 87,
+            ProtocolFeature::EarlyKickout => 87,
+            ProtocolFeature::FixMlDsaCostCharging => 87,
+            ProtocolFeature::GlobalContractSameChunkCallFix => 87,
+            ProtocolFeature::UniversalAccounts => 87,
+            ProtocolFeature::FailCallToMissingGlobalContract => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::EarlyKickout => 152,
-            ProtocolFeature::FixMlDsaCostCharging => 153,
-            ProtocolFeature::UniversalAccounts => 154,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -674,7 +682,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 88;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;

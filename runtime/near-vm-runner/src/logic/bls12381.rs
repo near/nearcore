@@ -24,52 +24,6 @@ const BLS_P2_COMPRESS_SIZE: usize = 96;
 pub(crate) const BLS12381_NOT_IN_GROUP_FIX_VERSION: u32 = 1;
 
 #[macro_export]
-macro_rules! bls12381_impl {
-    (
-        $doc:expr,
-        $fn_name:ident,
-        $ITEM_SIZE:expr,
-        $bls12381_base:ident,
-        $bls12381_element:ident,
-        $impl_fn_name:ident
-    ) => {
-        #[doc = $doc]
-        pub fn $fn_name(
-            &mut self,
-            value_len: u64,
-            value_ptr: u64,
-            register_id: u64,
-        ) -> Result<u64> {
-            self.result_state.gas_counter.pay_base($bls12381_base)?;
-
-            let elements_count = value_len / $ITEM_SIZE;
-            self.result_state.gas_counter.pay_per($bls12381_element, elements_count as u64)?;
-
-            let data = get_memory_or_register!(self, value_ptr, value_len)?;
-            let version = if self.config.bls12381_not_in_group_fix {
-                $crate::logic::bls12381::BLS12381_NOT_IN_GROUP_FIX_VERSION
-            } else {
-                0
-            };
-            let res_option = super::bls12381::$impl_fn_name(&data, version)?;
-
-            if let Some(res) = res_option {
-                self.registers.set(
-                    &mut self.result_state.gas_counter,
-                    &self.config.limit_config,
-                    register_id,
-                    res.as_slice(),
-                )?;
-
-                Ok(0)
-            } else {
-                Ok(1)
-            }
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! bls12381_fn {
     (
         $p_sum:ident,

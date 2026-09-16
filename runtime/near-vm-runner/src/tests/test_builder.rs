@@ -46,6 +46,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_outcome: false,
         method: "main".into(),
         max_gas_burnt: None,
+        min_contract_size_per_local: None,
     }
 }
 
@@ -58,6 +59,7 @@ pub(crate) struct TestBuilder {
     opaque_outcome: bool,
     method: String,
     max_gas_burnt: Option<Gas>,
+    min_contract_size_per_local: Option<Option<u64>>,
 }
 
 impl TestBuilder {
@@ -90,6 +92,11 @@ impl TestBuilder {
 
     pub(crate) fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
         self.max_gas_burnt = Some(max_gas_burnt);
+        self
+    }
+
+    pub(crate) fn min_contract_size_per_local(mut self, min_size: Option<u64>) -> Self {
+        self.min_contract_size_per_local = Some(min_size);
         self
     }
 
@@ -184,6 +191,9 @@ impl TestBuilder {
                 config.vm_kind = vm_kind;
                 if let Some(max_gas_burnt) = self.max_gas_burnt {
                     config.limit_config.max_gas_burnt = max_gas_burnt;
+                }
+                if let Some(min_size) = self.min_contract_size_per_local {
+                    config.limit_config.min_contract_size_per_local = min_size;
                 }
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
