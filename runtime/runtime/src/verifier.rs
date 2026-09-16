@@ -156,6 +156,98 @@ impl TxAuthorization {
             TxAuthorization::SelfSignedStateInit => None,
         }
     }
+
+    pub fn as_tx_authorization_ref(&self) -> TxAuthorizationRef<'_> {
+        match self {
+            TxAuthorization::AccessKey(access_key) => TxAuthorizationRef::AccessKey(access_key),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index: *nonce_index }
+            }
+            TxAuthorization::SelfSignedStateInit => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// A borrowed view of `TxAuthorization`, for callers that already hold a
+/// reference to the access key (e.g. from a prefetched cache) and would
+/// rather not clone it into an owned `TxAuthorization`.
+#[derive(Debug, Clone, Copy)]
+pub enum TxAuthorizationRef<'a> {
+    AccessKey(&'a AccessKey),
+    GasKey { access_key: &'a AccessKey, nonce_index: NonceIndex },
+    SelfSignedStateInit,
+}
+
+impl<'a> TxAuthorizationRef<'a> {
+    /// Builds the authorization from an already-resolved access key and nonce index.
+    /// A missing access key is assumed to mean a self-signed state init: it is
+    /// the caller's responsibility to have checked `is_bootstrap` already.
+    pub fn new(access_key: Option<&'a AccessKey>, nonce_index: Option<NonceIndex>) -> Self {
+        match (access_key, nonce_index) {
+            (Some(access_key), Some(nonce_index)) => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index }
+            }
+            (Some(access_key), None) => TxAuthorizationRef::AccessKey(access_key),
+            (None, _) => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// Dispatches to the `verify_and_charge_*_ephemeral` function matching how the
+/// transaction is authorized. `gas_key_nonce` is only called for the `GasKey` case.
+/// `StorageError` is returned only if `gas_key_nonce` returns it.
+pub fn verify_and_charge_tx_authorized(
+    config: &RuntimeConfig,
+    account: &Account,
+    authorization: TxAuthorizationRef<'_>,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+    gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, StorageError>,
+) -> Result<TxVerdict, StorageError> {
+    let verdict = match authorization {
+        TxAuthorizationRef::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
+            config,
+            account,
+            access_key,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+        TxAuthorizationRef::GasKey { access_key, nonce_index } => {
+            let Some(current_nonce) = gas_key_nonce(nonce_index)? else {
+                let num_nonces =
+                    access_key.gas_key_info().map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                let error = InvalidTxError::InvalidNonceIndex {
+                    tx_nonce_index: Some(nonce_index),
+                    num_nonces,
+                };
+                return Ok(TxVerdict::Failed(error));
+            };
+            verify_and_charge_gas_key_tx_ephemeral(
+                config,
+                account,
+                access_key,
+                current_nonce,
+                tx,
+                transaction_cost,
+                block_height,
+                pending,
+            )
+        }
+        TxAuthorizationRef::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
+            config,
+            account,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+    };
+
+    Ok(verdict)
 }
 
 /// Resolve the signer's account and what authorizes the transaction against it:
@@ -1085,40 +1177,22 @@ mod tests {
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let tx = validated_tx.to_tx();
 
-        let verdict = match &authorization {
-            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
-                config,
-                &signer,
-                access_key,
-                tx,
-                &transaction_cost,
-                block_height,
-                &PendingConstraints::default(),
-            ),
-            TxAuthorization::GasKey { access_key, nonce_index } => {
-                let current_nonce =
-                    get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), *nonce_index)?
-                        .unwrap_or(0);
-                verify_and_charge_gas_key_tx_ephemeral(
-                    config,
-                    &signer,
-                    access_key,
-                    current_nonce,
-                    tx,
-                    &transaction_cost,
-                    block_height,
-                    &PendingConstraints::default(),
-                )
-            }
-            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
-                config,
-                &signer,
-                tx,
-                &transaction_cost,
-                block_height,
-                &PendingConstraints::default(),
-            ),
+        let gas_key_nonce = |nonce_index| {
+            let nonce =
+                get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)?
+                    .unwrap_or(0);
+            Ok(Some(nonce))
         };
+        let verdict = verify_and_charge_tx_authorized(
+            config,
+            &signer,
+            authorization.as_tx_authorization_ref(),
+            tx,
+            &transaction_cost,
+            block_height,
+            &PendingConstraints::default(),
+            gas_key_nonce,
+        )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
             TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),

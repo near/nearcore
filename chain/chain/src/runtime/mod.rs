@@ -61,10 +61,9 @@ use node_runtime::cache_warming::cache_keys_differ;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorization,
+    ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
     TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    verify_and_charge_tx_authorized,
 };
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
@@ -780,48 +779,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         // upper bound.
         let block_height: Option<BlockHeight> = None;
 
-        let verdict = match authorization {
-            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &access_key,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ),
-            TxAuthorization::GasKey { access_key, nonce_index } => {
-                let current_nonce =
-                    get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
-                        .ok_or_else(|| {
-                            let num_nonces = access_key
-                                .gas_key_info()
-                                .map_or(0, |gas_key_info| gas_key_info.num_nonces);
-                            InvalidTxError::InvalidNonceIndex {
-                                tx_nonce_index: Some(nonce_index),
-                                num_nonces,
-                            }
-                        })?;
-                verify_and_charge_gas_key_tx_ephemeral(
-                    runtime_config,
-                    &signer,
-                    &access_key,
-                    current_nonce,
-                    &tx,
-                    &cost,
-                    block_height,
-                    pending_constraints,
-                )
-            }
-            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
-                runtime_config,
-                &signer,
-                &tx,
-                &cost,
-                block_height,
-                pending_constraints,
-            ),
-        };
+        let gas_key_nonce =
+            |nonce_index| get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index);
+        let verdict = verify_and_charge_tx_authorized(
+            runtime_config,
+            &signer,
+            authorization.as_tx_authorization_ref(),
+            &tx,
+            &cost,
+            block_height,
+            pending_constraints,
+            gas_key_nonce,
+        )?;
 
         match verdict {
             TxVerdict::Success(_) => Ok(()),
@@ -1103,44 +1072,26 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 };
 
-                let verdict = match &key_entry.access_key {
-                    None => verify_and_charge_bootstrap_tx_ephemeral(
-                        runtime_config,
-                        account,
-                        validated_tx.to_tx(),
-                        &cost,
-                        Some(next_block_height),
-                        &pending_constraints,
-                    ),
-                    Some(access_key) => {
-                        if let Some(nonce_index) = nonce_index {
-                            let current_nonce = *key_entry
-                                .gas_key_nonces
-                                .get(&nonce_index)
-                                .expect("loaded by get_or_load_entry_mut");
-                            verify_and_charge_gas_key_tx_ephemeral(
-                                runtime_config,
-                                account,
-                                access_key,
-                                current_nonce,
-                                validated_tx.to_tx(),
-                                &cost,
-                                Some(next_block_height),
-                                &pending_constraints,
-                            )
-                        } else {
-                            verify_and_charge_tx_ephemeral(
-                                runtime_config,
-                                account,
-                                access_key,
-                                validated_tx.to_tx(),
-                                &cost,
-                                Some(next_block_height),
-                                &pending_constraints,
-                            )
-                        }
-                    }
+                let authorization =
+                    TxAuthorizationRef::new(key_entry.access_key.as_ref(), nonce_index);
+                let gas_key_nonce = |nonce_index| {
+                    let nonce = *key_entry
+                        .gas_key_nonces
+                        .get(&nonce_index)
+                        .expect("loaded by get_or_load_entry_mut");
+                    Ok(Some(nonce))
                 };
+                let verdict = verify_and_charge_tx_authorized(
+                    runtime_config,
+                    account,
+                    authorization,
+                    validated_tx.to_tx(),
+                    &cost,
+                    Some(next_block_height),
+                    &pending_constraints,
+                    gas_key_nonce,
+                )
+                .expect("gas_key_nonce never returns Err");
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.
