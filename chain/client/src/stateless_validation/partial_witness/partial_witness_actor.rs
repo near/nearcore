@@ -36,9 +36,10 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST, MainTransitionKey,
-    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart, split_contracts_for_response,
+    BoundedContractCodes, ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash,
+    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST,
+    MainTransitionKey, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
+    split_contracts_for_response,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -1224,7 +1225,7 @@ impl PartialWitnessActor {
                 &self.epoch_manager.get_epoch_id(&main_transition_key.block_hash)?,
             )?,
         );
-        let mut contracts = Vec::new();
+        let mut contracts = BoundedContractCodes::default();
         for contract_hash in request.contracts() {
             if !valid_accesses.contains(contract_hash) {
                 tracing::warn!(
@@ -1236,7 +1237,20 @@ impl PartialWitnessActor {
                 return Ok(());
             }
             match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Ok(bytes) => {
+                    // Bounds what one request can make us send; the requester gives up on a set
+                    // past this anyway.
+                    if !contracts.push(CodeBytes(bytes)) {
+                        tracing::warn!(
+                            target: "client",
+                            ?key,
+                            requester = ?request.requester(),
+                            total_size = contracts.total_size(),
+                            "requested contract code exceeds the per-request cap, not serving"
+                        );
+                        return Ok(());
+                    }
+                }
                 Err(StorageError::MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "client",
@@ -1252,7 +1266,7 @@ impl PartialWitnessActor {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
         let signer = self.my_validator_signer()?;
         // The set may not fit one response; the requester reassembles the groups.
-        for group in split_contracts_for_response(contracts) {
+        for group in split_contracts_for_response(contracts.into_codes()) {
             let response =
                 ContractCodeResponse::encode(key.clone(), &group, &signer, protocol_version)?;
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

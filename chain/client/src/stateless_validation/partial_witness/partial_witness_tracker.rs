@@ -15,7 +15,9 @@ use near_primitives::reed_solomon::{
 };
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
+use near_primitives::stateless_validation::contract_distribution::{
+    CodeBytes, CodeHash, MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE, total_code_size,
+};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
@@ -80,12 +82,8 @@ impl WitnessCacheKey {
 enum TrackerUpdate {
     /// Applies to the one entry named by the key, creating it if it does not exist yet.
     Keyed(WitnessCacheKey, CacheUpdate),
-    /// Applies to every entry under `chunk` whose outstanding request covers `hashes`.
-    Contracts {
-        chunk: ChunkProductionKey,
-        hashes: HashSet<CodeHash>,
-        codes: Vec<(CodeHash, CodeBytes)>,
-    },
+    /// Applies to every entry under `chunk` whose outstanding request covers the hashes of `codes`.
+    Contracts { chunk: ChunkProductionKey, codes: HashMap<CodeHash, CodeBytes> },
 }
 
 impl TrackerUpdate {
@@ -146,12 +144,9 @@ struct CacheEntry {
 enum CacheUpdate {
     WitnessPart(Box<VersionedPartialEncodedStateWitness>, Arc<ReedSolomonEncoder>),
     AccessedContractHashes(HashSet<CodeHash>),
-    /// Received codes paired with their hashes, which the caller computes once since they are
-    /// needed both to find the entry and to check it.
-    AccessedContractCodes {
-        codes: Vec<(CodeHash, CodeBytes)>,
-        hashes: HashSet<CodeHash>,
-    },
+    /// Received codes keyed by their hashes, which the caller computes once since they are needed
+    /// both to find the entry and to check it.
+    AccessedContractCodes(HashMap<CodeHash, CodeBytes>),
 }
 
 impl CacheEntry {
@@ -191,11 +186,9 @@ impl CacheEntry {
             AccessedContractsState::Unknown => 0,
             // Codes already delivered towards an incomplete set are held here.
             AccessedContractsState::Requested { received, .. } => {
-                received.values().map(|code| code.0.len()).sum()
+                total_code_size(received.values()) as usize
             }
-            AccessedContractsState::Received(contracts) => {
-                contracts.iter().map(|code| code.0.len()).sum()
-            }
+            AccessedContractsState::Received(contracts) => total_code_size(contracts) as usize,
         };
         parts_size + contracts_size
     }
@@ -211,8 +204,8 @@ impl CacheEntry {
             CacheUpdate::AccessedContractHashes(code_hashes) => {
                 self.set_requested_contracts(code_hashes);
             }
-            CacheUpdate::AccessedContractCodes { codes, hashes } => {
-                self.set_received_contracts(codes, hashes);
+            CacheUpdate::AccessedContractCodes(codes) => {
+                self.set_received_contracts(codes);
             }
         }
         self.try_finalize()
@@ -314,13 +307,13 @@ impl CacheEntry {
         }
     }
 
-    fn set_received_contracts(
-        &mut self,
-        contract_codes: Vec<(CodeHash, CodeBytes)>,
-        actual: HashSet<CodeHash>,
-    ) {
+    fn set_received_contracts(&mut self, contract_codes: HashMap<CodeHash, CodeBytes>) {
+        enum Outcome {
+            GiveUp,
+            Complete(Vec<CodeBytes>, Instant),
+        }
         let now = self.clock.now();
-        let (contract_codes, requested_at) = match &mut self.accessed_contracts {
+        let outcome = match &mut self.accessed_contracts {
             AccessedContractsState::Requested {
                 contract_hashes,
                 received,
@@ -328,11 +321,14 @@ impl CacheEntry {
                 last_progress_at,
             } => {
                 // Any unrequested code drops the whole response.
-                if !actual.is_subset(contract_hashes) {
+                let unrequested = contract_codes
+                    .keys()
+                    .filter(|hash| !contract_hashes.contains(*hash))
+                    .collect_vec();
+                if !unrequested.is_empty() {
                     tracing::warn!(
                         target: "client",
-                        ?actual,
-                        expected = ?contract_hashes,
+                        ?unrequested,
                         "received contract codes that were not requested"
                     );
                     return;
@@ -346,11 +342,19 @@ impl CacheEntry {
                 if received.len() > before {
                     *last_progress_at = now;
                 }
-                if received.len() < contract_hashes.len() {
+                let size = total_code_size(received.values());
+                if size > MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE {
+                    tracing::warn!(
+                        target: "client",
+                        size,
+                        "accumulated contract code exceeds the per-request cap, giving up on the request"
+                    );
+                    Outcome::GiveUp
+                } else if received.len() < contract_hashes.len() {
                     return;
+                } else {
+                    Outcome::Complete(mem::take(received).into_values().collect(), *requested_at)
                 }
-                let contracts = mem::take(received).into_values().collect();
-                (contracts, *requested_at)
             }
             AccessedContractsState::Unknown => {
                 tracing::warn!(target: "client", "received accessed contracts without sending a request");
@@ -360,6 +364,15 @@ impl CacheEntry {
                 tracing::warn!(target: "client", "already received accessed contract codes");
                 return;
             }
+        };
+        let (contract_codes, requested_at) = match outcome {
+            Outcome::GiveUp => {
+                // Frees the accumulated codes; the witness is validated best-effort, as after a
+                // request that timed out.
+                self.accessed_contracts = AccessedContractsState::Unknown;
+                return;
+            }
+            Outcome::Complete(contract_codes, requested_at) => (contract_codes, requested_at),
         };
         let shard_id_label = self.shard_id.to_string();
         metrics::RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME
@@ -373,12 +386,12 @@ impl CacheEntry {
         self.accessed_contracts = AccessedContractsState::Received(contract_codes);
     }
 
-    /// Whether the entry has a request outstanding that covers all of `hashes`.
-    fn is_awaiting_contracts(&self, hashes: &HashSet<CodeHash>) -> bool {
+    /// Whether the entry has a request outstanding that covers every hash in `codes`.
+    fn is_awaiting_contracts(&self, codes: &HashMap<CodeHash, CodeBytes>) -> bool {
         matches!(
             &self.accessed_contracts,
             AccessedContractsState::Requested { contract_hashes, .. }
-                if hashes.is_subset(contract_hashes)
+                if codes.keys().all(|hash| contract_hashes.contains(hash))
         )
     }
 
@@ -474,16 +487,16 @@ impl ShardWitnessTracker {
         self.parts_cache.iter().map(|(_, entry)| entry.total_size()).sum()
     }
 
-    /// Finds every entry under `chunk` whose outstanding request covers `hashes`. The producer
-    /// may answer a request in several responses, so one response can carry a subset of it.
+    /// Finds every entry under `chunk` whose outstanding request covers the hashes of `codes`. The
+    /// producer may answer a request in several responses, so one response can carry a subset of it.
     fn find_pending_contracts(
         &self,
         chunk: &ChunkProductionKey,
-        hashes: &HashSet<CodeHash>,
+        codes: &HashMap<CodeHash, CodeBytes>,
     ) -> Vec<WitnessCacheKey> {
         self.parts_cache
             .iter()
-            .filter(|(key, entry)| &key.chunk == chunk && entry.is_awaiting_contracts(hashes))
+            .filter(|(key, entry)| &key.chunk == chunk && entry.is_awaiting_contracts(codes))
             .map(|(key, _)| key.clone())
             .collect_vec()
     }
@@ -587,10 +600,9 @@ impl PartialEncodedStateWitnessTracker {
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
-        let codes: Vec<(CodeHash, CodeBytes)> =
+        let codes: HashMap<CodeHash, CodeBytes> =
             codes.into_iter().map(|code| (code.hash(), code)).collect();
-        let hashes: HashSet<CodeHash> = codes.iter().map(|(hash, _)| hash.clone()).collect();
-        self.process_update(TrackerUpdate::Contracts { chunk: key, hashes, codes })
+        self.process_update(TrackerUpdate::Contracts { chunk: key, codes })
     }
 
     fn process_update(&self, update: TrackerUpdate) -> Result<(), Error> {
@@ -609,8 +621,8 @@ impl PartialEncodedStateWitnessTracker {
                     finalized.extend(Self::apply_to_entry(&mut shard_tracker, key, update));
                 }
             }
-            TrackerUpdate::Contracts { chunk, hashes, codes } => {
-                let keys = shard_tracker.find_pending_contracts(&chunk, &hashes);
+            TrackerUpdate::Contracts { chunk, codes } => {
+                let keys = shard_tracker.find_pending_contracts(&chunk, &codes);
                 if keys.is_empty() {
                     tracing::debug!(
                         target: "client",
@@ -619,12 +631,9 @@ impl PartialEncodedStateWitnessTracker {
                     );
                 }
                 // `CodeBytes` is an `Arc<[u8]>`, so handing the codes to several entries copies
-                // the vec spine and bumps refcounts rather than the contract bytes.
+                // the map and bumps refcounts rather than the contract bytes.
                 for key in keys {
-                    let update = CacheUpdate::AccessedContractCodes {
-                        codes: codes.clone(),
-                        hashes: hashes.clone(),
-                    };
+                    let update = CacheUpdate::AccessedContractCodes(codes.clone());
                     finalized.extend(Self::apply_to_entry(&mut shard_tracker, key, update));
                 }
             }
