@@ -99,6 +99,11 @@ impl<'a> HostCtx<'a> {
         }
     }
 
+    /// The execution results accumulated so far, for reading mid-execution.
+    pub fn result_state(&self) -> &ExecutionResultState {
+        &self.result_state
+    }
+
     /// Consumes the context and returns the execution results (gas counter, logs, return data)
     /// accumulated by the host functions.
     pub fn into_result_state(self) -> ExecutionResultState {
