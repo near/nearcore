@@ -43,10 +43,16 @@ const WITNESS_PARTS_CACHE_SIZE: usize = 5;
 /// so we don't have to worry much about memory usage here.
 const PROCESSED_WITNESSES_CACHE_SIZE: usize = 50;
 
-/// How long to wait for requested contract codes before validating the witness without them.
-/// Roughly two block times: past that the response is too late to be worth holding the witness
-/// for, and proceeding best-effort beats not validating at all.
+/// How long a contract code request may go without a new code arriving before the witness is
+/// validated without the codes. Roughly two block times: a response that has gone quiet that long
+/// is not worth holding the witness for, and proceeding best-effort beats not validating at all.
+/// A response that keeps delivering new codes keeps the request alive, up to
+/// `ACCESSED_CONTRACTS_REQUEST_MAX_TOTAL`.
 pub(super) const ACCESSED_CONTRACTS_REQUEST_TIMEOUT: Duration = Duration::seconds(2);
+/// Ceiling on how long a contract code request stays open however steadily codes keep arriving.
+/// Matches the block producer's maximum wait for a block, past which an endorsement for the chunk
+/// can no longer land, so there is nothing left to hold the witness for.
+pub(super) const ACCESSED_CONTRACTS_REQUEST_MAX_TOTAL: Duration = Duration::seconds(6);
 
 type DecodePartialWitnessResult = std::io::Result<EncodedChunkStateWitness>;
 
@@ -100,7 +106,11 @@ enum AccessedContractsState {
     Requested {
         contract_hashes: HashSet<CodeHash>,
         received: HashMap<CodeHash, CodeBytes>,
+        /// When the request went out. Anchors the metrics and the absolute ceiling.
         requested_at: Instant,
+        /// When the last new code arrived. A response that brings new codes keeps the request
+        /// alive; one that only repeats known ones does not.
+        last_progress_at: Instant,
     },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
@@ -290,10 +300,12 @@ impl CacheEntry {
     fn set_requested_contracts(&mut self, contract_hashes: HashSet<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
+                let now = self.clock.now();
                 self.accessed_contracts = AccessedContractsState::Requested {
                     contract_hashes,
                     received: HashMap::new(),
-                    requested_at: self.clock.now(),
+                    requested_at: now,
+                    last_progress_at: now,
                 };
             }
             AccessedContractsState::Requested { .. } | AccessedContractsState::Received(_) => {
@@ -307,8 +319,14 @@ impl CacheEntry {
         contract_codes: Vec<(CodeHash, CodeBytes)>,
         actual: HashSet<CodeHash>,
     ) {
+        let now = self.clock.now();
         let (contract_codes, requested_at) = match &mut self.accessed_contracts {
-            AccessedContractsState::Requested { contract_hashes, received, requested_at } => {
+            AccessedContractsState::Requested {
+                contract_hashes,
+                received,
+                requested_at,
+                last_progress_at,
+            } => {
                 // Any unrequested code drops the whole response.
                 if !actual.is_subset(contract_hashes) {
                     tracing::warn!(
@@ -319,8 +337,14 @@ impl CacheEntry {
                     );
                     return;
                 }
+                let before = received.len();
                 for (hash, code) in contract_codes {
                     received.entry(hash).or_insert(code);
+                }
+                // New codes keep the request alive; a response that only repeats known ones does
+                // not, so a responder cannot hold the entry open by resending.
+                if received.len() > before {
+                    *last_progress_at = now;
                 }
                 if received.len() < contract_hashes.len() {
                     return;
@@ -337,7 +361,6 @@ impl CacheEntry {
                 return;
             }
         };
-        let now = self.clock.now();
         let shard_id_label = self.shard_id.to_string();
         metrics::RECEIVE_WITNESS_ACCESSED_CONTRACT_CODES_TIME
             .with_label_values(&[&shard_id_label])
@@ -359,13 +382,20 @@ impl CacheEntry {
         )
     }
 
+    /// The request is given up on once no new code has arrived for
+    /// `ACCESSED_CONTRACTS_REQUEST_TIMEOUT`, or once it has been open for
+    /// `ACCESSED_CONTRACTS_REQUEST_MAX_TOTAL` however steadily codes keep coming. Only a decoded
+    /// witness can be validated without them, so neither deadline counts before that.
     fn contract_request_expired(&self) -> bool {
+        let now = self.clock.now();
         matches!(&self.witness_parts, WitnessPartsState::Decoded { .. })
             && matches!(
                 &self.accessed_contracts,
-                AccessedContractsState::Requested { requested_at, .. }
-                    if self.clock.now().signed_duration_since(*requested_at)
+                AccessedContractsState::Requested { requested_at, last_progress_at, .. }
+                    if now.signed_duration_since(*last_progress_at)
                         >= ACCESSED_CONTRACTS_REQUEST_TIMEOUT
+                        || now.signed_duration_since(*requested_at)
+                            >= ACCESSED_CONTRACTS_REQUEST_MAX_TOTAL
             )
     }
 
