@@ -28,7 +28,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 // Scenario: A fresh node starts with only genesis data while the network is
 // 5+ epochs ahead. The node must go through the complete far-horizon sync
@@ -420,14 +419,13 @@ fn test_far_horizon_restart_during_state_sync() {
     let history = track_sync_status(&mut env.test_loop, &env.node_datas, restarted_idx);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
-    // Headers were fully synced before kill, so HeaderSync completes instantly
-    // (not observable as a distinct status) and the node enters StateSync directly.
-    // With ContinuousEpochSync the node catches up fully and reaches NoSync.
-    let expected = if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-        vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"]
-    } else {
-        vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync"]
-    };
+    // `run_until_synced` stops on the first tick where the two heads match, and that tick
+    // can still be labelled BlockSync: leaving BlockSync is gated on the node's own header
+    // head catching up, not on the source node's head. Whether the exit to NoSync lands
+    // before or after the last block is a race, so run past the catch-up point and observe
+    // it instead.
+    env.node_runner(restarted_idx).run_for_number_of_blocks(2);
+    let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
 }
 

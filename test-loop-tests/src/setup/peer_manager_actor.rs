@@ -12,9 +12,10 @@ use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
-    StateResponse, StateResponseReceived,
+    EpochSyncBatchRequestMessage, EpochSyncBatchResponseMessage, EpochSyncRequestMessage,
+    EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse,
+    SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart, StateResponse,
+    StateResponseReceived,
 };
 use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::recv_permit::RecvMessagePermit;
@@ -55,6 +56,8 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block_approval: AsyncSender<SpanWrapped<BlockApproval>, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
+    pub epoch_sync_batch_request: Sender<EpochSyncBatchRequestMessage>,
+    pub epoch_sync_batch_response: Sender<EpochSyncBatchResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
     pub network_info: AsyncSender<SpanWrapped<SetNetworkInfo>, ()>,
     pub state_response: AsyncSender<SpanWrapped<StateResponseReceived>, ()>,
@@ -790,6 +793,30 @@ fn network_message_to_client_handler(
                 EpochSyncResponseMessage {
                     from_peer: my_peer_id,
                     proof,
+                    recv_permit: RecvMessagePermit::none(),
+                },
+            );
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::EpochSyncBatchRequest { peer_id, batch_index } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
+            shared_state.senders_for_peer(&my_peer_id, &peer_id).client_sender.send(
+                EpochSyncBatchRequestMessage {
+                    from_peer: my_peer_id,
+                    batch_index,
+                    recv_permit: RecvMessagePermit::none(),
+                    response_permit: OutgoingPermit::fake_for_test(),
+                },
+            );
+            HandlerResult::Handled(NetworkResponses::NoResponse)
+        }
+        NetworkRequests::EpochSyncBatchResponse { peer_id, segment } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            shared_state.senders_for_peer(&my_peer_id, &peer_id).client_sender.send(
+                EpochSyncBatchResponseMessage {
+                    from_peer: my_peer_id,
+                    segment,
                     recv_permit: RecvMessagePermit::none(),
                 },
             );
