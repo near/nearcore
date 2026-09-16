@@ -2300,8 +2300,9 @@ pub fn gas_opcodes(result_state: &mut ExecutionResultState, opcodes: u32) -> Res
 
 /// An alias for [`consume_gas`].
 ///
-/// Always compiled so that embedders can charge gas through the same host function the runtime
-/// uses. Whether contracts may *import* it is still gated on `test_features` in `imports.rs`.
+/// Always compiled so that an embedder can charge gas through the same host function the
+/// runtime uses. Whether contracts may *import* it is still gated on `test_features` in
+/// `imports.rs`.
 pub fn burn_gas(ctx: &mut HostCtx, _memory: &mut [u8], gas: u64) -> Result<()> {
     consume_gas(&mut ctx.result_state.gas_counter, gas)
 }
