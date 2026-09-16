@@ -83,8 +83,8 @@ pub struct StateSync {
 
     /// Timeout for block requests during state sync.
     block_request_timeout: Duration,
-    /// A map storing the last time a block was requested for state sync.
-    last_time_sync_block_requested: HashMap<CryptoHash, Utc>,
+    /// Who we asked for each state sync block, and when.
+    last_sync_block_request: HashMap<CryptoHash, (PeerId, Utc)>,
 
     /// We keep a reference to this so that peer messages received about state sync can be
     /// given to the StateSyncDownloadSourcePeer.
@@ -160,7 +160,7 @@ impl StateSync {
             clock,
             store,
             block_request_timeout,
-            last_time_sync_block_requested: HashMap::new(),
+            last_sync_block_request: HashMap::new(),
             peer_source_state,
             downloader,
             downloading_task_tracker,
@@ -177,7 +177,7 @@ impl StateSync {
     /// Dropping a `StateSyncShardHandle` cancels its task.
     fn abandon(&mut self) {
         self.shard_syncs.clear();
-        self.last_time_sync_block_requested.clear();
+        self.last_sync_block_request.clear();
     }
 
     /// Apply a state sync message received from a peer.
@@ -215,7 +215,7 @@ impl StateSync {
         if block_exists {
             return (false, true);
         }
-        let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
+        let Some((_, last_time)) = self.last_sync_block_request.get(block_hash) else {
             return (true, false);
         };
 
@@ -273,12 +273,18 @@ impl StateSync {
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
 
             if have_block {
-                self.last_time_sync_block_requested.remove(&hash);
+                self.last_sync_block_request.remove(&hash);
             }
 
             if !request_block {
                 tracing::trace!(target: "sync", ?hash, ?have_block, "request_sync_blocks: skipping - no request");
                 continue;
+            }
+
+            // A request still on file at this point ran out its timeout, so the
+            // peer we asked never answered.
+            if let Some((asked_peer_id, _)) = self.last_sync_block_request.remove(&hash) {
+                peer_selector.record_failed_to_serve(&asked_peer_id, now);
             }
 
             let peer_info = peer_selector.pick(peers_ahead, now);
@@ -287,7 +293,7 @@ impl StateSync {
                 continue;
             };
             let peer_id = peer_info.peer_info.id.clone();
-            self.last_time_sync_block_requested.insert(hash, now);
+            self.last_sync_block_request.insert(hash, (peer_id.clone(), now));
             blocks_to_request.push((hash, peer_id));
         }
 
@@ -429,7 +435,7 @@ impl StateSync {
         sync_status.computation_tasks = self.computation_task_tracker.statuses();
         if all_done {
             // Clean up block request tracking for next round now that state sync is done.
-            self.last_time_sync_block_requested.clear();
+            self.last_sync_block_request.clear();
             Ok(StateSyncShardResult::Completed)
         } else {
             Ok(StateSyncShardResult::InProgress)
