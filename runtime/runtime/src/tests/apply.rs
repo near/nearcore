@@ -2079,6 +2079,8 @@ fn apply_call_to_global_contract_missing_from_witness(
     let trie =
         tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
     if include_key_proof {
+        // The recording trie captures the nodes this read visits, so the
+        // witness ends up carrying the proof that the key exists.
         assert!(trie.contains_key(&code_key_bytes, AccessOptions::DEFAULT).unwrap());
     }
     let apply_result = runtime
