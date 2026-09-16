@@ -1050,11 +1050,13 @@ pub fn record_uncertified_chunks_for_block(
     // one, so its designated validators can act from this block on. Computed before this block's
     // own chunks are added: they are the oldest only when nothing carries over, and this block's
     // header is not in the store yet.
-    let oldest_uncertified_block_hash = find_oldest_uncertified_block_header(
+    let oldest_uncertified_header = find_oldest_uncertified_block_header(
         chain_store_update.chain_store(),
         &uncertified_chunks,
-    )?
-    .map_or_else(|| *block.hash(), |header| *header.hash());
+    )?;
+    observe_certification_lag(block, oldest_uncertified_header.as_deref());
+    let oldest_uncertified_block_hash =
+        oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
 
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
     uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
@@ -1290,6 +1292,12 @@ pub fn record_spice_endorsement_stats_for_block(
     );
     chain_store_update.merge(store_update);
     Ok(())
+}
+
+fn observe_certification_lag(block: &Block, oldest_uncertified_header: Option<&BlockHeader>) {
+    let height_delta = oldest_uncertified_header
+        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
+    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(height_delta as i64);
 }
 
 fn find_oldest_uncertified_block_header(
