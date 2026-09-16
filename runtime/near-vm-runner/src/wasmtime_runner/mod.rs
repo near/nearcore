@@ -15,7 +15,7 @@ use crate::{
     imports, prepare,
 };
 use core::mem::transmute;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use near_parameters::RuntimeFeesConfig;
@@ -295,20 +295,6 @@ pub struct Ctx {
     limits: StoreLimits,
     /// The runtime-independent state the host functions operate on.
     host: HostCtx<'static>,
-}
-
-impl Deref for Ctx {
-    type Target = HostCtx<'static>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.host
-    }
-}
-
-impl DerefMut for Ctx {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.host
-    }
 }
 
 impl Ctx {
@@ -1050,18 +1036,19 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                         let Val::I64(remaining_gas) = global.get(&mut store) else {
                             panic!("gas global export is not i64");
                         };
-                        let ctx = store.data_mut();
-                        let burned = ctx
+                        let host = &mut store.data_mut().host;
+                        let burned = host
                             .result_state
                             .gas_counter
                             .remaining_gas()
                             .saturating_sub(Gas::from_gas(remaining_gas as _));
                         if burned.as_gas() > 0 {
-                            ctx.result_state.gas_counter.burn_gas(burned)?;
+                            host.result_state.gas_counter.burn_gas(burned)?;
                         }
                     }
                     CallHook::ReturningFromHost | CallHook::CallingWasm => {
-                        let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
+                        let remaining_gas =
+                            store.data().host.result_state.gas_counter.remaining_gas();
                         global
                             .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
                             .expect("failed to set gas global export")
@@ -1140,7 +1127,7 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                     Err(err) => return Err(ErrorContainer(Mutex::new(Some(err))).into()),
                 };
                 let (memory, ctx) = memory.data_and_store_mut(&mut caller);
-                match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
+                match logic::$func(&mut ctx.host, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(Mutex::new(Some(err))).into())
