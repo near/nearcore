@@ -109,6 +109,14 @@ impl<'a> HostCtx<'a> {
     pub fn into_result_state(self) -> ExecutionResultState {
         self.result_state
     }
+
+    /// The length of a register's contents, or `None` if the register is unset.
+    ///
+    /// Charges no gas, unlike the [`register_len`] host function, so an embedder can size a
+    /// destination buffer before calling [`read_register`] without paying an extra `base`.
+    pub fn register_len_free(&self, register_id: u64) -> Option<u64> {
+        self.registers.get_len(register_id)
+    }
 }
 
 macro_rules! bls12381_impl {
