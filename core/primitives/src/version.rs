@@ -62,9 +62,9 @@ pub fn get_protocol_upgrade_schedule(chain_id: &str) -> ProtocolUpgradeVotingSch
         }
         TESTNET => {
             let v1_protocol_version = 87;
-            // Monday September 21st 00:00 UTC
+            // Wednesday September 23rd 00:00 UTC
             let v1_datetime =
-                ProtocolUpgradeVotingSchedule::parse_datetime("2026-09-21 00:00:00").unwrap();
+                ProtocolUpgradeVotingSchedule::parse_datetime("2026-09-23 00:00:00").unwrap();
             let schedule = vec![(v1_datetime, v1_protocol_version)];
             schedule
         }
