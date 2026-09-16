@@ -22,7 +22,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    BlockInfo, ConnectedPeerInfo, NetworkInfo, PeerAdvertisedHead, PeerChainInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
@@ -471,7 +471,7 @@ async fn client_sync_headers() {
             }],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![HighestHeightPeerInfo {
+            highest_height_peers: vec![PeerAdvertisedHead {
                 peer_info: peer_info2,
                 genesis_id: Default::default(),
                 highest_block_height: 5,

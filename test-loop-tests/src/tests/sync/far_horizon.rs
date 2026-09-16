@@ -776,7 +776,7 @@ fn test_far_horizon_tx_during_sync() {
 #[cfg(feature = "test_features")]
 fn test_far_horizon_stale_sync_hash_detection() {
     use crate::setup::peer_manager_actor::HandlerResult;
-    use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
+    use near_client::sync::state::sync_hash_stale_above_height;
     use near_network::types::{NetworkRequests, NetworkResponses};
 
     init_test_logger();
@@ -840,20 +840,20 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let validator_sync_hash = env.node(0).client().chain.find_sync_hash().unwrap().unwrap();
     assert_ne!(node_sync_hash, validator_sync_hash);
 
-    // Advance the chain past the detection threshold. The stale sync hash
-    // check fires on each run_sync_step when in StateSync, and once
-    // highest_height > epoch_start + epoch_length + STALE_SYNC_HASH_THRESHOLD
-    // the node triggers EpochSyncDataReset.
+    // Advance the chain past the detection threshold. The stale sync hash check
+    // fires on each run_sync_step when in StateSync, and once the verified height
+    // passes sync_hash_stale_above_height(sync_hash_height, epoch_length) the node
+    // triggers EpochSyncDataReset.
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
 
     assert!(env.test_loop.is_denylisted("new_node"));
 
-    // Verify the chain advanced past the detection threshold. The syncing
-    // node sees validator heights via highest_height_peers.
+    // Verify the chain advanced past the detection threshold. The syncing node
+    // verifies those heights from the blocks the validators relay to it.
     let sync_hash_height =
         env.node(0).client().chain.get_block_header(&node_sync_hash).unwrap().height();
     let validator_height = env.node(0).head().height;
-    let expected_threshold = sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD;
+    let expected_threshold = sync_hash_stale_above_height(sync_hash_height, epoch_length);
     assert!(
         validator_height > expected_threshold,
         "validator height {validator_height} should exceed threshold {expected_threshold}",

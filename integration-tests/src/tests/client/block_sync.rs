@@ -7,7 +7,7 @@ use near_client::sync::block::BlockSync;
 use near_crypto::{KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerInfo, PeerManagerMessageRequest,
+    NetworkRequests, PeerAdvertisedHead, PeerInfo, PeerManagerMessageRequest,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -40,9 +40,9 @@ fn check_hashes_from_network_adapter(
     assert_eq!(collected_hashes, expected_hashes.into_iter().collect::<HashSet<_>>());
 }
 
-fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerInfo> {
+fn create_highest_height_peer_infos(num_peers: usize) -> Vec<PeerAdvertisedHead> {
     (0..num_peers)
-        .map(|_| HighestHeightPeerInfo {
+        .map(|_| PeerAdvertisedHead {
             peer_info: PeerInfo {
                 id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
                 addr: None,

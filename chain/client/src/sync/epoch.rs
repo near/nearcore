@@ -14,7 +14,7 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter,
+    NetworkRequestWithPermit, NetworkRequests, PeerAdvertisedHead, PeerManagerAdapter,
     PeerManagerMessageRequest,
 };
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
@@ -129,7 +129,7 @@ impl EpochSync {
     pub fn run(
         &self,
         status: &mut EpochSyncStatus,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        highest_height_peers: &[PeerAdvertisedHead],
     ) -> Result<(), Error> {
         match status {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {

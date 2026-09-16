@@ -26,8 +26,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
+    ConnectedPeerInfo, FullPeerInfo, KnownProducer, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerAdvertisedHead, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
     SnapshotHostEvent, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
     StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
@@ -281,16 +281,16 @@ impl messaging::Actor for PeerManagerActor {
     }
 }
 
-/// Project a `ConnectedPeerState` to a `HighestHeightPeerInfo`, keyed by
+/// Project a `ConnectedPeerState` to a `PeerAdvertisedHead`, keyed by
 /// the T2 peer's latest block. Returns `None` if the peer hasn't
 /// reported a block yet (the height info is what makes the projection
 /// interesting).
 fn to_highest_height_peer_info(
     peer_state: &ConnectedPeerState,
     genesis_id: &GenesisId,
-) -> Option<HighestHeightPeerInfo> {
+) -> Option<PeerAdvertisedHead> {
     let block = peer_state.block_info.as_ref()?;
-    Some(HighestHeightPeerInfo {
+    Some(PeerAdvertisedHead {
         peer_info: peer_state.peer_info.clone(),
         genesis_id: genesis_id.clone(),
         highest_block_height: block.height,
@@ -475,9 +475,9 @@ impl PeerManagerActor {
     }
 
     /// Returns peers close to the highest height.
-    fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
+    fn highest_height_peers(&self) -> Vec<PeerAdvertisedHead> {
         let genesis_id = self.state.genesis_id.clone();
-        let infos: Vec<HighestHeightPeerInfo> = self
+        let infos: Vec<PeerAdvertisedHead> = self
             .state
             .peers
             .tier2()
