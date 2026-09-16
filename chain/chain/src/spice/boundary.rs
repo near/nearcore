@@ -1,4 +1,3 @@
-use crate::spice::core::save_uncertified_chunks;
 use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -18,9 +17,9 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
 use std::sync::Arc;
 
-/// Whether `block_hash` is a spice activation parent: a last block of the last
+/// Whether `block_hash` is a last pre-spice block: a last block of the last
 /// pre-spice epoch, so every child of it is a first spice block.
-pub fn is_spice_activation_parent(
+pub fn is_last_pre_spice_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
@@ -36,37 +35,53 @@ pub fn is_spice_activation_parent(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
-/// Seeds what the activation boundary needs when `block` is an activation parent
+/// The last pre-spice block in the ancestry of `block_hash`, `block_hash` itself when
+/// it is pre-spice. Errors on a chain that is spice from genesis.
+pub fn last_pre_spice_block_header(
+    chain_store: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Arc<BlockHeader>, Error> {
+    let mut header = chain_store.get_block_header(block_hash)?;
+    while header.is_spice() {
+        let epoch_first_block = *epoch_manager.get_block_info(header.hash())?.epoch_first_block();
+        let epoch_first_header = chain_store.get_block_header(&epoch_first_block)?;
+        header = chain_store.get_block_header(epoch_first_header.prev_hash())?;
+    }
+    Ok(header)
+}
+
+/// Seeds what the activation boundary needs when `block` is a last pre-spice block
 /// or a first spice block; a no-op otherwise.
 pub fn seed_activation_boundary(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
-    parent_header: &BlockHeader,
+    prev_header: &BlockHeader,
 ) -> Result<(), Error> {
     seed_boundary_uncertified_chunks(store_update, epoch_manager, block)?;
-    seed_execution_heads_at_activation(store_update, block, parent_header)
+    seed_execution_heads_at_activation(store_update, block, prev_header)
 }
 
 /// Seeds the spice execution heads when `block` is a first spice block, i.e. when
-/// `parent_header` is still pre-spice; a no-op otherwise.
+/// `prev_header` is still pre-spice; a no-op otherwise.
 pub fn seed_execution_heads_at_activation(
     store_update: &mut StoreUpdate,
     block: &Block,
-    parent_header: &BlockHeader,
+    prev_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if !block.is_spice_block() || parent_header.is_spice() {
+    if !block.is_spice_block() || prev_header.is_spice() {
         return Ok(());
     }
     let mut adapter = store_update.chain_store_update();
-    adapter.set_spice_execution_head(&Tip::from_header(parent_header))?;
+    adapter.set_spice_execution_head(&Tip::from_header(prev_header))?;
     adapter.update_spice_final_execution_head(block)?;
     Ok(())
 }
 
-/// The uncertified-chunks row for the activation parent `block`, one entry per shard
+/// The uncertified-chunks row for the last pre-spice block `block`, one entry per shard
 /// of its layout, with every designated endorsement missing.
-pub fn boundary_uncertified_chunks(
+fn boundary_uncertified_chunks(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
@@ -88,7 +103,7 @@ pub fn boundary_uncertified_chunks(
             missing_endorsements,
             present_endorsements: Vec::new(),
             present_fallback_endorsements: Vec::new(),
-            // The parent of the activation parent is pre-spice, certified by
+            // The block before the last pre-spice block is pre-spice, certified by
             // definition, so the designated validators can act right away.
             certifiable_since_height: Some(height),
         });
@@ -96,9 +111,9 @@ pub fn boundary_uncertified_chunks(
     Ok(uncertified_chunks)
 }
 
-/// Seeds `DBCol::uncertified_chunks` for `block` when it is an activation parent; a
+/// Seeds `DBCol::uncertified_chunks` for `block` when it is a last pre-spice block; a
 /// no-op otherwise.
-pub fn seed_boundary_uncertified_chunks(
+fn seed_boundary_uncertified_chunks(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
@@ -106,16 +121,20 @@ pub fn seed_boundary_uncertified_chunks(
     if !cfg!(feature = "protocol_feature_spice") {
         return Ok(());
     }
-    if !is_spice_activation_parent(epoch_manager, block.hash())? {
+    if !is_last_pre_spice_block(epoch_manager, block.hash())? {
         return Ok(());
     }
     let uncertified_chunks = boundary_uncertified_chunks(epoch_manager, block)?;
-    save_uncertified_chunks(store_update, block.hash(), &uncertified_chunks);
+    store_update.insert_ser(
+        DBCol::uncertified_chunks(),
+        block.hash().as_ref(),
+        &uncertified_chunks,
+    );
     Ok(())
 }
 
 /// The seeded uncertified-chunks row of the pre-spice `block_hash`: present only for
-/// an activation parent, empty otherwise.
+/// a last pre-spice block, empty otherwise.
 pub(crate) fn seeded_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
@@ -130,13 +149,13 @@ pub(crate) fn seeded_uncertified_chunks(
 }
 
 /// The epoch whose chunk producers produce the spice data of `block_hash`: its own,
-/// or for an activation parent the next one, whose producers run the boundary
+/// or for a last pre-spice block the next one, whose producers run the boundary
 /// bootstrap.
 pub fn spice_producers_epoch_id(
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
 ) -> Result<EpochId, Error> {
-    if is_spice_activation_parent(epoch_manager, block_hash)? {
+    if is_last_pre_spice_block(epoch_manager, block_hash)? {
         Ok(epoch_manager.get_epoch_id_from_prev_block(block_hash)?)
     } else {
         Ok(epoch_manager.get_epoch_id(block_hash)?)
@@ -144,34 +163,39 @@ pub fn spice_producers_epoch_id(
 }
 
 /// The prev hash shard tracking of `block`'s spice applications is keyed on: `block`
-/// itself for an activation parent, whose chunks are bootstrapped by the shards
+/// itself for a last pre-spice block, whose chunks are bootstrapped by the shards
 /// tracked in the first spice epoch.
 pub fn spice_tracking_prev_hash(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<CryptoHash, Error> {
-    if is_spice_activation_parent(epoch_manager, block.hash())? {
+    if is_last_pre_spice_block(epoch_manager, block.hash())? {
         Ok(*block.hash())
     } else {
         Ok(*block.header().prev_hash())
     }
 }
 
-/// Synthesizes the `ChunkExecutionResult` of shard `shard_id` of the activation parent
-/// `block` from artifacts its pre-spice apply committed.
-pub fn synthesize_execution_result(
+/// The `ChunkExecutionResult` of shard `shard_id` of the last pre-spice block `block`,
+/// synthesized from artifacts its pre-spice apply committed.
+fn execution_result_from_pre_spice_apply(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
     shard_id: ShardId,
 ) -> Result<ChunkExecutionResult, Error> {
-    Ok(synthesize_execution_result_and_receipt_proofs(chain_store, epoch_manager, block, shard_id)?
-        .0)
+    Ok(execution_result_and_receipt_proofs_from_pre_spice_apply(
+        chain_store,
+        epoch_manager,
+        block,
+        shard_id,
+    )?
+    .0)
 }
 
-/// Same as [`synthesize_execution_result`], also returning the receipt proofs the
+/// Same as [`execution_result_from_pre_spice_apply`], also returning the receipt proofs the
 /// result's receipts root commits to, for persisting at the boundary.
-pub fn synthesize_execution_result_and_receipt_proofs(
+pub fn execution_result_and_receipt_proofs_from_pre_spice_apply(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
@@ -185,8 +209,6 @@ pub fn synthesize_execution_result_and_receipt_proofs(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunks = block.chunks();
     let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    // TODO(spice-resharding): reassign the receipts when the layout changed between
-    // the inclusion block and `block`, as that helper does.
     let mut inclusion_header = chain_store.get_block_header(block.hash())?;
     while inclusion_header.height() != chunk_header.height_included() {
         inclusion_header = chain_store.get_block_header(inclusion_header.prev_hash())?;
@@ -238,52 +260,56 @@ pub fn execution_result_from_pre_spice_child(
     }))
 }
 
-/// The block carrying the chunk of `shard_id` a boundary witness of `block` applies
-/// — `block` itself when it includes one — and the blocks after it, oldest first,
-/// whose old-chunk applications the witness replays.
-pub fn anchor_and_replay_blocks(
+/// The blocks a boundary witness of `block` for shard `shard_id` covers.
+pub struct PreSpiceChunkApplyBlocks {
+    /// The block carrying the shard's chunk the witness applies; `block` itself when it
+    /// includes one.
+    pub last_new_chunk_block: Arc<Block>,
+    /// The blocks after it, oldest first, whose old-chunk applications the witness
+    /// replays.
+    pub old_chunk_blocks: Vec<Arc<Block>>,
+}
+
+pub fn get_last_new_chunk_block_and_old_chunk_blocks(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
     shard_id: ShardId,
-) -> Result<(Arc<Block>, Vec<Arc<Block>>), Error> {
+) -> Result<PreSpiceChunkApplyBlocks, Error> {
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunks = block.chunks();
     let height_included =
         chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
 
-    let mut replay_blocks = Vec::new();
-    let mut anchor_block = chain_store.get_block(block.hash())?;
-    while anchor_block.header().height() > height_included {
-        let prev_hash = *anchor_block.header().prev_hash();
-        replay_blocks.push(anchor_block);
-        anchor_block = chain_store.get_block(&prev_hash)?;
+    let mut old_chunk_blocks = Vec::new();
+    let mut last_new_chunk_block = chain_store.get_block(block.hash())?;
+    while last_new_chunk_block.header().height() > height_included {
+        let prev_hash = *last_new_chunk_block.header().prev_hash();
+        old_chunk_blocks.push(last_new_chunk_block);
+        last_new_chunk_block = chain_store.get_block(&prev_hash)?;
     }
-    replay_blocks.reverse();
-    Ok((anchor_block, replay_blocks))
+    old_chunk_blocks.reverse();
+    Ok(PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks })
 }
 
-/// The blocks whose incoming receipts the target shard's chunk at `anchor_block`
-/// consumed
-pub fn boundary_source_blocks_for_target(
+/// The blocks whose incoming receipts the chunk of `shard_id` at
+/// `last_new_chunk_block` consumed.
+pub fn get_incoming_receipt_blocks_for_shard(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-    anchor_block: &Block,
-    target_shard_id: ShardId,
+    last_new_chunk_block: &Block,
+    shard_id: ShardId,
 ) -> Result<Vec<Arc<Block>>, Error> {
-    let anchor_prev_block = chain_store.get_block(anchor_block.header().prev_hash())?;
-    let prev_shard_layout =
-        epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
-    let prev_shard_index = prev_shard_layout.get_shard_index(target_shard_id)?;
-    let anchor_prev_chunks = anchor_prev_block.chunks();
-    let previous_inclusion_height = anchor_prev_chunks
-        .get(prev_shard_index)
-        .ok_or(Error::InvalidShardId(target_shard_id))?
-        .height_included();
+    let prev_block = chain_store.get_block(last_new_chunk_block.header().prev_hash())?;
+    let prev_shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
+    let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
+    let prev_chunks = prev_block.chunks();
+    let previous_inclusion_height =
+        prev_chunks.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
 
     let mut source_blocks = Vec::new();
-    let mut block = chain_store.get_block(anchor_block.header().hash())?;
+    let mut block = chain_store.get_block(last_new_chunk_block.header().hash())?;
     while block.header().height() > previous_inclusion_height {
         let prev_hash = *block.header().prev_hash();
         source_blocks.push(block);
@@ -292,9 +318,9 @@ pub fn boundary_source_blocks_for_target(
     Ok(source_blocks)
 }
 
-/// Tripwire against the two sources of truth at the boundary: a certified execution
-/// result of a pre-spice chunk must match what this node synthesizes from its own
-/// pre-spice apply.
+/// Consistency check between the two sources of truth at the boundary: a certified
+/// execution result of a pre-spice chunk must match what this node synthesizes from
+/// its own pre-spice apply.
 pub fn check_pre_spice_execution_result(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -311,12 +337,16 @@ pub fn check_pre_spice_execution_result(
     if block.is_spice_block() {
         return Ok(());
     }
-    let synthesized =
-        match synthesize_execution_result(chain_store, epoch_manager, &block, chunk_id.shard_id) {
-            Ok(result) => result,
-            Err(Error::DBNotFoundErr(_)) => return Ok(()),
-            Err(err) => return Err(err),
-        };
+    let synthesized = match execution_result_from_pre_spice_apply(
+        chain_store,
+        epoch_manager,
+        &block,
+        chunk_id.shard_id,
+    ) {
+        Ok(result) => result,
+        Err(Error::DBNotFoundErr(_)) => return Ok(()),
+        Err(err) => return Err(err),
+    };
     if &synthesized != execution_result {
         byzantine_assert!(false);
         return Err(Error::Other(format!(
@@ -331,10 +361,9 @@ pub fn check_pre_spice_execution_result(
 mod tests {
     use super::{
         boundary_uncertified_chunks, check_pre_spice_execution_result,
-        execution_result_from_pre_spice_child, synthesize_execution_result,
+        execution_result_from_pre_spice_apply, execution_result_from_pre_spice_child,
     };
     use crate::Chain;
-    use crate::spice::core::save_uncertified_chunks;
     use crate::spice::tests::{add_pre_spice_block, setup_pre_spice_chain};
     use near_async::time::Clock;
     use near_crypto::{KeyType, SecretKey};
@@ -352,6 +381,7 @@ mod tests {
     use near_primitives::types::SpiceChunkId;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::DBCol;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
@@ -359,7 +389,7 @@ mod tests {
     /// the receipts root a producer of the next block's chunk would compute.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_synthesize_execution_result_with_included_and_missing_chunk() {
+    fn test_execution_result_from_pre_spice_apply_with_included_and_missing_chunk() {
         let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -399,7 +429,7 @@ mod tests {
         assert_ne!(expected_root, empty_root, "the roots must discriminate the read block");
 
         let chain_store = chain.chain_store.store().chain_store();
-        let result = synthesize_execution_result(
+        let result = execution_result_from_pre_spice_apply(
             &chain_store,
             epoch_manager.as_ref(),
             &block_with_chunk,
@@ -412,7 +442,7 @@ mod tests {
         // The missing chunk produced no receipts row of its own: the root still covers
         // the last included chunk's receipts, while the chunk extra is the block's own
         // (applying a missed chunk writes one).
-        let result = synthesize_execution_result(
+        let result = execution_result_from_pre_spice_apply(
             &chain_store,
             epoch_manager.as_ref(),
             &block_missing_chunk,
@@ -440,17 +470,21 @@ mod tests {
             boundary_uncertified_chunks(epoch_manager.as_ref(), &block).unwrap();
         assert!(!uncertified_chunks.is_empty());
         let mut store_update = chain.chain_store.store().store_update();
-        save_uncertified_chunks(&mut store_update, block.hash(), &uncertified_chunks);
+        store_update.insert_ser(
+            DBCol::uncertified_chunks(),
+            block.hash().as_ref(),
+            &uncertified_chunks,
+        );
         store_update.commit();
 
         assert_eq!(core_reader.get_uncertified_chunks(block.hash()).unwrap(), uncertified_chunks);
     }
 
-    /// The tripwire accepts a certified pre-spice result equal to the local synthesis,
+    /// The consistency check accepts a certified pre-spice result equal to the local synthesis,
     /// rejects one that differs, and skips a shard this node cannot synthesize.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_pre_spice_execution_result_tripwire() {
+    fn test_pre_spice_execution_result_consistency_check() {
         let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -475,7 +509,7 @@ mod tests {
 
         let chain_store = chain.chain_store.store().chain_store();
         let chunk_id = SpiceChunkId { block_hash: *applied_block.hash(), shard_id };
-        let synthesized = synthesize_execution_result(
+        let synthesized = execution_result_from_pre_spice_apply(
             &chain_store,
             epoch_manager.as_ref(),
             &applied_block,

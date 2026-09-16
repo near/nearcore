@@ -193,7 +193,7 @@ impl ChunkExecutorActor {
         // of block processing and has no spice state to work from, so this returns
         // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
-            self.bootstrap_activation_parent(block_hash)?;
+            self.bootstrap_last_pre_spice_block(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -355,7 +355,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
-        // The head can be an activation parent, which is still pre-spice, so this
+        // The head can be a last pre-spice block, which is still pre-spice, so this
         // must run before the spice-at-head gate below.
         if let Err(err) = self.recover_boundary_bootstrap() {
             tracing::error!(

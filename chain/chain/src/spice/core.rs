@@ -3,7 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
-use crate::spice::boundary::seeded_uncertified_chunks;
+use crate::spice::boundary::{last_pre_spice_block_header, seeded_uncertified_chunks};
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -32,7 +32,7 @@ use near_primitives::utils::{
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::{DBCol, Store, StoreUpdate};
+use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -148,8 +148,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis and for pre-spice blocks other than a spice
-    /// activation parent, whose seeded row is returned.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than the last
+    /// pre-spice block, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -321,9 +321,13 @@ impl SpiceCoreReader {
         if !all_present && !last_certified.is_genesis() {
             let relevant_blocks = HashSet::from([*last_certified.hash()]);
             let mut results_by_block = HashMap::new();
-            self.collect_certified_execution_results_from_ancestry(
+            let stop_header = self.get_last_certified_block_header_or_last_pre_spice_block(
                 block_hash,
                 &last_certified,
+            )?;
+            self.collect_certified_execution_results_from_ancestry(
+                block_hash,
+                &stop_header,
                 &relevant_blocks,
                 &mut results_by_block,
             )?;
@@ -344,6 +348,20 @@ impl SpiceCoreReader {
         Ok(Some(merklize(&state_roots).0))
     }
 
+    /// Where an ancestry walk for core statements from `block_hash` stops: the last
+    /// certified block, or the last pre-spice block when the certified one is still
+    /// pre-spice, since no core statements exist at or below the activation boundary.
+    fn get_last_certified_block_header_or_last_pre_spice_block(
+        &self,
+        block_hash: &CryptoHash,
+        last_certified: &Arc<BlockHeader>,
+    ) -> Result<Arc<BlockHeader>, Error> {
+        if last_certified.is_spice() {
+            return Ok(Arc::clone(last_certified));
+        }
+        last_pre_spice_block_header(&self.chain_store, self.epoch_manager.as_ref(), block_hash)
+    }
+
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
     /// `stop_header`, collecting `ChunkExecutionResult` core statements whose certified
     /// chunk belongs to a block in `relevant_blocks`, grouped by block hash and shard.
@@ -360,10 +378,6 @@ impl SpiceCoreReader {
         while current_hash != *stop_header.hash() {
             let block = self.chain_store.get_block(&current_hash)?;
             if block.header().height() <= stop_header.height() {
-                break;
-            }
-            // No core statements exist at or below the activation boundary.
-            if !block.is_spice_block() {
                 break;
             }
             for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
@@ -982,15 +996,6 @@ fn get_uncertified_chunks(
     }
 }
 
-/// The only writer of `DBCol::uncertified_chunks`, so the encoding has one owner.
-pub(crate) fn save_uncertified_chunks(
-    store_update: &mut StoreUpdate,
-    block_hash: &CryptoHash,
-    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
-) {
-    store_update.insert_ser(DBCol::uncertified_chunks(), block_hash.as_ref(), &uncertified_chunks);
-}
-
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
@@ -1110,7 +1115,11 @@ pub fn record_uncertified_chunks_for_block(
     metrics::BLOCK_SPICE_UNCERTIFIED_CHUNKS.set(uncertified_chunks.len() as i64);
 
     let mut store_update = chain_store_update.chain_store().store_ref().store_update();
-    save_uncertified_chunks(&mut store_update, block.header().hash(), &uncertified_chunks);
+    store_update.insert_ser(
+        DBCol::uncertified_chunks(),
+        block.header().hash().as_ref(),
+        &uncertified_chunks,
+    );
     chain_store_update.merge(store_update);
     Ok(())
 }
@@ -1308,9 +1317,9 @@ pub fn record_spice_endorsement_stats_for_block(
 }
 
 fn observe_certification_lag(block: &Block, oldest_uncertified_header: Option<&BlockHeader>) {
-    let age = oldest_uncertified_header
+    let height_delta = oldest_uncertified_header
         .map_or(0, |header| block.header().height().saturating_sub(header.height()));
-    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(age as i64);
+    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(height_delta as i64);
 }
 
 fn find_oldest_uncertified_block_header(

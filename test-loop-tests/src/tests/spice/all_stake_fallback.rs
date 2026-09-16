@@ -8,7 +8,7 @@ use near_async::time::Duration;
 use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, is_fallback_only_chunk,
 };
-use near_chain::spice::boundary::is_spice_activation_parent;
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
@@ -356,8 +356,8 @@ fn slow_test_spice_all_stake_fallback_certifies_chunk_accessing_contract_code() 
     assert_certified_via_fallback(&env.rpc_node(), frontier.as_ref());
 }
 
-/// The protocol upgrade with every designated endorsement dropped: the activation
-/// parent can only certify via the all-stake fallback.
+/// The protocol upgrade with every designated endorsement dropped: the last
+/// pre-spice block can only certify via the all-stake fallback.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_activation_boundary_all_stake_fallback() {
@@ -382,9 +382,9 @@ fn slow_test_spice_activation_boundary_all_stake_fallback() {
     assert_fallback_has_enough_stake(&env.node(0));
 
     // Cross the boundary (pre-spice epochs are unaffected by the drop), then locate
-    // the activation parent by walking down from the head.
+    // the last pre-spice block by walking down from the head.
     env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
-    let activation_parent = {
+    let last_pre_spice = {
         let node = env.node(0);
         let chain_store = node.client().chain.chain_store();
         let mut header = node.head_block().header().clone();
@@ -394,21 +394,18 @@ fn slow_test_spice_activation_boundary_all_stake_fallback() {
         header
     };
     assert!(
-        is_spice_activation_parent(
-            env.node(0).client().epoch_manager.as_ref(),
-            activation_parent.hash()
-        )
-        .unwrap()
+        is_last_pre_spice_block(env.node(0).client().epoch_manager.as_ref(), last_pre_spice.hash())
+            .unwrap()
     );
 
-    // The activation parent must certify though its designated endorsements are all
+    // The last pre-spice block must certify though its designated endorsements are all
     // dropped: once the fallback window opens, carried by non-designated stake.
-    let boundary_height = activation_parent.height();
+    let boundary_height = last_pre_spice.height();
     env.node_runner(0).run_until(
         |node| node.last_certified_block_header().height() >= boundary_height,
         Duration::seconds(300),
     );
-    assert_certified_via_fallback(&env.node(0), &activation_parent);
+    assert_certified_via_fallback(&env.node(0), &last_pre_spice);
 
     // Certification keeps advancing into the spice epoch on the fallback alone.
     env.node_runner(0).run_until(

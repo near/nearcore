@@ -189,7 +189,7 @@ impl SpiceChunkValidatorActor {
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         // Pre-spice chunks are validated as part of block processing; no witness
-        // can be waiting on a pre-spice block — except an activation parent, whose
+        // can be waiting on a pre-spice block — except a last pre-spice block, whose
         // boundary witness can arrive before the block itself.
         match spice_relevant_block(&self.chain_store, self.epoch_manager.as_ref(), &block_hash) {
             Ok(true) => {}

@@ -17,7 +17,7 @@ use std::fmt::Debug;
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum SpiceChunkStateWitness {
-    /// Witness of the spice activation parent, whose chunk was applied pre-spice.
+    /// Witness of the last pre-spice block, whose chunk was applied pre-spice.
     Boundary(SpiceBoundaryChunkStateWitness) = 0,
     V1(SpiceChunkStateWitnessV1) = 1,
 }
@@ -28,6 +28,7 @@ pub enum SpiceChunkStateWitness {
 /// - changed source_receipt_proofs key from chunk hash to shard id and adjusted comment for spice,
 /// - removed implicit_transitions: under spice a missing chunk is an empty new chunk and
 ///   needs no implicit transition.
+// TODO(spice-resharding): resharding will likely need to modify this type.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct SpiceChunkStateWitnessV1 {
     /// Witness contains information to derive execution results of chunk corresponding to
@@ -65,7 +66,7 @@ pub struct SpiceChunkStateWitnessV1 {
     pub proof_of_invalid_chunk: Option<Box<EncodedShardChunkBody>>,
 }
 
-/// Witness of the spice activation parent. Its chunk was applied pre-spice, so
+/// Witness of the last pre-spice block. Its chunk was applied pre-spice, so
 /// receipts are sourced and missing chunks replayed the pre-spice way. Pre-spice
 /// blocks hold no invalid chunks, so there is no proof of one to carry.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]

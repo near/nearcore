@@ -596,7 +596,7 @@ impl SpiceCoreWriterActor {
         // A pre-spice block carries no core statements and needs no certification,
         // so there is nothing to record for it.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
-            self.handle_processed_activation_parent(&block_hash)?;
+            self.handle_processed_last_pre_spice_block(&block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();

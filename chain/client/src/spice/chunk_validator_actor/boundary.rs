@@ -1,9 +1,10 @@
-//! Chunk validator handling of a boundary witness, the witness of the spice
-//! activation parent's chunk.
+//! Chunk validator handling of a boundary witness, the witness of the last
+//! pre-spice block's chunk.
 
 use super::{SpiceChunkValidatorActor, WitnessValidationContext};
 use near_chain::spice::boundary::{
-    anchor_and_replay_blocks, execution_result_from_pre_spice_child,
+    PreSpiceChunkApplyBlocks, execution_result_from_pre_spice_child,
+    get_last_new_chunk_block_and_old_chunk_blocks,
 };
 use near_chain::{Block, Error};
 use near_primitives::types::{BlockExecutionResults, ShardId};
@@ -17,24 +18,26 @@ impl SpiceChunkValidatorActor {
         shard_id: ShardId,
     ) -> Result<WitnessValidationContext, Error> {
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
-        let (anchor_block, _replay_blocks) = anchor_and_replay_blocks(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block.as_ref(),
+        let PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks: _ } =
+            get_last_new_chunk_block_and_old_chunk_blocks(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block.as_ref(),
+                shard_id,
+            )?;
+        let (_, prev_shard_id, _) = self.epoch_manager.get_prev_shard_id_from_prev_hash(
+            last_new_chunk_block.header().prev_hash(),
             shard_id,
         )?;
-        let (_, prev_shard_id, _) = self
-            .epoch_manager
-            .get_prev_shard_id_from_prev_hash(anchor_block.header().prev_hash(), shard_id)?;
         let prev_result = execution_result_from_pre_spice_child(
             self.epoch_manager.as_ref(),
-            &anchor_block,
+            &last_new_chunk_block,
             shard_id,
         )?
         .ok_or_else(|| {
             Error::Other(format!(
                 "anchor block {} includes no chunk of shard {}",
-                anchor_block.hash(),
+                last_new_chunk_block.hash(),
                 shard_id
             ))
         })?;

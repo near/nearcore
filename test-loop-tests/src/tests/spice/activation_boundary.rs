@@ -5,7 +5,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain::spice::boundary::is_spice_activation_parent;
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
@@ -59,11 +59,11 @@ fn test_protocol_upgrade_to_spice() {
     run_protocol_upgrade_to_spice(BoundaryChunkDrops::None);
 }
 
-/// The upgrade with every chunk missing at the activation parent
+/// The upgrade with every chunk missing at the last pre-spice block
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_missing_chunks_at_boundary() {
-    run_protocol_upgrade_to_spice(BoundaryChunkDrops::AllAtParent);
+    run_protocol_upgrade_to_spice(BoundaryChunkDrops::AllAtLastPreSpice);
 }
 
 /// The upgrade with staggered gaps straddling the anchor
@@ -76,10 +76,10 @@ fn test_protocol_upgrade_to_spice_staggered_missing_chunks_at_boundary() {
 #[derive(Clone, Copy, PartialEq)]
 enum BoundaryChunkDrops {
     None,
-    /// Every shard's chunk missing at the activation parent.
-    AllAtParent,
-    /// One shard's chunk missing at the activation parent; the other's missing at
-    /// the parent and the block before it.
+    /// Every shard's chunk missing at the last pre-spice block.
+    AllAtLastPreSpice,
+    /// One shard's chunk missing at the last pre-spice block; the other's missing at
+    /// the last pre-spice block and the block before it.
     Staggered,
 }
 
@@ -116,29 +116,30 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
                 epoch_manager.get_next_epoch_protocol_version(head_block.hash()).unwrap();
             if ProtocolFeature::Spice.enabled(next_protocol_version) {
                 // The head is in the last pre-spice epoch, whose final block is
-                // the activation parent.
+                // the last pre-spice block.
                 let epoch_start_height =
                     epoch_manager.get_epoch_start_height(head_block.hash()).unwrap();
-                let parent_height = epoch_start_height + EPOCH_LENGTH - 1;
-                boundary_height = Some(parent_height);
+                let last_pre_spice_height = epoch_start_height + EPOCH_LENGTH - 1;
+                boundary_height = Some(last_pre_spice_height);
                 match drops {
                     BoundaryChunkDrops::None => unreachable!(),
-                    BoundaryChunkDrops::AllAtParent => {
+                    BoundaryChunkDrops::AllAtLastPreSpice => {
                         for i in 0..num_producers {
-                            drop_schedule.insert(i, (parent_height - 2, parent_height - 1));
+                            drop_schedule
+                                .insert(i, (last_pre_spice_height - 2, last_pre_spice_height - 1));
                         }
                     }
                     BoundaryChunkDrops::Staggered => {
                         // One producer per shard; the long-gap shard's producer
                         // pauses one height earlier, so its shard also misses the
-                        // block before the activation parent.
+                        // block before the last pre-spice block.
                         let epoch_id = epoch_manager.get_epoch_id(head_block.hash()).unwrap();
                         let node_for_shard = |shard_id| {
                             let account = epoch_manager
                                 .get_chunk_producer_info(&ChunkProductionKey {
                                     shard_id,
                                     epoch_id,
-                                    height_created: parent_height,
+                                    height_created: last_pre_spice_height,
                                 })
                                 .unwrap()
                                 .take_account_id();
@@ -157,8 +158,14 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
                             short_node, long_node,
                             "staggering needs one producer per shard",
                         );
-                        drop_schedule.insert(short_node, (parent_height - 2, parent_height - 1));
-                        drop_schedule.insert(long_node, (parent_height - 3, parent_height - 1));
+                        drop_schedule.insert(
+                            short_node,
+                            (last_pre_spice_height - 2, last_pre_spice_height - 1),
+                        );
+                        drop_schedule.insert(
+                            long_node,
+                            (last_pre_spice_height - 3, last_pre_spice_height - 1),
+                        );
                     }
                 }
             }
@@ -183,8 +190,8 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
         assert_eq!(resumes_sent.len(), drop_schedule.len());
     }
 
-    // Locate the first spice block on the chain and its pre-spice parent.
-    let (activation_parent, parent_supply, parent_burnt, num_shards) = {
+    // Locate the first spice block on the chain and the last pre-spice block.
+    let (last_pre_spice, last_pre_spice_supply, last_pre_spice_burnt, num_shards) = {
         let node = env.rpc_node();
         let mut first_spice = node.head_block();
         loop {
@@ -194,85 +201,97 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
             }
             first_spice = prev;
         }
-        let parent = node.client().chain.get_block(first_spice.header().prev_hash()).unwrap();
+        let last_pre_spice =
+            node.client().chain.get_block(first_spice.header().prev_hash()).unwrap();
 
-        // The parent's burn, from the chunk extras its pre-spice apply wrote.
-        let shard_layout =
-            node.client().epoch_manager.get_shard_layout(parent.header().epoch_id()).unwrap();
-        let mut parent_burnt = Balance::ZERO;
+        // The last pre-spice block's burn, from the chunk extras its pre-spice apply wrote.
+        let shard_layout = node
+            .client()
+            .epoch_manager
+            .get_shard_layout(last_pre_spice.header().epoch_id())
+            .unwrap();
+        let mut last_pre_spice_burnt = Balance::ZERO;
         for shard_uid in shard_layout.shard_uids() {
-            let chunk_extra =
-                node.client().chain.chain_store.get_chunk_extra(parent.hash(), &shard_uid).unwrap();
-            parent_burnt = parent_burnt.checked_add(chunk_extra.balance_burnt()).unwrap();
+            let chunk_extra = node
+                .client()
+                .chain
+                .chain_store
+                .get_chunk_extra(last_pre_spice.hash(), &shard_uid)
+                .unwrap();
+            last_pre_spice_burnt =
+                last_pre_spice_burnt.checked_add(chunk_extra.balance_burnt()).unwrap();
         }
         assert!(
-            parent_burnt > Balance::ZERO,
-            "the activation parent must burn gas for the supply identity to be meaningful",
+            last_pre_spice_burnt > Balance::ZERO,
+            "the last pre-spice block must burn gas for the supply identity to be meaningful",
         );
         match drops {
             BoundaryChunkDrops::None => {
-                let grandparent =
-                    node.client().chain.get_block(parent.header().prev_hash()).unwrap();
+                let prev =
+                    node.client().chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
                 assert_ne!(
-                    grandparent.header().next_gas_price(),
-                    parent.header().next_gas_price(),
+                    prev.header().next_gas_price(),
+                    last_pre_spice.header().next_gas_price(),
                     "gas price must move at the boundary for the era convention to matter",
                 );
             }
-            BoundaryChunkDrops::AllAtParent | BoundaryChunkDrops::Staggered => {
-                assert_eq!(Some(parent.header().height()), boundary_height);
+            BoundaryChunkDrops::AllAtLastPreSpice | BoundaryChunkDrops::Staggered => {
+                assert_eq!(Some(last_pre_spice.header().height()), boundary_height);
                 assert!(
-                    parent.header().chunk_mask().iter().all(|mask| !*mask),
-                    "every chunk must be missing at the activation parent",
+                    last_pre_spice.header().chunk_mask().iter().all(|mask| !*mask),
+                    "every chunk must be missing at the last pre-spice block",
                 );
             }
         }
         if drops == BoundaryChunkDrops::Staggered {
-            let grandparent = node.client().chain.get_block(parent.header().prev_hash()).unwrap();
+            let prev = node.client().chain.get_block(last_pre_spice.header().prev_hash()).unwrap();
             let long_gap_index = shard_layout.get_shard_index(long_gap_shard_id.unwrap()).unwrap();
-            let mask = grandparent.header().chunk_mask();
-            assert!(!mask[long_gap_index], "long-gap shard must be missing before the parent");
+            let mask = prev.header().chunk_mask();
+            assert!(
+                !mask[long_gap_index],
+                "long-gap shard must be missing before the last pre-spice block"
+            );
             assert!(
                 mask.iter().enumerate().all(|(i, present)| *present || i == long_gap_index),
-                "only the long-gap shard may be missing before the parent",
+                "only the long-gap shard may be missing before the last pre-spice block",
             );
         }
         (
-            parent.clone(),
-            parent.header().total_supply(),
-            parent_burnt,
+            last_pre_spice.clone(),
+            last_pre_spice.header().total_supply(),
+            last_pre_spice_burnt,
             shard_layout.num_shards() as usize,
         )
     };
-    let parent_height = activation_parent.header().height();
+    let last_pre_spice_height = last_pre_spice.header().height();
 
     // Two further spice epochs. The first spice epoch cannot end before the
-    // activation parent certifies, so getting here proves certification liveness.
-    env.rpc_runner().run_until_head_height(parent_height + 3 * EPOCH_LENGTH);
+    // last pre-spice block certifies, so getting here proves certification liveness.
+    env.rpc_runner().run_until_head_height(last_pre_spice_height + 3 * EPOCH_LENGTH);
 
     let node = env.rpc_node();
     assert!(node.head_block().is_spice_block());
     let final_execution_head =
         node.client().chain.chain_store.spice_final_execution_head().unwrap();
     assert!(
-        final_execution_head.height > parent_height,
+        final_execution_head.height > last_pre_spice_height,
         "execution must advance past the boundary",
     );
 
     // The certifying block: the first block whose core statements complete the
-    // activation parent's execution results.
+    // last pre-spice block's execution results.
     let mut chain_blocks = Vec::new();
     let mut block = node.head_block();
-    while block.header().height() > parent_height {
+    while block.header().height() > last_pre_spice_height {
         let prev_hash = *block.header().prev_hash();
         chain_blocks.push(block);
         block = node.client().chain.get_block(&prev_hash).unwrap();
     }
     chain_blocks.reverse();
 
-    // Strict crossing: from the activation parent to the head no height is skipped
+    // Strict crossing: from the last pre-spice block to the head no height is skipped
     // and no chunk goes missing — the boundary costs nothing in liveness.
-    let mut expected_height = parent_height;
+    let mut expected_height = last_pre_spice_height;
     for block in &chain_blocks {
         expected_height += 1;
         assert_eq!(
@@ -299,7 +318,7 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
             *burnt = burnt.checked_add(execution_result.chunk_extra.balance_burnt()).unwrap();
             let shards = shards_by_block.entry(chunk_id.block_hash).or_default();
             shards.insert(chunk_id.shard_id);
-            if shards.len() == num_shards && chunk_id.block_hash == *activation_parent.hash() {
+            if shards.len() == num_shards && chunk_id.block_hash == *last_pre_spice.hash() {
                 // Everything completing does so in this block: sum the completed
                 // blocks' burns after finishing this block's statements.
                 certifying_block = Some(block);
@@ -314,26 +333,26 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
             break 'outer;
         }
     }
-    let certifying_block = certifying_block.expect("the activation parent must certify");
+    let certifying_block = certifying_block.expect("the last pre-spice block must certify");
 
-    // The parent's certified burn is exactly what its pre-spice apply burned —
+    // The last pre-spice block's certified burn is exactly what its pre-spice apply burned —
     // entering the supply exactly once, at the certifying block.
-    assert_eq!(burnt_by_block[activation_parent.hash()], parent_burnt);
+    assert_eq!(burnt_by_block[last_pre_spice.hash()], last_pre_spice_burnt);
     let before_certifying =
         node.client().chain.get_block(certifying_block.header().prev_hash()).unwrap();
     assert_eq!(
         before_certifying.header().total_supply(),
-        parent_supply,
-        "supply must be untouched until the activation parent certifies",
+        last_pre_spice_supply,
+        "supply must be untouched until the last pre-spice block certifies",
     );
     assert_eq!(
         certifying_block.header().total_supply(),
-        parent_supply.checked_sub(expected_drop).unwrap(),
+        last_pre_spice_supply.checked_sub(expected_drop).unwrap(),
         "the certifying block must subtract exactly the newly certified blocks' burns",
     );
 }
 
-/// Kill a node when its head is the activation parent and restart it once the other
+/// Kill a node when its head is the last pre-spice block and restart it once the other
 /// nodes have advanced into spice. Catching up re-runs the activation seeding, which
 /// must be idempotent, and the executor's `start_actor` recovery must re-bootstrap
 /// the boundary so the node follows the chain across it without panicking.
@@ -348,11 +367,11 @@ fn test_restart_mid_boundary() {
     let restart_identifier = env.node_datas[0].identifier.clone();
 
     // Run until the head is the last pre-spice block, so the kill lands between the
-    // activation parent and the first spice epoch's certification.
+    // last pre-spice block and the first spice epoch's certification.
     env.node_runner(0).run_until(
         |node| {
             let head_block_hash = node.head().last_block_hash;
-            is_spice_activation_parent(node.client().epoch_manager.as_ref(), &head_block_hash)
+            is_last_pre_spice_block(node.client().epoch_manager.as_ref(), &head_block_hash)
                 .unwrap_or(false)
         },
         Duration::seconds(60),
@@ -378,8 +397,8 @@ fn test_restart_mid_boundary() {
 }
 
 /// The upgrade with chunk-producer shard assignments shuffled every epoch, so shard
-/// tracking rotates exactly at the boundary: a producer that applied the activation
-/// parent's chunk of a shard need not track that shard under spice, and vice versa.
+/// tracking rotates exactly at the boundary: a producer that applied the last
+/// pre-spice block's chunk of a shard need not track that shard under spice, and vice versa.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_with_shard_rotation() {
@@ -417,9 +436,9 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
         ))
         .build();
 
-    // Cross the boundary, then locate the activation parent under the head.
+    // Cross the boundary, then locate the last pre-spice block under the head.
     env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
-    let activation_parent = {
+    let last_pre_spice = {
         let node = env.node(0);
         let chain_store = node.client().chain.chain_store();
         let mut header = node.head_block().header().clone();
@@ -428,19 +447,17 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
         }
         header
     };
-    let boundary_height = activation_parent.height();
+    let boundary_height = last_pre_spice.height();
 
     // The shuffle must actually rotate tracking at the boundary, or this test shows
     // nothing: some shard's chunk-producer set has to change across it.
     {
         let node = env.node(0);
         let epoch_manager = node.client().epoch_manager.clone();
-        assert!(
-            is_spice_activation_parent(epoch_manager.as_ref(), activation_parent.hash()).unwrap()
-        );
-        let pre_spice_epoch_id = activation_parent.epoch_id();
+        assert!(is_last_pre_spice_block(epoch_manager.as_ref(), last_pre_spice.hash()).unwrap());
+        let pre_spice_epoch_id = last_pre_spice.epoch_id();
         let spice_epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(activation_parent.hash()).unwrap();
+            epoch_manager.get_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(pre_spice_epoch_id).unwrap();
         let rotated = shard_layout.shard_ids().any(|shard_id| {
             epoch_manager.get_epoch_chunk_producers_for_shard(pre_spice_epoch_id, shard_id).unwrap()
@@ -452,7 +469,7 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
     }
 
     // Certification must cross the boundary: the rotated-in producers bootstrap and
-    // distribute the activation parent's receipts and witnesses.
+    // distribute the last pre-spice block's receipts and witnesses.
     env.node_runner(0).run_until_certified(boundary_height + 2);
 }
 
@@ -465,7 +482,7 @@ struct BoundaryTrickle {
     head_height: u64,
     initial_receiver_balance: Balance,
     /// Inclusion height per submitted transfer; each was included exactly once,
-    /// at least one of them at the activation parent.
+    /// at least one of them at the last pre-spice block.
     inclusion_heights: HashMap<CryptoHash, u64>,
 }
 
@@ -501,7 +518,7 @@ fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickl
     }
     assert!(crossed, "the chain must cross the boundary");
 
-    // Locate the activation parent, then run on and let execution catch up past
+    // Locate the last pre-spice block, then run on and let execution catch up past
     // every receipt of the submitted transfers.
     let boundary_height = {
         let node = env.rpc_node();
@@ -547,7 +564,7 @@ fn cross_boundary_with_transfer_trickle(env: &mut TestLoopEnv) -> BoundaryTrickl
     assert_eq!(inclusion_heights.len(), submitted.len(), "every transfer must be included");
     assert!(
         inclusion_heights.values().any(|height| *height == boundary_height),
-        "some transfer must be included at the activation parent, so its receipt is \
+        "some transfer must be included at the last pre-spice block, so its receipt is \
          in flight across the boundary",
     );
     BoundaryTrickle { boundary_height, head_height, initial_receiver_balance, inclusion_heights }
@@ -617,7 +634,7 @@ fn test_protocol_upgrade_to_spice_view_queries() {
         .inclusion_heights
         .iter()
         .find(|(_, height)| **height == boundary_height)
-        .expect("the trickle asserted an inclusion at the activation parent");
+        .expect("the trickle asserted an inclusion at the last pre-spice block");
     let tx_outcome = node.execution_outcome_with_proof(*boundary_tx);
     let receipt_id = node.tx_receipt_id(*boundary_tx);
     let receipt_outcome = node.execution_outcome_with_proof(receipt_id);

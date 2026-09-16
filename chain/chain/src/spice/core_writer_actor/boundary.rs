@@ -1,13 +1,13 @@
 //! Core writer handling of the spice activation boundary.
 
 use super::SpiceCoreWriterActor;
-use crate::spice::boundary::{check_pre_spice_execution_result, is_spice_activation_parent};
+use crate::spice::boundary::{check_pre_spice_execution_result, is_last_pre_spice_block};
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
 
 impl SpiceCoreWriterActor {
-    /// Whether the boundary tripwire rejects saving the result: one bad pre-spice
+    /// Whether the boundary consistency check rejects saving the result: one bad pre-spice
     /// chunk must not cost the block its other core statements.
     pub(super) fn boundary_rejects_execution_result(
         &self,
@@ -33,13 +33,13 @@ impl SpiceCoreWriterActor {
         true
     }
 
-    /// An activation parent's chunks' endorsements can arrive before the block and
+    /// A last pre-spice block's chunks' endorsements can arrive before the block and
     /// wait as pending; records them now. A no-op for any other block.
-    pub(super) fn handle_processed_activation_parent(
+    pub(super) fn handle_processed_last_pre_spice_block(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        if !is_spice_activation_parent(self.epoch_manager.as_ref(), block_hash)? {
+        if !is_last_pre_spice_block(self.epoch_manager.as_ref(), block_hash)? {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;

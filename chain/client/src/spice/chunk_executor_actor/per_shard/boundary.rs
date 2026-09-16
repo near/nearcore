@@ -1,5 +1,5 @@
 //! Per-shard bootstrap of the spice activation boundary: endorsing and
-//! distributing the activation parent's pre-spice chunk as spice data.
+//! distributing the last pre-spice block's pre-spice chunk as spice data.
 
 use super::PerShardChunkExecutor;
 use crate::spice::chunk_executor_actor::storage::save_witness_and_contract_accesses;
@@ -7,8 +7,8 @@ use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::spice::boundary::{
-    anchor_and_replay_blocks, is_spice_activation_parent,
-    synthesize_execution_result_and_receipt_proofs,
+    PreSpiceChunkApplyBlocks, execution_result_and_receipt_proofs_from_pre_spice_apply,
+    get_last_new_chunk_block_and_old_chunk_blocks, is_last_pre_spice_block,
 };
 use near_chain::{Block, Error, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -32,19 +32,22 @@ use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
 
 impl PerShardChunkExecutor {
-    /// Bootstraps this shard across the activation boundary; a no-op unless `block`
-    /// is an activation parent.
-    pub(crate) fn bootstrap_boundary_source_block(&self, block: &Block) -> Result<(), Error> {
-        if !is_spice_activation_parent(self.epoch_manager.as_ref(), block.hash())? {
+    /// A no-op unless `block` is a last pre-spice block.
+    pub(crate) fn endorse_and_send_receipts_and_witness_for_last_pre_spice_block(
+        &self,
+        block: &Block,
+    ) -> Result<(), Error> {
+        if !is_last_pre_spice_block(self.epoch_manager.as_ref(), block.hash())? {
             return Ok(());
         }
         let shard_id = self.shard_uid.shard_id();
-        let (execution_result, receipt_proofs) = synthesize_execution_result_and_receipt_proofs(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block,
-            shard_id,
-        )?;
+        let (execution_result, receipt_proofs) =
+            execution_result_and_receipt_proofs_from_pre_spice_apply(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block,
+                shard_id,
+            )?;
         self.save_produced_receipts(block.hash(), &receipt_proofs);
 
         if let Some(my_signer) = self.validator_signer.get() {
@@ -78,7 +81,7 @@ impl PerShardChunkExecutor {
         Some(data)
     }
 
-    /// Packages and distributes the state witness of the activation parent's chunk
+    /// Packages and distributes the state witness of the last pre-spice block's chunk
     /// for this shard.
     fn distribute_boundary_witness(&self, block: &Block) -> Result<(), Error> {
         let shard_id = self.shard_uid.shard_id();
@@ -88,15 +91,16 @@ impl PerShardChunkExecutor {
         let chunk_headers = block.chunks();
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
 
-        let (anchor_block, replay_blocks) = anchor_and_replay_blocks(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block,
-            shard_id,
-        )?;
+        let PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks } =
+            get_last_new_chunk_block_and_old_chunk_blocks(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block,
+                shard_id,
+            )?;
 
         let Some(chunk) =
-            self.get_new_chunk_if_valid(chunk_header, anchor_block.header().height())?
+            self.get_new_chunk_if_valid(chunk_header, last_new_chunk_block.header().height())?
         else {
             // The anchor's chunk is invalid (malicious pre-spice producer): there is
             // no state transition of it to attest.
@@ -109,25 +113,26 @@ impl PerShardChunkExecutor {
             receipts_hash,
             contract_accesses,
             contract_deploys: _,
-        }) = self.read_recorded_transition(anchor_block.hash())
+        }) = self.read_recorded_transition(last_new_chunk_block.hash())
         else {
             tracing::warn!(
                 target: "chunk_executor",
                 block_hash = %block.hash(),
-                anchor_block_hash = %anchor_block.hash(),
+                anchor_block_hash = %last_new_chunk_block.hash(),
                 %shard_id,
                 "no recorded state transition to build the boundary witness from",
             );
             return Ok(());
         };
 
-        let mut implicit_transitions = Vec::with_capacity(replay_blocks.len());
-        for replay_block in replay_blocks {
-            let Some(replay_transition) = self.read_recorded_transition(replay_block.hash()) else {
+        let mut implicit_transitions = Vec::with_capacity(old_chunk_blocks.len());
+        for old_chunk_block in old_chunk_blocks {
+            let Some(replay_transition) = self.read_recorded_transition(old_chunk_block.hash())
+            else {
                 tracing::warn!(
                     target: "chunk_executor",
                     block_hash = %block.hash(),
-                    replay_block_hash = %replay_block.hash(),
+                    replay_block_hash = %old_chunk_block.hash(),
                     %shard_id,
                     "no recorded state transition for an implicit replay of the boundary witness",
                 );
@@ -136,9 +141,9 @@ impl PerShardChunkExecutor {
             let chunk_extra = self
                 .chain_store
                 .chunk_store()
-                .get_chunk_extra(replay_block.hash(), &self.shard_uid)?;
+                .get_chunk_extra(old_chunk_block.hash(), &self.shard_uid)?;
             implicit_transitions.push(ChunkStateTransition {
-                block_hash: *replay_block.hash(),
+                block_hash: *old_chunk_block.hash(),
                 base_state: replay_transition.base_state,
                 post_state_root: *chunk_extra.state_root(),
             });
@@ -147,7 +152,8 @@ impl PerShardChunkExecutor {
         // The anchor's application consumed the incoming receipts of every block
         // since the shard's previous inclusion; the witness carries one proof per
         // chunk included across that whole range.
-        let anchor_prev_block = self.chain_store.get_block(anchor_block.header().prev_hash())?;
+        let anchor_prev_block =
+            self.chain_store.get_block(last_new_chunk_block.header().prev_hash())?;
         let previous_inclusion_height = {
             let prev_shard_layout =
                 self.epoch_manager.get_shard_layout(anchor_prev_block.header().epoch_id())?;
@@ -159,17 +165,17 @@ impl PerShardChunkExecutor {
                 .height_included()
         };
         let anchor_shard_layout =
-            self.epoch_manager.get_shard_layout(anchor_block.header().epoch_id())?;
+            self.epoch_manager.get_shard_layout(last_new_chunk_block.header().epoch_id())?;
         let mut range_receipt_proofs = vec![ReceiptProofResponse(
-            *anchor_block.hash(),
-            self.chain_store.get_incoming_receipts(anchor_block.hash(), shard_id)?,
+            *last_new_chunk_block.hash(),
+            self.chain_store.get_incoming_receipts(last_new_chunk_block.hash(), shard_id)?,
         )];
         range_receipt_proofs.extend(get_incoming_receipts_for_shard(
             &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &anchor_shard_layout,
-            *anchor_block.header().prev_hash(),
+            *last_new_chunk_block.header().prev_hash(),
             previous_inclusion_height,
             ReceiptFilter::All,
         )?);
@@ -211,7 +217,7 @@ impl PerShardChunkExecutor {
         Ok(())
     }
 
-    /// Endorses the synthesized result of the activation parent's chunk. A designated
+    /// Endorses the synthesized result of the last pre-spice block's chunk. A designated
     /// chunk validator broadcasts; any other epoch validator only records locally,
     /// since peers reject an endorsement before the chunk is fallback-eligible.
     fn endorse_boundary_execution_result(

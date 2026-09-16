@@ -2,7 +2,10 @@
 
 use crate::chain::{NewChunkData, ShardContext, StorageContext};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice::boundary::{anchor_and_replay_blocks, boundary_source_blocks_for_target};
+use crate::spice::boundary::{
+    PreSpiceChunkApplyBlocks, get_incoming_receipt_blocks_for_shard,
+    get_last_new_chunk_block_and_old_chunk_blocks,
+};
 use crate::spice::chunk_validation::{SpicePreValidationOutput, validate_receipt_proof};
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{
@@ -75,29 +78,33 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
 
-    let (anchor_block, replay_blocks) =
-        anchor_and_replay_blocks(store, epoch_manager, block, shard_id)?;
-    let anchor_prev_block = store.get_block(anchor_block.header().prev_hash())?;
-    let anchor_epoch_id = epoch_manager.get_epoch_id(anchor_block.header().hash())?;
+    let PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks } =
+        get_last_new_chunk_block_and_old_chunk_blocks(store, epoch_manager, block, shard_id)?;
+    let anchor_prev_block = store.get_block(last_new_chunk_block.header().prev_hash())?;
+    let anchor_epoch_id = epoch_manager.get_epoch_id(last_new_chunk_block.header().hash())?;
     let anchor_shard_layout = epoch_manager.get_shard_layout(&anchor_epoch_id)?;
-    let is_new_chunk = chunk_header.is_new_chunk(anchor_block.header().height());
+    let is_new_chunk = chunk_header.is_new_chunk(last_new_chunk_block.header().height());
     if is_new_chunk {
         let protocol_version = epoch_manager.get_epoch_info(&anchor_epoch_id)?.protocol_version();
         chunk_header.validate_version(protocol_version)?;
     }
 
-    let mut boundary_replays = Vec::with_capacity(replay_blocks.len());
-    for replay_block in &replay_blocks {
-        let replay_prev_header = store.get_block_header(replay_block.header().prev_hash())?;
+    let mut boundary_replays = Vec::with_capacity(old_chunk_blocks.len());
+    for old_chunk_block in &old_chunk_blocks {
+        let replay_prev_header = store.get_block_header(old_chunk_block.header().prev_hash())?;
         let block_context =
-            Chain::get_apply_chunk_block_context(replay_block, &replay_prev_header, false);
-        let replay_epoch_id = epoch_manager.get_epoch_id(replay_block.header().hash())?;
+            Chain::get_apply_chunk_block_context(old_chunk_block, &replay_prev_header, false);
+        let replay_epoch_id = epoch_manager.get_epoch_id(old_chunk_block.header().hash())?;
         let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &replay_epoch_id)?;
         boundary_replays.push(BoundaryReplay { block_context, shard_uid });
     }
 
-    let source_blocks =
-        boundary_source_blocks_for_target(store, epoch_manager, &anchor_block, shard_id)?;
+    let source_blocks = get_incoming_receipt_blocks_for_shard(
+        store,
+        epoch_manager,
+        &last_new_chunk_block,
+        shard_id,
+    )?;
     let receipts_to_apply = validate_boundary_source_receipts_proofs(
         &state_witness.source_receipt_proofs,
         &source_blocks,
@@ -157,7 +164,7 @@ pub(super) fn pre_validate_boundary_chunk_state_witness(
         ),
         receipts: receipts_to_apply,
         block: Chain::get_apply_chunk_block_context(
-            &anchor_block,
+            &last_new_chunk_block,
             anchor_prev_block.header(),
             true,
         ),
@@ -271,7 +278,7 @@ pub(super) fn replay_boundary_implicit_transitions(
 }
 
 #[cfg(test)]
-/// Era-semantics tests for a witness of the spice activation parent whose chunk
+/// Era-semantics tests for a witness of the last pre-spice block whose chunk
 /// is missing.
 mod tests {
     use super::*;
@@ -303,7 +310,7 @@ mod tests {
         /// shard's witness: the target's chunk is missing in it.
         mid_range_block: Arc<Block>,
         /// Block of the target shard's last included chunk.
-        anchor_block: Arc<Block>,
+        last_new_chunk_block: Arc<Block>,
         /// The pre-spice block the witness is keyed to; every chunk missing.
         boundary_block: Arc<Block>,
         target_shard_id: ShardId,
@@ -334,7 +341,7 @@ mod tests {
         let mut boundary_chain = BoundaryChain {
             chain,
             mid_range_block: genesis_block.clone(),
-            anchor_block: genesis_block.clone(),
+            last_new_chunk_block: genesis_block.clone(),
             boundary_block: genesis_block,
             target_shard_id,
             other_shard_id,
@@ -347,10 +354,10 @@ mod tests {
         } else {
             &[target_shard_id]
         };
-        boundary_chain.anchor_block =
+        boundary_chain.last_new_chunk_block =
             boundary_chain.add_block(&boundary_chain.mid_range_block.clone(), anchor_shards);
         boundary_chain.boundary_block =
-            boundary_chain.add_block(&boundary_chain.anchor_block.clone(), &[]);
+            boundary_chain.add_block(&boundary_chain.last_new_chunk_block.clone(), &[]);
         boundary_chain
     }
 
@@ -446,10 +453,10 @@ mod tests {
         }
 
         fn source_blocks(&self) -> Vec<Arc<Block>> {
-            boundary_source_blocks_for_target(
+            get_incoming_receipt_blocks_for_shard(
                 &self.chain.chain_store,
                 self.chain.epoch_manager.as_ref(),
-                &self.anchor_block,
+                &self.last_new_chunk_block,
                 self.target_shard_id,
             )
             .unwrap()
@@ -480,7 +487,7 @@ mod tests {
         fn prev_execution_results(&self) -> BlockExecutionResults {
             let prev_result = execution_result_from_pre_spice_child(
                 self.chain.epoch_manager.as_ref(),
-                &self.anchor_block,
+                &self.last_new_chunk_block,
                 self.target_shard_id,
             )
             .unwrap()
@@ -525,7 +532,7 @@ mod tests {
             spice_pre_validate_chunk_state_witness(
                 state_witness,
                 &self.boundary_block,
-                &self.anchor_block,
+                &self.last_new_chunk_block,
                 &self.prev_execution_results(),
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
@@ -548,7 +555,7 @@ mod tests {
     }
 
     /// The main transition's context must be the anchor's pre-spice context: the
-    /// anchor's height and parent, the anchor parent's gas price, and the
+    /// anchor's height and prev hash, the anchor's prev block's gas price, and the
     /// anchor's real missed-chunk counts (the other shard's chunk is missing in
     /// the anchor).
     #[test]
@@ -558,12 +565,14 @@ mod tests {
         let witness = boundary_chain.boundary_witness();
         let output = boundary_chain.run_pre_validation(&witness).unwrap();
 
-        let anchor_block = &boundary_chain.anchor_block;
+        let last_new_chunk_block = &boundary_chain.last_new_chunk_block;
         let block_context = &output.new_chunk_data.block;
-        assert_eq!(block_context.height, anchor_block.header().height());
-        assert_eq!(&block_context.prev_block_hash, anchor_block.header().prev_hash());
-        let anchor_prev_header =
-            boundary_chain.chain.get_block_header(anchor_block.header().prev_hash()).unwrap();
+        assert_eq!(block_context.height, last_new_chunk_block.header().height());
+        assert_eq!(&block_context.prev_block_hash, last_new_chunk_block.header().prev_hash());
+        let anchor_prev_header = boundary_chain
+            .chain
+            .get_block_header(last_new_chunk_block.header().prev_hash())
+            .unwrap();
         assert_eq!(block_context.gas_price, anchor_prev_header.next_gas_price());
         let congestion_info = &block_context.congestion_info;
         assert_eq!(
@@ -579,7 +588,7 @@ mod tests {
         let shard_layout = boundary_chain.shard_layout();
         let target_shard_index =
             shard_layout.get_shard_index(boundary_chain.target_shard_id).unwrap();
-        let anchor_chunks = anchor_block.chunks();
+        let anchor_chunks = last_new_chunk_block.chunks();
         let anchor_chunk_header = anchor_chunks.get(target_shard_index).unwrap();
         assert_eq!(
             output.new_chunk_data.chunk_hash,
@@ -589,8 +598,10 @@ mod tests {
         // Receipts come from each source shard's own inclusion: the target's at
         // the anchor (newest first), the other shard's at the mid-range block.
         let expected_receipts = [
-            boundary_chain
-                .receipts_from(boundary_chain.target_shard_id, anchor_block.header().height()),
+            boundary_chain.receipts_from(
+                boundary_chain.target_shard_id,
+                last_new_chunk_block.header().height(),
+            ),
             boundary_chain.receipts_from(
                 boundary_chain.other_shard_id,
                 boundary_chain.mid_range_block.header().height(),
@@ -603,7 +614,7 @@ mod tests {
         assert_eq!(output.boundary_replays.len(), 1);
         let replay = &output.boundary_replays[0];
         assert_eq!(replay.block_context.height, boundary_chain.boundary_block.header().height());
-        assert_eq!(&replay.block_context.prev_block_hash, anchor_block.hash());
+        assert_eq!(&replay.block_context.prev_block_hash, last_new_chunk_block.hash());
         assert_eq!(replay.shard_uid.shard_id(), boundary_chain.target_shard_id);
     }
 
@@ -614,8 +625,8 @@ mod tests {
     fn test_boundary_witness_source_proofs_verify_against_source_header_roots() {
         let boundary_chain = setup_boundary_chain(false);
         let mut source_receipt_proofs = boundary_chain.source_receipt_proofs();
-        let target_id =
-            boundary_chain.chunk_hash(&boundary_chain.anchor_block, boundary_chain.target_shard_id);
+        let target_id = boundary_chain
+            .chunk_hash(&boundary_chain.last_new_chunk_block, boundary_chain.target_shard_id);
         let other_id = boundary_chain
             .chunk_hash(&boundary_chain.mid_range_block, boundary_chain.other_shard_id);
         let target = source_receipt_proofs[&target_id].clone();
@@ -651,10 +662,10 @@ mod tests {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_boundary_witness_source_shard_included_twice_in_range() {
         let boundary_chain = setup_boundary_chain(true);
-        let anchor_height = boundary_chain.anchor_block.header().height();
+        let anchor_height = boundary_chain.last_new_chunk_block.header().height();
         let mid_range_height = boundary_chain.mid_range_block.header().height();
-        let other_at_anchor =
-            boundary_chain.chunk_hash(&boundary_chain.anchor_block, boundary_chain.other_shard_id);
+        let other_at_anchor = boundary_chain
+            .chunk_hash(&boundary_chain.last_new_chunk_block, boundary_chain.other_shard_id);
         let other_at_mid_range = boundary_chain
             .chunk_hash(&boundary_chain.mid_range_block, boundary_chain.other_shard_id);
 

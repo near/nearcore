@@ -1,7 +1,7 @@
 //! Runtime spice-activation gate for the spice actors.
 
 use crate::metrics;
-use crate::spice::boundary::is_spice_activation_parent;
+use crate::spice::boundary::is_last_pre_spice_block;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -45,7 +45,7 @@ pub fn spice_enabled_for_block(
 ///
 /// For startup work, which has no particular block to key on, and as the
 /// fallback in [`SpiceMessageGate::should_process`].
-pub fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Error> {
+fn spice_enabled_at_head(chain_store: &ChainStoreAdapter) -> Result<bool, Error> {
     Ok(chain_store.head_header()?.is_spice())
 }
 
@@ -67,22 +67,22 @@ fn spice_enabled_or_imminent_at_head(
         || spice_activation_imminent_at_head(chain_store, epoch_manager)?)
 }
 
-/// Whether a spice message about `block_hash` is about the activation parent, whose
+/// Whether a spice message about `block_hash` is about the last pre-spice block, whose
 /// boundary data legitimately arrives while the block is still pre-spice.
-fn is_activation_parent_or_log(
+fn is_last_pre_spice_block_or_log(
     epoch_manager: &dyn EpochManagerAdapter,
     kind: SpiceMessageKind,
     block_hash: &CryptoHash,
 ) -> bool {
-    match is_spice_activation_parent(epoch_manager, block_hash) {
-        Ok(is_activation_parent) => is_activation_parent,
+    match is_last_pre_spice_block(epoch_manager, block_hash) {
+        Ok(is_last_pre_spice) => is_last_pre_spice,
         Err(err) => {
             tracing::debug!(
                 target: "spice_activation",
                 ?err,
                 kind = kind.as_str(),
                 %block_hash,
-                "cannot verify activation parent for spice message, dropping",
+                "cannot tell whether spice message is about the last pre-spice block, dropping",
             );
             false
         }
@@ -95,7 +95,7 @@ pub fn spice_relevant_block(
     block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
     Ok(spice_enabled_for_block(chain_store, block_hash)?
-        || is_spice_activation_parent(epoch_manager, block_hash)?)
+        || is_last_pre_spice_block(epoch_manager, block_hash)?)
 }
 
 /// Whether spice is active at the head, for actor startup, where there is no caller to
@@ -141,8 +141,8 @@ enum DropUnit {
 impl SpiceMessageGate {
     /// Whether an inbound spice message referencing `block_hash` should be processed.
     ///
-    /// The authoritative answer is the referenced block itself, plus the activation
-    /// parent. When the block is not on disk, fall back to the head:
+    /// The authoritative answer is the referenced block itself, plus the last
+    /// pre-spice block. When the block is not on disk, fall back to the head:
     /// spice legitimately receives data ahead of its block and buffers it.
     pub fn should_process(
         &mut self,
@@ -176,7 +176,9 @@ impl SpiceMessageGate {
         unit: DropUnit,
     ) -> bool {
         let enabled = match spice_enabled_for_block(chain_store, block_hash) {
-            Ok(enabled) => enabled || is_activation_parent_or_log(epoch_manager, kind, block_hash),
+            Ok(enabled) => {
+                enabled || is_last_pre_spice_block_or_log(epoch_manager, kind, block_hash)
+            }
             Err(_) => match spice_enabled_or_imminent_at_head(chain_store, epoch_manager) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
@@ -320,7 +322,7 @@ mod tests {
     }
 
     /// Index of the last block whose epoch is pre-spice while its successor's is spice.
-    fn activation_parent_index(epoch_manager: &EpochManagerHandle, hashes: &[CryptoHash]) -> usize {
+    fn last_pre_spice_index(epoch_manager: &EpochManagerHandle, hashes: &[CryptoHash]) -> usize {
         let versions: Vec<_> = hashes
             .iter()
             .map(|hash| {
@@ -338,24 +340,29 @@ mod tests {
             .unwrap()
     }
 
-    /// Messages about the activation parent pass the gate; messages about other
+    /// Messages about the last pre-spice block pass the gate; messages about other
     /// pre-spice blocks on the same chain still drop.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn gate_accepts_messages_about_the_activation_parent() {
+    fn gate_accepts_messages_about_the_last_pre_spice_block() {
         let (chain, epoch_manager, hashes) =
             setup_gated_chain(ProtocolFeature::Spice.protocol_version());
         let chain_store = chain.chain_store().store().chain_store();
-        let parent_index = activation_parent_index(&epoch_manager, &hashes);
+        let last_pre_spice_index = last_pre_spice_index(&epoch_manager, &hashes);
         let mut gate = SpiceMessageGate::default();
 
         for kind in SpiceMessageKind::iter() {
-            assert!(gate.should_process(&chain_store, &epoch_manager, kind, &hashes[parent_index]));
+            assert!(gate.should_process(
+                &chain_store,
+                &epoch_manager,
+                kind,
+                &hashes[last_pre_spice_index]
+            ));
             assert!(gate.should_process_entry(
                 &chain_store,
                 &epoch_manager,
                 kind,
-                &hashes[parent_index]
+                &hashes[last_pre_spice_index]
             ));
             #[cfg(feature = "test_features")]
             assert_eq!(gate.dropped_count(kind), 0);
@@ -366,7 +373,7 @@ mod tests {
             &chain_store,
             &epoch_manager,
             SpiceMessageKind::ChunkEndorsement,
-            &hashes[parent_index - 1]
+            &hashes[last_pre_spice_index - 1]
         ));
         #[cfg(feature = "test_features")]
         assert_eq!(gate.dropped_count(SpiceMessageKind::ChunkEndorsement), 1);

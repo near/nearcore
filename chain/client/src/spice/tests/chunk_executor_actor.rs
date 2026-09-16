@@ -19,7 +19,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
-use near_chain::spice::boundary::{is_spice_activation_parent, seed_execution_heads_at_activation};
+use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -1384,9 +1384,9 @@ fn build_saved_block(
     block
 }
 
-fn seed_execution_heads(chain: &Chain, parent: &Block, block: &Block) {
+fn seed_execution_heads(chain: &Chain, last_pre_spice: &Block, block: &Block) {
     let mut store_update = chain.chain_store.store().store_update();
-    seed_execution_heads_at_activation(&mut store_update, block, parent.header()).unwrap();
+    seed_execution_heads_at_activation(&mut store_update, block, last_pre_spice.header()).unwrap();
     store_update.commit();
 }
 
@@ -1424,42 +1424,47 @@ fn pre_spice_boundary_chain() -> (Chain, Arc<ValidatorSigner>, Vec<Arc<Block>>) 
 fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
     let (mut chain, signer, blocks) = pre_spice_boundary_chain();
     let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
-    let parent = blocks[3].clone();
+    let last_pre_spice = blocks[3].clone();
     let first_spice =
-        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
     assert_eq!(first_spice.header().last_final_block(), blocks[2].hash());
 
-    seed_execution_heads(&chain, parent.as_ref(), first_spice.as_ref());
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
     let chain_store = chain.chain_store.store().chain_store();
-    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
     assert_eq!(
         &chain_store.spice_final_execution_head().unwrap().last_block_hash,
         blocks[2].hash()
     );
 
-    // A sibling first spice block on the same parent re-seeds to the same heads.
+    // A sibling first spice block on the same prev block re-seeds to the same heads.
     let sibling_first_spice =
-        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
-    seed_execution_heads(&chain, parent.as_ref(), sibling_first_spice.as_ref());
-    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), sibling_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
     assert_eq!(
         &chain_store.spice_final_execution_head().unwrap().last_block_hash,
         blocks[2].hash()
     );
 
-    // A same-height sibling activation parent on a fork re-seeds without moving
+    // A same-height sibling last pre-spice block on a fork re-seeds without moving
     // the heads either: the forward-only execution head setter skips equal heights.
-    let sibling_parent = build_saved_block(
+    let sibling_last_pre_spice = build_saved_block(
         &mut chain,
         blocks[2].clone().as_ref(),
         3,
         pre_spice_protocol_version(),
         &signer,
     );
-    let fork_first_spice =
-        build_saved_block(&mut chain, sibling_parent.as_ref(), 4, spice_protocol_version, &signer);
-    seed_execution_heads(&chain, sibling_parent.as_ref(), fork_first_spice.as_ref());
-    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    let fork_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        4,
+        spice_protocol_version,
+        &signer,
+    );
+    seed_execution_heads(&chain, sibling_last_pre_spice.as_ref(), fork_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
     assert_eq!(
         &chain_store.spice_final_execution_head().unwrap().last_block_hash,
         blocks[2].hash()
@@ -1480,24 +1485,29 @@ fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
 fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
     let (mut chain, signer, blocks) = pre_spice_boundary_chain();
     let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
-    let parent = blocks[3].clone();
+    let last_pre_spice = blocks[3].clone();
     let first_spice =
-        build_saved_block(&mut chain, parent.as_ref(), 4, spice_protocol_version, &signer);
-    seed_execution_heads(&chain, parent.as_ref(), first_spice.as_ref());
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
 
     // The canonical first spice block descends through the seeded head's height.
     assert!(is_descendant_of_final_execution_head(&chain.chain_store, first_spice.header()));
 
     // A same-height sibling boundary fork passes either way.
-    let sibling_parent = build_saved_block(
+    let sibling_last_pre_spice = build_saved_block(
         &mut chain,
         blocks[2].clone().as_ref(),
         3,
         pre_spice_protocol_version(),
         &signer,
     );
-    let sibling_first_spice =
-        build_saved_block(&mut chain, sibling_parent.as_ref(), 4, spice_protocol_version, &signer);
+    let sibling_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        4,
+        spice_protocol_version,
+        &signer,
+    );
     assert!(is_descendant_of_final_execution_head(
         &chain.chain_store,
         sibling_first_spice.header()
@@ -1547,9 +1557,9 @@ fn save_and_record_pre_spice_block(chain: &mut Chain, block: &Arc<Block>) {
 }
 
 /// Extends `chain` with fabricated pre-spice blocks that vote for spice until the
-/// tip is a spice activation parent, and returns it.
+/// tip is a last pre-spice block, and returns it.
 /// The epoch after the returned block is the first spice epoch.
-fn build_to_activation_parent(chain: &mut Chain, signer: &Arc<ValidatorSigner>) -> Arc<Block> {
+fn build_to_last_pre_spice_block(chain: &mut Chain, signer: &Arc<ValidatorSigner>) -> Arc<Block> {
     let mut block = chain.genesis_block();
     for _ in 0..MAX_BLOCKS_TO_ACTIVATION {
         let epoch_manager = chain.epoch_manager.clone();
@@ -1582,11 +1592,11 @@ fn build_to_activation_parent(chain: &mut Chain, signer: &Arc<ValidatorSigner>) 
         let next = Arc::new(next);
         save_and_record_pre_spice_block(chain, &next);
         block = next;
-        if is_spice_activation_parent(chain.epoch_manager.as_ref(), block.hash()).unwrap() {
+        if is_last_pre_spice_block(chain.epoch_manager.as_ref(), block.hash()).unwrap() {
             return block;
         }
     }
-    panic!("chain never reached a spice activation parent")
+    panic!("chain never reached a last pre-spice block")
 }
 
 const MAX_BLOCKS_TO_ACTIVATION: usize = 30;
@@ -1620,7 +1630,7 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
         outgoing_sc,
     );
 
-    let activation_parent = build_to_activation_parent(&mut test_actor.chain, &signer);
+    let last_pre_spice = build_to_last_pre_spice_block(&mut test_actor.chain, &signer);
 
     // Every shard but one looks like a shard this node applied pre-spice: the
     // withheld chunk extra is what makes the remaining shard unsynthesizable.
@@ -1632,7 +1642,7 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
             continue;
         }
         store_update.save_outgoing_receipt(
-            activation_parent.hash(),
+            last_pre_spice.hash(),
             shard_uid.shard_id(),
             vec![Receipt::new_balance_refund(
                 &signer.validator_id().clone(),
@@ -1640,7 +1650,7 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
             )],
         );
         store_update.save_chunk_extra(
-            activation_parent.hash(),
+            last_pre_spice.hash(),
             shard_uid,
             ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(
                 shard_uid.shard_id().to_string().as_bytes(),
@@ -1650,7 +1660,7 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
     }
     store_update.commit().unwrap();
 
-    let result = test_actor.actor.handle_processed_block(activation_parent.hash());
+    let result = test_actor.actor.handle_processed_block(last_pre_spice.hash());
     assert!(
         result.is_ok(),
         "one unsynthesizable shard must not fail the whole boundary bootstrap: {:?}",
@@ -1665,9 +1675,9 @@ fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
         let expected = *shard_uid != broken_shard_uid;
         for to_shard_id in shard_layout.shard_ids() {
             assert_eq!(
-                receipt_proof_exists(&store, activation_parent.hash(), to_shard_id, from_shard_id),
+                receipt_proof_exists(&store, last_pre_spice.hash(), to_shard_id, from_shard_id),
                 expected,
-                "receipt proof {from_shard_id} -> {to_shard_id} at the activation parent",
+                "receipt proof {from_shard_id} -> {to_shard_id} at the last pre-spice block",
             );
         }
     }
