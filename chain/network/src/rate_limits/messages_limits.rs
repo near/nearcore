@@ -118,6 +118,18 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncResponse,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        // Batch requests are the same amplification vector as EpochSyncRequest, but a
+        // bootstrapping peer legitimately sends one per batch, and each response is
+        // bounded by the per-batch size rather than by a whole proof. Hence a much
+        // looser limit than the whole-proof messages.
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncBatchRequest,
+            SingleMessageConfig::new(32, 1.0, None),
+        );
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::EpochSyncBatchResponse,
+            SingleMessageConfig::new(32, 1.0, None),
+        );
         // SyncRoutingTable carries forged-edge OOM potential. The sender side already throttles
         // via routing_table_update_rate_limit (qps=1, burst=1) per peer, so 1 msg/s sustained
         // with burst 10 accommodates legitimate sync (including reconnection bursts) while
@@ -261,6 +273,8 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedContractDeploys,
     EpochSyncRequest,
     EpochSyncResponse,
+    EpochSyncBatchRequest,
+    EpochSyncBatchResponse,
     OptimisticBlock,
     SpicePartialData,
     SpiceChunkEndorsement,
@@ -355,6 +369,8 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::VersionedStateResponse(_) => Some((VersionedStateResponse, 1)),
         PeerMessage::EpochSyncRequest => Some((EpochSyncRequest, 1)),
         PeerMessage::EpochSyncResponse(_) => Some((EpochSyncResponse, 1)),
+        PeerMessage::EpochSyncBatchRequest(_) => Some((EpochSyncBatchRequest, 1)),
+        PeerMessage::EpochSyncBatchResponse(_) => Some((EpochSyncBatchResponse, 1)),
         PeerMessage::Tier1Handshake(_)
         | PeerMessage::Tier2Handshake(_)
         | PeerMessage::Tier3Handshake(_)

@@ -1322,6 +1322,27 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::EpochSyncBatchRequest { peer_id, batch_index } => {
+                if self.transport.send_message(
+                    tcp::Tier::T2,
+                    peer_id,
+                    PeerMessage::EpochSyncBatchRequest(batch_index).into(),
+                ) {
+                    NetworkResponses::NoResponse
+                } else {
+                    NetworkResponses::RouteNotFound
+                }
+            }
+            NetworkRequests::EpochSyncBatchResponse { peer_id, segment } => {
+                let msg: Arc<PeerMessage> = PeerMessage::EpochSyncBatchResponse(segment).into();
+                let sent = match permit {
+                    Some(p) => {
+                        self.transport.send_message_with_permit(tcp::Tier::T2, peer_id, msg, p)
+                    }
+                    None => self.transport.send_message(tcp::Tier::T2, peer_id, msg),
+                };
+                if sent { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
+            }
             NetworkRequests::EpochSyncRequest { peer_id } => {
                 if self.transport.send_message(
                     tcp::Tier::T2,
