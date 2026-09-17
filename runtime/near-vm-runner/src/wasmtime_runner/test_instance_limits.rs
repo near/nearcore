@@ -14,9 +14,6 @@
 //! miss it, some contracts may unexpectedly no longer compile on testnet and
 //! mainnet. But it wouldn't be a security vulnerability.
 
-// TODO: remove this guard when the globals limit stabilizes.
-#![cfg(feature = "nightly")]
-
 use super::{Module, WasmtimeVM};
 use crate::prepare::prepare_contract;
 use near_parameters::RuntimeConfigStore;
@@ -33,9 +30,8 @@ use wasmtime::Result as WasmtimeResult;
 #[test]
 fn metadata_cap_activation() {
     let store = RuntimeConfigStore::new(None);
-    // TODO: update these protocol numbers upon feature stabilization
-    let bounded = Arc::clone(&store.get_config(157).wasm_config);
-    let legacy = Arc::clone(&store.get_config(156).wasm_config);
+    let bounded = Arc::clone(&store.get_config(88).wasm_config);
+    let legacy = Arc::clone(&store.get_config(87).wasm_config);
     assert!(bounded.limit_config.max_globals_per_contract.is_some());
     assert!(legacy.limit_config.max_globals_per_contract.is_none());
 

@@ -469,3 +469,74 @@ fn failed_decode_does_not_latch_the_key() {
         "the key must still accept parts after a failed decode",
     );
 }
+
+/// A response that keeps bringing new codes keeps the request alive past the idle timeout measured
+/// from the request, and the request is given up on once it goes idle.
+#[test]
+fn progressing_contract_request_is_kept_alive() {
+    let signer = create_test_signer("test0");
+    let (tracker, delivered, clock) = tracker_with_four_validators();
+    let witness = dummy_witness(b"progressing", 1);
+    let anchor = CryptoHash::hash_bytes(b"progressing_anchor");
+    let parts = parts_for(&signer, anchor, &witness);
+    let key = parts[0].chunk_production_key();
+    let (h1, c1) = code(b"contract_one");
+    let (h2, _) = code(b"contract_two");
+    let (_, unrelated) = code(b"unrelated_contract");
+
+    tracker
+        .store_accessed_contract_hashes(key.clone(), Some(&anchor), HashSet::from([h1, h2]))
+        .unwrap();
+    for part in &parts {
+        tracker.store_partial_encoded_state_witness(part.clone()).unwrap();
+    }
+    assert!(delivered.lock().is_empty());
+
+    // t=1.0: one of two codes lands. Progress.
+    clock.advance(Duration::seconds(1));
+    tracker.store_accessed_contract_codes(key.clone(), vec![c1]).unwrap();
+    assert_eq!(tracker.contract_states(&key), vec!["requested"]);
+
+    // t=2.5: past the idle window from the request, but only 1.5s since the last progress.
+    clock.advance(Duration::milliseconds(1500));
+    tracker.store_accessed_contract_codes(key.clone(), vec![unrelated.clone()]).unwrap();
+    assert_eq!(tracker.contract_states(&key), vec!["requested"], "progress must extend");
+    assert!(delivered.lock().is_empty(), "must not finalize while progressing");
+
+    // t=4.5: a full idle window with no new code since t=1.0. Given up on.
+    clock.advance(ACCESSED_CONTRACTS_REQUEST_TIMEOUT);
+    tracker.store_accessed_contract_codes(key.clone(), vec![unrelated]).unwrap();
+    assert!(tracker.contract_states(&key).is_empty(), "idle request must be given up on");
+    assert_delivered_only(&delivered, &witness, "handed on best-effort after going idle");
+}
+
+/// However steadily new codes arrive, the absolute ceiling ends the request.
+#[test]
+fn progressing_contract_request_hits_the_ceiling() {
+    let signer = create_test_signer("test0");
+    let (tracker, delivered, clock) = tracker_with_four_validators();
+    let witness = dummy_witness(b"ceiling", 1);
+    let anchor = CryptoHash::hash_bytes(b"ceiling_anchor");
+    let parts = parts_for(&signer, anchor, &witness);
+    let key = parts[0].chunk_production_key();
+    let codes: Vec<(CodeHash, CodeBytes)> = (0..6u8).map(|i| code(&[b'c', i])).collect();
+    let hashes: HashSet<CodeHash> = codes.iter().map(|(h, _)| h.clone()).collect();
+
+    tracker.store_accessed_contract_hashes(key.clone(), Some(&anchor), hashes).unwrap();
+    for part in &parts {
+        tracker.store_partial_encoded_state_witness(part.clone()).unwrap();
+    }
+
+    // A new code every 1.5s (t=1.5, 3.0, 4.5): never idle, always under the 6s ceiling.
+    for (_, c) in codes.iter().take(3) {
+        clock.advance(Duration::milliseconds(1500));
+        tracker.store_accessed_contract_codes(key.clone(), vec![c.clone()]).unwrap();
+        assert_eq!(tracker.contract_states(&key), vec!["requested"], "steady progress stays alive");
+        assert!(delivered.lock().is_empty());
+    }
+    // t=6.0: the 4th code is progress too, but the ceiling is reached on this very sweep.
+    clock.advance(Duration::milliseconds(1500));
+    tracker.store_accessed_contract_codes(key.clone(), vec![codes[3].1.clone()]).unwrap();
+    assert!(tracker.contract_states(&key).is_empty(), "ceiling must end it despite progress");
+    assert_delivered_only(&delivered, &witness, "handed on best-effort at the ceiling");
+}
