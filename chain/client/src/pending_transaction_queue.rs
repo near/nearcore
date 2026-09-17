@@ -517,7 +517,7 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::action::UniversalStateInitAction;
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
     use std::collections::BTreeSet;
@@ -545,6 +545,21 @@ mod tests {
             deposit,
             CryptoHash::default(),
         )
+    }
+
+    fn make_gas_key_transfer_tx(signer: &Signer, nonce: Nonce) -> SignedTransaction {
+        SignedTransaction::send_money_v1(
+            TransactionNonce::from_nonce_and_index(nonce, 0),
+            signer.get_account_id(),
+            "bob.near".parse().unwrap(),
+            signer,
+            TEST_DEPOSIT,
+            CryptoHash::default(),
+        )
+    }
+
+    fn admits(session: &mut PendingTxSession, tx: &SignedTransaction) -> bool {
+        matches!(session.check_pending(tx), PendingTxCheckResult::Admit(_))
     }
 
     /// Wrap a sharded pending transaction queue in Arc<Mutex<...>>.
@@ -837,6 +852,43 @@ mod tests {
 
         let mut session = make_session(&sharded);
         assert_eq!(session.check_pending(&next_tx), PendingTxCheckResult::Skip);
+    }
+
+    #[test]
+    fn test_session_gas_key_txs_do_not_count_towards_p_max() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session(&sharded);
+
+        for i in 1..P_MAX {
+            assert!(admits(
+                &mut session,
+                &make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT)
+            ));
+        }
+        assert!(admits(&mut session, &make_gas_key_transfer_tx(&signer, 1)));
+        assert!(admits(
+            &mut session,
+            &make_transfer_tx(&signer, "bob.near", P_MAX as Nonce, TEST_DEPOSIT)
+        ));
+    }
+
+    #[test]
+    fn test_session_gas_key_txs_are_admitted_at_p_max() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session(&sharded);
+
+        for i in 1..=P_MAX {
+            assert!(admits(
+                &mut session,
+                &make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT)
+            ));
+        }
+        assert!(admits(&mut session, &make_gas_key_transfer_tx(&signer, 1)));
+        let access_key_tx =
+            make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
+        assert_eq!(session.check_pending(&access_key_tx), PendingTxCheckResult::Skip);
     }
 
     #[test]
