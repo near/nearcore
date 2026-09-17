@@ -444,6 +444,50 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn highest_certified_heights_reads_the_oldest_entry_per_shard() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let shard_ids: Vec<ShardId> =
+        genesis.chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    assert_eq!(shard_ids.len(), 3);
+    let block1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+    // Block 2 certifies shard 0's chunk of block 1 and nothing else.
+    let core_statements: Vec<SpiceCoreStatement> = block_certification_core_statements(&block1)
+        .into_iter()
+        .filter(|statement| statement.chunk_id().shard_id == shard_ids[0])
+        .collect();
+    let block2 = build_block(&chain, &block1, core_statements);
+    process_block(&mut chain, block2.clone());
+    let mut tip = block2;
+    for _ in 0..2 {
+        tip = build_block(&chain, &tip, vec![]);
+        process_block(&mut chain, tip.clone());
+    }
+    // Shard 0's oldest uncertified chunk is in block 2; the other shards' are in block 1.
+    let uncertified = core_reader.get_uncertified_chunks(tip.hash()).unwrap();
+    assert_eq!(uncertified.len(), 3 * 4 - 1);
+    assert_eq!(uncertified[0].chunk_id.block_hash, *block1.hash());
+
+    let frontier = core_reader.highest_certified_heights(tip.header()).unwrap();
+
+    assert_eq!(
+        frontier,
+        HashMap::from([
+            (shard_ids[0], block1.header().height()),
+            (shard_ids[1], genesis.header().height()),
+            (shard_ids[2], genesis.header().height()),
+        ])
+    );
+    // Once every chunk is certified the frontier is the block itself.
+    assert_eq!(
+        core_reader.highest_certified_heights(genesis.header()).unwrap(),
+        shard_ids.iter().map(|shard_id| (*shard_id, genesis.header().height())).collect()
+    );
+}
+
 /// Every height produces one chunk per shard, and all of them need to be certified, so a block
 /// whose core statements may reference at most `MAX_REFERENCED_CHUNKS_PER_BLOCK` distinct chunks
 /// advances the certification frontier by at most `MAX_REFERENCED_CHUNKS_PER_BLOCK / num_shards`
