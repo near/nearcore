@@ -43,9 +43,30 @@ when the claim could change the decision:
 A peer with no proved height reads as level with our head, so it stays a
 candidate to download from but never sets the target. Once the head has not
 advanced for about one epoch, the node falls back to the unvalidated claimed
-heights, because the validator sets it knows no longer cover the tip. During
-block sync the node's own header head can also set the target, since header
-sync has already validated it.
+heights, because the validator sets it knows no longer cover the tip. The
+target is then the height of the peer that `PeerSelector` picks. During block
+sync the node's own header head can also set the target, since header sync has
+already validated it.
+
+The target height selects the sync phase and download targets. Deleting data
+requires a verified height or an epoch sync proof.
+
+### Choosing a peer to ask
+
+Candidates are connected peers that advertise a head above ours and not a known
+invalid block. `PeerSelector` picks a random candidate within
+`PEER_HEIGHT_WINDOW` blocks of the highest advertised head. It skips peers that
+failed in the last `PEER_FAILURE_COOLDOWN_SECONDS`, unless all candidates
+failed.
+
+A peer fails when:
+
+- Epoch sync: the request times out, or the proof is not usable.
+- Header sync: the batch is below the expected rate, measured against that
+  peer's advertised head.
+- State sync: a sync block request times out.
+- Block sync: a requested block does not arrive in time and is still on the
+  canonical chain.
 
 ### The two horizons
 
@@ -98,8 +119,8 @@ how far behind they are — they need the full block history and cannot use epoc
 sync. This means an archival node that falls far behind will do header + block
 sync over the entire gap, which can be slow.
 
-The entry decision is made once when sync starts. It is not re-evaluated during
-sync — the current path completes naturally.
+The entry decision is made once when sync starts. A stale sync hash (Step 3)
+and an epoch sync proof inside the horizon ("Stale node handling") change it.
 
 ### Far horizon: full pipeline
 
@@ -153,10 +174,17 @@ anyway.
 This step never runs on archival nodes — they need the complete history and
 cannot have gaps.
 
-If state sync takes too long and the network advances past the sync hash's
-epoch, state parts become unavailable from peers. When the node detects this
-(the network tip is more than one epoch ahead of the sync hash), it triggers
-the same data-reset-and-restart flow used for stale nodes.
+State sync also downloads the sync hash block, its previous block, and extra
+blocks for incoming receipts. The node validates each block before it saves it.
+If the block hash or signature is invalid, the node bans the peer that sent it.
+
+State parts are limited in size and entry count. Receipt proofs in the state
+header must have a `from_shard_id` that matches their merkle path index.
+
+If the network moves past the sync hash's epoch, peers no longer serve its state
+parts. When the verified highest height is above
+`sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD` (100), state sync
+stops and the node returns to epoch sync.
 
 #### Step 4: block sync
 
@@ -185,10 +213,13 @@ process.
 The node handles this by:
 
 1. Downloading and validating the epoch sync proof
-2. Writing a `.EPOCH_SYNC_DATA_RESET` marker file
-3. Shutting down actors and re-executing the process (via `exec` on Unix;
+2. Checking that the proof shows the head beyond the horizon
+   (`EpochSync::proof_shows_head_beyond_horizon`). If not, the node keeps its
+   store and continues with block sync or header sync.
+3. Writing a `.EPOCH_SYNC_DATA_RESET` marker file
+4. Shutting down actors and re-executing the process (via `exec` on Unix;
    on non-Unix platforms, the operator must restart manually)
-4. On the new startup, the marker is detected, the data directory is wiped,
+5. On the new startup, the marker is detected, the data directory is wiped,
    and the node starts fresh on the far-horizon path from genesis
 
 ### Restart recovery
