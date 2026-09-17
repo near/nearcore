@@ -997,11 +997,13 @@ fn get_uncertified_chunks(
 }
 
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
+/// Returns the certification lag: height distance from `block` to the oldest block with
+/// uncertified chunks, 0 when nothing older awaits certification.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
-) -> Result<(), Error> {
+) -> Result<BlockHeight, Error> {
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
     let mut block_endorsements: HashMap<
@@ -1076,7 +1078,9 @@ pub fn record_uncertified_chunks_for_block(
         chain_store_update.chain_store(),
         &uncertified_chunks,
     )?;
-    observe_certification_lag(block, oldest_uncertified_header.as_deref());
+    let certification_lag = oldest_uncertified_header
+        .as_ref()
+        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
     let oldest_uncertified_block_hash =
         oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
 
@@ -1121,7 +1125,7 @@ pub fn record_uncertified_chunks_for_block(
         &uncertified_chunks,
     );
     chain_store_update.merge(store_update);
-    Ok(())
+    Ok(certification_lag)
 }
 
 /// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty
@@ -1314,12 +1318,6 @@ pub fn record_spice_endorsement_stats_for_block(
     );
     chain_store_update.merge(store_update);
     Ok(())
-}
-
-fn observe_certification_lag(block: &Block, oldest_uncertified_header: Option<&BlockHeader>) {
-    let height_delta = oldest_uncertified_header
-        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
-    metrics::BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE.set(height_delta as i64);
 }
 
 fn find_oldest_uncertified_block_header(

@@ -4,10 +4,10 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use crate::logic::logic::Promise;
-use crate::logic::recorded_storage_counter::RecordedStorageCounter;
-use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::logic::host as logic;
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -22,7 +22,6 @@ use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Balance;
 use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -34,7 +33,8 @@ use wasmtime::{
     WasmBacktraceDetails,
 };
 
-mod logic;
+#[cfg(test)]
+mod test_instance_limits;
 #[cfg(test)]
 pub(crate) mod test_logic;
 mod trap_classification;
@@ -46,10 +46,9 @@ mod trap_classification;
 /// Wasmtime defaults to `1_000`
 const MAX_CONCURRENCY: u32 = 1_000;
 
-/// Value used for [PoolingAllocationConfig::decommit_batch_size]
-///
-/// Wasmtime defaults to `1`
-const DECOMMIT_BATCH_SIZE: usize = MAX_CONCURRENCY as usize / 2;
+/// Number of freed linear-memory regions the Wasmtime pooling allocator lets
+/// accumulate before returning them to the OS. See [PoolingAllocationConfig::decommit_batch_size].
+const DECOMMIT_BATCH_SIZE: usize = 1;
 
 /// The default maximum amount of tables per module.
 ///
@@ -70,7 +69,16 @@ const GUEST_PAGE_SIZE: usize = 1 << 16;
 
 /// The maximum size, in bytes, of a core instance's `VMContext` runtime
 /// metadata slot that the pooling allocator reserves per instance.
-const MAX_CORE_INSTANCE_SIZE: usize = 1 << 20;
+///
+/// We should always hit `max_globals_per_contract` or
+/// `max_functions_number_per_contract` before hitting this limit of 2 MiB.
+/// Tests in [`test_instance_limits`] assert this property.
+const MAX_CORE_INSTANCE_SIZE: usize = 2 << 20;
+
+/// Older protocol versions use the 1 MiB limit that corresponds to the default
+/// value set in Wasmtime at the time. It may result in deserialization errors
+/// on some contracts.
+const LEGACY_MAX_CORE_INSTANCE_SIZE: usize = 1 << 20;
 
 #[derive(Hash, PartialEq, Eq)]
 struct VMKey {
@@ -285,33 +293,8 @@ enum Export<T> {
 pub struct Ctx {
     memory: Export<Memory>,
     limits: StoreLimits,
-    /// Provides access to the components outside the Wasm runtime for operations on the trie and
-    /// receipts creation.
-    ext: &'static mut dyn External,
-    /// Part of Context API and Economics API that was extracted from the receipt.
-    context: &'static VMContext,
-
-    /// All gas and economic parameters required during contract execution.
-    config: Arc<Config>,
-    /// Fees charged for various operations that contract may execute.
-    fees_config: Arc<RuntimeFeesConfig>,
-
-    /// Current amount of locked tokens, does not automatically change when staking transaction is
-    /// issued.
-    current_account_locked_balance: Balance,
-    /// Registers can be used by the guest to store blobs of data without moving them across
-    /// host-guest boundary.
-    registers: Registers,
-    /// The DAG of promises, indexed by promise id.
-    promises: Vec<Promise>,
-
-    /// Stores the amount of stack space remaining
-    remaining_stack: u64,
-
-    /// Tracks size of the recorded trie storage proof.
-    recorded_storage_counter: RecordedStorageCounter,
-
-    result_state: ExecutionResultState,
+    /// The runtime-independent state the host functions operate on.
+    host: HostCtx<'static>,
 }
 
 impl Ctx {
@@ -342,26 +325,10 @@ impl Ctx {
             .table_elements(max_elements_per_contract_table)
             .build();
 
-        let current_account_locked_balance = context.account_locked_balance;
-        let config = Arc::clone(&result_state.config);
-        let recorded_storage_counter = RecordedStorageCounter::new(
-            ext.storage_proof_size_before_receipt(),
-            result_state.config.limit_config.per_receipt_storage_proof_size_limit,
-        );
-        let remaining_stack = u64::from(result_state.config.limit_config.max_stack_height);
         Self {
             memory: Export::Unresolved(memory),
             limits,
-            ext,
-            context,
-            config,
-            fees_config,
-            current_account_locked_balance,
-            recorded_storage_counter,
-            registers: Default::default(),
-            promises: vec![],
-            remaining_stack,
-            result_state,
+            host: HostCtx::new(ext, context, fees_config, result_state),
         }
     }
 }
@@ -479,6 +446,12 @@ impl WasmtimeVM {
             let max_elements_per_contract_table =
                 max_elements_per_contract_table.unwrap_or(DEFAULT_MAX_ELEMENTS_PER_TABLE);
             let max_tables = MAX_CONCURRENCY.saturating_mul(max_tables_per_contract);
+            // Protocol version 88 adds the globals limit and raises this cap together.
+            let max_core_instance_size = if config.limit_config.max_globals_per_contract.is_some() {
+                MAX_CORE_INSTANCE_SIZE
+            } else {
+                LEGACY_MAX_CORE_INSTANCE_SIZE
+            };
 
             let mut pooling_config = PoolingAllocationConfig::default();
             pooling_config
@@ -491,7 +464,7 @@ impl WasmtimeVM {
                 .total_tables(max_tables)
                 .max_memories_per_module(1)
                 .max_tables_per_module(max_tables_per_contract)
-                .max_core_instance_size(MAX_CORE_INSTANCE_SIZE)
+                .max_core_instance_size(max_core_instance_size)
                 .table_keep_resident(max_elements_per_contract_table);
 
             engine_config
@@ -1023,7 +996,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
         store.limiter(|ctx| &mut ctx.limits);
         let Some(_permit) = concurrency.try_acquire(num_tables) else {
-            let Ctx { result_state, .. } = store.into_data();
+            let result_state = store.into_data().host.into_result_state();
             return Ok(VMOutcome::abort(
                 result_state,
                 FunctionCallError::LinkError { msg: "failed to acquire execution slot".into() },
@@ -1033,7 +1006,7 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             Ok(instance) => instance,
             Err(err) => {
                 let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
+                let result_state = store.into_data().host.into_result_state();
                 return Ok(VMOutcome::abort(result_state, err));
             }
         };
@@ -1063,18 +1036,19 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
                         let Val::I64(remaining_gas) = global.get(&mut store) else {
                             panic!("gas global export is not i64");
                         };
-                        let ctx = store.data_mut();
-                        let burned = ctx
+                        let host = &mut store.data_mut().host;
+                        let burned = host
                             .result_state
                             .gas_counter
                             .remaining_gas()
                             .saturating_sub(Gas::from_gas(remaining_gas as _));
                         if burned.as_gas() > 0 {
-                            ctx.result_state.gas_counter.burn_gas(burned)?;
+                            host.result_state.gas_counter.burn_gas(burned)?;
                         }
                     }
                     CallHook::ReturningFromHost | CallHook::CallingWasm => {
-                        let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
+                        let remaining_gas =
+                            store.data().host.result_state.gas_counter.remaining_gas();
                         global
                             .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
                             .expect("failed to set gas global export")
@@ -1089,13 +1063,13 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
             };
             if let Err(err) = start.call(&mut store, &[], &mut []) {
                 let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
+                let result_state = store.into_data().host.into_result_state();
                 return Ok(VMOutcome::abort(result_state, err));
             }
         }
 
         let res = call(&mut store, instance, &method);
-        let Ctx { result_state, .. } = store.into_data();
+        let result_state = store.into_data().host.into_result_state();
         match res? {
             RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
             RunOutcome::AbortNop(error) => {
@@ -1153,7 +1127,7 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
                     Err(err) => return Err(ErrorContainer(Mutex::new(Some(err))).into()),
                 };
                 let (memory, ctx) = memory.data_and_store_mut(&mut caller);
-                match logic::$func(ctx, memory, $( $arg_name as $arg_type, )*) {
+                match logic::$func(&mut ctx.host, memory, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
                         Err(ErrorContainer(Mutex::new(Some(err))).into())

@@ -60,8 +60,9 @@ use near_primitives::spice::partial_data::SpicePartialData;
 use near_primitives::spice::partial_data::SpiceVerifiedPartialData;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse,
+    BoundedContractCodes, CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
+    SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
+    split_contracts_for_response,
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
@@ -1800,10 +1801,23 @@ impl SpiceDataDistributorActor {
         let storage =
             TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
 
-        let mut contracts = Vec::new();
+        let mut contracts = BoundedContractCodes::default();
         for contract_hash in request.contracts() {
             match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Ok(bytes) => {
+                    // Bounds what one request can make us send; the requester gives up on a set
+                    // past this anyway.
+                    if !contracts.push(CodeBytes(bytes)) {
+                        tracing::warn!(
+                            target: "spice_data_distribution",
+                            ?chunk_id,
+                            ?requester,
+                            total_size = contracts.total_size(),
+                            "requested contract code exceeds the per-request cap, not serving"
+                        );
+                        return Ok(());
+                    }
+                }
                 Err(MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "spice_data_distribution",
@@ -1826,11 +1840,15 @@ impl SpiceDataDistributorActor {
             }
         }
 
-        let response =
-            SpiceContractCodeResponse::encode(chunk_id, &contracts).map_err(Error::StoreIoError)?;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpiceContractCodeResponse(requester, response),
-        ));
+        // The set may not fit one response. `handle_spice_contract_code_response`
+        // resolves contracts incrementally, so the groups reassemble on the requester.
+        for group in split_contracts_for_response(contracts.into_codes()) {
+            let response = SpiceContractCodeResponse::encode(chunk_id.clone(), &group)
+                .map_err(Error::StoreIoError)?;
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeResponse(requester.clone(), response),
+            ));
+        }
         Ok(())
     }
 

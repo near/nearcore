@@ -12,7 +12,7 @@ use crate::{
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
 use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
@@ -22,7 +22,7 @@ use near_primitives::account::{
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     Action, DeleteAccountAction, DeterministicStateInitAction, GlobalContractIdentifier,
-    TransferToGasKeyAction, UseGlobalContractAction,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
 };
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -50,11 +50,12 @@ use near_primitives::transaction::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FunctionCallAction,
     SignedTransaction, TransactionNonce, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
     ShardId, StateChangeCause,
 };
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
 use near_primitives::utils::{
     create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
@@ -68,7 +69,7 @@ use near_store::{
     set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -2026,6 +2027,243 @@ fn test_validation_rejects_missing_contract_code() {
 #[should_panic(expected = "contract code is missing from the trie")]
 fn test_tracked_shard_apply_asserts_on_missing_contract_code() {
     let _ = apply_call_to_contract_missing_from_witness(ApplyChunkReason::UpdateTrackedShard);
+}
+
+/// Deploys the test contract as a global contract by code hash, points alice at
+/// it, records a witness for a call to it (which excludes the contract body),
+/// then applies that call over the recorded storage as a chunk validator.
+///
+/// With `include_key_proof` the recorded storage also holds the trie nodes that
+/// prove the global contract key exists. A producer that wants to pass the
+/// missing body off as a never-deployed contract can supply at most that: the
+/// proof is bound to the state root, so it cannot show the key as absent.
+fn apply_call_to_global_contract_missing_from_witness(
+    include_key_proof: bool,
+) -> Result<ApplyResult, RuntimeError> {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let code_hash = *contract_code.hash();
+    let code_key = TrieKey::GlobalContractCode {
+        identifier: GlobalContractCodeIdentifier::CodeHash(code_hash),
+    };
+    let code_key_bytes = code_key.to_vec();
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    state_update.set(code_key, contract_code.code().to_vec());
+    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    alice.set_contract(AccountContract::Global(code_hash)).unwrap();
+    set_account(&mut state_update, alice_account(), &alice);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "log_something".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+    let trie =
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
+    if include_key_proof {
+        // The recording trie captures the nodes this read visits, so the
+        // witness ends up carrying the proof that the key exists.
+        assert!(trie.contains_key(&code_key_bytes, AccessOptions::DEFAULT).unwrap());
+    }
+    let apply_result = runtime
+        .apply(
+            trie,
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(call_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(
+        apply_result.contract_updates.contract_accesses,
+        HashSet::from([CodeHash(code_hash)])
+    );
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A validator with an empty compiled-contract cache has no source for the
+    // body other than the witness, which excludes it.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        &receipts,
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    )
+}
+
+/// A witness that omits the body of an existing global contract must not
+/// validate as a call to a missing contract. Without the key nodes in the
+/// witness the existence check itself fails as a missing trie value.
+#[test]
+fn test_validation_rejects_missing_global_contract_code() {
+    assert_matches!(
+        apply_call_to_global_contract_missing_from_witness(false),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(_)))
+    );
+}
+
+/// Same as above, but the witness proves the global contract key exists. The
+/// existence check passes and the missing body is rejected as an incomplete
+/// witness, like for account-local code.
+#[test]
+fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
+    let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    assert_matches!(
+        apply_call_to_global_contract_missing_from_witness(true),
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == *contract_code.hash()
+    );
+}
+
+/// The hash of a global contract that is never deployed in these tests.
+fn missing_global_contract_hash() -> CryptoHash {
+    hash(b"global contract that was never deployed")
+}
+
+fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
+    let call_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.id == call_id)
+        .expect("function call outcome missing");
+    assert_matches!(
+        &call_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::CodeDoesNotExist { .. }
+            )),
+            ..
+        }))
+    );
+}
+
+/// Points alice at a global contract hash that was never deployed, calls it as
+/// the chunk producer and replays the recorded witness as a chunk validator
+/// running `validator_protocol_version`. ETH implicit accounts are created this
+/// way, with a hardcoded wallet contract hash and no existence check. The
+/// producer must fail the call with `CodeDoesNotExist` instead of treating the
+/// missing code as an inconsistent state; the validator's verdict is returned
+/// together with the call's receipt id.
+fn apply_call_to_missing_global_contract(
+    validator_protocol_version: ProtocolVersion,
+) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+
+    // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
+    set_account(&mut state_update, alice_account(), &alice);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "rlp_execute".to_string(),
+            args: Vec::new(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+
+    // The chunk producer applies with a full trie and records the witness.
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_code_does_not_exist(&apply_result, call_id);
+    // There is no code to distribute to validators.
+    assert!(apply_result.contract_updates.contract_accesses.is_empty());
+    let partial_storage = apply_result.proof.unwrap();
+
+    // A chunk validator replays the call over the recorded storage.
+    apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    apply_state.current_protocol_version = validator_protocol_version;
+    let apply_result = runtime.apply(
+        Trie::from_recorded_storage(partial_storage, root, false),
+        &None,
+        &apply_state,
+        &receipts,
+        SignedValidPeriodTransactions::empty(),
+        &epoch_info_provider,
+        Default::default(),
+    );
+    (call_id, apply_result)
+}
+
+/// The witness proves the global contract key is absent, so the validator
+/// reaches the same `CodeDoesNotExist` outcome as the producer.
+#[test]
+fn test_call_to_missing_global_contract_fails_gracefully() {
+    let (call_id, apply_result) = apply_call_to_missing_global_contract(PROTOCOL_VERSION);
+    assert_code_does_not_exist(&apply_result.unwrap(), call_id);
+}
+
+/// Before the feature a validator does not consult the absence proof and
+/// rejects the witness as incomplete, as it does for any missing code body.
+#[test]
+fn test_call_to_missing_global_contract_rejected_before_feature() {
+    let feature_version = ProtocolFeature::FailCallToMissingGlobalContract.protocol_version();
+    let (_, apply_result) = apply_call_to_missing_global_contract(feature_version - 1);
+    assert_matches!(
+        apply_result,
+        Err(RuntimeError::StorageError(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        }))) if hash == missing_global_contract_hash()
+    );
 }
 
 /// Deploys the test contract to alice and returns the resulting state root.
@@ -6993,6 +7231,66 @@ fn worst_accepted_state_init_receipt_stays_within_the_outgoing_congestion_cap() 
             actions,
         }),
     });
+
+    // The same bound for a key-bearing universal payload. Keys are the denser of
+    // the two: `add_full_access_key` exec is 101.765 Ggas against 200 Ggas for an
+    // entry, but a key is 33 wire bytes against an entry's minimum of 9, and the
+    // key cap is lower.
+    let keys_per_action = limits.max_universal_state_init_keys / copies as u64;
+    let universal = {
+        let access_keys = (0..keys_per_action)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, keys_per_action, "seeds must give distinct keys");
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::new(),
+            access_keys,
+        })
+    };
+    let universal_receiver = universal.derive_account_id();
+    let universal_actions = (0..copies)
+        .map(|_| {
+            Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: universal.to_raw(),
+                deposit: Balance::ZERO,
+            }))
+        })
+        .collect_vec();
+    crate::action_validation::validate_actions(
+        limits,
+        &universal_actions,
+        &universal_receiver,
+        PROTOCOL_VERSION,
+    )
+    .expect("the key-bearing worst case has to be one validation accepts");
+    let universal_receipt = Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: universal_receiver,
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: alice_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: universal_actions,
+        }),
+    });
+    let universal_congestion_gas =
+        compute_receipt_congestion_gas(&universal_receipt, &config).unwrap();
+    println!(
+        "[state init] {copies} actions x {keys_per_action} keys ({} total) reserve \
+         {universal_congestion_gas} of congestion, {:.2}% of the {cap} whole-shard cap",
+        copies as u64 * keys_per_action,
+        100.0 * universal_congestion_gas.as_gas() as f64 / cap.as_gas() as f64,
+    );
+    assert!(
+        universal_congestion_gas.as_gas() * 5 < cap.as_gas(),
+        "a key-bearing state-init receipt reserves {universal_congestion_gas}, over a fifth of \
+         the whole-shard outgoing cap of {cap}"
+    );
 
     let congestion_gas = compute_receipt_congestion_gas(&receipt, &config).unwrap();
     println!(

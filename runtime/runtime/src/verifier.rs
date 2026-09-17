@@ -156,6 +156,100 @@ impl TxAuthorization {
             TxAuthorization::SelfSignedStateInit => None,
         }
     }
+
+    pub fn as_tx_authorization_ref(&self) -> TxAuthorizationRef<'_> {
+        match self {
+            TxAuthorization::AccessKey(access_key) => TxAuthorizationRef::AccessKey(access_key),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index: *nonce_index }
+            }
+            TxAuthorization::SelfSignedStateInit => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// A borrowed view of `TxAuthorization`, for callers that already hold a
+/// reference to the access key (e.g. from a prefetched cache) and would
+/// rather not clone it into an owned `TxAuthorization`.
+#[derive(Debug, Clone, Copy)]
+pub enum TxAuthorizationRef<'a> {
+    AccessKey(&'a AccessKey),
+    GasKey { access_key: &'a AccessKey, nonce_index: NonceIndex },
+    SelfSignedStateInit,
+}
+
+impl<'a> TxAuthorizationRef<'a> {
+    /// Builds the authorization from an already-resolved access key and nonce index.
+    /// A missing access key maps to `SelfSignedStateInit` (not verified here).
+    /// `verify_and_charge_bootstrap_tx_ephemeral` rejects it if the tx is not a bootstrap.
+    pub fn new(access_key: Option<&'a AccessKey>, nonce_index: Option<NonceIndex>) -> Self {
+        match (access_key, nonce_index) {
+            (Some(access_key), Some(nonce_index)) => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index }
+            }
+            (Some(access_key), None) => TxAuthorizationRef::AccessKey(access_key),
+            (None, _) => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// Dispatches to the `verify_and_charge_*_ephemeral` function matching how the
+/// transaction is authorized. `gas_key_nonce` is only called for the `GasKey` case.
+/// Its error type is generic so a caller whose nonce lookup can't actually fail
+/// (e.g. one backed by an infallible cache) can use `Infallible` and unpack the
+/// result without an `expect`.
+pub fn verify_and_charge_tx_ephemeral<E>(
+    config: &RuntimeConfig,
+    account: &Account,
+    authorization: TxAuthorizationRef<'_>,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+    gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, E>,
+) -> Result<TxVerdict, E> {
+    let verdict = match authorization {
+        TxAuthorizationRef::AccessKey(access_key) => verify_and_charge_access_key_tx_ephemeral(
+            config,
+            account,
+            access_key,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+        TxAuthorizationRef::GasKey { access_key, nonce_index } => {
+            let Some(current_nonce) = gas_key_nonce(nonce_index)? else {
+                let num_nonces =
+                    access_key.gas_key_info().map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                let error = InvalidTxError::InvalidNonceIndex {
+                    tx_nonce_index: Some(nonce_index),
+                    num_nonces,
+                };
+                return Ok(TxVerdict::Failed(error));
+            };
+            verify_and_charge_gas_key_tx_ephemeral(
+                config,
+                account,
+                access_key,
+                current_nonce,
+                tx,
+                transaction_cost,
+                block_height,
+                pending,
+            )
+        }
+        TxAuthorizationRef::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
+            config,
+            account,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+    };
+
+    Ok(verdict)
 }
 
 /// Resolve the signer's account and what authorizes the transaction against it:
@@ -309,7 +403,7 @@ fn check_and_compute_new_allowance(
 ///
 /// This function performs no mutation; all state changes are returned in the
 /// `VerificationResult`.
-pub fn verify_and_charge_tx_ephemeral(
+pub fn verify_and_charge_access_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
     access_key: &AccessKey,
@@ -322,7 +416,7 @@ pub fn verify_and_charge_tx_ephemeral(
     // nonce_index (i.e. gas key transactions).
     assert!(
         tx.nonce().nonce_index().is_none(),
-        "verify_and_charge_tx_ephemeral called for gas key transaction"
+        "verify_and_charge_access_key_tx_ephemeral called for gas key transaction"
     );
     // Gas keys must be used via gas key transaction path (with nonce_index)
     if let Some(gas_key_info) = access_key.gas_key_info() {
@@ -1054,7 +1148,7 @@ mod tests {
             };
         let access_key = authorization.into_access_key().expect("access key expected");
 
-        let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
+        let TxVerdict::Failed(err) = verify_and_charge_access_key_tx_ephemeral(
             config,
             &signer,
             &access_key,
@@ -1085,40 +1179,20 @@ mod tests {
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let tx = validated_tx.to_tx();
 
-        let verdict = match &authorization {
-            TxAuthorization::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
-                config,
-                &signer,
-                access_key,
-                tx,
-                &transaction_cost,
-                block_height,
-                &PendingConstraints::default(),
-            ),
-            TxAuthorization::GasKey { access_key, nonce_index } => {
-                let current_nonce =
-                    get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), *nonce_index)?
-                        .unwrap_or(0);
-                verify_and_charge_gas_key_tx_ephemeral(
-                    config,
-                    &signer,
-                    access_key,
-                    current_nonce,
-                    tx,
-                    &transaction_cost,
-                    block_height,
-                    &PendingConstraints::default(),
-                )
-            }
-            TxAuthorization::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
-                config,
-                &signer,
-                tx,
-                &transaction_cost,
-                block_height,
-                &PendingConstraints::default(),
-            ),
+        let gas_key_nonce = |nonce_index| {
+            get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .map(|nonce| Some(nonce.unwrap_or(0)))
         };
+        let verdict = verify_and_charge_tx_ephemeral(
+            config,
+            &signer,
+            authorization.as_tx_authorization_ref(),
+            tx,
+            &transaction_cost,
+            block_height,
+            &PendingConstraints::default(),
+            gas_key_nonce,
+        )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
             TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
@@ -2310,7 +2384,7 @@ mod tests {
         )
         .expect_err("should fail without nonce_index for gas key");
 
-        // verify_and_charge_tx_ephemeral rejects gas keys used without nonce_index
+        // verify_and_charge_access_key_tx_ephemeral rejects gas keys used without nonce_index
         assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
     }
 
@@ -2591,34 +2665,46 @@ mod tests {
         assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
     }
 
-    /// A self-signed state-init transaction committing to `num_keys` access keys
-    /// and carrying one data entry of `value_len` bytes. Padding the entry grows
-    /// the transaction by exactly `value_len`, which is how the size-limit case
-    /// below hits the limit on the nose.
-    fn bootstrap_state_init_tx(num_keys: u64, value_len: usize) -> SignedTransaction {
-        let placeholder: AccountId = "unused.near".parse().unwrap();
-        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+    fn universal_state_init(num_keys: u64, value_len: usize) -> UniversalStateInit {
         let access_keys = (0..num_keys)
             .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
             .map(|key| PublicKeyHandle::from(key.public_key()))
             .collect::<BTreeSet<_>>();
         assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
-        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        UniversalStateInit::V1(UniversalStateInitV1 {
             code: None,
             data: BTreeMap::from([(b"pad".to_vec(), vec![0u8; value_len])]),
             access_keys,
-        });
-        let raw_state_init = state_init.to_raw();
+        })
+    }
+
+    /// A self-signed state-init transaction committing to `num_keys` access keys
+    /// and carrying one data entry of `value_len` bytes. Padding the entry grows
+    /// the transaction by exactly `value_len`, which is how the size-limit case
+    /// below hits the limit on the nose.
+    fn bootstrap_state_init_tx(
+        num_keys: u64,
+        value_len: usize,
+        copies: usize,
+    ) -> SignedTransaction {
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let raw_state_init = universal_state_init(num_keys, value_len).to_raw();
         let account_id = derive_universal_account_id(&raw_state_init);
+        let actions = (0..copies)
+            .map(|_| {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw_state_init.clone(),
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect();
         SignedTransaction::from_actions(
             1,
             account_id.clone(),
             account_id,
             &signer,
-            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                state_init: raw_state_init,
-                deposit: Balance::ZERO,
-            }))],
+            actions,
             CryptoHash::default(),
         )
     }
@@ -2633,14 +2719,14 @@ mod tests {
     fn test_validate_transaction_rejects_over_cap_universal_state_init() {
         let config = RuntimeConfig::test();
         let max_keys = config.wasm_config.limit_config.max_universal_state_init_keys;
-        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0);
+        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0, 1);
 
         let (err, _) = validate_transaction(&config, bootstrap_tx(max_keys + 1), PROTOCOL_VERSION)
             .expect_err("a state init over the key cap must be rejected");
         assert_eq!(
             err,
             InvalidTxError::ActionsValidation(
-                ActionsValidationError::UniversalStateInitTooManyKeys {
+                ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
                     number_of_keys: max_keys + 1,
                     limit: max_keys,
                 }
@@ -2653,40 +2739,115 @@ mod tests {
 
     /// The most expensive state-init transaction the validator will accept, on
     /// the real parameters, still converts for less gas than a chunk gives
-    /// transactions: the key cap and the size limit together bound the
-    /// conversion burn.
+    /// transactions.
     ///
-    /// Worst case is both terms at once, a transaction at
-    /// `max_transaction_size` that also commits to
-    /// `max_universal_state_init_keys` keys. Conversion is not prepaid and is
-    /// not metered against the chunk's gas limit, so if this ever exceeded
-    /// `max_tx_gas` one transaction could crowd receipts out of a chunk.
+    /// The worst case is *searched for*, over every split of the action budget,
+    /// rather than assumed. An earlier version of this test built one action and
+    /// called it the worst case, which is how a per-action key cap passed review:
+    /// 94 copies of a 506-key payload commit 47,564 keys and burn 10x the budget,
+    /// and this test did not see it.
+    ///
+    /// Note the conversion burn *is* metered against the chunk, contrary to what
+    /// this test once claimed: `process_transactions` folds it into the same
+    /// counter `process_receipts` gates on, so an over-budget transaction stops
+    /// the shard executing receipts that chunk.
     #[test]
-    fn test_largest_universal_state_init_converts_within_the_tx_gas_budget() {
+    fn test_worst_accepted_universal_state_init_converts_within_the_tx_gas_budget() {
         let store = near_parameters::RuntimeConfigStore::new(None);
         let config = store.get_config(PROTOCOL_VERSION);
         let limits = &config.wasm_config.limit_config;
-        let max_keys = limits.max_universal_state_init_keys;
         let max_size = limits.max_transaction_size;
         let budget = config.congestion_control_config.max_tx_gas;
 
-        // Pad the data entry until the transaction is exactly at the size limit.
-        let without_padding =
-            bootstrap_state_init_tx(max_keys, 0).size_for_limits(PROTOCOL_VERSION);
-        let padding = usize::try_from(max_size - without_padding).unwrap();
-        let signed_tx = bootstrap_state_init_tx(max_keys, padding);
-        assert_eq!(signed_tx.size_for_limits(PROTOCOL_VERSION), max_size, "padding is exact");
+        // Pad each copy so the whole transaction sits at the size limit, since
+        // the per-byte send fee is part of the burn.
+        let padded_tx = |keys: u64, copies: usize| {
+            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits(PROTOCOL_VERSION);
+            if bare > max_size {
+                return None;
+            }
+            let padding = usize::try_from(max_size - bare).unwrap() / copies;
+            let tx = bootstrap_state_init_tx(keys, padding, copies);
+            (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
+        };
 
-        let burnt =
-            tx_cost(config, &signed_tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+        // Only equal splits are reachable, which is what makes this search
+        // exhaustive over the shapes that exist rather than merely over the ones
+        // it happens to build. Every action in a receipt shares its receiver, and
+        // a state init must derive to that receiver, so the copies have to be
+        // byte identical: keys cannot be spread unevenly across them and the
+        // padding cannot differ between them. The leftover
+        // `max_universal_state_init_keys % copies` keys, and the up to
+        // `copies - 1` padding bytes integer division drops, are therefore
+        // genuinely unusable rather than untested.
+        let first = universal_state_init(600, 0);
+        let second = universal_state_init(424, 0);
+        let uneven = SignedTransaction::from_actions(
+            1,
+            "unused.near".parse().unwrap(),
+            derive_universal_account_id(&first.to_raw()),
+            &InMemorySigner::from_seed(
+                "unused.near".parse().unwrap(),
+                KeyType::ED25519,
+                "committed",
+            ),
+            [first, second]
+                .into_iter()
+                .map(|state_init| {
+                    Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                        state_init: state_init.to_raw(),
+                        deposit: Balance::ZERO,
+                    }))
+                })
+                .collect(),
+            CryptoHash::default(),
+        );
         assert!(
-            validate_transaction(config, signed_tx, PROTOCOL_VERSION).is_ok(),
-            "the worst case has to be one the validator actually accepts"
+            matches!(
+                validate_transaction(config, uneven, PROTOCOL_VERSION).map_err(|(err, _)| err),
+                Err(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+                ))
+            ),
+            "an uneven split must stay unreachable, or this search is no longer exhaustive",
+        );
+
+        // Every candidate has to be a real, admissible shape. Skipping one
+        // quietly would let a parameter change shrink the search to nothing while
+        // the test still passed, so anything that does not fit or does not
+        // validate fails here instead.
+        let mut worst: Option<(usize, u64, Gas)> = None;
+        for copies in 1..=usize::try_from(limits.max_actions_per_receipt).unwrap() {
+            // The most keys per action the per-receipt cap leaves room for. With
+            // the current parameters this is at least 10.
+            let keys = limits.max_universal_state_init_keys / copies as u64;
+            assert!(keys > 0, "{copies} actions must leave room for at least one key each");
+            let tx = padded_tx(keys, copies).unwrap_or_else(|| {
+                panic!("{copies} actions x {keys} keys must fit in {max_size} B")
+            });
+            let burnt =
+                tx_cost(config, &tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+            if let Err((err, _)) = validate_transaction(config, tx, PROTOCOL_VERSION) {
+                panic!(
+                    "{copies} actions x {keys} keys must be a shape the validator accepts: {err}"
+                );
+            }
+            if worst.is_none_or(|(_, _, seen)| burnt > seen) {
+                worst = Some((copies, keys, burnt));
+            }
+        }
+
+        let (copies, keys, burnt) = worst.expect("the loop runs at least once");
+        println!(
+            "[worst accepted] {copies} actions x {keys} keys = {} total, burning {burnt} at \
+             conversion, {:.1}% of the {budget} budget",
+            copies as u64 * keys,
+            100.0 * burnt.as_gas() as f64 / budget.as_gas() as f64,
         );
         assert!(
             burnt < budget,
-            "{max_keys} keys in a {max_size} B transaction burn {burnt} at conversion, \
-             against a per-chunk transaction budget of {budget}"
+            "the worst shape the validator accepts, {copies} actions of {keys} keys, burns \
+             {burnt} at conversion against a per-chunk transaction budget of {budget}"
         );
     }
 
