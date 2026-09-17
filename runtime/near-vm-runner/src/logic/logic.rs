@@ -60,6 +60,12 @@ impl ExecutionResultState {
         }
     }
 
+    /// The log messages written so far, without consuming the state the way
+    /// [`Self::compute_outcome`] does.
+    pub fn logs(&self) -> &[String] {
+        &self.logs
+    }
+
     /// A helper function to subtract balance on transfer or attached deposit for promises.
     ///
     /// ### Args
