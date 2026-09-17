@@ -48,22 +48,22 @@ target is then the height of the peer that `PeerSelector` picks. During block
 sync the node's own header head can also set the target, since header sync has
 already validated it.
 
-The target height selects the sync phase and download targets. Deleting data
-requires a verified height or an epoch sync proof.
+The target height selects the sync phase and download targets. Only an epoch
+sync proof can cause a data reset.
 
 ### Choosing a peer to ask
 
-Candidates are connected peers that advertise a head above ours and not a known
-invalid block. `PeerSelector` picks a random candidate within
-`PEER_HEIGHT_WINDOW` blocks of the highest advertised head. It skips peers that
+Candidates are connected peers whose advertised head is above ours and is not a
+known invalid block. `PeerSelector` picks a random candidate within
+`PEER_HEIGHT_WINDOW` blocks of the best suitable candidate. It skips peers that
 failed in the last `PEER_FAILURE_COOLDOWN_SECONDS`, unless all candidates
 failed.
 
 A peer fails when:
 
 - Epoch sync: the request times out, or the proof is not usable.
-- Header sync: the batch is below the expected rate, measured against that
-  peer's advertised head.
+- Header sync: the batch is below the expected rate after the timeout. A batch
+  is complete when the header head reaches the peer's advertised head.
 - State sync: a sync block request times out.
 - Block sync: a requested block does not arrive in time and is still on the
   canonical chain.
@@ -179,7 +179,8 @@ blocks for incoming receipts. The node validates each block before it saves it.
 If the block hash or signature is invalid, the node bans the peer that sent it.
 
 State parts are limited in size and entry count. Receipt proofs in the state
-header must have a `from_shard_id` that matches their merkle path index.
+header must have a `from_shard_id` whose shard index matches their merkle path
+index.
 
 If the network moves past the sync hash's epoch, peers no longer serve its state
 parts. When the verified highest height is above
@@ -215,7 +216,7 @@ The node handles this by:
 1. Downloading and validating the epoch sync proof
 2. Checking that the proof shows the head beyond the horizon
    (`EpochSync::proof_shows_head_beyond_horizon`). If not, the node keeps its
-   store and continues with block sync or header sync.
+   store and continues with block sync.
 3. Writing a `.EPOCH_SYNC_DATA_RESET` marker file
 4. Shutting down actors and re-executing the process (via `exec` on Unix;
    on non-Unix platforms, the operator must restart manually)
