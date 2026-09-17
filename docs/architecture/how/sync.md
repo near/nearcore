@@ -63,7 +63,8 @@ A peer fails when:
 
 - Epoch sync: the request times out, or the proof is not usable.
 - Header sync: the batch is below the expected rate after the timeout. A batch
-  is complete when the header head reaches the peer's advertised head.
+  is complete when the header head reaches the end of the batch or the peer's
+  advertised head.
 - State sync: a sync block request times out.
 - Block sync: a requested block does not arrive in time and is still on the
   canonical chain.
