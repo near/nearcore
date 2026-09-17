@@ -94,8 +94,8 @@ pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(||
 pub static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_spice_certification_lag",
-        "Height distance from the block being processed to the oldest block with uncertified \
-         chunks, 0 when nothing older awaits certification",
+        "Height distance from the chain head to the oldest block with uncertified chunks, 0 when \
+         nothing older awaits certification",
     )
     .unwrap()
 });
