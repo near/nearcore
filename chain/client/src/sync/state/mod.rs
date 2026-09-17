@@ -6,6 +6,7 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector, SyncPeers};
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use futures::future::BoxFuture;
@@ -21,19 +22,15 @@ use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::StateResponse;
-use near_network::types::{
-    HighestHeightPeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::{StatePart, StatePartIndex};
 use near_primitives::state_sync::ShardStateSyncResponseHeader;
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -45,9 +42,9 @@ use tokio_util::sync::CancellationToken;
 
 /// Number of blocks past epoch_length that triggers stale sync hash detection.
 ///
-/// During state sync, if the network's highest height exceeds the sync hash
-/// block's height + epoch_length + this threshold, the sync hash is considered
-/// stale and the node triggers a data reset + restart.
+/// During state sync, if a peer's verified height exceeds the sync hash block's
+/// height + epoch_length + this threshold, the sync hash is stale and the node
+/// restarts from epoch sync.
 ///
 /// Must be large enough to account for epoch stretching due to missing blocks
 /// and finality delays. Epoch boundaries require `last_finalized_height + 3
@@ -60,9 +57,18 @@ use tokio_util::sync::CancellationToken;
 /// epoch_length=10 can trigger stale sync hash detection without needing
 /// hundreds of blocks.
 #[cfg(not(feature = "test_features"))]
-pub const STALE_SYNC_HASH_THRESHOLD: u64 = 100;
+const STALE_SYNC_HASH_THRESHOLD: u64 = 100;
 #[cfg(feature = "test_features")]
-pub const STALE_SYNC_HASH_THRESHOLD: u64 = 5;
+const STALE_SYNC_HASH_THRESHOLD: u64 = 5;
+
+/// Above the returned height the sync hash is stale: the network has moved past
+/// its epoch and no peer still serves its state parts.
+pub fn sync_hash_stale_above_height(
+    sync_hash_height: BlockHeight,
+    epoch_length: u64,
+) -> BlockHeight {
+    sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD
+}
 
 /// Module that manages state sync. Internally, it spawns multiple tasks to download state sync
 /// headers and parts in parallel for the requested shards, but externally, all that it exposes
@@ -77,8 +83,8 @@ pub struct StateSync {
 
     /// Timeout for block requests during state sync.
     block_request_timeout: Duration,
-    /// A map storing the last time a block was requested for state sync.
-    last_time_sync_block_requested: HashMap<CryptoHash, Utc>,
+    /// Who we asked for each state sync block, and when.
+    last_sync_block_request: HashMap<CryptoHash, (PeerId, Utc)>,
 
     /// We keep a reference to this so that peer messages received about state sync can be
     /// given to the StateSyncDownloadSourcePeer.
@@ -154,7 +160,7 @@ impl StateSync {
             clock,
             store,
             block_request_timeout,
-            last_time_sync_block_requested: HashMap::new(),
+            last_sync_block_request: HashMap::new(),
             peer_source_state,
             downloader,
             downloading_task_tracker,
@@ -166,6 +172,12 @@ impl StateSync {
             shard_syncs: HashMap::new(),
             concurrency_config: sync_config.concurrency,
         }
+    }
+
+    /// Dropping a `StateSyncShardHandle` cancels its task.
+    fn abandon(&mut self) {
+        self.shard_syncs.clear();
+        self.last_sync_block_request.clear();
     }
 
     /// Apply a state sync message received from a peer.
@@ -203,7 +215,7 @@ impl StateSync {
         if block_exists {
             return (false, true);
         }
-        let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
+        let Some((_, last_time)) = self.last_sync_block_request.get(block_hash) else {
             return (true, false);
         };
 
@@ -216,12 +228,34 @@ impl StateSync {
         }
     }
 
+    /// The height must be verified: a peer-claimed one would let a single peer
+    /// ask us to delete our data.
+    fn cannot_finish(
+        &self,
+        chain: &Chain,
+        block_header: &BlockHeader,
+        verified_highest_height: Option<BlockHeight>,
+    ) -> bool {
+        let stale_above = sync_hash_stale_above_height(block_header.height(), chain.epoch_length);
+        if verified_highest_height.is_some_and(|height| height > stale_above) {
+            tracing::warn!(
+                target: "sync",
+                ?block_header,
+                ?verified_highest_height,
+                "state sync cannot finish, restarting from epoch sync"
+            );
+            return true;
+        }
+        false
+    }
+
     /// Checks if the sync blocks are available and requests them if needed.
     fn request_sync_blocks(
         &mut self,
         chain: &Chain,
         block_header: &BlockHeader,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Vec<(CryptoHash, PeerId)> {
         let now = self.clock.now_utc();
 
@@ -234,13 +268,12 @@ impl StateSync {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        let mut rng = thread_rng();
         for hash in needed_block_hashes {
             let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
 
             if have_block {
-                self.last_time_sync_block_requested.remove(&hash);
+                self.last_sync_block_request.remove(&hash);
             }
 
             if !request_block {
@@ -248,13 +281,19 @@ impl StateSync {
                 continue;
             }
 
-            let peer_info = highest_height_peers.choose(&mut rng);
+            // A request still on file at this point ran out its timeout, so the
+            // peer we asked never answered.
+            if let Some((asked_peer_id, _)) = self.last_sync_block_request.remove(&hash) {
+                peer_selector.record_failed_to_serve(&asked_peer_id, now);
+            }
+
+            let peer_info = peer_selector.pick(peers_ahead, now);
             let Some(peer_info) = peer_info else {
                 tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
                 continue;
             };
             let peer_id = peer_info.peer_info.id.clone();
-            self.last_time_sync_block_requested.insert(hash, now);
+            self.last_sync_block_request.insert(hash, (peer_id.clone(), now));
             blocks_to_request.push((hash, peer_id));
         }
 
@@ -271,29 +310,21 @@ impl StateSync {
         sync_status: &mut StateSyncStatus,
         shard_tracker: &ShardTracker,
         chain: &mut Chain,
-        highest_height: u64,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        peers: &SyncPeers,
+        peer_selector: &mut PeerSelector,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let sync_hash = sync_status.sync_hash;
         let block_header = chain.get_block_header(&sync_hash)?;
-
-        // If the network has moved past this epoch, state parts are no longer
-        // available. Trigger a data reset so the node can restart fresh.
-        if highest_height > block_header.height() + chain.epoch_length + STALE_SYNC_HASH_THRESHOLD {
-            tracing::warn!(
-                target: "sync",
-                ?block_header,
-                highest_height,
-                "stale sync hash detected, triggering data reset"
-            );
+        if self.cannot_finish(chain, &block_header, peers.verified_highest_height) {
+            self.abandon();
             return Ok(StateSyncResult::StaleSyncHash);
         }
 
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         let blocks_to_request =
-            self.request_sync_blocks(chain, &block_header, highest_height_peers);
+            self.request_sync_blocks(chain, &block_header, &peers.peers_ahead, peer_selector);
         if !blocks_to_request.is_empty() {
             return Ok(StateSyncResult::NeedBlocks(blocks_to_request));
         }
@@ -404,7 +435,7 @@ impl StateSync {
         sync_status.computation_tasks = self.computation_task_tracker.statuses();
         if all_done {
             // Clean up block request tracking for next round now that state sync is done.
-            self.last_time_sync_block_requested.clear();
+            self.last_sync_block_request.clear();
             Ok(StateSyncShardResult::Completed)
         } else {
             Ok(StateSyncShardResult::InProgress)
@@ -421,8 +452,7 @@ pub enum StateSyncResult {
     InProgress,
     /// State sync completed and heads have been reset.
     Completed(BlockProcessingArtifact),
-    /// The sync hash is stale — the network has moved past this epoch and
-    /// state parts are no longer available. The node should reset and restart.
+    /// The sync hash is stale, so `SyncHandler` returns to epoch sync.
     StaleSyncHash,
 }
 
