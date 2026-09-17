@@ -63,9 +63,10 @@ use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
     TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_authorized,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -781,7 +782,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let gas_key_nonce =
             |nonce_index| get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index);
-        let verdict = verify_and_charge_tx_authorized(
+        let verdict = verify_and_charge_tx_ephemeral(
             runtime_config,
             &signer,
             authorization.as_tx_authorization_ref(),
@@ -1079,9 +1080,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                         .gas_key_nonces
                         .get(&nonce_index)
                         .expect("loaded by get_or_load_entry_mut");
-                    Ok(Some(nonce))
+                    Ok::<_, Infallible>(Some(nonce))
                 };
-                let verdict = verify_and_charge_tx_authorized(
+                let Ok(verdict) = verify_and_charge_tx_ephemeral(
                     runtime_config,
                     account,
                     authorization,
@@ -1090,8 +1091,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Some(next_block_height),
                     &pending_constraints,
                     gas_key_nonce,
-                )
-                .expect("gas_key_nonce never returns Err");
+                );
                 match verdict {
                     TxVerdict::Success(result) => {
                         // Update account, access key, and gas key nonce (if relevant) in the overlay.

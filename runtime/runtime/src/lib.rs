@@ -17,8 +17,7 @@ use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt
 pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
-    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_authorized, verify_and_charge_tx_ephemeral,
+    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -94,7 +93,6 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
 use tracing::instrument;
@@ -277,7 +275,7 @@ impl Default for PendingConstraints {
 
 /// Outcome of transaction verification and charging.
 ///
-/// Returned by both `verify_and_charge_tx_ephemeral` and
+/// Returned by both `verify_and_charge_access_key_tx_ephemeral` and
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
@@ -2199,13 +2197,12 @@ impl Runtime {
                 gas_key_nonces
                     .get(&(signer_id, pubkey, nonce_index))
                     .expect("gas key nonces should've been prefetched")
-                    .deref()
                     .clone()
             };
 
             let nonce_index = tx.transaction.nonce().nonce_index();
             let authorization = TxAuthorizationRef::new(access_key.as_deref(), nonce_index);
-            let verdict = verify_and_charge_tx_authorized(
+            let verdict = verify_and_charge_tx_ephemeral(
                 &processing_state.apply_state.config,
                 account,
                 authorization,

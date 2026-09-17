@@ -180,8 +180,8 @@ pub enum TxAuthorizationRef<'a> {
 
 impl<'a> TxAuthorizationRef<'a> {
     /// Builds the authorization from an already-resolved access key and nonce index.
-    /// A missing access key is assumed to mean a self-signed state init: it is
-    /// the caller's responsibility to have checked `is_bootstrap` already.
+    /// A missing access key maps to `SelfSignedStateInit` (not verified here).
+    /// `verify_and_charge_bootstrap_tx_ephemeral` rejects it if the tx is not a bootstrap.
     pub fn new(access_key: Option<&'a AccessKey>, nonce_index: Option<NonceIndex>) -> Self {
         match (access_key, nonce_index) {
             (Some(access_key), Some(nonce_index)) => {
@@ -195,8 +195,10 @@ impl<'a> TxAuthorizationRef<'a> {
 
 /// Dispatches to the `verify_and_charge_*_ephemeral` function matching how the
 /// transaction is authorized. `gas_key_nonce` is only called for the `GasKey` case.
-/// `StorageError` is returned only if `gas_key_nonce` returns it.
-pub fn verify_and_charge_tx_authorized(
+/// Its error type is generic so a caller whose nonce lookup can't actually fail
+/// (e.g. one backed by an infallible cache) can use `Infallible` and unpack the
+/// result without an `expect`.
+pub fn verify_and_charge_tx_ephemeral<E>(
     config: &RuntimeConfig,
     account: &Account,
     authorization: TxAuthorizationRef<'_>,
@@ -204,10 +206,10 @@ pub fn verify_and_charge_tx_authorized(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     pending: &PendingConstraints,
-    gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, StorageError>,
-) -> Result<TxVerdict, StorageError> {
+    gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, E>,
+) -> Result<TxVerdict, E> {
     let verdict = match authorization {
-        TxAuthorizationRef::AccessKey(access_key) => verify_and_charge_tx_ephemeral(
+        TxAuthorizationRef::AccessKey(access_key) => verify_and_charge_access_key_tx_ephemeral(
             config,
             account,
             access_key,
@@ -401,7 +403,7 @@ fn check_and_compute_new_allowance(
 ///
 /// This function performs no mutation; all state changes are returned in the
 /// `VerificationResult`.
-pub fn verify_and_charge_tx_ephemeral(
+pub fn verify_and_charge_access_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
     access_key: &AccessKey,
@@ -414,7 +416,7 @@ pub fn verify_and_charge_tx_ephemeral(
     // nonce_index (i.e. gas key transactions).
     assert!(
         tx.nonce().nonce_index().is_none(),
-        "verify_and_charge_tx_ephemeral called for gas key transaction"
+        "verify_and_charge_access_key_tx_ephemeral called for gas key transaction"
     );
     // Gas keys must be used via gas key transaction path (with nonce_index)
     if let Some(gas_key_info) = access_key.gas_key_info() {
@@ -1146,7 +1148,7 @@ mod tests {
             };
         let access_key = authorization.into_access_key().expect("access key expected");
 
-        let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
+        let TxVerdict::Failed(err) = verify_and_charge_access_key_tx_ephemeral(
             config,
             &signer,
             &access_key,
@@ -1178,12 +1180,10 @@ mod tests {
         let tx = validated_tx.to_tx();
 
         let gas_key_nonce = |nonce_index| {
-            let nonce =
-                get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .unwrap_or(0);
-            Ok(Some(nonce))
+            get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .map(|nonce| Some(nonce.unwrap_or(0)))
         };
-        let verdict = verify_and_charge_tx_authorized(
+        let verdict = verify_and_charge_tx_ephemeral(
             config,
             &signer,
             authorization.as_tx_authorization_ref(),
@@ -2384,7 +2384,7 @@ mod tests {
         )
         .expect_err("should fail without nonce_index for gas key");
 
-        // verify_and_charge_tx_ephemeral rejects gas keys used without nonce_index
+        // verify_and_charge_access_key_tx_ephemeral rejects gas keys used without nonce_index
         assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
     }
 
