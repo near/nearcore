@@ -485,6 +485,10 @@ pub enum ProtocolFeature {
     ///   verification, instead of on the signer shard, so it counts against the
     ///   right `compute_limit`.
     FixMlDsaCostCharging,
+    /// Calls to an account whose global contract was never deployed fail with
+    /// `CodeDoesNotExist`. Previously chunk validators rejected such a state
+    /// witness as incomplete, which stalled the shard.
+    FailCallToMissingGlobalContract,
     /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
@@ -627,6 +631,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 87,
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
+            ProtocolFeature::FailCallToMissingGlobalContract => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -677,7 +682,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 87;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 88;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;

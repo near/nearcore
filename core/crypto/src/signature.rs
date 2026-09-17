@@ -1,7 +1,6 @@
 use crate::hash_domain::HashDomainTag;
 use crate::util::try_fixed_array;
-use aws_lc_rs::signature::UnparsedPublicKey;
-use aws_lc_rs::unstable::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair};
+use aws_lc_rs::signature::{ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey};
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use near_schema_checker_lib::ProtocolSchema;
@@ -859,7 +858,7 @@ fn ml_dsa_65_secret_from_seed(
 
 /// Build an [`MlDsa65SecretKey`] from a 32-byte seed.
 ///
-/// Wraps `aws_lc_rs::unstable::signature::PqdsaKeyPair::from_seed`.
+/// Wraps `PqdsaKeyPair::from_seed`.
 pub fn ml_dsa_65_from_seed(
     seed: &[u8; ML_DSA_65_SEED_LENGTH],
 ) -> Result<SecretKey, crate::errors::ParseKeyError> {

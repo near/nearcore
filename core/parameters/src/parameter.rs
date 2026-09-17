@@ -227,9 +227,9 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxReceiptTotalInputSize,
-    /// Max number of access keys a `UniversalStateInit` action may commit to.
+    /// Max number of access keys the state-init actions in one receipt may commit to, in total.
     MaxUniversalStateInitKeys,
-    /// Max number of storage entries a state-init action may carry.
+    /// Max number of storage entries the state-init actions in one receipt may carry, in total.
     MaxStateInitEntries,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,

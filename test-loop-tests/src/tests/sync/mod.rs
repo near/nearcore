@@ -1,4 +1,5 @@
 mod adversarial_height;
+mod adversarial_sync_block;
 mod continuous_epoch_sync;
 mod early_kickout_sync;
 mod epoch_sync;

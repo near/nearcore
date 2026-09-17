@@ -25,8 +25,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse,
+    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
+    MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE, SpiceChunkContractAccesses,
+    SpiceContractCodeRequest, SpiceContractCodeResponse, total_code_size,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
@@ -43,8 +44,8 @@ use std::sync::Arc;
 
 // Each pending chunk stores the uncompressed witness plus uncompressed contracts.
 // In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
-// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE (64 MiB), giving ~128 MiB
-// per chunk.  MAX_PENDING_CHUNKS * 128 MiB ≈ 3 GiB memory budget.
+// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), giving
+// ~320 MiB per chunk.  MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB worst-case memory budget.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
 // TODO(spice): add test covering the relationship between constants.
@@ -661,6 +662,7 @@ impl SpiceChunkValidatorActor {
 
         // Resolve across all pending chunks that are waiting on any of these contracts.
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
+        let mut over_cap: Vec<SpiceChunkId> = Vec::new();
         for (chunk_id, entry) in &mut self.partial_chunk_data {
             let Some(trusted) = &mut entry.trusted else {
                 continue;
@@ -673,9 +675,25 @@ impl SpiceChunkValidatorActor {
                     resolved_any = true;
                 }
             }
-            if resolved_any && trusted.missing.is_empty() {
+            if !resolved_any {
+                continue;
+            }
+            let size = total_code_size(&entry.contracts);
+            if size > MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE {
+                over_cap.push(chunk_id.clone());
+            } else if trusted.missing.is_empty() {
                 maybe_ready.push(chunk_id.clone());
             }
+        }
+        // More code than one request may cover cannot be assembled here, so the chunk is dropped
+        // rather than held. A later witness or accesses message recreates it.
+        for chunk_id in over_cap {
+            tracing::warn!(
+                target: "spice_chunk_validator",
+                ?chunk_id,
+                "accumulated contract code exceeds the per-request cap, dropping the pending chunk"
+            );
+            self.partial_chunk_data.pop(&chunk_id);
         }
 
         let signer = self

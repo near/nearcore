@@ -41,11 +41,13 @@ sha3_host_fns: { old: false, new: true }
 # the account before its state init is applied.
 universal_accounts: { old: false, new: true }
 
-# Bound the number of storage entries a state-init action may carry. Each entry
-# costs `..._state_init_per_entry` to execute (200 Ggas), and that lands in the
-# receipt's congestion gas whether or not it is burnt, so an uncapped count lets
-# one receipt reserve several times `max_congestion_outgoing_gas` (10 PGas) and
-# pin its own shard at full outgoing congestion.
+# Bound the number of storage entries the state-init actions in one receipt may
+# carry, in total. Each entry costs `..._state_init_per_entry` to execute
+# (200 Ggas), and that lands in the receipt's congestion gas whether or not it is
+# burnt, so an uncapped count lets one receipt reserve several times
+# `max_congestion_outgoing_gas` (10 PGas) and pin its own shard at full outgoing
+# congestion. Per receipt and not per action, because a receipt can carry many
+# byte-identical copies of a state init and pays for each of them.
 #
 # 1_500 is just above the ceiling the contract-created path already has: a
 # contract pays the same 200 Ggas per entry out of its own gas, against

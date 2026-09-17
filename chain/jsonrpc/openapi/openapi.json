@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.26"
+    "version": "1.3.27"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3617,9 +3617,9 @@
           },
           {
             "additionalProperties": false,
-            "description": "A `UniversalStateInit` state init commits to more access keys than allowed.",
+            "description": "The state-init actions in one receipt commit to more access keys in total\nthan allowed.",
             "properties": {
-              "UniversalStateInitTooManyKeys": {
+              "TotalNumberOfStateInitKeysExceeded": {
                 "properties": {
                   "limit": {
                     "format": "uint64",
@@ -3640,7 +3640,7 @@
               }
             },
             "required": [
-              "UniversalStateInitTooManyKeys"
+              "TotalNumberOfStateInitKeysExceeded"
             ],
             "type": "object"
           },
@@ -12704,7 +12704,7 @@
             "type": "integer"
           },
           "max_state_init_entries": {
-            "description": "Max number of storage entries a `DeterministicStateInit` or\n`UniversalStateInit` action may carry.\n\nEach entry costs `..._state_init_per_entry` to execute, which is counted\ninto the receipt's congestion gas whether or not it is ever burnt. Without\na cap one receipt reserves several times `max_congestion_outgoing_gas`,\npinning the sending shard at full outgoing congestion, which stops it\naccepting transactions.",
+            "description": "Max number of storage entries the `DeterministicStateInit` and\n`UniversalStateInit` actions in one receipt may carry, in total.\n\nEach entry costs `..._state_init_per_entry` to execute, which is counted\ninto the receipt's congestion gas whether or not it is ever burnt. Without\na cap one receipt reserves several times `max_congestion_outgoing_gas`,\npinning the sending shard at full outgoing congestion, which stops it\naccepting transactions.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -12744,7 +12744,7 @@
             "type": "integer"
           },
           "max_universal_state_init_keys": {
-            "description": "Max number of access keys a `UniversalStateInit` action may commit to.\n\nEach committed key is priced as a full `AddKey`, at the send rate, so the\nwhole cost lands when a transaction is converted to a receipt. Without a\ncap one transaction converts for more gas than a chunk has, and since\nconversion happens before anything is charged, transaction selection\nadmits it anyway.",
+            "description": "Max number of access keys the `UniversalStateInit` actions in one receipt\nmay commit to, in total.\n\nEach committed key is priced as a full `AddKey`, at the send rate, so the\nwhole cost lands when a transaction is converted to a receipt. Without a\ncap one transaction converts for more gas than a chunk has, and since\nconversion happens before anything is charged, transaction selection\nadmits it anyway. The bound is per receipt because a receipt can carry\nmany byte-identical copies of a state init and pays for each of them.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
