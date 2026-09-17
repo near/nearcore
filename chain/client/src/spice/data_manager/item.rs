@@ -7,16 +7,17 @@ use near_primitives::reed_solomon::{
     ReedSolomonEncoderSerialize, ReedSolomonPartsTracker, reed_solomon_part_length,
 };
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataIdentifier};
+use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 
 /// Identity of one piece of distributed data the engine tracks.
 // TODO(spice-data-distribution): witnesses and contract code move here when their
 // paths switch to the engine. At that moment it can be replaced with `SpiceDataIdentifier`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataId {
     /// `source` is the chunk whose execution produced the receipts; `to_shard` is their
     /// destination. Produced by `source`'s producers, needed by next-block producers of
@@ -52,25 +53,13 @@ impl DataId {
     }
 }
 
-impl From<&DataId> for SpiceDataIdentifier {
-    fn from(id: &DataId) -> Self {
-        match id {
-            DataId::ReceiptProof { source, to_shard } => SpiceDataIdentifier::ReceiptProof {
-                block_hash: source.block_hash,
-                from_shard_id: source.shard_id,
-                to_shard_id: *to_shard,
-            },
-        }
-    }
-}
-
 /// One tracked piece of data.
 // TODO(spice-data-distribution): a `Produce` variant is added with the serve path (#16275).
 pub(crate) enum Item {
     Fetch(FetchItem),
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, BorshSerialize, BorshDeserialize)]
 pub(crate) enum SpiceData {
     ReceiptProof(ReceiptProof),
     StateWitness(Box<SpiceChunkStateWitness>),
@@ -86,11 +75,12 @@ pub(crate) struct FetchItem {
     pub(crate) height: BlockHeight,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-    /// Associates sender ids to commitment they contributed to.
+    /// Maps each sender's `AccountId` to the commitment it contributed to.
     pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
 }
 
 /// What the engine holds for one claimed commitment of an item.
+#[derive(Debug)]
 pub(super) enum CommitmentState {
     /// Collecting parts toward a decode.
     Tracking(CodedTracker),
@@ -101,6 +91,15 @@ pub(super) enum CommitmentState {
 impl FetchItem {
     pub(crate) fn new(height: BlockHeight) -> Self {
         Self { height, commitments: HashMap::new(), commitment_by_contributor: HashMap::new() }
+    }
+
+    /// Senders contributed to `commitment`.
+    pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
+        self.commitment_by_contributor
+            .iter()
+            .filter(|(_, bound)| *bound == commitment)
+            .map(|(contributor, _)| contributor)
+            .collect()
     }
 
     /// Inserts a verified part under its commitment. Any claim binds the sender to the
@@ -147,22 +146,18 @@ impl FetchItem {
         let CommitmentState::Tracking(tracker) = state else {
             unreachable!("a settled commitment was returned above");
         };
-        let result = tracker.insert_part(id, &commitment, ordinal, part)?;
+        let result = tracker.insert_part(id, &commitment, ordinal, part);
         match &result {
-            PartInsertResult::Decoded(_) => *state = CommitmentState::Settled,
-            PartInsertResult::Garbage(error) => {
-                let contributors: Vec<_> = self
-                    .commitment_by_contributor
-                    .iter()
-                    .filter(|(_, bound)| *bound == &commitment)
-                    .map(|(contributor, _)| contributor)
-                    .collect();
-                tracing::debug!(target: "spice_data_distribution", ?id, ?error, ?contributors, "commitment decoded to garbage");
+            PartInsertResult::Decoded(_) | PartInsertResult::Garbage(_) => {
                 *state = CommitmentState::Settled;
             }
             PartInsertResult::Accepted
             | PartInsertResult::Duplicate
             | PartInsertResult::Settled => {}
+        }
+        if let PartInsertResult::Garbage(error) = &result {
+            let contributors = self.contributors(&commitment);
+            tracing::debug!(target: "spice_data_distribution", ?id, ?error, ?contributors, "commitment decoded to garbage");
         }
         Ok(result)
     }
@@ -217,6 +212,16 @@ pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
 }
 
+impl fmt::Debug for CodedTracker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CodedTracker")
+            .field("parts_present", &self.parts.data_parts_present())
+            .field("parts_required", &self.parts.data_parts_required())
+            .field("encoded_length", &self.parts.encoded_length())
+            .finish()
+    }
+}
+
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
         Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
@@ -230,8 +235,8 @@ impl CodedTracker {
         commitment: &SpiceDataCommitment,
         ordinal: usize,
         part: Box<[u8]>,
-    ) -> Result<PartInsertResult, DataManagerError> {
-        Ok(match self.parts.insert_part(ordinal, part, None) {
+    ) -> PartInsertResult {
+        match self.parts.insert_part(ordinal, part, None) {
             InsertPartResult::Accepted => PartInsertResult::Accepted,
             InsertPartResult::PartAlreadyAvailable => PartInsertResult::Duplicate,
             InsertPartResult::InvalidPartOrd => {
@@ -251,7 +256,7 @@ impl CodedTracker {
                     Err(error) => PartInsertResult::Garbage(error),
                 }
             }
-        })
+        }
     }
 }
 

@@ -42,8 +42,8 @@ pub(crate) enum DataManagerError {
 pub(crate) enum ReceivedParts {
     /// Parts accepted; no commitment decoded.
     Collecting,
-    /// `commitment` decoded to `data`, which matches the committed hash and the id.
-    Decoded { commitment: SpiceDataCommitment, data: SpiceData },
+    /// A commitment decoded to this data, which matches the committed hash and the id.
+    Decoded(SpiceData),
     /// The commitment was already decoded; a late or re-sent part.
     Settled,
     /// No item tracks the id.
@@ -83,7 +83,10 @@ impl DataPolicy for Policies {
     }
 }
 
-/// Owns what this node has/needs, manages items assembly and the lifetime.
+/// Owns the per-item fetch lifecycle: what this node still needs, the parts received so
+/// far and who sent them, and when an item stops being relevant.
+// TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
+// on the old actor path (#16275).
 pub(crate) struct SpiceDataManager {
     encoders: ReedSolomonEncoderCache,
     policies: Policies,
@@ -152,7 +155,7 @@ impl SpiceDataManager {
                 VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)?;
             match item.insert_part(&encoder, id, sender, verified)? {
                 PartInsertResult::Decoded(data) => {
-                    return Ok(ReceivedParts::Decoded { commitment: commitment.clone(), data });
+                    return Ok(ReceivedParts::Decoded(data));
                 }
                 PartInsertResult::Garbage(error) => {
                     return Err(DataManagerError::GarbageCommitment(error));

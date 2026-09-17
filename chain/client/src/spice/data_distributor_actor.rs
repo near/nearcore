@@ -758,16 +758,13 @@ impl SpiceDataDistributorActor {
                     parts,
                     producers.len(),
                 ) {
-                    Ok(ReceivedParts::Decoded {
-                        commitment,
-                        data: SpiceData::ReceiptProof(receipt_proof),
-                    }) => {
+                    Ok(ReceivedParts::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
                         tracing::debug!(target: "spice_data_distribution", ?data_id, ?commitment, "delivering decoded receipt proof");
                         self.executor_sender
                             .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
                         Ok(())
                     }
-                    Ok(ReceivedParts::Decoded { data: SpiceData::StateWitness(_), .. }) => {
+                    Ok(ReceivedParts::Decoded(SpiceData::StateWitness(_))) => {
                         unreachable!("decode checked the data against its receipt-proof id")
                     }
                     Ok(ReceivedParts::Collecting | ReceivedParts::Settled) => Ok(()),
