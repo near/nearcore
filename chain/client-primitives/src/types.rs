@@ -122,8 +122,9 @@ pub enum EpochSyncStatus {
         source_peer_id: PeerId,
         attempt_time: near_time::Utc,
     },
-    /// Downloading the proof one batch at a time. Batches are fetched in order,
-    /// because each one is verified against the epoch before it.
+    /// Downloading the proof one batch at a time: in order, one request in
+    /// flight, and every batch from the same peer. Nothing is verified until the
+    /// last piece arrives and the proof can be checked as a whole.
     FetchingBatches {
         current_batch_index: EpochSyncBatchIndex,
         source_peer_id: PeerId,

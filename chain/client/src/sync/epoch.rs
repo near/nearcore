@@ -27,7 +27,7 @@ use near_primitives::epoch_sync::{
     EPOCHS_PER_BATCH_V1, EpochSyncBatchIndex, EpochSyncProof, EpochSyncProofBatch,
     EpochSyncProofBatchV1, EpochSyncProofCurrentEpochData, EpochSyncProofEpochData,
     EpochSyncProofLastEpochData, EpochSyncProofSegment, EpochSyncProofTail, EpochSyncProofTailV1,
-    EpochSyncProofV1,
+    EpochSyncProofV1, MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -39,6 +39,7 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
+use std::mem::take;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -57,38 +58,48 @@ const EPOCH_SYNC_PROOF_MAX_AGE_NUM_EPOCHS: u64 = {
 
 /// Maximum number of attempts of downloading a batch before falling back
 /// to downloading the whole proof as a single blob.
-const EPOCH_SYNC_BATCHED_MAX_ATTEMPTS: u64 = 10;
+const EPOCH_SYNC_BATCHED_MAX_ATTEMPTS: u64 = 3;
+
+struct SourcePeer {
+    id: PeerId,
+    height: BlockHeight,
+}
 
 /// Collects the batches of an epoch sync proof as they arrive, until the tail
-/// signals that the whole proof has been seen.
-///
-/// Batches must arrive in order: each epoch is proven against the `next_bp_hash`
-/// of the epoch before it, so batch `i + 1` can only be checked once batch `i`
-/// is held. Arrival order is therefore also verification order, which is what
-/// lets a bad batch be blamed on the peer that served it.
+/// completes it.
+
 #[derive(Default)]
 pub struct EpochSyncProofAssembler {
     batches: Vec<EpochSyncProofBatchV1>,
+    /// Uncompressed size of everything held.
+    uncompressed_bytes: usize,
 }
 
 impl EpochSyncProofAssembler {
-    /// The batch still needed. Batch 0 is proven against the genesis.
+    /// The batch still needed. Batches are requested in order, starting at 0.
     pub(crate) fn next_batch_index(&self) -> EpochSyncBatchIndex {
         self.batches.len() as EpochSyncBatchIndex
     }
 
-    /// The last epoch held, which the next one is verified against.
-    fn last_epoch(&self) -> Option<&EpochSyncProofEpochData> {
-        self.batches.last().and_then(|batch| batch.epochs.last())
+    /// Stores a batch, unless the batches held would no longer fit in a proof.
+    fn push(
+        &mut self,
+        batch: EpochSyncProofBatchV1,
+        uncompressed_bytes: usize,
+    ) -> Result<(), Error> {
+        let total = self.uncompressed_bytes.saturating_add(uncompressed_bytes);
+        if total as u64 > MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "batches add up to {total} bytes, more than a whole proof may be"
+            )));
+        }
+        self.batches.push(batch);
+        self.uncompressed_bytes = total;
+        Ok(())
     }
 
-    /// Number of epochs held.
-    fn epochs_held(&self) -> usize {
-        self.batches.len() * EPOCHS_PER_BATCH_V1 as usize
-    }
-
-    pub(crate) fn build(self, validated_tail: EpochSyncProofTailV1) -> EpochSyncProofV1 {
-        EpochSyncProofV1::from_batches_and_tail(self.batches, validated_tail)
+    pub(crate) fn build(self, tail: EpochSyncProofTailV1) -> EpochSyncProofV1 {
+        EpochSyncProofV1::from_batches_and_tail(self.batches, tail)
     }
 }
 
@@ -212,7 +223,7 @@ impl EpochSync {
             EpochSyncStatus::FetchingBatches {
                 current_batch_index,
                 source_peer_id,
-                source_peer_height: _,
+                source_peer_height,
                 attempt_time,
                 attempt_number,
                 awaiting_response,
@@ -229,14 +240,12 @@ impl EpochSync {
                 }
 
                 if *attempt_number < EPOCH_SYNC_BATCHED_MAX_ATTEMPTS {
+                    let source =
+                        SourcePeer { id: source_peer_id.clone(), height: *source_peer_height };
                     let batch_index = *current_batch_index;
-                    let next_attempt_number = *attempt_number + 1;
-                    return self.request_batch(
-                        status,
-                        highest_height_peers,
-                        batch_index,
-                        next_attempt_number,
-                    );
+                    let attempt_number = *attempt_number + 1;
+                    self.request_batch(status, source, batch_index, attempt_number);
+                    return Ok(());
                 } else {
                     // If we failed to download a batch too many times, we fall
                     // back to downloading the whole proof as a single blob.
@@ -247,19 +256,21 @@ impl EpochSync {
             EpochSyncStatus::Done => return Ok(()),
         };
 
+        // This is a fresh download, so nothing collected for an earlier attempt -
+        // possibly from a different peer - may be carried into it.
+        self.proof_assembler = EpochSyncProofAssembler::default();
+
+        let peer = Self::choose_peer(highest_height_peers)?;
+
         if ProtocolFeature::BatchedEpochSync.enabled(PROTOCOL_VERSION) && !force_monolithic {
-            tracing::info!(target: "sync", "bootstrapping node via batched epoch sync");
+            tracing::info!(target: "sync", peer_id = ?peer.peer_info.id, "bootstrapping node via batched epoch sync");
 
-            self.request_batch(
-                status,
-                highest_height_peers,
-                self.proof_assembler.next_batch_index(),
-                /*attempt_number=*/ 1,
-            )?;
+            let source =
+                SourcePeer { id: peer.peer_info.id.clone(), height: peer.highest_block_height };
+            self.request_batch(status, source, /*batch_index=*/ 0, /*attempt_number=*/ 1);
         } else {
-            tracing::info!(target: "sync", "bootstrapping node via monolithic epoch sync");
+            tracing::info!(target: "sync", peer_id = ?peer.peer_info.id, "bootstrapping node via monolithic epoch sync");
 
-            let peer = Self::choose_peer(highest_height_peers)?;
             *status = EpochSyncStatus::InProgress {
                 source_peer_id: peer.peer_info.id.clone(),
                 source_peer_height: peer.highest_block_height,
@@ -274,30 +285,25 @@ impl EpochSync {
         Ok(())
     }
 
-    /// Asks a peer for `batch_index` and records the attempt.
+    /// Asks `source` for the batch at `batch_index` and records the attempt.
     fn request_batch(
         &self,
         status: &mut EpochSyncStatus,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        source: SourcePeer,
         batch_index: EpochSyncBatchIndex,
         attempt_number: u64,
-    ) -> Result<(), Error> {
-        let peer = Self::choose_peer(highest_height_peers)?;
+    ) {
         *status = EpochSyncStatus::FetchingBatches {
             current_batch_index: batch_index,
-            source_peer_id: peer.peer_info.id.clone(),
-            source_peer_height: peer.highest_block_height,
+            source_peer_id: source.id.clone(),
+            source_peer_height: source.height,
             attempt_time: self.clock.now_utc(),
             awaiting_response: true,
             attempt_number,
         };
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::EpochSyncBatchRequest {
-                peer_id: peer.peer_info.id.clone(),
-                batch_index,
-            },
+            NetworkRequests::EpochSyncBatchRequest { peer_id: source.id, batch_index },
         ));
-        Ok(())
     }
 
     /// Returns the batched proof already computed for `epoch_id`, if there is one.
@@ -628,31 +634,12 @@ impl EpochSync {
         Self::verify_current_epoch_data(current_epoch, &final_epoch.last_final_block_header)
     }
 
-    /// Verifies `epochs` as the continuation of what the assembler already holds,
-    /// then hands them to it. The first epoch of all is verified against the
-    /// genesis, exactly as `verify_proof` would.
-    fn verify_incoming_epochs(
-        &self,
-        epochs: &[EpochSyncProofEpochData],
-        epoch_manager: &dyn EpochManagerAdapter,
-    ) -> Result<(), Error> {
-        let mut prev = self.proof_assembler.last_epoch();
-        for epoch in epochs {
-            match prev {
-                Some(prev) => Self::verify_next_epoch(epoch, prev)?,
-                None => self.verify_first_epoch(epoch, epoch_manager)?,
-            }
-            prev = Some(epoch);
-        }
-        Ok(())
-    }
-
-    /// Verifies a batch and adds it to the download in progress.
+    /// Stores a batch as part of the download in progress.
     pub fn add_batch(
         &mut self,
         batch_index: EpochSyncBatchIndex,
         batch: EpochSyncProofBatchV1,
-        epoch_manager: &dyn EpochManagerAdapter,
+        uncompressed_bytes: usize,
     ) -> Result<(), Error> {
         if batch_index != self.proof_assembler.next_batch_index() {
             return Err(Error::Other(format!(
@@ -660,54 +647,14 @@ impl EpochSync {
                 self.proof_assembler.next_batch_index()
             )));
         }
-        self.verify_incoming_epochs(&batch.epochs, epoch_manager)?;
-        self.proof_assembler.batches.push(batch);
-        Ok(())
+        self.proof_assembler.push(batch, uncompressed_bytes)
     }
 
-    /// Verifies the tail, which completes a proof but is not stored: the caller
-    /// hands it to [`EpochSyncProofAssembler::build`].
-    ///
-    /// This performs every check `validate_proof` would, so a proof assembled
-    /// from batches is fully verified by the time it is built and does not need
-    /// to be run through `verify_proof` again.
-    ///
-    /// Returns false when the proof should be ignored rather than treated as
-    /// invalid, matching `validate_proof`'s `Ok(false)`.
-    pub fn verify_tail(
-        &self,
-        tail: &EpochSyncProofTailV1,
-        epoch_manager: &dyn EpochManagerAdapter,
-        chain: &Chain,
-        source_peer: &PeerId,
-        source_peer_height: BlockHeight,
-    ) -> Result<(), Error> {
-        if !Self::verify_proof_freshness(
-            &tail.current_epoch,
-            chain,
-            source_peer,
-            source_peer_height,
-        ) {
-            return Err(Error::InvalidEpochSyncProof("the proof is stale".to_string()));
-        }
-
-        self.verify_incoming_epochs(&tail.epochs, epoch_manager)?;
-
-        if self.proof_assembler.epochs_held() + tail.epochs.len() < 2 {
-            return Err(Error::InvalidEpochSyncProof(
-                "need at least two epochs in all_epochs".to_string(),
-            ));
-        }
-
-        // The final epoch is the last one the tail carries, or the last one already
-        // held when the tail carries none.
-        let final_epoch = tail
-            .epochs
-            .last()
-            .or_else(|| self.proof_assembler.last_epoch())
-            .expect("a proof with at least two epochs has a final epoch");
-
-        Self::verify_proof_tail(&tail.last_epoch, &tail.current_epoch, final_epoch)
+    /// Consumes the batches collected so far, together with `tail`, into the
+    /// proof they make up, leaving the assembler empty. The result has had no
+    /// verification whatsoever and must be run through [`Self::validate_proof`].
+    pub fn take_assembled_proof(&mut self, tail: EpochSyncProofTailV1) -> EpochSyncProofV1 {
+        take(&mut self.proof_assembler).build(tail)
     }
 
     fn verify_current_epoch_data(
@@ -1055,8 +1002,8 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
                     );
                     return;
                 }
-                let batch = match batch.decode() {
-                    Ok((batch, _)) => batch.into_v1(),
+                let (batch, uncompressed_bytes) = match batch.decode() {
+                    Ok((batch, uncompressed_bytes)) => (batch.into_v1(), uncompressed_bytes),
                     Err(err) => {
                         tracing::warn!(
                             target: "sync", ?err, %from_peer,
@@ -1069,12 +1016,12 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
                 match self.client.sync_handler.epoch_sync.add_batch(
                     batch_index,
                     batch,
-                    self.client.epoch_manager.as_ref(),
+                    uncompressed_bytes,
                 ) {
                     Ok(()) => {
-                        tracing::info!(
+                        tracing::debug!(
                             target: "sync", %from_peer, batch_index,
-                            "accepted epoch sync batch",
+                            "stored epoch sync batch",
                         );
                         finish_batch_attempt(true);
                     }
@@ -1096,36 +1043,38 @@ impl Handler<EpochSyncBatchResponseMessage> for ClientActor {
                         return;
                     }
                 };
-                match self.client.sync_handler.epoch_sync.verify_tail(
-                    &tail,
-                    self.client.epoch_manager.as_ref(),
-                    &self.client.chain,
-                    &from_peer,
-                    source_peer_height,
-                ) {
-                    Ok(()) => {}
-                    Err(err) => {
-                        tracing::warn!(
-                            target: "sync", ?err, %from_peer,
-                            "rejected epoch sync tail, will retry",
-                        );
-                        finish_batch_attempt(false);
-                        return;
-                    }
-                }
-
-                let assembler =
-                    std::mem::take(&mut self.client.sync_handler.epoch_sync.proof_assembler);
-                let proof = assembler.build(tail);
-
+                // The tail is the last piece, so the proof is whole and is checked
+                // in one go - exactly as a proof downloaded as a single blob is.
+                // Nothing about it has been verified before this point.
+                let proof = self.client.sync_handler.epoch_sync.take_assembled_proof(tail);
                 tracing::info!(
                     target: "sync", %from_peer, epochs = proof.all_epochs.len(),
                     "assembled epoch sync proof from batches",
                 );
-                // Every check validate_proof would run has already been done, batch
-                // by batch, so the proof goes straight to being applied.
-                if !self.apply_validated_epoch_sync_proof(proof) {
-                    tracing::warn!(target: "sync", "assembled epoch sync proof was not applied, restarting epoch sync");
+
+                let applied = match self.client.sync_handler.epoch_sync.validate_proof(
+                    &self.client.chain,
+                    &proof,
+                    &from_peer,
+                    &source_peer_height,
+                    self.client.epoch_manager.as_ref(),
+                ) {
+                    Ok(true) => self.apply_validated_epoch_sync_proof(proof),
+                    Ok(false) => false,
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "sync", ?err, %from_peer,
+                            "epoch sync proof assembled from batches is invalid",
+                        );
+                        false
+                    }
+                };
+
+                if !applied {
+                    tracing::warn!(
+                        target: "sync", %from_peer,
+                        "epoch sync proof assembled from batches was not applied, restarting epoch sync",
+                    );
                     self.client.sync_handler.sync_status =
                         SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
                 }

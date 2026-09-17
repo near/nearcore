@@ -65,7 +65,9 @@ pub struct EpochSyncProofV1 {
     pub current_epoch: EpochSyncProofCurrentEpochData,
 }
 
-const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;
+/// Also the limit on the batches a node may accumulate while downloading a proof
+/// piece by piece, since those are not checked until they are whole.
+pub const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;
 const EPOCH_SYNC_COMPRESSION_LEVEL: i32 = 3;
 
 #[derive(
@@ -109,9 +111,9 @@ const MAX_UNCOMPRESSED_EPOCH_SYNC_TAIL_SIZE: u64 = ByteSize::mib(32).0;
 
 /// One batch of `EPOCHS_PER_BATCH_V1` consecutive epochs from an epoch sync proof.
 ///
-/// A batch is verified against the epoch that precedes it, so batches are only
-/// meaningful in order: batch 0 is proven against the genesis, and batch `i + 1`
-/// against the last epoch of batch `i`. See [`EpochSyncProofV1::all_epochs`].
+/// A batch carries no proof of its own: each epoch is checked against the one
+/// before it, so a batch only means anything once the whole proof it belongs to
+/// has been reassembled and verified. See [`EpochSyncProofV1::all_epochs`].
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
