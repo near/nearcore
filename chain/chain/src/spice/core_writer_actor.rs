@@ -30,6 +30,8 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+mod boundary;
+
 /// Message that should be sent once executions results for all chunks in a block are endorsed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionResultEndorsed {
@@ -71,13 +73,26 @@ impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ChunkEndorsement,
             msg.0.block_hash(),
         ) {
             return;
         }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
+            match err {
+                ProcessChunkError::InvalidEndorsement(
+                    InvalidSpiceEndorsementError::EndorsementIsNotRelevant,
+                )
+                | ProcessChunkError::InvalidPendingEndorsement(
+                    InvalidSpiceEndorsementError::EndorsementIsNotRelevant,
+                ) => {
+                    tracing::debug!(target: "spice_core_writer", ?err, "dropping irrelevant spice chunk endorsement");
+                }
+                err => {
+                    tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
+                }
+            }
         }
     }
 }
@@ -129,8 +144,11 @@ impl SpiceCoreWriterActor {
         shard_id: ShardId,
         execution_result: &ChunkExecutionResult,
     ) -> StoreUpdate {
-        let key = get_execution_results_key(block_hash, shard_id);
         let mut store_update = self.chain_store.store().store_update();
+        if self.boundary_rejects_execution_result(block_hash, shard_id, execution_result) {
+            return store_update;
+        }
+        let key = get_execution_results_key(block_hash, shard_id);
         store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
         store_update
     }
@@ -578,6 +596,7 @@ impl SpiceCoreWriterActor {
         // A pre-spice block carries no core statements and needs no certification,
         // so there is nothing to record for it.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            self.handle_processed_last_pre_spice_block(&block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();

@@ -91,6 +91,14 @@ pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(||
     )
     .unwrap()
 });
+pub static BLOCK_SPICE_OLDEST_UNCERTIFIED_AGE: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_spice_oldest_uncertified_age",
+        "Height distance from the current block to the oldest block with uncertified chunks, \
+         0 when nothing older than the current block awaits certification",
+    )
+    .unwrap()
+});
 pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_spice_pre_activation_messages_dropped_total",

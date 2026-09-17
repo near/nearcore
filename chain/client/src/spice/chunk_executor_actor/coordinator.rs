@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::instrument;
 
+mod boundary;
+
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStoreAdapter,
     transaction_validity_period: NumBlocks,
@@ -191,6 +193,7 @@ impl ChunkExecutorActor {
         // of block processing and has no spice state to work from, so this returns
         // without touching it.
         if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            self.bootstrap_last_pre_spice_block(block_hash)?;
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
@@ -352,6 +355,15 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
+        // The head can be a last pre-spice block, which is still pre-spice, so this
+        // must run before the spice-at-head gate below.
+        if let Err(err) = self.recover_boundary_bootstrap() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed to re-run boundary bootstrap on startup",
+            );
+        }
         // Both recovery steps below read the spice execution heads, which only
         // exist once spice is active
         if !spice_enabled_at_head_on_startup(&self.chain_store) {
@@ -391,14 +403,39 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
         let to_shard_id = *to_shard;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
-        // TODO(spice-data-distribution): a dropped delivery leaves the data manager's item
-        // parked with no verification result until it expires; once pulls exist that is a
-        // proof never re-fetched. Create the executor for a shard tracked as of the source
-        // block instead of dropping (#16275).
+        // A receipt for a shard this node does track can arrive before anything created
+        // the executor, and the push is not retried, so create it here if the shard
+        // is tracked as of the source block.
+        // TODO(spice-resharding): anchoring on the source block (or the head when it
+        // is not received yet) is not enough when the source block is in a different
+        // shard layout.
+        if self.executor_for_shard_id(to_shard_id).is_none() {
+            let anchor = if self.chain_store.get_block_header(&block_hash).is_ok() {
+                block_hash
+            } else {
+                match self.chain_store.head() {
+                    Ok(head) => head.last_block_hash,
+                    Err(err) => {
+                        tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read head looking up tracking for a receipt");
+                        return;
+                    }
+                }
+            };
+            let tracked = match self.shard_tracker.tracked_shard_uids_this_or_next_epoch(&anchor) {
+                Ok(tracked) => tracked,
+                Err(err) => {
+                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to look up tracked shards for a receipt");
+                    return;
+                }
+            };
+            if let Some(shard_uid) =
+                tracked.into_iter().find(|shard_uid| shard_uid.shard_id() == to_shard_id)
+            {
+                self.get_or_create_per_shard_executor(shard_uid);
+            }
+        }
+        // TODO(spice-data-distribution): dropping leaves the data manager's item parked
+        // with no verification result until it expires (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
