@@ -53,12 +53,6 @@ impl DataId {
     }
 }
 
-/// One tracked piece of data.
-// TODO(spice-data-distribution): a `Produce` variant is added with the serve path (#16275).
-pub(crate) enum Item {
-    Fetch(FetchItem),
-}
-
 #[derive(Debug, Clone, PartialEq, BorshSerialize, BorshDeserialize)]
 pub(crate) enum SpiceData {
     ReceiptProof(ReceiptProof),

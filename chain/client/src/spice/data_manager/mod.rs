@@ -7,7 +7,7 @@ pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
 pub use item::DataId;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
-use item::{FetchItem, Item, PartInsertResult};
+use item::{FetchItem, PartInsertResult};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -91,7 +91,7 @@ pub(crate) struct SpiceDataManager {
     encoders: ReedSolomonEncoderCache,
     policies: Policies,
     /// All tracked items, in any state.
-    items: HashMap<DataId, Item>,
+    items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
     /// Highest final execution head reported; `None` until the first report.
@@ -127,7 +127,7 @@ impl SpiceDataManager {
                 continue;
             }
             self.items_by_height.entry(height).or_default().push(id.clone());
-            self.items.insert(id, Item::Fetch(FetchItem::new(height)));
+            self.items.insert(id, FetchItem::new(height));
         }
         Ok(())
     }
@@ -144,7 +144,7 @@ impl SpiceDataManager {
         parts: Vec<SpiceDataPart>,
         total_parts: usize,
     ) -> Result<ReceivedParts, DataManagerError> {
-        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
+        let Some(item) = self.items.get_mut(id) else {
             return Ok(ReceivedParts::NotWanted);
         };
         let encoder = self.encoders.entry(total_parts);
@@ -179,8 +179,7 @@ impl SpiceDataManager {
         let expired = std::mem::replace(&mut self.items_by_height, live);
         for (bucket_height, ids) in expired {
             for id in ids {
-                let Item::Fetch(item) =
-                    self.items.get(&id).expect("index entry names a tracked item");
+                let item = self.items.get(&id).expect("index entry names a tracked item");
                 assert_eq!(item.height, bucket_height, "index entry height matches its item");
                 self.items.remove(&id);
             }
