@@ -51,7 +51,8 @@ impl Registers {
         }
     }
 
-    #[cfg(test)]
+    // Only the host function unit tests use this, and those require the wasmtime runner.
+    #[cfg(all(test, feature = "wasmtime_vm"))]
     pub(super) fn get_for_free<'s>(&'s self, register_id: u64) -> Option<&'s [u8]> {
         self.registers.get(&register_id).map(|data| &data[..])
     }
