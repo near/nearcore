@@ -6,6 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
+use near_primitives::version::ProtocolFeature;
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
@@ -26,6 +27,13 @@ macro_rules! checked_sub_or_default {
         }
     };
 }
+
+// The queue only runs for SPICE blocks, so it can assume a gas key transaction's
+// account pays `total_cost`.
+const _: () = assert!(
+    ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version()
+        <= ProtocolFeature::Spice.protocol_version()
+);
 
 /// Maximum number of pending access key transactions per account across all
 /// uncertified blocks.
@@ -97,7 +105,7 @@ pub struct PendingTransactionQueue {
     pending_accounts: HashMap<AccountId, PendingAccount>,
     /// Nonce tracking, per [`NonceScope`].
     pending_nonces: HashMap<NonceScope, PendingNonce>,
-    /// Per-gas-key cost. Includes gas_key_cost from gas key txs + WithdrawFromGasKey amounts.
+    /// Per-gas-key cost. Includes `burnt_amount` from gas key txs + WithdrawFromGasKey amounts.
     pending_gas_key_costs: HashMap<GasKey, Balance>,
 }
 
@@ -145,7 +153,7 @@ struct PendingChunkData {
     accounts: HashMap<AccountId, PendingAccount>,
     /// Max nonce for this chunk, per [`NonceScope`].
     nonces: HashMap<NonceScope, Nonce>,
-    /// Per-gas-key costs for this chunk (gas_key_cost + WithdrawFromGasKey).
+    /// Per-gas-key costs for this chunk (`burnt_amount` + WithdrawFromGasKey).
     gas_key_costs: HashMap<GasKey, Balance>,
 }
 
@@ -154,7 +162,7 @@ struct PendingChunkData {
 #[derive(Clone, Default)]
 struct PendingAccount {
     access_key_tx_count: usize,
-    /// Access key total_cost + gas key deposit_cost.
+    /// `total_cost` of every transaction.
     paid_from_balance: Balance,
 }
 
@@ -233,26 +241,20 @@ impl PendingTransactionQueue {
                 }
             };
 
-            // Update per-account aggregates.
+            // The account pays `total_cost` of every transaction. A gas key
+            // transaction also reserves `burnt_amount` on the key, which pays it
+            // when the transaction fails to convert (`GasKeyCoversFailedTxGas`).
             let chunk_account = chunk_data.accounts.entry(signer_id.clone()).or_default();
-            if is_gas_key_tx {
-                // Gas key tx: only deposit_cost is paid from account balance.
-                chunk_account.paid_from_balance =
-                    chunk_account.paid_from_balance.saturating_add(cost.deposit_cost);
-            } else {
-                // Access key tx: total_cost is paid from account balance.
-                chunk_account.access_key_tx_count += 1;
-                chunk_account.paid_from_balance =
-                    chunk_account.paid_from_balance.saturating_add(cost.total_cost);
-            }
-
-            // Track gas key costs (gas_key_cost for gas key txs).
+            chunk_account.paid_from_balance =
+                chunk_account.paid_from_balance.saturating_add(cost.total_cost);
             if is_gas_key_tx {
                 let gas_key_entry = chunk_data
                     .gas_key_costs
                     .entry((signer_id.clone(), key_handle.clone()))
                     .or_insert(Balance::ZERO);
-                *gas_key_entry = gas_key_entry.saturating_add(cost.gas_cost);
+                *gas_key_entry = gas_key_entry.saturating_add(cost.burnt_amount);
+            } else {
+                chunk_account.access_key_tx_count += 1;
             }
 
             // Scan actions for WithdrawFromGasKey (affects gas key balance).
@@ -415,11 +417,12 @@ struct PendingStateSnapshot {
 /// for constraints NOT handled by the ephemeral TrieUpdate.
 ///
 /// The ephemeral TrieUpdate handles within-chunk accumulation for balance
-/// (deducts cost), gas key balance (deducts gas_key_cost), and nonces
-/// (advances after each accepted tx). The session only tracks what the
-/// ephemeral state does NOT cover:
+/// (deducts cost) and nonces (advances after each accepted tx). A successful
+/// gas key tx leaves the key balance unchanged. The session only tracks what
+/// the ephemeral state does NOT cover:
 /// - P_MAX counts (per account)
-/// - WithdrawFromGasKey amounts (action effects not applied by ephemeral state)
+/// - Per gas key: WithdrawFromGasKey amounts (action effects not applied by
+///   ephemeral state) and the `burnt_amount` of each admitted gas key tx
 ///
 /// The session holds an `Arc<Mutex<ShardedPendingTransactionQueue>>` and acquires the lock briefly
 /// per transaction rather than holding it for the entire chunk production duration. This avoids
@@ -427,20 +430,29 @@ struct PendingStateSnapshot {
 pub struct PendingTxSession {
     pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     shard_uid: ShardUId,
+    /// The fee config and gas price of the chunk, to compute a tx's `burnt_amount`.
+    runtime_config: RuntimeConfig,
+    gas_price: Balance,
     session_access_key_tx_counts: HashMap<AccountId, usize>,
-    session_gas_key_withdrawals: HashMap<GasKey, Balance>,
+    /// Per gas key: `WithdrawFromGasKey` amounts and the `burnt_amount` of each
+    /// admitted gas key tx, across nonce indexes.
+    session_gas_key_costs: HashMap<GasKey, Balance>,
 }
 
 impl PendingTxSession {
     pub fn new(
         pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
         shard_uid: ShardUId,
+        runtime_config: RuntimeConfig,
+        gas_price: Balance,
     ) -> Self {
         Self {
             pending_transaction_queue,
             shard_uid,
+            runtime_config,
+            gas_price,
             session_access_key_tx_counts: HashMap::new(),
-            session_gas_key_withdrawals: HashMap::new(),
+            session_gas_key_costs: HashMap::new(),
         }
     }
 
@@ -474,10 +486,9 @@ impl PendingTxSession {
 
         // Build constraints for runtime validation.
         let gas_key = (signer_id.clone(), key_handle);
-        let session_gas_key_withdrawal =
-            self.session_gas_key_withdrawals.get(&gas_key).copied().unwrap_or(Balance::ZERO);
-        let paid_from_gas_key =
-            snapshot.pending_gas_key_cost.saturating_add(session_gas_key_withdrawal);
+        let session_gas_key_cost =
+            self.session_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
+        let paid_from_gas_key = snapshot.pending_gas_key_cost.saturating_add(session_gas_key_cost);
 
         // Update session state optimistically (assumes tx will be accepted).
         // If the runtime subsequently rejects the tx (e.g. insufficient
@@ -496,11 +507,20 @@ impl PendingTxSession {
         for action in tx.transaction.actions() {
             if let Action::WithdrawFromGasKey(withdraw) = action {
                 let entry = self
-                    .session_gas_key_withdrawals
+                    .session_gas_key_costs
                     .entry((signer_id.clone(), (&withdraw.public_key).into()))
                     .or_insert(Balance::ZERO);
                 *entry = entry.saturating_add(withdraw.amount);
             }
+        }
+        // The gas key pays `burnt_amount` if this tx fails to convert, so the key's
+        // next tx in this session sees it reserved. Chunk production rejects a tx
+        // whose cost overflows, so it reserves nothing.
+        if is_gas_key_tx
+            && let Ok(cost) = tx_cost(&self.runtime_config, &tx.transaction, self.gas_price)
+        {
+            let entry = self.session_gas_key_costs.entry(gas_key).or_insert(Balance::ZERO);
+            *entry = entry.saturating_add(cost.burnt_amount);
         }
 
         PendingTxCheckResult::Admit(PendingConstraints {
@@ -587,7 +607,12 @@ mod tests {
     }
 
     fn make_session(sharded: &Arc<Mutex<ShardedPendingTransactionQueue>>) -> PendingTxSession {
-        PendingTxSession::new(Arc::clone(sharded), TEST_SHARD_UID)
+        PendingTxSession::new(
+            Arc::clone(sharded),
+            TEST_SHARD_UID,
+            RuntimeConfig::test(),
+            TEST_GAS_PRICE,
+        )
     }
 
     /// `query_pending_state` with the key handle its callers derive for it.
@@ -939,6 +964,64 @@ mod tests {
                 paid_from_balance: expected_cost,
                 paid_from_gas_key: Balance::ZERO,
                 max_nonce: 1,
+                max_bootstrap_nonce: 0,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_reserves_total_cost_on_account_and_burnt_amount_on_key() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let gas_key_tx = make_gas_key_transfer_tx(&signer, 1);
+        let cost = tx_cost(&config, &gas_key_tx.transaction, TEST_GAS_PRICE).unwrap();
+        add_chunk_txs(
+            &sharded,
+            CryptoHash::hash_bytes(&[1]),
+            &[gas_key_tx],
+            &config,
+            TEST_GAS_PRICE,
+        );
+        let mut session = make_session(&sharded);
+        let next_gas_key_tx = make_gas_key_transfer_tx(&signer, 2);
+        assert_eq!(
+            session.check_pending(&next_gas_key_tx),
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: cost.total_cost,
+                paid_from_gas_key: cost.burnt_amount,
+                max_nonce: 1,
+                max_bootstrap_nonce: 0,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_session_reserves_burnt_amount_across_nonce_indexes() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session(&sharded);
+        let first_gas_key_tx = make_gas_key_transfer_tx(&signer, 1);
+        let burnt_amount =
+            tx_cost(&config, &first_gas_key_tx.transaction, TEST_GAS_PRICE).unwrap().burnt_amount;
+        assert!(admits(&mut session, &first_gas_key_tx));
+
+        let other_nonce_index = 1;
+        let second_gas_key_tx = SignedTransaction::send_money_v1(
+            TransactionNonce::from_nonce_and_index(1, other_nonce_index),
+            signer.get_account_id(),
+            "bob.near".parse().unwrap(),
+            &signer,
+            TEST_DEPOSIT,
+            CryptoHash::default(),
+        );
+        assert_eq!(
+            session.check_pending(&second_gas_key_tx),
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: Balance::ZERO,
+                paid_from_gas_key: burnt_amount,
+                max_nonce: 0,
                 max_bootstrap_nonce: 0,
             }),
         );

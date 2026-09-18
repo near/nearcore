@@ -15,7 +15,7 @@ use near_primitives::transaction::{
     Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::types::NonceIndex;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
@@ -205,6 +205,7 @@ pub fn verify_and_charge_tx_ephemeral<E>(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
     pending: &PendingConstraints,
     gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, E>,
 ) -> Result<TxVerdict, E> {
@@ -236,6 +237,7 @@ pub fn verify_and_charge_tx_ephemeral<E>(
                 tx,
                 transaction_cost,
                 block_height,
+                current_protocol_version,
                 pending,
             )
         }
@@ -398,7 +400,7 @@ fn check_and_compute_new_allowance(
 
 /// Verify a regular (non-gas-key) transaction and compute the charge outcome.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedWithGasBurnt`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
 /// This function performs no mutation; all state changes are returned in the
@@ -513,7 +515,7 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
 /// otherwise have provided, a nonce plus the balance and storage checks. The
 /// nonce lives on the account until the state init installs the keys.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `FailedWithGasBurnt`).
 /// Performs no mutation; changes are returned in the `VerificationResult`.
 pub fn verify_and_charge_bootstrap_tx_ephemeral(
     config: &RuntimeConfig,
@@ -613,7 +615,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
 /// This function performs validation only and does NOT mutate `account` or `access_key`.
 /// Callers are responsible for applying state changes based on the returned variant:
 /// - `Success(result)`: apply all state changes via `result.apply()`.
-/// - `DepositFailed { result, .. }`: apply gas-only changes via `result.apply()`.
+/// - `FailedWithGasBurnt { result, .. }`: apply gas-only changes via `result.apply()`.
 /// - `Failed(_)`: no state changes.
 pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
@@ -623,6 +625,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
     pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to ONLY call this function for transactions with
@@ -638,6 +641,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         burnt_amount,
         gas_cost,
         deposit_cost,
+        total_cost,
         ..
     } = *transaction_cost;
     let account_id = tx.signer_id();
@@ -666,10 +670,18 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         return TxVerdict::Failed(e);
     }
 
-    // Check gas key has enough balance for gas costs, accounting for
-    // pending gas key costs (prior gas key txs + pending WithdrawFromGasKey).
-    // Unlike account balance, gas key balance only changes through transactions
-    // that PTQ explicitly tracks, so pending should never exceed the balance.
+    // The gas key covers `burnt_amount`, the tokens burnt converting a
+    // transaction that then fails. Before `GasKeyCoversFailedTxGas` it also
+    // prepays the attached gas, and the account pays the deposits alone.
+    let gas_paid_from_account =
+        ProtocolFeature::GasKeyCoversFailedTxGas.enabled(current_protocol_version);
+    let required_gas_key_balance = if gas_paid_from_account { burnt_amount } else { gas_cost };
+    let account_cost = if gas_paid_from_account { total_cost } else { deposit_cost };
+
+    // Check gas key has enough balance, accounting for pending gas key costs
+    // (prior gas key txs + pending WithdrawFromGasKey). Unlike account balance,
+    // gas key balance only changes through transactions that PTQ explicitly
+    // tracks, so pending should never exceed the balance.
     let Some(available_gas_key_balance) =
         gas_key_info.balance.checked_sub(pending.paid_from_gas_key)
     else {
@@ -682,28 +694,27 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
             signer_id: account_id.clone(),
             balance: Balance::ZERO,
-            cost: gas_cost,
+            cost: required_gas_key_balance,
         });
     };
-    if available_gas_key_balance < gas_cost {
+    if available_gas_key_balance < required_gas_key_balance {
         return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
             signer_id: account_id.clone(),
             balance: available_gas_key_balance,
-            cost: gas_cost,
+            cost: required_gas_key_balance,
         });
     }
-    let new_gas_key_balance = gas_key_info.balance.checked_sub(gas_cost).unwrap();
-
-    // Calculate new key balance in case of deposit failure. Charges only for the gas burned on
-    // converting the transaction to a receipt.
-    let Some(new_key_balance_on_deposit_failure) = gas_key_info.balance.checked_sub(burnt_amount)
-    else {
-        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
-            signer_id: account_id.clone(),
-            balance: gas_key_info.balance,
-            cost: burnt_amount,
-        });
+    // From `GasKeyCoversFailedTxGas` on, a successful transaction leaves the key
+    // balance as it is, so the access key record needs no write.
+    let new_gas_key_balance = if gas_paid_from_account {
+        None
+    } else {
+        Some(gas_key_info.balance.checked_sub(gas_cost).unwrap())
     };
+    let new_key_balance_on_failure = gas_key_info
+        .balance
+        .checked_sub(burnt_amount)
+        .expect("the balance check above requires at least burnt_amount");
 
     // Validate FunctionCall permission constraints if applicable
     if let Some(function_call_permission) = access_key.permission.function_call_permission()
@@ -726,41 +737,53 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     };
     let make_success_result =
         move |new_account_amount| make_result(new_account_amount, new_gas_key_balance);
-    let make_deposit_failed_result = move |new_account_amount| {
-        make_result(new_account_amount, new_key_balance_on_deposit_failure)
-    };
+    let make_failure_result =
+        move |new_account_amount| make_result(new_account_amount, Some(new_key_balance_on_failure));
 
-    // Check account has enough balance for deposits, accounting for
-    // pending balance costs from prior txs. saturating_sub is fine: on the
-    // consensus path pending constraints are always default (zero), so the
-    // subtraction is exact. On the RPC / chunk-production path it is
-    // best-effort.
+    // Check account has enough balance, accounting for pending balance costs
+    // from prior txs. saturating_sub is fine: on the consensus path pending
+    // constraints are always default (zero), so the subtraction is exact. On
+    // the RPC / chunk-production path it is best-effort.
     let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
-    if available_balance < deposit_cost {
-        return TxVerdict::DepositFailed {
-            result: make_deposit_failed_result(account.amount()),
-            error: InvalidTxError::NotEnoughBalanceForDeposit {
+    if available_balance < account_cost {
+        let error = if gas_paid_from_account {
+            InvalidTxError::NotEnoughBalance {
                 signer_id: account_id.clone(),
                 balance: available_balance,
-                cost: deposit_cost,
+                cost: account_cost,
+            }
+        } else {
+            InvalidTxError::NotEnoughBalanceForDeposit {
+                signer_id: account_id.clone(),
+                balance: available_balance,
+                cost: account_cost,
                 reason: DepositCostFailureReason::NotEnoughBalance,
-            },
+            }
+        };
+        return TxVerdict::FailedWithGasBurnt {
+            result: make_failure_result(account.amount()),
+            error,
         };
     }
-    // Debit only this tx's deposit cost, not the pending amount.
-    let new_account_amount = account.amount().checked_sub(deposit_cost).unwrap();
+    // Debit only this tx's cost, not the pending amount.
+    let new_account_amount = account.amount().checked_sub(account_cost).unwrap();
 
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return TxVerdict::DepositFailed {
-                result: make_deposit_failed_result(account.amount()),
-                error: InvalidTxError::NotEnoughBalanceForDeposit {
+            let error = if gas_paid_from_account {
+                InvalidTxError::LackBalanceForState { signer_id: account_id.clone(), amount }
+            } else {
+                InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
                     balance: new_account_amount,
                     cost: amount,
                     reason: DepositCostFailureReason::LackBalanceForState,
-                },
+                }
+            };
+            return TxVerdict::FailedWithGasBurnt {
+                result: make_failure_result(account.amount()),
+                error,
             };
         }
         Err(StorageStakingError::StorageError(err)) => {
@@ -1190,12 +1213,13 @@ mod tests {
             tx,
             &transaction_cost,
             block_height,
+            current_protocol_version,
             &PendingConstraints::default(),
             gas_key_nonce,
         )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
-            TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
+            TxVerdict::Failed(e) | TxVerdict::FailedWithGasBurnt { error: e, .. } => return Err(e),
         };
         let mut access_key = authorization.into_access_key();
         result.apply(&mut signer, access_key.as_mut())?;
@@ -2879,17 +2903,20 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
-            &config,
-            &signer_account,
-            &access_key,
-            current_nonce,
-            tx,
-            &cost,
-            None,
-            &PendingConstraints::default(),
-        ) else {
-            panic!("expected DepositFailed");
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                current_nonce,
+                tx,
+                &cost,
+                None,
+                ProtocolFeature::GasKeys.protocol_version(),
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
         };
         match error {
             InvalidTxError::NotEnoughBalanceForDeposit { signer_id, reason, .. } => {
@@ -2905,7 +2932,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }
@@ -2945,17 +2972,20 @@ mod tests {
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
-        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
-            &config,
-            &signer_account,
-            &access_key,
-            current_nonce,
-            tx,
-            &cost,
-            None,
-            &PendingConstraints::default(),
-        ) else {
-            panic!("expected DepositFailed");
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                current_nonce,
+                tx,
+                &cost,
+                None,
+                ProtocolFeature::GasKeys.protocol_version(),
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
         };
         let new_account_amount = initial_balance.checked_sub(cost.deposit_cost).unwrap();
         match error {
@@ -2969,6 +2999,268 @@ mod tests {
         assert_eq!(result.gas_burnt, cost.gas_burnt);
         assert_eq!(result.burnt_amount, cost.burnt_amount);
         assert_eq!(result.new_account_amount, initial_balance);
+    }
+
+    const COVERS_FAILED_TX_GAS_PROTOCOL_VERSION: ProtocolVersion =
+        ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version();
+
+    #[test]
+    fn test_gas_key_tx_account_pays_gas_and_deposit() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, 2, None);
+
+        let deposit = Balance::from_near(5);
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+
+        let cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+        )
+        .unwrap();
+
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        assert_eq!(account.amount(), TESTING_INIT_BALANCE.checked_sub(cost.total_cost).unwrap());
+        let access_key =
+            get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
+        assert_eq!(access_key.gas_key_info().unwrap().balance, TESTING_GAS_KEY_BALANCE);
+    }
+
+    #[test]
+    fn test_gas_key_tx_needs_only_the_conversion_burn_in_key_balance() {
+        let config = RuntimeConfig::test();
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, 2, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, COVERS_FAILED_TX_GAS_PROTOCOL_VERSION)
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        assert!(cost.burnt_amount < cost.gas_cost);
+
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let mut access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
+        access_key.gas_key_info_mut().unwrap().balance = cost.burnt_amount;
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::Success(result) = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            current_nonce,
+            tx,
+            &cost,
+            None,
+            COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+            &PendingConstraints::default(),
+        ) else {
+            panic!("expected Success");
+        };
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey { new_balance: None, nonce_index: 0, nonce: initial_nonce + 1 }
+        );
+        assert_eq!(
+            result.new_account_amount,
+            TESTING_INIT_BALANCE.checked_sub(cost.total_cost).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_before_feature_needs_the_full_gas_cost_in_key_balance() {
+        let config = RuntimeConfig::test();
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, 2, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let mut access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
+        access_key.gas_key_info_mut().unwrap().balance = cost.burnt_amount;
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::Failed(error) = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            current_nonce,
+            tx,
+            &cost,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+            &PendingConstraints::default(),
+        ) else {
+            panic!("expected Failed");
+        };
+        assert_eq!(
+            error,
+            InvalidTxError::NotEnoughGasKeyBalance {
+                signer_id: alice_account(),
+                balance: cost.burnt_amount,
+                cost: cost.gas_cost,
+            }
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_charges_key_when_account_cannot_pay_gas() {
+        let config = RuntimeConfig::test();
+        let small_account_balance = Balance::from_yoctonear(1);
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(small_account_balance, TESTING_GAS_KEY_BALANCE, 2, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, COVERS_FAILED_TX_GAS_PROTOCOL_VERSION)
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                current_nonce,
+                tx,
+                &cost,
+                None,
+                COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        assert_eq!(
+            error,
+            InvalidTxError::NotEnoughBalance {
+                signer_id: alice_account(),
+                balance: small_account_balance,
+                cost: cost.total_cost,
+            }
+        );
+        assert_eq!(result.new_account_amount, small_account_balance);
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
+                nonce_index: 0,
+                nonce: initial_nonce + 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_charges_key_when_storage_stake_fails() {
+        let config = RuntimeConfig::test();
+        // Many nonces push storage_usage above ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+        // so the account is not exempt from storage staking requirements.
+        let num_nonces = 60;
+        let initial_balance = Balance::from_near(1);
+        let deposit = Balance::from_millinear(999);
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(initial_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, COVERS_FAILED_TX_GAS_PROTOCOL_VERSION)
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                current_nonce,
+                tx,
+                &cost,
+                None,
+                COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        let InvalidTxError::LackBalanceForState { signer_id, .. } = error else {
+            panic!("expected LackBalanceForState, got {:?}", error);
+        };
+        assert_eq!(signer_id, alice_account());
+        assert_eq!(result.new_account_amount, initial_balance);
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
+                nonce_index: 0,
+                nonce: initial_nonce + 1,
+            }
+        );
     }
 
     mod strict_nonce_tests {

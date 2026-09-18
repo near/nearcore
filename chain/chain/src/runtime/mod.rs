@@ -789,13 +789,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             &tx,
             &cost,
             block_height,
+            current_protocol_version,
             pending_constraints,
             gas_key_nonce,
         )?;
 
         match verdict {
             TxVerdict::Success(_) => Ok(()),
-            TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
+            TxVerdict::FailedWithGasBurnt { error, .. } | TxVerdict::Failed(error) => Err(error),
         }
     }
 
@@ -1086,6 +1087,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     validated_tx.to_tx(),
                     &cost,
                     Some(next_block_height),
+                    protocol_version,
                     &pending_constraints,
                     gas_key_nonce,
                 );
@@ -1103,7 +1105,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => {
+                    TxVerdict::FailedWithGasBurnt { error, .. } | TxVerdict::Failed(error) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?error, "discarding transaction that failed validation or verification");
                         rejected_invalid_tx += 1;
                     }

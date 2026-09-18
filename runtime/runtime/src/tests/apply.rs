@@ -4923,6 +4923,111 @@ fn test_apply_gas_key_transaction() {
 }
 
 #[test]
+fn test_apply_gas_key_transaction_charges_account_and_refunds_account() {
+    let num_nonces = 3;
+    let initial_balance = Balance::from_near(1_000_000);
+    let transfer_amount = Balance::from_near(100);
+    let gas_key_balance = Balance::from_millinear(1);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        num_nonces,
+        gas_key_balance,
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version();
+
+    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(initial_nonce + 1, 1),
+        alice_account(),
+        bob_account(),
+        &*gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
+        CryptoHash::default(),
+    );
+    let transaction_cost =
+        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+    let mut incoming = apply_result.outgoing_receipts.clone();
+    let mut tokens_burnt = apply_result.stats.balance.tx_burnt_amount;
+    let mut root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+
+    let state = tries.new_trie_update(shard_uid, root);
+    let account_after_conversion = get_account(&state, &alice_account()).unwrap().unwrap().amount();
+    assert_eq!(
+        account_after_conversion,
+        initial_balance.checked_sub(transaction_cost.total_cost).unwrap()
+    );
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
+
+    // Run some rounds so the transfer receipt and its gas refund are processed.
+    const MAX_RECEIPT_ROUNDS: usize = 5;
+    let mut settled = false;
+    for _ in 0..MAX_RECEIPT_ROUNDS {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root),
+                &None,
+                &apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .expect("apply should succeed");
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        incoming = apply_result.outgoing_receipts.clone();
+        tokens_burnt =
+            tokens_burnt.checked_add(apply_result.stats.balance.tx_burnt_amount).unwrap();
+        apply_state.block_height += 1;
+        if incoming.is_empty() && apply_result.delayed_receipts_count == 0 {
+            settled = true;
+            break;
+        }
+    }
+    assert!(settled, "receipts did not finish within {MAX_RECEIPT_ROUNDS} rounds");
+
+    let state = tries.new_trie_update(shard_uid, root);
+    let account_after_refund = get_account(&state, &alice_account()).unwrap().unwrap().amount();
+    assert_eq!(
+        account_after_refund,
+        initial_balance.checked_sub(transfer_amount).unwrap().checked_sub(tokens_burnt).unwrap()
+    );
+    assert!(
+        tokens_burnt < transaction_cost.gas_cost,
+        "a refund should have returned part of the prepaid gas: {tokens_burnt} of {}",
+        transaction_cost.gas_cost
+    );
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
+}
+
+#[test]
 fn test_gas_refund_to_gas_key() {
     let initial_balance = Balance::from_near(1_000_000);
     let gas_key_balance = Balance::from_millinear(10);
@@ -4974,6 +5079,55 @@ fn test_gas_refund_to_gas_key() {
     // Account balance should NOT change
     let alice = get_account(&state, &alice_account()).unwrap().unwrap();
     assert_eq!(alice.amount(), initial_balance);
+}
+
+#[test]
+fn test_gas_refund_to_account_after_gas_key_covers_failed_tx_gas() {
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_key_balance = Balance::from_millinear(10);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        initial_balance,
+        1,
+        gas_key_balance,
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version();
+
+    let refund_amount = Balance::from_millinear(1);
+    let gas_refund =
+        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[gas_refund],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
+
+    let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
 }
 
 #[test]

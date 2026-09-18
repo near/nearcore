@@ -245,12 +245,12 @@ pub struct ValidatorAccountsUpdate {
 /// for balance and nonce validation during chunk production.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingConstraints {
-    /// Total balance already committed by this account's pending access key
-    /// transactions (total_cost) plus pending gas key deposit costs.
+    /// Total balance already committed by this account's pending transactions
+    /// (`total_cost` of each).
     pub paid_from_balance: Balance,
     /// Total gas key cost already committed by pending gas key transactions
-    /// signed with this key, plus any pending WithdrawFromGasKey amounts
-    /// targeting this key.
+    /// signed with this key (`burnt_amount` of each), plus any pending
+    /// WithdrawFromGasKey amounts targeting this key.
     pub paid_from_gas_key: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
@@ -279,16 +279,17 @@ impl Default for PendingConstraints {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
-/// - `DepositFailed`: apply gas-only state changes via `VerificationResult::apply`
+/// - `FailedWithGasBurnt`: apply gas-only state changes via `VerificationResult::apply`
 ///   (only returned by gas key path).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
-    /// Gas key valid with sufficient gas balance, but account can't cover deposit.
-    /// Gas key balance is deducted, account balance unchanged.
-    DepositFailed { result: VerificationResult, error: InvalidTxError },
+    /// Gas key valid with sufficient balance, but the account can't cover its
+    /// share of the cost. The gas key is charged the tokens burnt converting
+    /// the transaction, and the account balance is unchanged.
+    FailedWithGasBurnt { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
 }
@@ -317,11 +318,24 @@ pub struct VerificationResult {
 pub enum AccessKeyUpdate {
     /// Regular tx: set access_key.nonce, update allowance if specified.
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
-    /// Gas key tx: set gas_key_info.balance and persist external nonce.
-    GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
+    /// Gas key tx: set gas_key_info.balance, absent when the balance does not
+    /// change, and persist the external nonce.
+    GasKey { new_balance: Option<Balance>, nonce_index: NonceIndex, nonce: Nonce },
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
+}
+
+impl AccessKeyUpdate {
+    /// Whether applying this update changes the access key record, so the
+    /// caller has to write it back.
+    pub fn changes_access_key(&self) -> bool {
+        match self {
+            AccessKeyUpdate::Regular { .. } => true,
+            AccessKeyUpdate::GasKey { new_balance, .. } => new_balance.is_some(),
+            AccessKeyUpdate::Bootstrap { .. } => false,
+        }
+    }
 }
 
 impl VerificationResult {
@@ -361,7 +375,9 @@ impl VerificationResult {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
-                gas_key_info.balance = *new_balance;
+                if let Some(new_balance) = new_balance {
+                    gas_key_info.balance = *new_balance;
+                }
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
                 // Consumed on the account, so the same signed bytes cannot be
@@ -2209,18 +2225,19 @@ impl Runtime {
                 &tx.transaction,
                 &cost,
                 Some(block_height),
+                processing_state.apply_state.current_protocol_version,
                 &PendingConstraints::default(),
                 gas_key_nonce,
             )?;
 
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
-                TxVerdict::DepositFailed { result, error } => {
+                TxVerdict::FailedWithGasBurnt { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
                         error = &error as &dyn std::error::Error,
-                        "gas key transaction failed deposit check, charging gas"
+                        "gas key transaction failed balance check, charging the gas key"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
@@ -2341,7 +2358,9 @@ impl Runtime {
             // Nothing to write on the bootstrap path: the key does not exist yet
             // and the state init is what creates it. Writing one here would leave
             // an uninitialized account holding a key if the state init then failed.
-            if let Some(access_key) = access_key.as_deref_mut() {
+            if result.access_key_update.changes_access_key()
+                && let Some(access_key) = access_key.as_deref_mut()
+            {
                 set_access_key(
                     &mut processing_state.state_update,
                     signer_id.clone(),
@@ -2983,9 +3002,12 @@ fn action_transfer_or_implicit_account_creation(
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
-        // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
-        // the refund goes to the gas key balance and we skip crediting the account balance.
+        // Before `GasKeyCoversFailedTxGas` a gas key prepays its gas, so the
+        // refund returns to the key balance instead of the account.
+        let refund_gas_to_gas_key =
+            !ProtocolFeature::GasKeyCoversFailedTxGas.enabled(apply_state.current_protocol_version);
         if is_gas_refund
+            && refund_gas_to_gas_key
             && try_refund_gas_key_balance(
                 state_update,
                 receipt.receiver_id(),
