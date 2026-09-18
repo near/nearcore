@@ -2180,7 +2180,7 @@
           },
           {
             "const": "GasKeyFunctionCallAllowanceNotAllowed",
-            "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
+            "description": "Gas keys with FunctionCall permission cannot have an allowance set before\n`GasKeyCoversFailedTxGas`.",
             "type": "string"
           },
           {
