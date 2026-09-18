@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.27"
+    "version": "1.3.28"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -1340,7 +1340,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Gas key with limited permission to make transactions with FunctionCallActions\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "description": "Gas key with limited permission to make transactions with FunctionCallActions\nGas keys are access keys with a balance of their own and several nonces.\nAfter `GasKeyCoversFailedTxGas` the balance pays only a failed transaction's burnt gas.",
             "properties": {
               "GasKeyFunctionCall": {
                 "items": [
@@ -1363,7 +1363,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Gas key with full access to the account.\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "description": "Gas key with full access to the account.\nGas keys are access keys with a balance of their own and several nonces.\nAfter `GasKeyCoversFailedTxGas` the balance pays only a failed transaction's burnt gas.",
             "properties": {
               "GasKeyFullAccess": {
                 "$ref": "#/components/schemas/GasKeyInfo"
