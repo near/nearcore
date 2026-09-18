@@ -460,7 +460,8 @@ pub enum ActionsValidationError {
     AddGasKeyWithNonZeroBalance {
         balance: Balance,
     } = 18,
-    /// Gas keys with FunctionCall permission cannot have an allowance set.
+    /// Gas keys with FunctionCall permission cannot have an allowance set before
+    /// `GasKeyCoversFailedTxGas`.
     GasKeyFunctionCallAllowanceNotAllowed = 19,
     /// The combined number of `DeployContract` and `DeployGlobalContract`
     /// actions in one receipt exceeded the limit.
@@ -712,7 +713,10 @@ impl Display for ActionsValidationError {
                 )
             }
             ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
-                write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
+                write!(
+                    f,
+                    "Gas keys with FunctionCall permission cannot have an allowance set at this protocol version"
+                )
             }
             ActionsValidationError::TotalNumberOfDeployActionsExceeded {
                 number_of_deploy_actions,
