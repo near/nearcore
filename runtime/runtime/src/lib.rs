@@ -252,6 +252,9 @@ pub struct PendingConstraints {
     /// signed with this key (`burnt_amount` of each), plus any pending
     /// WithdrawFromGasKey amounts targeting this key.
     pub paid_from_gas_key: Balance,
+    /// Total `total_cost` of pending transactions signed with this key. A
+    /// function-call key with an allowance pays it from the allowance.
+    pub paid_from_allowance: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
     pub max_nonce: Nonce,
@@ -267,6 +270,7 @@ impl Default for PendingConstraints {
         Self {
             paid_from_balance: Balance::ZERO,
             paid_from_gas_key: Balance::ZERO,
+            paid_from_allowance: Balance::ZERO,
             max_nonce: 0,
             max_bootstrap_nonce: 0,
         }
@@ -318,9 +322,14 @@ pub struct VerificationResult {
 pub enum AccessKeyUpdate {
     /// Regular tx: set access_key.nonce, update allowance if specified.
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
-    /// Gas key tx: set gas_key_info.balance, absent when the balance does not
-    /// change, and persist the external nonce.
-    GasKey { new_balance: Option<Balance>, nonce_index: NonceIndex, nonce: Nonce },
+    /// Gas key tx: set gas_key_info.balance and the function-call allowance,
+    /// each absent when it does not change, and persist the external nonce.
+    GasKey {
+        new_balance: Option<Balance>,
+        new_allowance: Option<Balance>,
+        nonce_index: NonceIndex,
+        nonce: Nonce,
+    },
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
@@ -332,7 +341,9 @@ impl AccessKeyUpdate {
     pub fn changes_access_key(&self) -> bool {
         match self {
             AccessKeyUpdate::Regular { .. } => true,
-            AccessKeyUpdate::GasKey { new_balance, .. } => new_balance.is_some(),
+            AccessKeyUpdate::GasKey { new_balance, new_allowance, .. } => {
+                new_balance.is_some() || new_allowance.is_some()
+            }
             AccessKeyUpdate::Bootstrap { .. } => false,
         }
     }
@@ -371,12 +382,19 @@ impl VerificationResult {
                     permission.allowance = Some(*a);
                 }
             }
-            AccessKeyUpdate::GasKey { new_balance, .. } => {
+            AccessKeyUpdate::GasKey { new_balance, new_allowance, .. } => {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
                 if let Some(new_balance) = new_balance {
                     gas_key_info.balance = *new_balance;
+                }
+                if let Some(new_allowance) = new_allowance {
+                    let permission = access_key
+                        .permission
+                        .function_call_permission_mut()
+                        .ok_or_else(|| inconsistent("no function call permission"))?;
+                    permission.allowance = Some(*new_allowance);
                 }
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
