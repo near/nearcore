@@ -7,6 +7,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
 use near_primitives::version::ProtocolFeature;
+use node_runtime::IMPLICIT_NONCE_INDEX;
 use node_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
@@ -83,9 +84,12 @@ type NonceScope = (AccountId, Option<PublicKeyHandle>, Option<NonceIndex>);
 /// An access or gas key, which unlike a nonce scope always names a key of its own.
 type AccountKey = (AccountId, PublicKeyHandle);
 
-/// The scope of a nonce carried by an access or gas key.
+/// The scope of a nonce carried by an access or gas key. A transaction without
+/// a nonce index shares index 0, which it uses if a gas key signs it
+/// (`resolve_nonce_index`).
 fn key_nonce_scope(tx: &Transaction, key_handle: &PublicKeyHandle) -> NonceScope {
-    (tx.signer_id().clone(), Some(key_handle.clone()), tx.nonce().nonce_index())
+    let nonce_index = tx.nonce().nonce_index().unwrap_or(IMPLICIT_NONCE_INDEX);
+    (tx.signer_id().clone(), Some(key_handle.clone()), Some(nonce_index))
 }
 
 /// The nonce scope of a bootstrap-shaped transaction (i.e. self-signed state init).
@@ -232,9 +236,8 @@ impl PendingTransactionQueue {
         for signed_tx in transactions {
             let tx = &signed_tx.transaction;
             let signer_id = tx.signer_id();
-            let nonce_index = tx.nonce().nonce_index();
             let nonce = tx.nonce().nonce();
-            let is_gas_key_tx = nonce_index.is_some();
+            let has_nonce_index = tx.nonce().nonce_index().is_some();
             let key_handle = PublicKeyHandle::from(tx.public_key());
 
             let cost = match tx_cost(config, tx, gas_price) {
@@ -249,9 +252,10 @@ impl PendingTransactionQueue {
                 }
             };
 
-            // The account pays `total_cost` of every transaction. A gas key
-            // transaction also reserves `burnt_amount` on the key, which pays it
-            // when the transaction fails to convert (`GasKeyCoversFailedTxGas`).
+            // Every tx reserves `total_cost` on the account and `burnt_amount` on its
+            // signing key, which a gas key pays if the tx fails to convert. The queue
+            // cannot tell a gas key from a regular key, so it reserves on both; the
+            // reservation has no effect on a regular key.
             let chunk_account = chunk_data.accounts.entry(signer_id.clone()).or_default();
             chunk_account.paid_from_balance =
                 chunk_account.paid_from_balance.saturating_add(cost.total_cost);
@@ -260,13 +264,14 @@ impl PendingTransactionQueue {
                 .entry((signer_id.clone(), key_handle.clone()))
                 .or_insert(Balance::ZERO);
             *allowance_entry = allowance_entry.saturating_add(cost.total_cost);
-            if is_gas_key_tx {
-                let gas_key_entry = chunk_data
-                    .gas_key_costs
-                    .entry((signer_id.clone(), key_handle.clone()))
-                    .or_insert(Balance::ZERO);
-                *gas_key_entry = gas_key_entry.saturating_add(cost.burnt_amount);
-            } else {
+            let gas_key_entry = chunk_data
+                .gas_key_costs
+                .entry((signer_id.clone(), key_handle.clone()))
+                .or_insert(Balance::ZERO);
+            *gas_key_entry = gas_key_entry.saturating_add(cost.burnt_amount);
+            // Without key state, a V0 gas key tx counts towards P_MAX here until
+            // certified. `check_pending` knows the key and does not skip it.
+            if !has_nonce_index {
                 chunk_account.access_key_tx_count += 1;
             }
 
@@ -497,10 +502,15 @@ impl PendingTxSession {
     /// for the runtime's balance/nonce validation.
     ///
     /// Acquires the pending transaction queue lock briefly to read pending state, then releases it.
-    pub fn check_pending(&mut self, tx: &SignedTransaction) -> PendingTxCheckResult {
+    /// `resolved_nonce_index` comes from `resolve_nonce_index`, so a V0 gas key
+    /// transaction is not counted towards P_MAX.
+    pub fn check_pending(
+        &mut self,
+        tx: &SignedTransaction,
+        resolved_nonce_index: Option<NonceIndex>,
+    ) -> PendingTxCheckResult {
         let signer_id = tx.transaction.signer_id();
-        let nonce_index = tx.transaction.nonce().nonce_index();
-        let is_gas_key_tx = nonce_index.is_some();
+        let signed_by_gas_key = resolved_nonce_index.is_some();
         // Derived before taking the lock: for ML-DSA-65 this hashes a 1952-byte key.
         let key_handle = PublicKeyHandle::from(tx.transaction.public_key());
 
@@ -516,7 +526,7 @@ impl PendingTxSession {
             self.session_access_key_tx_counts.get(signer_id).copied().unwrap_or(0);
         let total_access_key_count = snapshot.access_key_tx_count + session_access_key_count;
 
-        if !is_gas_key_tx && total_access_key_count >= P_MAX {
+        if !signed_by_gas_key && total_access_key_count >= P_MAX {
             return PendingTxCheckResult::Skip;
         }
 
@@ -536,7 +546,7 @@ impl PendingTxSession {
         // and basic validation, so only transactions with valid signatures
         // can reach this point -- an adversary cannot cheaply spam rejected
         // txs to exhaust slots.
-        if !is_gas_key_tx {
+        if !signed_by_gas_key {
             *self.session_access_key_tx_counts.entry(signer_id.clone()).or_insert(0) += 1;
         }
         // Track WithdrawFromGasKey amounts from this tx's actions.
@@ -552,7 +562,7 @@ impl PendingTxSession {
         // The gas key pays `burnt_amount` if this tx fails to convert, so the key's
         // next tx in this session sees it reserved. Chunk production rejects a tx
         // whose cost overflows, so it reserves nothing.
-        if is_gas_key_tx
+        if signed_by_gas_key
             && let Ok(cost) = tx_cost(&self.runtime_config, &tx.transaction, self.gas_price)
         {
             let entry = self.session_gas_key_costs.entry(gas_key).or_insert(Balance::ZERO);
@@ -615,8 +625,17 @@ mod tests {
         )
     }
 
+    /// A tx's own nonce index is its resolved one unless a gas key signs it
+    /// without an index.
+    fn check_pending_with_own_nonce_index(
+        session: &mut PendingTxSession,
+        tx: &SignedTransaction,
+    ) -> PendingTxCheckResult {
+        session.check_pending(tx, tx.transaction.nonce().nonce_index())
+    }
+
     fn admits(session: &mut PendingTxSession, tx: &SignedTransaction) -> bool {
-        matches!(session.check_pending(tx), PendingTxCheckResult::Admit(_))
+        matches!(check_pending_with_own_nonce_index(session, tx), PendingTxCheckResult::Admit(_))
     }
 
     /// Wrap a sharded pending transaction queue in Arc<Mutex<...>>.
@@ -855,7 +874,8 @@ mod tests {
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
         add_chunk_txs(&sharded, hash1, &[tx1], &config, TEST_GAS_PRICE);
         add_chunk_txs(&sharded, hash2, &[tx2], &config, TEST_GAS_PRICE);
-        let key_scope = (signer.get_account_id(), Some(signer.public_key().into()), None);
+        let key_scope =
+            (signer.get_account_id(), Some(signer.public_key().into()), Some(IMPLICIT_NONCE_INDEX));
 
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(
@@ -888,7 +908,8 @@ mod tests {
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
         add_chunk_txs(&sharded, hash1, &[tx1], &config, TEST_GAS_PRICE);
         add_chunk_txs(&sharded, hash2, &[tx2], &config, TEST_GAS_PRICE);
-        let key_scope = (signer.get_account_id(), Some(signer.public_key().into()), None);
+        let key_scope =
+            (signer.get_account_id(), Some(signer.public_key().into()), Some(IMPLICIT_NONCE_INDEX));
 
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(ptq.pending_nonces.get(&key_scope).unwrap().max_nonce(), 2);
@@ -913,7 +934,10 @@ mod tests {
         let next_tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
 
         let mut session = make_session(&sharded);
-        assert_eq!(session.check_pending(&next_tx), PendingTxCheckResult::Skip);
+        assert_eq!(
+            check_pending_with_own_nonce_index(&mut session, &next_tx),
+            PendingTxCheckResult::Skip
+        );
     }
 
     #[test]
@@ -950,7 +974,35 @@ mod tests {
         assert!(admits(&mut session, &make_gas_key_transfer_tx(&signer, 1)));
         let access_key_tx =
             make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&access_key_tx), PendingTxCheckResult::Skip);
+        assert_eq!(
+            check_pending_with_own_nonce_index(&mut session, &access_key_tx),
+            PendingTxCheckResult::Skip
+        );
+    }
+
+    #[test]
+    fn test_session_v0_gas_key_txs_are_admitted_at_p_max() {
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let mut session = make_session(&sharded);
+
+        for i in 1..=P_MAX {
+            assert!(admits(
+                &mut session,
+                &make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT)
+            ));
+        }
+        let v0_tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
+        let regular_key_nonce_index = None;
+        let gas_key_nonce_index = Some(IMPLICIT_NONCE_INDEX);
+        assert_eq!(
+            session.check_pending(&v0_tx, regular_key_nonce_index),
+            PendingTxCheckResult::Skip
+        );
+        assert!(matches!(
+            session.check_pending(&v0_tx, gas_key_nonce_index),
+            PendingTxCheckResult::Admit(_)
+        ));
     }
 
     #[test]
@@ -975,14 +1027,20 @@ mod tests {
         for i in 1..=P_MAX {
             let tx = make_transfer_tx(&signer, "bob.near", i as Nonce, TEST_DEPOSIT);
             assert!(
-                matches!(session.check_pending(&tx), PendingTxCheckResult::Admit(_)),
+                matches!(
+                    check_pending_with_own_nonce_index(&mut session, &tx),
+                    PendingTxCheckResult::Admit(_)
+                ),
                 "tx {} should be admitted",
                 i
             );
         }
         // The (P_MAX + 1)th should be skipped.
         let tx = make_transfer_tx(&signer, "bob.near", (P_MAX + 1) as Nonce, TEST_DEPOSIT);
-        assert_eq!(session.check_pending(&tx), PendingTxCheckResult::Skip);
+        assert_eq!(
+            check_pending_with_own_nonce_index(&mut session, &tx),
+            PendingTxCheckResult::Skip
+        );
     }
 
     #[test]
@@ -991,16 +1049,16 @@ mod tests {
         let sharded = make_sharded_ptq();
         let signer = test_signer();
         let tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        let expected_cost = tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let cost = tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap();
         add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[tx], &config, TEST_GAS_PRICE);
         let mut session = make_session(&sharded);
         let next_tx = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
         assert_eq!(
-            session.check_pending(&next_tx),
+            check_pending_with_own_nonce_index(&mut session, &next_tx),
             PendingTxCheckResult::Admit(PendingConstraints {
-                paid_from_balance: expected_cost,
-                paid_from_gas_key: Balance::ZERO,
-                paid_from_allowance: expected_cost,
+                paid_from_balance: cost.total_cost,
+                paid_from_gas_key: cost.burnt_amount,
+                paid_from_allowance: cost.total_cost,
                 max_nonce: 1,
                 max_bootstrap_nonce: 0,
             }),
@@ -1024,7 +1082,7 @@ mod tests {
         let mut session = make_session(&sharded);
         let next_gas_key_tx = make_gas_key_transfer_tx(&signer, 2);
         assert_eq!(
-            session.check_pending(&next_gas_key_tx),
+            check_pending_with_own_nonce_index(&mut session, &next_gas_key_tx),
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: cost.total_cost,
                 paid_from_gas_key: cost.burnt_amount,
@@ -1056,7 +1114,7 @@ mod tests {
             CryptoHash::default(),
         );
         assert_eq!(
-            session.check_pending(&second_gas_key_tx),
+            check_pending_with_own_nonce_index(&mut session, &second_gas_key_tx),
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: Balance::ZERO,
                 paid_from_gas_key: burnt_amount,
@@ -1081,7 +1139,7 @@ mod tests {
         let mut session = make_session(&sharded);
         let other_key_tx = make_transfer_tx(&other_signer, "bob.near", 1, TEST_DEPOSIT);
         assert_eq!(
-            session.check_pending(&other_key_tx),
+            check_pending_with_own_nonce_index(&mut session, &other_key_tx),
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: cost,
                 paid_from_gas_key: Balance::ZERO,
@@ -1093,28 +1151,51 @@ mod tests {
     }
 
     #[test]
+    fn test_v0_tx_shares_implicit_nonce_index_scope_and_reserves_burnt_amount() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let v0_nonce = 5;
+        let v0_tx = make_transfer_tx(&signer, "bob.near", v0_nonce, TEST_DEPOSIT);
+        let cost = tx_cost(&config, &v0_tx.transaction, TEST_GAS_PRICE).unwrap();
+        add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[v0_tx], &config, TEST_GAS_PRICE);
+        let mut session = make_session(&sharded);
+        let implicit_nonce_index_tx = make_gas_key_transfer_tx(&signer, v0_nonce + 1);
+        assert_eq!(
+            check_pending_with_own_nonce_index(&mut session, &implicit_nonce_index_tx),
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: cost.total_cost,
+                paid_from_gas_key: cost.burnt_amount,
+                paid_from_allowance: cost.total_cost,
+                max_nonce: v0_nonce,
+                max_bootstrap_nonce: 0,
+            }),
+        );
+    }
+
+    #[test]
     fn test_get_pending_constraints() {
         let config = RuntimeConfig::test();
         let sharded = make_sharded_ptq();
         let signer = test_signer();
         let tx1 = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
-        let expected_cost = tx_cost(&config, &tx1.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let cost1 = tx_cost(&config, &tx1.transaction, TEST_GAS_PRICE).unwrap();
 
         // Before adding anything, constraints should be all zero/default.
         assert!(sharded.lock().get(&TEST_SHARD_UID).is_none());
 
         // Add a chunk with two transactions.
         let tx2 = make_transfer_tx(&signer, "bob.near", 2, TEST_DEPOSIT);
-        let expected_cost2 = tx_cost(&config, &tx2.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        let cost2 = tx_cost(&config, &tx2.transaction, TEST_GAS_PRICE).unwrap();
         let block_hash = CryptoHash::hash_bytes(&[1]);
         add_chunk_txs(&sharded, block_hash, &[tx1.clone(), tx2], &config, TEST_GAS_PRICE);
         with_shard_ptq(&sharded, |ptq| {
             assert_eq!(
                 ptq.get_pending_constraints(&tx1),
                 PendingConstraints {
-                    paid_from_balance: expected_cost.saturating_add(expected_cost2),
-                    paid_from_gas_key: Balance::ZERO,
-                    paid_from_allowance: expected_cost.saturating_add(expected_cost2),
+                    paid_from_balance: cost1.total_cost.saturating_add(cost2.total_cost),
+                    paid_from_gas_key: cost1.burnt_amount.saturating_add(cost2.burnt_amount),
+                    paid_from_allowance: cost1.total_cost.saturating_add(cost2.total_cost),
                     max_nonce: 2,
                     max_bootstrap_nonce: 0,
                 },

@@ -135,6 +135,25 @@ pub fn set_tx_state_changes(
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
+/// The nonce index a gas key uses for a transaction without one, like `TransactionV0`.
+pub const IMPLICIT_NONCE_INDEX: NonceIndex = 0;
+
+/// The nonce index a transaction uses: its own, or `IMPLICIT_NONCE_INDEX` when it
+/// carries none and a gas key signs it.
+pub fn resolve_nonce_index(
+    tx_nonce_index: Option<NonceIndex>,
+    access_key: Option<&AccessKey>,
+    protocol_version: ProtocolVersion,
+) -> Option<NonceIndex> {
+    if tx_nonce_index.is_some() {
+        return tx_nonce_index;
+    }
+    let signed_by_gas_key =
+        access_key.is_some_and(|access_key| access_key.gas_key_info().is_some());
+    (signed_by_gas_key && ProtocolFeature::GasKeyImplicitNonceIndex.enabled(protocol_version))
+        .then_some(IMPLICIT_NONCE_INDEX)
+}
+
 /// The way a transaction is authorized.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TxAuthorization {
@@ -233,6 +252,7 @@ pub fn verify_and_charge_tx_ephemeral<E>(
                 config,
                 account,
                 access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 transaction_cost,
@@ -260,6 +280,7 @@ pub fn verify_and_charge_tx_ephemeral<E>(
 pub fn get_signer_and_authorization(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
+    protocol_version: ProtocolVersion,
 ) -> Result<(Account, TxAuthorization), InvalidTxError> {
     let signer_id = validated_tx.signer_id();
 
@@ -271,7 +292,11 @@ pub fn get_signer_and_authorization(
     };
 
     let access_key = get_access_key(state_update, signer_id, validated_tx.public_key())?;
-    let nonce_index = validated_tx.nonce().nonce_index();
+    let nonce_index = resolve_nonce_index(
+        validated_tx.nonce().nonce_index(),
+        access_key.as_ref(),
+        protocol_version,
+    );
 
     match (access_key, nonce_index) {
         (Some(access_key), None) => Ok((signer, TxAuthorization::AccessKey(access_key))),
@@ -628,6 +653,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
     access_key: &AccessKey,
+    nonce_index: NonceIndex,
     current_nonce: Nonce,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
@@ -635,11 +661,6 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     current_protocol_version: ProtocolVersion,
     pending: &PendingConstraints,
 ) -> TxVerdict {
-    // It's the caller's responsibility to ONLY call this function for transactions with
-    // nonce_index (i.e. gas key transactions).
-    let Some(nonce_index) = tx.nonce().nonce_index() else {
-        panic!("verify_and_charge_gas_key_tx_ephemeral called for non-gas key transaction")
-    };
     let TransactionCost {
         gas_burnt,
         compute_burnt,
@@ -1188,14 +1209,17 @@ mod tests {
             }
         };
 
-        let (signer, authorization) =
-            match get_signer_and_authorization(state_update, &validated_tx) {
-                Ok((signer, authorization)) => (signer, authorization),
-                Err(err) => {
-                    assert_eq!(err, expected_err);
-                    return;
-                }
-            };
+        let (signer, authorization) = match get_signer_and_authorization(
+            state_update,
+            &validated_tx,
+            current_protocol_version,
+        ) {
+            Ok((signer, authorization)) => (signer, authorization),
+            Err(err) => {
+                assert_eq!(err, expected_err);
+                return;
+            }
+        };
         let access_key = authorization.into_access_key().expect("access key expected");
 
         let TxVerdict::Failed(err) = verify_and_charge_access_key_tx_ephemeral(
@@ -1225,7 +1249,7 @@ mod tests {
             Err((err, _tx)) => return Err(err),
         };
         let (mut signer, authorization) =
-            get_signer_and_authorization(state_update, &validated_tx)?;
+            get_signer_and_authorization(state_update, &validated_tx, current_protocol_version)?;
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let tx = validated_tx.to_tx();
 
@@ -2439,6 +2463,167 @@ mod tests {
         assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
     }
 
+    const IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION: ProtocolVersion =
+        ProtocolFeature::GasKeyImplicitNonceIndex.protocol_version();
+
+    #[test]
+    fn test_v0_tx_on_gas_key_uses_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions(
+            initial_nonce + 1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, initial_nonce + 1)));
+    }
+
+    #[test]
+    fn test_v1_tx_without_nonce_index_on_gas_key_uses_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce(initial_nonce + 1),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, initial_nonce + 1)));
+    }
+
+    #[test]
+    fn test_strict_v1_tx_without_nonce_index_on_gas_key_uses_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let next_nonce = initial_nonce + 1;
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(next_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, next_nonce)));
+    }
+
+    #[test]
+    fn test_strict_v1_tx_without_nonce_index_on_gas_key_rejects_gap_from_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let gapped_nonce = initial_nonce + 2;
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(gapped_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce { tx_nonce: gapped_nonce, ak_nonce: initial_nonce }
+        );
+    }
+
+    #[test]
+    fn test_v0_tx_on_gas_key_rejected_before_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions(
+            initial_nonce + 1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION - 1,
+        )
+        .unwrap_err();
+        assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
+    }
+
+    #[test]
+    fn test_resolve_nonce_index() {
+        let gas_key = AccessKey::gas_key_full_access(3);
+        let plain_key = AccessKey::full_access();
+        let version = IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION;
+
+        assert_eq!(resolve_nonce_index(Some(2), Some(&gas_key), version), Some(2));
+        assert_eq!(resolve_nonce_index(None, Some(&gas_key), version), Some(IMPLICIT_NONCE_INDEX));
+        assert_eq!(resolve_nonce_index(None, Some(&gas_key), version - 1), None);
+        assert_eq!(resolve_nonce_index(None, Some(&plain_key), version), None);
+        assert_eq!(resolve_nonce_index(None, None, version), None);
+    }
+
     #[test]
     fn test_gas_key_tx_nonce_index_out_of_range() {
         let config = RuntimeConfig::test();
@@ -3027,7 +3212,7 @@ mod tests {
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
         let access_key = authorization.into_access_key().unwrap();
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
@@ -3036,6 +3221,7 @@ mod tests {
             &config,
             &signer_account,
             &access_key,
+            0,
             current_nonce,
             tx,
             &cost,
@@ -3088,7 +3274,7 @@ mod tests {
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, tx, gas_price).unwrap();
         let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+            get_signer_and_authorization(&state_update, &validated_tx, PROTOCOL_VERSION).unwrap();
         let access_key = authorization.into_access_key().unwrap();
         let verify = |paid_from_allowance| {
             let pending =
@@ -3148,7 +3334,7 @@ mod tests {
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, tx, gas_price).unwrap();
         let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
         let access_key = authorization.into_access_key().unwrap();
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
@@ -3159,6 +3345,7 @@ mod tests {
                 &config,
                 &signer_account,
                 &access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 &cost,
@@ -3201,13 +3388,14 @@ mod tests {
     #[test]
     fn test_gas_key_tx_deposit_failed_for_account_balance() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         let num_nonces = 2;
         let small_account_balance = Balance::from_yoctonear(1);
         let (signer, state_update, gas_price, initial_nonce) =
             setup_gas_key_account(small_account_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3219,18 +3407,25 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
         let access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::FailedWithGasBurnt { result, error } =
             verify_and_charge_gas_key_tx_ephemeral(
                 &config,
                 &signer_account,
                 &access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 &cost,
@@ -3257,7 +3452,7 @@ mod tests {
             AccessKeyUpdate::GasKey {
                 new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 new_allowance: None,
-                nonce_index: 0,
+                nonce_index,
                 nonce: initial_nonce + 1,
             }
         );
@@ -3266,6 +3461,7 @@ mod tests {
     #[test]
     fn test_gas_key_tx_deposit_failed_for_storage_stake() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         // Use many nonces to push storage_usage above ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
         // so that the account is not exempt from storage staking requirements.
         let num_nonces = 60;
@@ -3277,7 +3473,7 @@ mod tests {
             setup_gas_key_account(initial_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3289,18 +3485,25 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
         let access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::FailedWithGasBurnt { result, error } =
             verify_and_charge_gas_key_tx_ephemeral(
                 &config,
                 &signer_account,
                 &access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 &cost,
@@ -3365,11 +3568,12 @@ mod tests {
     #[test]
     fn test_gas_key_tx_needs_only_the_conversion_burn_in_key_balance() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         let (signer, state_update, gas_price, initial_nonce) =
             setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, 2, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3383,18 +3587,25 @@ mod tests {
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
         assert!(cost.burnt_amount < cost.gas_cost);
 
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+        )
+        .unwrap();
         let mut access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         access_key.gas_key_info_mut().unwrap().balance = cost.burnt_amount;
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::Success(result) = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
+            nonce_index,
             current_nonce,
             tx,
             &cost,
@@ -3409,8 +3620,8 @@ mod tests {
             AccessKeyUpdate::GasKey {
                 new_balance: None,
                 new_allowance: None,
-                nonce_index: 0,
-                nonce: initial_nonce + 1,
+                nonce_index,
+                nonce: initial_nonce + 1
             }
         );
         assert_eq!(
@@ -3422,11 +3633,12 @@ mod tests {
     #[test]
     fn test_gas_key_tx_before_feature_needs_the_full_gas_cost_in_key_balance() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         let (signer, state_update, gas_price, initial_nonce) =
             setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, 2, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3439,18 +3651,25 @@ mod tests {
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
 
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
         let mut access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         access_key.gas_key_info_mut().unwrap().balance = cost.burnt_amount;
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::Failed(error) = verify_and_charge_gas_key_tx_ephemeral(
             &config,
             &signer_account,
             &access_key,
+            nonce_index,
             current_nonce,
             tx,
             &cost,
@@ -3473,12 +3692,13 @@ mod tests {
     #[test]
     fn test_gas_key_tx_charges_key_when_account_cannot_pay_gas() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         let small_account_balance = Balance::from_yoctonear(1);
         let (signer, state_update, gas_price, initial_nonce) =
             setup_gas_key_account(small_account_balance, TESTING_GAS_KEY_BALANCE, 2, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3490,18 +3710,25 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+        )
+        .unwrap();
         let access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::FailedWithGasBurnt { result, error } =
             verify_and_charge_gas_key_tx_ephemeral(
                 &config,
                 &signer_account,
                 &access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 &cost,
@@ -3526,7 +3753,7 @@ mod tests {
             AccessKeyUpdate::GasKey {
                 new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 new_allowance: None,
-                nonce_index: 0,
+                nonce_index,
                 nonce: initial_nonce + 1,
             }
         );
@@ -3535,6 +3762,7 @@ mod tests {
     #[test]
     fn test_gas_key_tx_charges_key_when_storage_stake_fails() {
         let config = RuntimeConfig::test();
+        let nonce_index = 0;
         // Many nonces push storage_usage above ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
         // so the account is not exempt from storage staking requirements.
         let num_nonces = 60;
@@ -3544,7 +3772,7 @@ mod tests {
             setup_gas_key_account(initial_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
-            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
             alice_account(),
             bob_account(),
             &*signer,
@@ -3556,18 +3784,25 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, authorization) =
-            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) = get_signer_and_authorization(
+            &state_update,
+            &validated_tx,
+            COVERS_FAILED_TX_GAS_PROTOCOL_VERSION,
+        )
+        .unwrap();
         let access_key =
             authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
-            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
 
         let TxVerdict::FailedWithGasBurnt { result, error } =
             verify_and_charge_gas_key_tx_ephemeral(
                 &config,
                 &signer_account,
                 &access_key,
+                nonce_index,
                 current_nonce,
                 tx,
                 &cost,
@@ -3588,7 +3823,7 @@ mod tests {
             AccessKeyUpdate::GasKey {
                 new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 new_allowance: None,
-                nonce_index: 0,
+                nonce_index,
                 nonce: initial_nonce + 1,
             }
         );

@@ -451,7 +451,16 @@ pub fn get_gas_key_nonce(
     public_key: &PublicKey,
     index: NonceIndex,
 ) -> Result<Option<Nonce>, StorageError> {
-    get(trie, &TrieKey::gas_key_nonce(account_id.clone(), public_key, index))
+    get_gas_key_nonce_by_handle(trie, account_id, &public_key.into(), index)
+}
+
+pub fn get_gas_key_nonce_by_handle(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    key_handle: &PublicKeyHandle,
+    index: NonceIndex,
+) -> Result<Option<Nonce>, StorageError> {
+    get(trie, &TrieKey::gas_key_nonce(account_id.clone(), key_handle.clone(), index))
 }
 
 /// Computes the total balance across all gas keys for a given account.

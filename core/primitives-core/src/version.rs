@@ -497,6 +497,9 @@ pub enum ProtocolFeature {
     /// account pays `total_cost` and receives the gas refunds. The gas key
     /// balance covers `burnt_amount` only when the transaction fails to convert.
     GasKeyCoversFailedTxGas,
+    /// A transaction without a nonce index, such as `TransactionV0`, that a gas
+    /// key signs uses nonce index 0 instead of being rejected.
+    GasKeyImplicitNonceIndex,
 }
 
 impl ProtocolFeature {
@@ -643,6 +646,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeyCoversFailedTxGas => 157,
+            ProtocolFeature::GasKeyImplicitNonceIndex => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

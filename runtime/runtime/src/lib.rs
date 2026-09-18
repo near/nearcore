@@ -13,12 +13,13 @@ use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
-    get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
-    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    IMPLICIT_NONCE_INDEX, TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    get_signer_and_authorization, is_bootstrap, resolve_nonce_index, set_tx_state_changes,
+    validate_transaction, verify_and_charge_access_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
@@ -2116,11 +2117,25 @@ impl Runtime {
                         accounts.entry(signer_id).or_insert_with(|| {
                             get_account(&processing_state.state_update, signer_id)
                         });
-                        access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                            get_access_key(&processing_state.state_update, signer_id, pubkey)
-                        });
+                        let nonce_index = {
+                            let access_key =
+                                access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
+                                    get_access_key(
+                                        &processing_state.state_update,
+                                        signer_id,
+                                        pubkey,
+                                    )
+                                });
+                            let access_key =
+                                access_key.value().as_ref().ok().and_then(Option::as_ref);
+                            resolve_nonce_index(
+                                tx.transaction.nonce().nonce_index(),
+                                access_key,
+                                protocol_version,
+                            )
+                        };
                         // For gas key transactions, also prefetch the nonce
-                        if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                        if let Some(nonce_index) = nonce_index {
                             gas_key_nonces.entry((signer_id, pubkey, nonce_index)).or_insert_with(
                                 || {
                                     get_gas_key_nonce(
@@ -2234,7 +2249,11 @@ impl Runtime {
                     .clone()
             };
 
-            let nonce_index = tx.transaction.nonce().nonce_index();
+            let nonce_index = resolve_nonce_index(
+                tx.transaction.nonce().nonce_index(),
+                access_key.as_deref(),
+                protocol_version,
+            );
             let authorization = TxAuthorizationRef::new(access_key.as_deref(), nonce_index);
             let verdict = verify_and_charge_tx_ephemeral(
                 &processing_state.apply_state.config,

@@ -1,10 +1,11 @@
 use crate::Error;
+use crate::near_chain_primitives::error::QueryError;
 use crate::runtime::metrics::{
     DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
     DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD, DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE,
     DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE, set_proposed_split_metrics,
 };
-use crate::runtime::signer_overlay::SignerOverlay;
+use crate::runtime::signer_overlay::{SignerEntryMut, SignerOverlay};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
@@ -37,14 +38,14 @@ use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransa
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
 };
 use near_primitives::views::{
-    AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
-    QueryResponse, QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, AccessKeyList, AccessKeyView, CallResult, ContractCodeView,
+    GasKeyNoncesView, QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -52,7 +53,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, SnapshotError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
+    get_gas_key_nonce, get_gas_key_nonce_by_handle,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -62,8 +64,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, resolve_nonce_index,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -648,6 +650,47 @@ impl NightshadeRuntime {
         })?;
         Ok((epoch_info.epoch_height(), epoch_info.protocol_version()))
     }
+
+    /// The view of an access key. Under `GasKeyImplicitNonceIndex`, a gas key
+    /// reports the nonce that a transaction without a nonce index uses.
+    fn access_key_view(
+        &self,
+        trie: &dyn TrieAccess,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+        account_id: &AccountId,
+        key_handle: &PublicKeyHandle,
+        access_key: AccessKey,
+    ) -> Result<AccessKeyView, QueryError> {
+        // Only a gas key needs the protocol version, so other keys skip the epoch lookup.
+        let nonce_index = if access_key.gas_key_info().is_some() {
+            let (_, protocol_version) =
+                self.query_epoch_info(epoch_id, block_height, block_hash)?;
+            resolve_nonce_index(None, Some(&access_key), protocol_version)
+        } else {
+            None
+        };
+        let mut access_key_view: AccessKeyView = access_key.into();
+        let Some(nonce_index) = nonce_index else {
+            return Ok(access_key_view);
+        };
+        let internal_error =
+            |error_message| QueryError::InternalError { error_message, block_height, block_hash };
+        access_key_view.nonce = get_gas_key_nonce_by_handle(
+            trie,
+            account_id,
+            key_handle,
+            nonce_index,
+        )
+        .map_err(|err| internal_error(err.to_string()))?
+        .ok_or_else(|| {
+            internal_error(format!(
+                "gas key nonce at index {nonce_index} does not exist for account {account_id}"
+            ))
+        })?;
+        Ok(access_key_view)
+    }
 }
 
 fn get_epoch_start_height_from_cold_head(
@@ -774,7 +817,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, authorization) = get_signer_and_authorization(&trie, &validated_tx)?;
+        let (signer, authorization) =
+            get_signer_and_authorization(&trie, &validated_tx, current_protocol_version)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
@@ -887,7 +931,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(
+            &SignedTransaction,
+            Option<NonceIndex>,
+        ) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -991,8 +1038,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // Nonce gap check: if the tx requires sequential nonces and
                 // there is a gap, leave it in the pool for a future block
                 // rather than popping and discarding it.
-                let current_nonce =
-                    gap_check_nonce(&state_update.trie_update.trie, &signer_overlay, tx_peek)?;
+                let current_nonce = gap_check_nonce(
+                    &state_update.trie_update.trie,
+                    &signer_overlay,
+                    tx_peek,
+                    protocol_version,
+                )?;
                 if let Some(current_nonce) = current_nonce
                     && tx_peek.nonce().nonce() > current_nonce.saturating_add(1)
                 {
@@ -1036,13 +1087,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let nonce_index = validated_tx.nonce().nonce_index();
-                let Some((account, key_entry)) = signer_overlay.get_or_load_entry_mut(
-                    &state_update,
-                    validated_tx.signer_id(),
-                    validated_tx.public_key(),
-                    nonce_index,
-                )?
+                let Some(SignerEntryMut { account, key_entry, resolved_nonce_index: nonce_index }) =
+                    signer_overlay.get_or_load_entry_mut(
+                        &state_update,
+                        validated_tx.signer_id(),
+                        validated_tx.public_key(),
+                        validated_tx.nonce().nonce_index(),
+                        protocol_version,
+                    )?
                 else {
                     tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction whose signer state is missing");
                     rejected_invalid_tx += 1;
@@ -1050,13 +1102,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
 
                 // Check pending transaction queue constraints.
-                let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
-                    PendingTxCheckResult::Admit(constraints) => constraints,
-                    PendingTxCheckResult::Skip => {
-                        skipped_transactions.push(validated_tx);
-                        continue;
-                    }
-                };
+                let pending_constraints =
+                    match check_pending(validated_tx.to_signed_tx(), nonce_index) {
+                        PendingTxCheckResult::Admit(constraints) => constraints,
+                        PendingTxCheckResult::Skip => {
+                            skipped_transactions.push(validated_tx);
+                            continue;
+                        }
+                    };
 
                 let cost = match tx_cost(
                     runtime_config,
@@ -1372,12 +1425,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                             *block_hash,
                         )
                     })?;
+                let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
                 let keys = access_key_list
                     .into_iter()
                     .map(|(public_key, access_key)| {
-                        AccessKeyInfoView::new(public_key, access_key.into())
+                        let access_key_view = self.access_key_view(
+                            &trie,
+                            epoch_id,
+                            block_height,
+                            *block_hash,
+                            account_id,
+                            &public_key,
+                            access_key,
+                        )?;
+                        Ok(AccessKeyInfoView::new(public_key, access_key_view))
                     })
-                    .collect();
+                    .collect::<Result<_, QueryError>>()?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKeyList(AccessKeyList { keys, last_key }),
                     block_height,
@@ -1394,8 +1457,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                             *block_hash,
                         )
                     })?;
+                let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
+                let access_key_view = self.access_key_view(
+                    &trie,
+                    epoch_id,
+                    block_height,
+                    *block_hash,
+                    account_id,
+                    &public_key.into(),
+                    access_key,
+                )?;
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::AccessKey(access_key.into()),
+                    kind: QueryResponseKind::AccessKey(access_key_view),
                     block_height,
                     block_hash: *block_hash,
                 })
@@ -1664,6 +1737,7 @@ fn gap_check_nonce(
     trie: &Trie,
     signer_overlay: &SignerOverlay,
     tx: &ValidatedTransaction,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<Nonce>, StorageError> {
     let account_id = tx.signer_id();
     // A bootstrap's nonce sits on the account rather than on a key, and only
@@ -1688,15 +1762,23 @@ fn gap_check_nonce(
         return Ok(None);
     }
     let public_key = tx.public_key();
-    let nonce_index = tx.nonce().nonce_index();
-    if let Some(nonce) = signer_overlay.cached_nonce(account_id, public_key, nonce_index) {
+    let tx_nonce_index = tx.nonce().nonce_index();
+    if let Some(nonce) =
+        signer_overlay.cached_nonce(account_id, public_key, tx_nonce_index, protocol_version)
+    {
         return Ok(Some(nonce));
     }
     let throwaway_trie = trie.recording_reads_new_recorder();
-    if let Some(idx) = nonce_index {
+    if let Some(idx) = tx_nonce_index {
         return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
     }
-    Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|access_key| access_key.nonce))
+    let Some(access_key) = get_access_key(&throwaway_trie, account_id, public_key)? else {
+        return Ok(None);
+    };
+    if let Some(idx) = resolve_nonce_index(None, Some(&access_key), protocol_version) {
+        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
+    }
+    Ok(Some(access_key.nonce))
 }
 
 /// How much gas of the next chunk we want to spend on converting new

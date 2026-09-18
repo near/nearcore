@@ -561,9 +561,9 @@ impl ChunkProducer {
                         chain_validate,
                         validate_tx_ttl,
                         HashSet::new(),
-                        &mut |tx| {
+                        &mut |tx, resolved_nonce_index| {
                             if ptq_enabled {
-                                session.check_pending(tx)
+                                session.check_pending(tx, resolved_nonce_index)
                             } else {
                                 PendingTxCheckResult::Admit(PendingConstraints::default())
                             }
