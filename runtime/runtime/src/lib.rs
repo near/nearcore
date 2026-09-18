@@ -13,13 +13,13 @@ use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    IMPLICIT_NONCE_INDEX, TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
     get_signer_and_authorization, is_bootstrap, resolve_nonce_index, set_tx_state_changes,
     validate_transaction, verify_and_charge_access_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};

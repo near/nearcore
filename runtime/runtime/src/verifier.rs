@@ -136,7 +136,7 @@ pub fn set_tx_state_changes(
 }
 
 /// The nonce index a gas key uses for a transaction without one, like `TransactionV0`.
-const IMPLICIT_NONCE_INDEX: NonceIndex = 0;
+pub const IMPLICIT_NONCE_INDEX: NonceIndex = 0;
 
 /// The nonce index a transaction uses: its own, or `IMPLICIT_NONCE_INDEX` when it
 /// carries none and a gas key signs it.

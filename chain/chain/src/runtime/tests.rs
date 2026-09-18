@@ -1703,7 +1703,7 @@ fn prepare_transactions_extra(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction, Option<NonceIndex>) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     prepare_transactions_extra_with_time_limit(
@@ -1724,7 +1724,7 @@ fn prepare_transactions_extra_with_time_limit(
     transaction_groups: &mut dyn TransactionGroupIterator,
     skip_tx_hashes: HashSet<CryptoHash>,
     validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+    check_pending: &mut dyn FnMut(&SignedTransaction, Option<NonceIndex>) -> PendingTxCheckResult,
     cancel: Option<Arc<AtomicBool>>,
     time_limit: Option<Duration>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -2525,7 +2525,7 @@ fn test_prepare_transactions_pending_skip() {
         &mut PoolIteratorWrapper::new(&mut transaction_pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             call_count += 1;
             if call_count.is_multiple_of(2) {
                 PendingTxCheckResult::Skip
@@ -2584,7 +2584,7 @@ fn test_prepare_transactions_pending_balance_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: TESTING_INIT_BALANCE,
                 ..PendingConstraints::default()
@@ -2632,7 +2632,7 @@ fn test_prepare_transactions_pending_nonce_constraint() {
         &mut PoolIteratorWrapper::new(&mut pool),
         HashSet::new(),
         &|_| true,
-        &mut |_| {
+        &mut |_, _| {
             PendingTxCheckResult::Admit(PendingConstraints {
                 max_nonce: 1,
                 ..PendingConstraints::default()
@@ -2950,6 +2950,54 @@ fn test_prepare_transactions_includes_v0_gas_key_tx_with_implicit_nonce_index() 
     assert_eq!(prepared.transactions.len(), 1);
     assert!(skipped.0.is_empty());
     assert_eq!(pool.len(), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_prepare_transactions_passes_implicit_nonce_index_to_check_pending() {
+    assert!(ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION));
+    let (mut env, chain, _) =
+        get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+
+    let v0_tx = SignedTransaction::send_money(
+        gas_key_nonce + 1,
+        account_id,
+        "test2".parse().unwrap(),
+        &gas_key_signer,
+        Balance::from_yoctonear(1),
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(v0_tx));
+    let mut resolved_nonce_indexes = vec![];
+    prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut |_, resolved_nonce_index| {
+            resolved_nonce_indexes.push(resolved_nonce_index);
+            PendingTxCheckResult::Admit(PendingConstraints::default())
+        },
+        None,
+    )
+    .unwrap();
+    let implicit_nonce_index = 0;
+    assert_eq!(resolved_nonce_indexes, vec![Some(implicit_nonce_index)]);
 }
 
 #[test]

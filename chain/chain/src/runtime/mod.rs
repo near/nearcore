@@ -38,7 +38,7 @@ use near_primitives::transaction::{NonceMode, SignedTransaction, ValidatedTransa
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NumShards, ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, clamp_to_supported_protocol_version,
@@ -931,7 +931,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(
+            &SignedTransaction,
+            Option<NonceIndex>,
+        ) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
@@ -1099,13 +1102,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
 
                 // Check pending transaction queue constraints.
-                let pending_constraints = match check_pending(validated_tx.to_signed_tx()) {
-                    PendingTxCheckResult::Admit(constraints) => constraints,
-                    PendingTxCheckResult::Skip => {
-                        skipped_transactions.push(validated_tx);
-                        continue;
-                    }
-                };
+                let pending_constraints =
+                    match check_pending(validated_tx.to_signed_tx(), nonce_index) {
+                        PendingTxCheckResult::Admit(constraints) => constraints,
+                        PendingTxCheckResult::Skip => {
+                            skipped_transactions.push(validated_tx);
+                            continue;
+                        }
+                    };
 
                 let cost = match tx_cost(
                     runtime_config,
