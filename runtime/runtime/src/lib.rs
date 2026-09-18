@@ -318,11 +318,24 @@ pub struct VerificationResult {
 pub enum AccessKeyUpdate {
     /// Regular tx: set access_key.nonce, update allowance if specified.
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
-    /// Gas key tx: set gas_key_info.balance and persist external nonce.
-    GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
+    /// Gas key tx: set gas_key_info.balance, absent when the balance does not
+    /// change, and persist the external nonce.
+    GasKey { new_balance: Option<Balance>, nonce_index: NonceIndex, nonce: Nonce },
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
+}
+
+impl AccessKeyUpdate {
+    /// Whether applying this update changes the access key record, so the
+    /// caller has to write it back.
+    pub fn changes_access_key(&self) -> bool {
+        match self {
+            AccessKeyUpdate::Regular { .. } => true,
+            AccessKeyUpdate::GasKey { new_balance, .. } => new_balance.is_some(),
+            AccessKeyUpdate::Bootstrap { .. } => false,
+        }
+    }
 }
 
 impl VerificationResult {
@@ -362,7 +375,9 @@ impl VerificationResult {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
-                gas_key_info.balance = *new_balance;
+                if let Some(new_balance) = new_balance {
+                    gas_key_info.balance = *new_balance;
+                }
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
                 // Consumed on the account, so the same signed bytes cannot be
@@ -2343,7 +2358,9 @@ impl Runtime {
             // Nothing to write on the bootstrap path: the key does not exist yet
             // and the state init is what creates it. Writing one here would leave
             // an uninitialized account holding a key if the state init then failed.
-            if let Some(access_key) = access_key.as_deref_mut() {
+            if result.access_key_update.changes_access_key()
+                && let Some(access_key) = access_key.as_deref_mut()
+            {
                 set_access_key(
                     &mut processing_state.state_update,
                     signer_id.clone(),
@@ -2985,9 +3002,8 @@ fn action_transfer_or_implicit_account_creation(
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
-        // Before `GasKeyCoversFailedTxGas` a gas key prepays the gas of its
-        // transactions, so a gas refund returns to the gas key balance and the
-        // account balance is left alone.
+        // Before `GasKeyCoversFailedTxGas` a gas key prepays its gas, so the
+        // refund returns to the key balance instead of the account.
         let refund_gas_to_gas_key =
             !ProtocolFeature::GasKeyCoversFailedTxGas.enabled(apply_state.current_protocol_version);
         if is_gas_refund

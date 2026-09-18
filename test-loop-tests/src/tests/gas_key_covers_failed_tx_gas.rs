@@ -13,10 +13,9 @@ use near_primitives::types::{Balance, Gas, NonceIndex};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
-/// Genesis at the protocol version this build runs, which must already charge a
-/// gas key transaction's gas to the account. Every test here pairs this with
-/// `#[cfg_attr(not(feature = "nightly"), ignore)]`, because a stable build
-/// panics on a chain whose protocol version it does not support.
+/// Genesis at this build's protocol version, which must already charge a gas key
+/// transaction's gas to the account. Tests here are ignored outside nightly,
+/// because a stable build cannot run a chain at that version.
 fn setup(sender_balance: Balance, gas_key_balance: Balance, num_nonces: NonceIndex) -> GasKeyEnv {
     assert!(
         ProtocolFeature::GasKeyCoversFailedTxGas.enabled(PROTOCOL_VERSION),
@@ -143,8 +142,8 @@ fn test_key_pays_tokens_burnt_when_account_cannot_pay() {
     let nonce_index: NonceIndex = 0;
     let gas_key_nonce = get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
 
-    // Skip runtime verification during chunk preparation, so a transaction the
-    // account cannot pay for still reaches a chunk and is charged.
+    // Enable adversarial mode: skip runtime verification during chunk preparation,
+    // so the tx is included even though the account cannot pay for it.
     env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
         AdvProduceChunksMode::ProduceWithoutTxVerification,
     ));

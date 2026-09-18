@@ -97,7 +97,6 @@ pub(crate) fn get_gas_key_nonce(
     view.nonces[nonce_index as usize]
 }
 
-/// The gas price every gas key test-loop chain runs at.
 pub(crate) const GAS_KEY_TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 pub(crate) struct GasKeyEnv {
@@ -108,9 +107,7 @@ pub(crate) struct GasKeyEnv {
     pub gas_price: Balance,
 }
 
-/// Builds a two account chain at `protocol_version` and gives the sender a
-/// funded gas key. The sender keeps its plain access key, which pays for the
-/// two setup transactions and owns nonces 1 and 2.
+/// The sender pays for the setup with its plain access key, using nonces 1 and 2.
 pub(crate) fn setup_funded_gas_key(
     protocol_version: ProtocolVersion,
     sender_balance: Balance,
@@ -355,7 +352,6 @@ fn test_gas_key_delegate_v2_meta_transaction() {
 
 #[test]
 fn test_gas_key_refund() {
-    // The gas key holds enough for the attached 100 TGas plus the tx cost.
     let protocol_version = last_version_with_gas_key_gas_prepayment();
     let initial_balance = Balance::from_near(1_000_000);
     // Enough for the attached 100 TGas plus the tx cost.

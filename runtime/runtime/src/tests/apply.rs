@@ -4971,6 +4971,7 @@ fn test_apply_gas_key_transaction_charges_account_and_refunds_account() {
         )
         .expect("apply should succeed");
     let mut incoming = apply_result.outgoing_receipts.clone();
+    let mut tokens_burnt = apply_result.stats.balance.tx_burnt_amount;
     let mut root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
     let state = tries.new_trie_update(shard_uid, root);
@@ -4983,8 +4984,10 @@ fn test_apply_gas_key_transaction_charges_account_and_refunds_account() {
         get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
     assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
 
+    // Run some rounds so the transfer receipt and its gas refund are processed.
+    const MAX_RECEIPT_ROUNDS: usize = 5;
     let mut settled = false;
-    for _ in 0..5 {
+    for _ in 0..MAX_RECEIPT_ROUNDS {
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(shard_uid, root),
@@ -4998,23 +5001,26 @@ fn test_apply_gas_key_transaction_charges_account_and_refunds_account() {
             .expect("apply should succeed");
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
         incoming = apply_result.outgoing_receipts.clone();
+        tokens_burnt =
+            tokens_burnt.checked_add(apply_result.stats.balance.tx_burnt_amount).unwrap();
         apply_state.block_height += 1;
         if incoming.is_empty() && apply_result.delayed_receipts_count == 0 {
             settled = true;
             break;
         }
     }
-    assert!(settled, "receipts did not settle within the round budget");
+    assert!(settled, "receipts did not finish within {MAX_RECEIPT_ROUNDS} rounds");
 
     let state = tries.new_trie_update(shard_uid, root);
     let account_after_refund = get_account(&state, &alice_account()).unwrap().unwrap().amount();
-    assert!(
-        account_after_refund > account_after_conversion,
-        "gas refund should credit the account: {account_after_refund} vs {account_after_conversion}"
+    assert_eq!(
+        account_after_refund,
+        initial_balance.checked_sub(transfer_amount).unwrap().checked_sub(tokens_burnt).unwrap()
     );
     assert!(
-        account_after_refund < initial_balance.checked_sub(transfer_amount).unwrap(),
-        "the account should still pay the gas it burnt"
+        tokens_burnt < transaction_cost.gas_cost,
+        "a refund should have returned part of the prepaid gas: {tokens_burnt} of {}",
+        transaction_cost.gas_cost
     );
     let access_key =
         get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();

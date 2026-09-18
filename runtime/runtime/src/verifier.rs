@@ -704,10 +704,12 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
             cost: required_gas_key_balance,
         });
     }
+    // From `GasKeyCoversFailedTxGas` on, a successful transaction leaves the key
+    // balance as it is, so the access key record needs no write.
     let new_gas_key_balance = if gas_paid_from_account {
-        gas_key_info.balance
+        None
     } else {
-        gas_key_info.balance.checked_sub(gas_cost).unwrap()
+        Some(gas_key_info.balance.checked_sub(gas_cost).unwrap())
     };
     let new_key_balance_on_failure = gas_key_info
         .balance
@@ -736,7 +738,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     let make_success_result =
         move |new_account_amount| make_result(new_account_amount, new_gas_key_balance);
     let make_failure_result =
-        move |new_account_amount| make_result(new_account_amount, new_key_balance_on_failure);
+        move |new_account_amount| make_result(new_account_amount, Some(new_key_balance_on_failure));
 
     // Check account has enough balance, accounting for pending balance costs
     // from prior txs. saturating_sub is fine: on the consensus path pending
@@ -2930,7 +2932,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }
@@ -3080,11 +3082,7 @@ mod tests {
         };
         assert_eq!(
             result.access_key_update,
-            AccessKeyUpdate::GasKey {
-                new_balance: cost.burnt_amount,
-                nonce_index: 0,
-                nonce: initial_nonce + 1,
-            }
+            AccessKeyUpdate::GasKey { new_balance: None, nonce_index: 0, nonce: initial_nonce + 1 }
         );
         assert_eq!(
             result.new_account_amount,
@@ -3197,7 +3195,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }
@@ -3258,7 +3256,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }

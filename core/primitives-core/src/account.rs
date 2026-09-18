@@ -912,10 +912,12 @@ pub enum AccessKeyPermission {
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
     /// Gas key with limited permission to make transactions with FunctionCallActions
-    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    /// Gas keys are access keys with a balance of their own and several nonces.
+    /// After `GasKeyCoversFailedTxGas` the balance pays only a failed transaction's burnt gas.
     GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
     /// Gas key with full access to the account.
-    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    /// Gas keys are access keys with a balance of their own and several nonces.
+    /// After `GasKeyCoversFailedTxGas` the balance pays only a failed transaction's burnt gas.
     GasKeyFullAccess(GasKeyInfo),
 }
 
