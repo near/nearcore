@@ -41,7 +41,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    BlockHeightDelta, Nonce, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
+    BlockHeightDelta, Nonce, NonceIndex, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
@@ -56,7 +56,10 @@ use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata}
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
+use near_store::{
+    NodeStorage, PartialStorage, get_genesis_state_roots, set_access_key, set_account,
+    set_gas_key_nonce,
+};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
@@ -74,6 +77,7 @@ struct TestEnvConfig {
     zero_fees: bool,
     create_flat_storage: bool,
     runtime_config_store: Option<RuntimeConfigStore>,
+    protocol_version: ProtocolVersion,
 }
 
 /// Environment to test runtime behavior separate from Chain.
@@ -105,6 +109,7 @@ impl TestEnv {
                 zero_fees: true,
                 create_flat_storage: true,
                 runtime_config_store: None,
+                protocol_version: PROTOCOL_VERSION,
             },
         )
     }
@@ -134,6 +139,7 @@ impl TestEnv {
         if let Some(minimum_stake_divisor) = config.minimum_stake_divisor {
             genesis.config.minimum_stake_divisor = minimum_stake_divisor;
         }
+        genesis.config.protocol_version = config.protocol_version;
         let genesis_total_supply = genesis.config.total_supply;
         let genesis_protocol_version = genesis.config.protocol_version;
 
@@ -1218,6 +1224,7 @@ fn test_fishermen_stake() {
             zero_fees: true,
             create_flat_storage: true,
             runtime_config_store: None,
+            protocol_version: PROTOCOL_VERSION,
         },
     );
     let block_producers: Vec<_> =
@@ -1283,6 +1290,7 @@ fn test_fishermen_unstake() {
             zero_fees: true,
             create_flat_storage: true,
             runtime_config_store: None,
+            protocol_version: PROTOCOL_VERSION,
         },
     );
     let block_producers: Vec<_> =
@@ -1603,10 +1611,18 @@ fn generate_transaction_pool(signers: &[Signer], block_hash: CryptoHash) -> Tran
 }
 
 fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
+    get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION)
+}
+
+fn get_test_env_with_chain_and_pool_at_protocol_version(
+    protocol_version: ProtocolVersion,
+) -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..NUM_TEST_SIGNERS)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
+    let mut genesis_config = GenesisConfig::test(Clock::real());
+    genesis_config.protocol_version = protocol_version;
+    let chain_genesis = ChainGenesis::new(&genesis_config);
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {
@@ -1616,6 +1632,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             zero_fees: false,
             create_flat_storage: false,
             runtime_config_store: None,
+            protocol_version,
         },
     );
 
@@ -2720,6 +2737,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             zero_fees: false,
             create_flat_storage: false,
             runtime_config_store: Some(RuntimeConfigStore::with_one_config(runtime_config)),
+            protocol_version: PROTOCOL_VERSION,
         },
     );
     let runtime = &env.runtime;
@@ -2853,6 +2871,175 @@ fn test_strict_nonce_gap_ttl_eviction() {
     assert!(prepared.transactions.is_empty());
     assert!(skipped.0.is_empty());
     assert_eq!(pool.len(), 0, "all gapped txs should be evicted when TTL expired");
+}
+
+fn set_gas_key_in_trie(
+    env: &mut TestEnv,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    num_nonces: NonceIndex,
+    gas_key_balance: Balance,
+    gas_key_nonce: Nonce,
+) {
+    let shard_layout =
+        env.epoch_manager.get_shard_layout_from_prev_block(&env.head.prev_block_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let shard_uid =
+        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let mut state_update = TrieUpdate::new(trie);
+    let mut gas_key = AccessKey::gas_key_full_access(num_nonces);
+    gas_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
+    set_access_key(&mut state_update, account_id.clone(), public_key.clone(), &gas_key);
+    for nonce_index in 0..num_nonces {
+        set_gas_key_nonce(
+            &mut state_update,
+            account_id.clone(),
+            public_key.clone(),
+            nonce_index,
+            gas_key_nonce,
+        );
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = env.runtime.tries.store_update();
+    env.state_roots[0] = env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+}
+
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_prepare_transactions_includes_v0_gas_key_tx_with_implicit_nonce_index() {
+    assert!(ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION));
+    let (mut env, chain, _) =
+        get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+
+    let v0_tx = SignedTransaction::from_actions(
+        gas_key_nonce + 1,
+        account_id,
+        "test2".parse().unwrap(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(v0_tx));
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), 1);
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 0);
+}
+
+#[test]
+fn test_prepare_transactions_rejects_v0_gas_key_tx_before_implicit_nonce_index() {
+    let protocol_version =
+        (ProtocolFeature::GasKeyImplicitNonceIndex.protocol_version() - 1).min(PROTOCOL_VERSION);
+    let (mut env, chain, _) =
+        get_test_env_with_chain_and_pool_at_protocol_version(protocol_version);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+
+    let v0_tx = SignedTransaction::from_actions(
+        gas_key_nonce + 1,
+        account_id,
+        "test2".parse().unwrap(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(v0_tx));
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+    )
+    .unwrap();
+    assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_prepare_transactions_gap_check_uses_implicit_nonce_index_for_strict_gas_key_tx() {
+    assert!(ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION));
+    let (mut env, chain, _) =
+        get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+
+    let strict_tx = SignedTransaction::from_actions_v1_strict(
+        TransactionNonce::from_nonce(gas_key_nonce + 1),
+        account_id,
+        "test2".parse().unwrap(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+        env.head.prev_block_hash,
+    );
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(strict_tx));
+    let (prepared, skipped) = prepare_transactions_extra(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut pool),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.transactions.len(), 1);
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 0);
 }
 
 #[test]

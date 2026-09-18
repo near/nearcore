@@ -1,7 +1,8 @@
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::types::{AccountId, Nonce, NonceIndex};
+use near_primitives::types::{AccountId, Nonce, NonceIndex, ProtocolVersion};
 use near_store::{StorageError, TrieAccess, get_access_key, get_account, get_gas_key_nonce};
+use node_runtime::resolve_nonce_index;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -38,16 +39,19 @@ impl SignerOverlay {
     }
 
     /// Returns the current nonce from the overlay if available. For gas key
-    /// transactions (nonce_index is Some), returns the gas key nonce;
+    /// transactions (see `resolve_nonce_index`), returns the gas key nonce;
     /// otherwise returns the access key nonce. Returns `None` on cache miss.
     pub fn cached_nonce(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-        nonce_index: Option<NonceIndex>,
+        tx_nonce_index: Option<NonceIndex>,
+        protocol_version: ProtocolVersion,
     ) -> Option<Nonce> {
         let entry = self.entries.get(account_id)?;
         let key_entry = entry.keys.get(public_key)?;
+        let nonce_index =
+            resolve_nonce_index(tx_nonce_index, key_entry.access_key.as_ref(), protocol_version);
         if let Some(idx) = nonce_index {
             key_entry.gas_key_nonces.get(&idx).copied()
         } else {
@@ -64,17 +68,18 @@ impl SignerOverlay {
         self.entries.get(account_id)?.account.bootstrap_nonce()
     }
 
-    /// Returns mutable references to the account and per-key state, loading
-    /// from the trie on first access. `Ok(None)` signals that the requested
-    /// account, access key, or gas-key nonce does not exist in state. Storage
-    /// errors propagate as `Err`.
+    /// Returns mutable references to the account and per-key state, and the
+    /// nonce index from `resolve_nonce_index`, loading from the trie on first
+    /// access. `Ok(None)` signals that the requested account, access key, or
+    /// gas-key nonce does not exist in state. Storage errors propagate as `Err`.
     pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
         account_id: &AccountId,
         public_key: &PublicKey,
-        nonce_index: Option<NonceIndex>,
-    ) -> Result<Option<(&mut Account, &mut KeyEntry)>, StorageError> {
+        tx_nonce_index: Option<NonceIndex>,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Option<(&mut Account, &mut KeyEntry, Option<NonceIndex>)>, StorageError> {
         // Ensure the account is loaded.
         let entry = match self.entries.entry(account_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -104,6 +109,8 @@ impl SignerOverlay {
         };
 
         // Ensure the requested gas key nonce is loaded.
+        let nonce_index =
+            resolve_nonce_index(tx_nonce_index, key_entry.access_key.as_ref(), protocol_version);
         if let Some(idx) = nonce_index {
             if let Entry::Vacant(e) = key_entry.gas_key_nonces.entry(idx) {
                 let Some(nonce) = get_gas_key_nonce(trie, account_id, public_key, idx)? else {
@@ -113,7 +120,7 @@ impl SignerOverlay {
             }
         }
 
-        Ok(Some((account, key_entry)))
+        Ok(Some((account, key_entry, nonce_index)))
     }
 }
 
@@ -125,6 +132,7 @@ mod tests {
     use near_primitives::account::AccountContract;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::Balance;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::trie::AccessOptions;
 
     struct MockTrie {
@@ -174,8 +182,41 @@ mod tests {
         values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(access_key_bytes()));
         let trie = MockTrie { values };
         let mut overlay = SignerOverlay::new();
-        let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0));
+        let result =
+            overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), Some(0), PROTOCOL_VERSION);
         assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "nightly"), ignore)]
+    fn get_or_load_entry_mut_resolves_implicit_nonce_index_for_gas_key() {
+        assert!(ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION));
+        let num_nonces = 3;
+        let implicit_nonce_index = 0;
+        let gas_key_nonce: Nonce = 1_000;
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(
+            TrieKey::access_key(alice(), pk()).to_vec(),
+            Ok(to_vec(&AccessKey::gas_key_full_access(num_nonces)).unwrap()),
+        );
+        values.insert(
+            TrieKey::gas_key_nonce(alice(), pk(), implicit_nonce_index).to_vec(),
+            Ok(to_vec(&gas_key_nonce).unwrap()),
+        );
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        let tx_nonce_index = None;
+        let (_, key_entry, nonce_index) = overlay
+            .get_or_load_entry_mut(&trie, &alice(), &pk(), tx_nonce_index, PROTOCOL_VERSION)
+            .unwrap()
+            .unwrap();
+        assert_eq!(nonce_index, Some(implicit_nonce_index));
+        assert_eq!(key_entry.gas_key_nonces.get(&implicit_nonce_index), Some(&gas_key_nonce));
+        assert_eq!(
+            overlay.cached_nonce(&alice(), &pk(), tx_nonce_index, PROTOCOL_VERSION),
+            Some(gas_key_nonce)
+        );
     }
 
     #[test]
@@ -187,7 +228,7 @@ mod tests {
         );
         let trie = MockTrie { values };
         let mut overlay = SignerOverlay::new();
-        let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None);
+        let result = overlay.get_or_load_entry_mut(&trie, &alice(), &pk(), None, PROTOCOL_VERSION);
         assert!(matches!(result, Err(StorageError::StorageInternalError)));
     }
 }

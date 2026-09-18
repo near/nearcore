@@ -62,8 +62,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, resolve_nonce_index,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -992,8 +992,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // Nonce gap check: if the tx requires sequential nonces and
                 // there is a gap, leave it in the pool for a future block
                 // rather than popping and discarding it.
-                let current_nonce =
-                    gap_check_nonce(&state_update.trie_update.trie, &signer_overlay, tx_peek)?;
+                let current_nonce = gap_check_nonce(
+                    &state_update.trie_update.trie,
+                    &signer_overlay,
+                    tx_peek,
+                    protocol_version,
+                )?;
                 if let Some(current_nonce) = current_nonce
                     && tx_peek.nonce().nonce() > current_nonce.saturating_add(1)
                 {
@@ -1037,13 +1041,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let nonce_index = validated_tx.nonce().nonce_index();
-                let Some((account, key_entry)) = signer_overlay.get_or_load_entry_mut(
-                    &state_update,
-                    validated_tx.signer_id(),
-                    validated_tx.public_key(),
-                    nonce_index,
-                )?
+                let Some((account, key_entry, nonce_index)) = signer_overlay
+                    .get_or_load_entry_mut(
+                        &state_update,
+                        validated_tx.signer_id(),
+                        validated_tx.public_key(),
+                        validated_tx.nonce().nonce_index(),
+                        protocol_version,
+                    )?
                 else {
                     tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction whose signer state is missing");
                     rejected_invalid_tx += 1;
@@ -1665,6 +1670,7 @@ fn gap_check_nonce(
     trie: &Trie,
     signer_overlay: &SignerOverlay,
     tx: &ValidatedTransaction,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<Nonce>, StorageError> {
     let account_id = tx.signer_id();
     // A bootstrap's nonce sits on the account rather than on a key, and only
@@ -1689,15 +1695,23 @@ fn gap_check_nonce(
         return Ok(None);
     }
     let public_key = tx.public_key();
-    let nonce_index = tx.nonce().nonce_index();
-    if let Some(nonce) = signer_overlay.cached_nonce(account_id, public_key, nonce_index) {
+    let tx_nonce_index = tx.nonce().nonce_index();
+    if let Some(nonce) =
+        signer_overlay.cached_nonce(account_id, public_key, tx_nonce_index, protocol_version)
+    {
         return Ok(Some(nonce));
     }
     let throwaway_trie = trie.recording_reads_new_recorder();
-    if let Some(idx) = nonce_index {
+    if let Some(idx) = tx_nonce_index {
         return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
     }
-    Ok(get_access_key(&throwaway_trie, account_id, public_key)?.map(|access_key| access_key.nonce))
+    let Some(access_key) = get_access_key(&throwaway_trie, account_id, public_key)? else {
+        return Ok(None);
+    };
+    if let Some(idx) = resolve_nonce_index(None, Some(&access_key), protocol_version) {
+        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
+    }
+    Ok(Some(access_key.nonce))
 }
 
 /// How much gas of the next chunk we want to spend on converting new

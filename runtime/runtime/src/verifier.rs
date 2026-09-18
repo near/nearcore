@@ -2523,6 +2523,67 @@ mod tests {
     }
 
     #[test]
+    fn test_strict_v1_tx_without_nonce_index_on_gas_key_uses_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let next_nonce = initial_nonce + 1;
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(next_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap();
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, next_nonce)));
+    }
+
+    #[test]
+    fn test_strict_v1_tx_without_nonce_index_on_gas_key_rejects_gap_from_implicit_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let gapped_nonce = initial_nonce + 2;
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(gapped_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            IMPLICIT_NONCE_INDEX_PROTOCOL_VERSION,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce { tx_nonce: gapped_nonce, ak_nonce: initial_nonce }
+        );
+    }
+
+    #[test]
     fn test_v0_tx_on_gas_key_rejected_before_implicit_nonce_index() {
         let config = RuntimeConfig::test();
         let num_nonces = 3;
