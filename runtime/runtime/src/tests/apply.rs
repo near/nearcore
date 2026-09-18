@@ -5028,6 +5028,63 @@ fn test_apply_gas_key_transaction_charges_account_and_refunds_account() {
 }
 
 #[test]
+fn test_apply_v0_tx_on_gas_key_advances_implicit_nonce_index() {
+    let num_nonces = 3;
+    let initial_balance = Balance::from_near(100);
+    let gas_key_balance = Balance::from_millinear(1);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        num_nonces,
+        gas_key_balance,
+    );
+    apply_state.current_protocol_version =
+        ProtocolFeature::GasKeyImplicitNonceIndex.protocol_version();
+
+    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let v0_tx = SignedTransaction::from_actions(
+        initial_nonce + 1,
+        alice_account(),
+        bob_account(),
+        &*gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+        CryptoHash::default(),
+    );
+
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![v0_tx], vec![true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    assert_eq!(apply_result.outcomes.len(), 1);
+    assert_matches!(&apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let stored_nonce = get_gas_key_nonce(&state, &alice_account(), &gas_key_signer.public_key(), 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored_nonce, initial_nonce + 1);
+}
+
+#[test]
 fn test_gas_refund_to_gas_key() {
     let initial_balance = Balance::from_near(1_000_000);
     let gas_key_balance = Balance::from_millinear(10);

@@ -774,7 +774,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (signer, authorization) = get_signer_and_authorization(&trie, &validated_tx)?;
+        let (signer, authorization) =
+            get_signer_and_authorization(&trie, &validated_tx, current_protocol_version)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
