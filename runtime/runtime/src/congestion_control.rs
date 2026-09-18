@@ -15,6 +15,7 @@ use near_primitives::receipt::{
     VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
@@ -206,6 +207,7 @@ impl ReceiptSink {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
+        protocol_version: ProtocolVersion,
         stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
@@ -213,6 +215,7 @@ impl ReceiptSink {
                 trie,
                 shard_layout,
                 side_effects,
+                protocol_version,
                 stats,
             ),
         }
@@ -505,15 +508,21 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
+        protocol_version: ProtocolVersion,
         stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         let params = &self.bandwidth_scheduler_output.params;
 
         let mut requests = Vec::new();
         for shard_id in shard_layout.shard_ids() {
-            if let Some(request) =
-                self.generate_bandwidth_request(shard_id, trie, shard_layout, side_effects, params)?
-            {
+            if let Some(request) = self.generate_bandwidth_request(
+                shard_id,
+                trie,
+                shard_layout,
+                side_effects,
+                protocol_version,
+                params,
+            )? {
                 requests.push(request);
             }
         }
@@ -529,6 +538,7 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
+        protocol_version: ProtocolVersion,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, StorageError> {
         // Get (group) sizes of receipts stored in outgoing buffer to the shard.
@@ -542,7 +552,13 @@ impl ReceiptSinkV2 {
         // children. Not including the parent receipts in the bandwidth request could lead to a
         // situation where a receipt can't be sent because the grant for sending receipts to a child
         // is too small to send out a receipt from a buffer aimed at a parent.
-        if let Ok(parent_shard_id) = shard_layout.get_parent_shard_id(to_shard) {
+        // A shard that wasn't split in the most recent resharding is listed as its own parent. There is no separate parent
+        // buffer in that case, and chaining would count this shard's own buffer twice.
+        let skip_self_parent =
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest.enabled(protocol_version);
+        if let Ok(parent_shard_id) = shard_layout.get_parent_shard_id(to_shard)
+            && !(skip_self_parent && parent_shard_id == to_shard)
+        {
             let parent_receipt_sizes_iter = self.get_receipt_group_sizes_for_buffer_to_shard(
                 parent_shard_id,
                 trie,
@@ -979,4 +995,292 @@ fn overflow_storage_err() -> StorageError {
 // we use u128 for accumulated gas because congestion may deal with a lot of gas
 fn safe_add_gas_to_u128(a: u128, b: Gas) -> Result<u128, IntegerOverflowError> {
     a.checked_add(b.as_gas().into()).ok_or(IntegerOverflowError {})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives::action::{Action, FunctionCallAction};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
+    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::types::{Balance, StateChangeCause};
+    use near_store::test_utils::TestTriesBuilder;
+    use std::num::NonZeroU64;
+
+    const NUM_RECEIPTS: u64 = 12;
+
+    /// A mainnet-shaped V2 layout: shard 0 was split into 10 and 11, every other
+    /// shard is listed as its own parent.
+    fn v2_layout() -> ShardLayout {
+        ShardLayout::v2(
+            ["bb.near", "cc.near", "dd.near", "ee.near"]
+                .iter()
+                .map(|a| a.parse().unwrap())
+                .collect(),
+            vec![10, 11, 1, 4, 5].into_iter().map(ShardId::new).collect(),
+            Some(
+                [
+                    (ShardId::new(0), vec![ShardId::new(10), ShardId::new(11)]),
+                    (ShardId::new(1), vec![ShardId::new(1)]),
+                    (ShardId::new(4), vec![ShardId::new(4)]),
+                    (ShardId::new(5), vec![ShardId::new(5)]),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        )
+    }
+
+    /// A mainnet-shaped V3 layout: shard 5 was split into 12 and 13, and every
+    /// shard that is not a child of that split resolves to itself.
+    fn v3_layout() -> ShardLayout {
+        ShardLayout::v3(
+            ["bb.near", "cc.near", "dd.near"].iter().map(|a| a.parse().unwrap()).collect(),
+            vec![1, 4, 12, 13].into_iter().map(ShardId::new).collect(),
+            [(ShardId::new(5), vec![ShardId::new(12), ShardId::new(13)])].into_iter().collect(),
+            ShardId::new(5),
+        )
+    }
+
+    fn test_receipt(nonce: u64) -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "alice.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            receipt_id: CryptoHash::hash_borsh(nonce),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "alice.near".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: Balance::from_yoctonear(5000),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "noop".to_owned(),
+                    args: vec![0u8; 30_000],
+                    gas: Gas::from_teragas(1),
+                    deposit: Balance::ZERO,
+                }))],
+            }),
+        })
+    }
+
+    fn empty_sink(trie: &dyn TrieAccess, params: BandwidthSchedulerParams) -> ReceiptSinkV2 {
+        let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie).unwrap();
+        let outgoing_metadatas = OutgoingMetadatas::load(
+            trie,
+            outgoing_buffers.shards(),
+            ReceiptGroupsConfig::default_config(),
+        )
+        .unwrap();
+        ReceiptSinkV2 {
+            own_congestion_info: CongestionInfo::V1(CongestionInfoV1::default()),
+            outgoing_receipts: Vec::new(),
+            outgoing_limit: HashMap::new(),
+            outgoing_buffers,
+            outgoing_metadatas,
+            bandwidth_scheduler_output: BandwidthSchedulerOutput {
+                granted_bandwidth: Default::default(),
+                params,
+                scheduler_state_hash: CryptoHash::default(),
+            },
+            stats: ReceiptSinkStats::default(),
+        }
+    }
+
+    /// Buffer `NUM_RECEIPTS` receipts to `to_shard`, then return the bandwidth
+    /// request for it alongside the request that
+    /// the shard's *own* buffer alone justifies.
+    fn actual_and_expected_request(
+        layout: &ShardLayout,
+        to_shard: ShardId,
+        buffers: &[(ShardId, u64)],
+        protocol_version: ProtocolVersion,
+    ) -> (Option<BandwidthRequest>, Option<BandwidthRequest>) {
+        let params = BandwidthSchedulerParams::new(
+            NonZeroU64::new(layout.num_shards()).unwrap(),
+            &RuntimeConfig::test(),
+        );
+        let sender = layout.shard_ids().next().unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(sender, layout);
+        let tries = TestTriesBuilder::new().build();
+
+        // Fill the requested outgoing buffers.
+        let mut state_update = tries.new_trie_update(shard_uid, CryptoHash::default());
+        let mut sink = empty_sink(&state_update.trie, params.clone());
+        let mut nonce = 0u64;
+        for (shard, count) in buffers {
+            for _ in 0..*count {
+                let receipt = test_receipt(nonce);
+                nonce += 1;
+                let size = compute_receipt_size(&receipt).unwrap();
+                let gas = compute_receipt_congestion_gas(&receipt, &RuntimeConfig::test()).unwrap();
+                sink.buffer_receipt(receipt, size, gas, &mut state_update, *shard, true).unwrap();
+            }
+        }
+        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
+        let changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&changes, shard_uid, &mut store_update);
+        store_update.commit();
+
+        // Re-open on the committed trie and generate the request.
+        let committed = tries.new_trie_update(shard_uid, root);
+        let sink = empty_sink(&committed.trie, params.clone());
+        let mut stats = ChunkApplyStatsV1::dummy();
+        let BandwidthRequests::V1(requests) = sink
+            .generate_bandwidth_requests(
+                &committed.trie,
+                layout,
+                false,
+                protocol_version,
+                &mut stats,
+            )
+            .unwrap();
+        let actual = requests.requests.into_iter().find(|r| ShardId::from(r.to_shard) == to_shard);
+
+        // The oracle: this shard's own buffer counted once, preceded by a *distinct*
+        // parent's buffer if and only if there really is one.
+        let mut own_sizes: Vec<u64> = Vec::new();
+        if let Ok(parent) = layout.get_parent_shard_id(to_shard)
+            && parent != to_shard
+        {
+            own_sizes.extend(
+                sink.get_receipt_group_sizes_for_buffer_to_shard(
+                    parent,
+                    &committed.trie,
+                    false,
+                    &params,
+                )
+                .collect::<Result<Vec<u64>, _>>()
+                .unwrap(),
+            );
+        }
+        own_sizes.extend(
+            sink.get_receipt_group_sizes_for_buffer_to_shard(
+                to_shard,
+                &committed.trie,
+                false,
+                &params,
+            )
+            .collect::<Result<Vec<u64>, _>>()
+            .unwrap(),
+        );
+        assert!(
+            !own_sizes.is_empty(),
+            "the buffer must be non-empty for this test to mean anything"
+        );
+        let expected = BandwidthRequest::make_from_receipt_sizes(
+            to_shard,
+            own_sizes
+                .into_iter()
+                .map(|s| Ok::<u64, StorageError>(std::cmp::min(s, params.max_receipt_size))),
+            &params,
+        )
+        .unwrap();
+
+        (actual, expected)
+    }
+
+    /// A destination that is its own parent must not have its outgoing buffer
+    /// counted twice. Regression test for the missing `parent_shard_id != to_shard`
+    /// guard in `generate_bandwidth_request`.
+    #[test]
+    fn self_mapped_shard_is_not_double_counted_v2() {
+        let layout = v2_layout();
+        let to_shard = ShardId::new(5);
+        assert_eq!(layout.get_parent_shard_id(to_shard).unwrap(), to_shard, "shard must self-map");
+
+        let (actual, expected) = actual_and_expected_request(
+            &layout,
+            to_shard,
+            &[(to_shard, NUM_RECEIPTS)],
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version(),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn self_mapped_shard_is_not_double_counted_v3() {
+        let layout = v3_layout();
+        let to_shard = ShardId::new(4);
+        assert_eq!(layout.get_parent_shard_id(to_shard).unwrap(), to_shard, "shard must self-map");
+
+        let (actual, expected) = actual_and_expected_request(
+            &layout,
+            to_shard,
+            &[(to_shard, NUM_RECEIPTS)],
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version(),
+        );
+        assert_eq!(actual, expected);
+    }
+
+    /// Below the gate the old, doubled request must be reproduced.
+    #[test]
+    fn self_mapped_shard_is_still_double_counted_before_the_upgrade() {
+        for (layout, to_shard) in [(v2_layout(), ShardId::new(5)), (v3_layout(), ShardId::new(4))] {
+            assert_eq!(layout.get_parent_shard_id(to_shard).unwrap(), to_shard);
+
+            let (actual, expected) = actual_and_expected_request(
+                &layout,
+                to_shard,
+                &[(to_shard, NUM_RECEIPTS)],
+                ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version() - 1,
+            );
+            let bits = |r: &Option<BandwidthRequest>| {
+                let r = r.as_ref().unwrap();
+                (0..r.requested_values_bitmap.len())
+                    .filter(|i| r.requested_values_bitmap.get_bit(*i))
+                    .count()
+            };
+            assert!(
+                bits(&actual) > bits(&expected),
+                "pre-upgrade behaviour must be unchanged: actual {} bits, single-buffer {} bits",
+                bits(&actual),
+                bits(&expected)
+            );
+        }
+    }
+
+    /// The genuine post-resharding case must keep working: a real child still has
+    /// to cover the receipts buffered to its retired parent.
+    #[test]
+    fn genuine_child_still_chains_its_parent_buffer() {
+        let layout = v3_layout();
+        let child = ShardId::new(12);
+        let parent = layout.get_parent_shard_id(child).unwrap();
+        assert_eq!(parent, ShardId::new(5));
+        assert_ne!(parent, child, "shard must have a distinct parent");
+
+        // Buffer to both the retired parent and the child. The child's request must
+        // cover both, which is the behaviour the guard must not break.
+        let both = [(parent, NUM_RECEIPTS), (child, NUM_RECEIPTS)];
+        let (actual, expected) = actual_and_expected_request(
+            &layout,
+            child,
+            &both,
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version(),
+        );
+        assert_eq!(actual, expected);
+
+        // And it must genuinely be larger than what the child's own buffer alone justifies.
+        let (child_only, _) = actual_and_expected_request(
+            &layout,
+            child,
+            &[(child, NUM_RECEIPTS)],
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version(),
+        );
+        let bits = |r: &Option<BandwidthRequest>| {
+            let r = r.as_ref().unwrap();
+            (0..r.requested_values_bitmap.len())
+                .filter(|i| r.requested_values_bitmap.get_bit(*i))
+                .count()
+        };
+        assert!(
+            bits(&actual) > bits(&child_only),
+            "a real parent buffer must still be chained: with parent {} bits, child-only {} bits",
+            bits(&actual),
+            bits(&child_only)
+        );
+    }
 }
