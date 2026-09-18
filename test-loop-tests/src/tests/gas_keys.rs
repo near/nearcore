@@ -375,7 +375,7 @@ fn test_gas_key_refund() {
     let gas_key_tx = SignedTransaction::from_actions_v1(
         TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
         sender.clone(),
-        receiver.clone(),
+        receiver,
         &gas_key_signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "nonexistent_method".to_string(),
@@ -440,7 +440,7 @@ fn test_gas_key_deposit_failed() {
     let gas_key_tx = SignedTransaction::from_actions_v1(
         TransactionNonce::from_nonce_and_index(gas_key_nonce + 1, nonce_index),
         sender.clone(),
-        receiver.clone(),
+        receiver,
         &gas_key_signer,
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         block_hash,
