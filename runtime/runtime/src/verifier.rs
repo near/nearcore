@@ -670,9 +670,9 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         return TxVerdict::Failed(e);
     }
 
-    // The gas key covers the conversion burn of a transaction that fails to
-    // convert. Before `GasKeyCoversFailedTxGas` it also prepays the attached
-    // gas, and the account pays the deposits alone.
+    // The gas key covers `burnt_amount`, the tokens burnt converting a
+    // transaction that then fails. Before `GasKeyCoversFailedTxGas` it also
+    // prepays the attached gas, and the account pays the deposits alone.
     let gas_paid_from_account =
         ProtocolFeature::GasKeyCoversFailedTxGas.enabled(current_protocol_version);
     let required_gas_key_balance = if gas_paid_from_account { burnt_amount } else { gas_cost };

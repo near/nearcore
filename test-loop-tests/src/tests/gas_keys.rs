@@ -19,7 +19,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas, Nonce, NonceIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
+};
 use near_primitives::views::{
     AccessKeyPermissionView, AccessKeyView, FinalExecutionOutcomeView, FinalExecutionStatus,
     QueryRequest, QueryResponseKind,
@@ -40,6 +42,20 @@ pub(crate) fn query_gas_key_and_balance(
     (view, balance)
 }
 
+/// The newest protocol version where a gas key prepays the gas of its own
+/// transactions. Tests of that model pin their genesis here, so they keep
+/// running unchanged once `GasKeyCoversFailedTxGas` reaches stable.
+fn last_version_with_gas_key_gas_prepayment() -> ProtocolVersion {
+    let version =
+        (ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version() - 1).min(PROTOCOL_VERSION);
+    assert!(
+        version >= ProtocolFeature::GasKeys.protocol_version(),
+        "no supported protocol version has a gas key prepaying its gas, so there is nothing \
+         left to test here - remove the tests pinned to this version"
+    );
+    version
+}
+
 fn assert_function_call_error(outcome: &FinalExecutionOutcomeView) {
     assert!(
         matches!(
@@ -54,7 +70,7 @@ fn assert_function_call_error(outcome: &FinalExecutionOutcomeView) {
     );
 }
 
-fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
+pub(crate) fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
     std::iter::once(&outcome.transaction_outcome)
         .chain(&outcome.receipts_outcome)
         .map(|o| o.outcome.tokens_burnt)
@@ -81,33 +97,50 @@ pub(crate) fn get_gas_key_nonce(
     view.nonces[nonce_index as usize]
 }
 
-#[test]
-fn test_gas_key_transaction() {
+/// The gas price every gas key test-loop chain runs at.
+pub(crate) const GAS_KEY_TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);
+
+pub(crate) struct GasKeyEnv {
+    pub env: TestLoopEnv,
+    pub sender: AccountId,
+    pub receiver: AccountId,
+    pub gas_key_signer: Signer,
+    pub gas_price: Balance,
+}
+
+/// Builds a two account chain at `protocol_version` and gives the sender a
+/// funded gas key. The sender keeps its plain access key, which pays for the
+/// two setup transactions and owns nonces 1 and 2.
+pub(crate) fn setup_funded_gas_key(
+    protocol_version: ProtocolVersion,
+    sender_balance: Balance,
+    gas_key_balance: Balance,
+    num_nonces: NonceIndex,
+) -> GasKeyEnv {
     init_test_logger();
 
-    let epoch_length = 10;
-    let user_accounts = create_account_ids(["account0", "account1", "account2", "account3"]);
-    let initial_balance = Balance::from_near(1_000_000);
-    let gas_price = Balance::from_yoctonear(1);
+    let user_accounts = create_account_ids(["account0", "account1"]);
+    let gas_price = GAS_KEY_TEST_GAS_PRICE;
     let mut env = TestLoopBuilder::new()
         .enable_rpc()
-        .epoch_length(epoch_length)
-        .add_user_accounts(&user_accounts, initial_balance)
+        .epoch_length(10)
+        .protocol_version(protocol_version)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(protocol_version))
+        .add_user_accounts(&user_accounts, sender_balance)
         .gas_prices(gas_price, gas_price)
         .build();
 
-    let sender = &user_accounts[0];
-    let receiver = &user_accounts[1];
-
+    let sender = user_accounts[0].clone();
+    let receiver = user_accounts[1].clone();
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
+
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let num_nonces = 3; // Arbitrary number of nonces for testing
     let add_key_tx = SignedTransaction::from_actions(
         1, // nonce
         sender.clone(),
         sender.clone(),
-        &create_user_test_signer(sender),
+        &create_user_test_signer(&sender),
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
@@ -119,30 +152,41 @@ fn test_gas_key_transaction() {
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(100);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let fund_tx = SignedTransaction::from_actions(
         2, // nonce
         sender.clone(),
         sender.clone(),
-        &create_user_test_signer(sender),
+        &create_user_test_signer(&sender),
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
-            deposit: gas_key_fund_amount,
+            deposit: gas_key_balance,
         }))],
         block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
+    GasKeyEnv { env, sender, receiver, gas_key_signer, gas_price }
+}
+
+#[test]
+fn test_gas_key_transaction() {
+    let protocol_version = last_version_with_gas_key_gas_prepayment();
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_key_fund_amount = Balance::from_millinear(100);
+    let num_nonces = 3;
+    let GasKeyEnv { mut env, sender, receiver, gas_key_signer, .. } =
+        setup_funded_gas_key(protocol_version, initial_balance, gas_key_fund_amount, num_nonces);
+
     // Record balances before the gas key transaction
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().view_account_query(&sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
 
     // Send a transfer using the gas key
     let nonce_index = 0;
-    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let transfer_amount = Balance::from_near(10);
     let gas_key_tx = SignedTransaction::from_actions_v1(
@@ -159,20 +203,20 @@ fn test_gas_key_transaction() {
 
     // Check that the nonce for the gas key has been incremented
     let updated_gas_key_nonce =
-        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(updated_gas_key_nonce, gas_key_nonce + 1);
 
     // Verify account balance pays for deposit, gas key balance pays for gas.
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().view_account_query(&sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before.checked_sub(transfer_amount).unwrap());
     let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
-    let receiver_balance = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance = env.rpc_node().view_account_query(&receiver).unwrap().amount;
     assert_eq!(receiver_balance, initial_balance.checked_add(transfer_amount).unwrap());
 }
 
@@ -253,7 +297,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
 
     // The relayer submits it: the outer transaction's receiver is the delegate
     // sender, who forwards the inner actions.
-    let receiver_balance_before = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance_before = env.rpc_node().view_account_query(&receiver).unwrap().amount;
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let meta_tx = SignedTransaction::from_actions(
         next_relayer_nonce(),
@@ -279,7 +323,7 @@ fn test_gas_key_delegate_v2_meta_transaction() {
     );
 
     // The inner transfer executed.
-    let receiver_balance_after = env.rpc_node().view_account_query(receiver).unwrap().amount;
+    let receiver_balance_after = env.rpc_node().view_account_query(&receiver).unwrap().amount;
     assert_eq!(
         receiver_balance_after,
         receiver_balance_before.checked_add(transfer_amount).unwrap(),
@@ -311,66 +355,24 @@ fn test_gas_key_delegate_v2_meta_transaction() {
 
 #[test]
 fn test_gas_key_refund() {
-    init_test_logger();
-
-    let epoch_length = 10;
-    let user_accounts = create_account_ids(["account0", "account1"]);
+    // The gas key holds enough for the attached 100 TGas plus the tx cost.
+    let protocol_version = last_version_with_gas_key_gas_prepayment();
     let initial_balance = Balance::from_near(1_000_000);
-    let gas_price = Balance::from_yoctonear(1);
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .epoch_length(epoch_length)
-        .add_user_accounts(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
-
-    let sender = &user_accounts[0];
-    let receiver = &user_accounts[1];
-
-    let gas_key_signer: Signer =
-        InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    // Enough for the attached 100 TGas plus the tx cost.
+    let gas_key_fund_amount = Balance::from_millinear(101);
     let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key: gas_key_signer.public_key(),
-            access_key: AccessKey::gas_key_full_access(num_nonces),
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
-
-    // Fund the gas key
-    let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
-        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-            public_key: gas_key_signer.public_key(),
-            deposit: gas_key_fund_amount,
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
+    let GasKeyEnv { mut env, sender, receiver, gas_key_signer, .. } =
+        setup_funded_gas_key(protocol_version, initial_balance, gas_key_fund_amount, num_nonces);
 
     // Record balances before the gas key transaction
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().view_account_query(&sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
 
     // Call a non-existing function on receiver (no contract deployed) with a deposit.
     // This will fail, producing both a balance refund (to account) and a gas refund (to gas key).
     let nonce_index = 0;
-    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let prepaid_gas = near_primitives::types::Gas::from_teragas(100);
     let deposit_amount = Balance::from_near(5);
@@ -398,12 +400,12 @@ fn test_gas_key_refund() {
 
     // Verify gas key balance: should be initial minus tokens_burnt (gas refund went back to gas key).
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify sender account balance is unchanged: deposit was deducted when the tx was
     // converted to a receipt, then refunded when the function call failed.
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().view_account_query(&sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before);
 }
 
@@ -417,64 +419,19 @@ fn test_gas_key_deposit_failed() {
     use near_client::client_actor::AdvProduceChunksMode;
     use near_primitives::transaction::ValidatedTransaction;
 
-    init_test_logger();
-
-    let epoch_length = 10;
-    let user_accounts = create_account_ids(["account0", "account1"]);
+    let protocol_version = last_version_with_gas_key_gas_prepayment();
     let initial_balance = Balance::from_near(1_000_000);
-    let gas_price = Balance::from_yoctonear(1);
-    let mut env = TestLoopBuilder::new()
-        .enable_rpc()
-        .epoch_length(epoch_length)
-        .add_user_accounts(&user_accounts, initial_balance)
-        .gas_prices(gas_price, gas_price)
-        .build();
-
-    let sender = &user_accounts[0];
-    let receiver = &user_accounts[1];
-
-    // Add gas key
-    let gas_key_signer: Signer =
-        InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key: gas_key_signer.public_key(),
-            access_key: AccessKey::gas_key_full_access(num_nonces),
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
-
-    // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
-        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-            public_key: gas_key_signer.public_key(),
-            deposit: gas_key_fund_amount,
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
+    let num_nonces = 3;
+    let GasKeyEnv { mut env, sender, receiver, gas_key_signer, gas_price } =
+        setup_funded_gas_key(protocol_version, initial_balance, gas_key_fund_amount, num_nonces);
 
     // Record balances before
-    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_before = env.rpc_node().view_account_query(&sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
     let nonce_index: NonceIndex = 0;
-    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
 
     // Enable adversarial mode: skip runtime verification during chunk preparation.
     env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
@@ -497,7 +454,7 @@ fn test_gas_key_deposit_failed() {
     // Insert directly into the tx pool.
     let epoch_id = env.validator().head().epoch_id;
     let shard_layout = env.validator().client().epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let shard_uid = shard_layout.account_id_to_shard_uid(sender);
+    let shard_uid = shard_layout.account_id_to_shard_uid(&sender);
     let validated_tx = ValidatedTransaction::new_for_test(gas_key_tx);
     env.node(0)
         .client()
@@ -535,16 +492,16 @@ fn test_gas_key_deposit_failed() {
 
     // Verify: gas key balance decreased by exactly tokens_burnt
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), &sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify: account balance unchanged
-    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
+    let sender_balance_after = env.rpc_node().view_account_query(&sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before);
 
     // Verify: gas key nonce incremented
     let gas_key_nonce_after =
-        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, &sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(gas_key_nonce_after, gas_key_nonce + 1);
 }
 
@@ -611,7 +568,7 @@ impl HostFunctionTestSetup {
     }
 }
 
-fn setup_host_function_test() -> HostFunctionTestSetup {
+fn setup_host_function_test(protocol_version: ProtocolVersion) -> HostFunctionTestSetup {
     init_test_logger();
 
     let user_accounts = create_account_ids(["account0"]);
@@ -621,6 +578,8 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
         .epoch_length(10)
         .gas_prices(gas_price, gas_price)
         .enable_rpc()
+        .protocol_version(protocol_version)
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(protocol_version))
         .add_user_accounts(&user_accounts, initial_balance)
         .build();
 
@@ -650,7 +609,7 @@ fn setup_host_function_test() -> HostFunctionTestSetup {
 /// `promise_batch_action_transfer_to_gas_key` host function.
 #[test]
 fn test_gas_key_transfer_host_function() {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
     let account = setup.account.clone();
     let gas_price = setup.gas_price;
 
@@ -747,7 +706,7 @@ fn test_gas_key_transfer_host_function() {
 /// Test that a contract can create a gas key with full access using the host function.
 #[test]
 fn test_gas_key_add_full_access_host_function() {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =
@@ -796,7 +755,7 @@ fn test_gas_key_add_full_access_host_function() {
 /// Test that a contract can create a gas key with function call permission using the host function.
 #[test]
 fn test_gas_key_add_function_call_host_function() {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =
@@ -856,7 +815,7 @@ fn test_gas_key_add_function_call_host_function() {
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
 #[test]
 fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =
@@ -922,7 +881,7 @@ fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
 /// Test creating a gas key via host function, funding it, then using it to send a transaction.
 #[test]
 fn test_gas_key_add_then_fund_then_use() {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(last_version_with_gas_key_gas_prepayment());
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =
@@ -1049,7 +1008,7 @@ fn test_gas_key_fee_parity_function_call() {
 /// Verify that adding, funding, and deleting a gas key via transaction vs host function
 /// produces identical gas_burnt and tokens_burnt on the action execution receipt.
 fn test_gas_key_fee_parity(mode: GasKeyKind) {
-    let mut setup = setup_host_function_test();
+    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
     let account = setup.account.clone();
 
     let num_nonces: NonceIndex = 4;

@@ -287,8 +287,8 @@ pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
     /// Gas key valid with sufficient balance, but the account can't cover its
-    /// share of the cost. The gas key is charged the conversion burn and the
-    /// account balance is unchanged.
+    /// share of the cost. The gas key is charged the tokens burnt converting
+    /// the transaction, and the account balance is unchanged.
     FailedWithGasBurnt { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),

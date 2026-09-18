@@ -499,9 +499,10 @@ fn test_ptq_gas_key_multiple_nonce_indices() {
 ///
 /// Submit an access key tx with a large deposit that nearly exhausts the
 /// account balance (1000 NEAR). Then submit a gas key tx whose deposit
-/// exceeds the remaining balance. The gas key tx's deposit is paid from the
-/// account balance, so the pending transaction queue's paid_from_balance
-/// constraint causes the RPC to reject it with NotEnoughBalanceForDeposit.
+/// exceeds the remaining balance. A gas key tx pays its deposit, and since
+/// `GasKeyCoversFailedTxGas` its gas too, from the account balance, so the
+/// pending transaction queue's paid_from_balance constraint causes the RPC to
+/// reject it with NotEnoughBalance.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_ptq_account_balance_access_key_gas_key_combined() {
@@ -531,7 +532,6 @@ fn test_ptq_account_balance_access_key_gas_key_combined() {
     env.validator_runner().run_until_included(&[access_key_hash]);
 
     // Submit a gas key tx whose deposit exceeds the remaining balance.
-    // Gas is paid from the gas key, but deposit is paid from the account.
     let block_hash = env.validator().head().last_block_hash;
     let gas_key_tx = SignedTransaction::from_actions_v1(
         TransactionNonce::from_nonce_and_index(setup.gas_key_nonces[0] + 1, 0),
@@ -542,7 +542,7 @@ fn test_ptq_account_balance_access_key_gas_key_combined() {
         block_hash,
     );
     let result = env.validator_runner().execute_tx(gas_key_tx, Duration::seconds(5));
-    assert!(matches!(result, Err(InvalidTxError::NotEnoughBalanceForDeposit { .. })),);
+    assert!(matches!(result, Err(InvalidTxError::NotEnoughBalance { .. })), "got {result:?}");
 }
 
 fn is_included_in_head(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHash]) -> bool {
