@@ -64,8 +64,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, resolve_nonce_index,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, gas_key_current_nonce, get_signer_and_authorization,
+    resolve_nonce_index, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -663,6 +663,12 @@ impl NightshadeRuntime {
         key_handle: &PublicKeyHandle,
         access_key: AccessKey,
     ) -> Result<AccessKeyView, QueryError> {
+        // The view reports `max(access_key.nonce, nonce[0])` only for keys that
+        // `resolve_nonce_index` maps to index 0, which needs `GasKeyImplicitNonceIndex`.
+        const _: () = assert!(
+            ProtocolFeature::GasKeyImplicitNonceIndex.protocol_version()
+                <= ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version()
+        );
         // Only a gas key needs the protocol version, so other keys skip the epoch lookup.
         let nonce_index = if access_key.gas_key_info().is_some() {
             let (_, protocol_version) =
@@ -671,24 +677,21 @@ impl NightshadeRuntime {
         } else {
             None
         };
-        let mut access_key_view: AccessKeyView = access_key.into();
         let Some(nonce_index) = nonce_index else {
-            return Ok(access_key_view);
+            return Ok(access_key.into());
         };
         let internal_error =
             |error_message| QueryError::InternalError { error_message, block_height, block_hash };
-        access_key_view.nonce = get_gas_key_nonce_by_handle(
-            trie,
-            account_id,
-            key_handle,
-            nonce_index,
-        )
-        .map_err(|err| internal_error(err.to_string()))?
-        .ok_or_else(|| {
-            internal_error(format!(
-                "gas key nonce at index {nonce_index} does not exist for account {account_id}"
-            ))
-        })?;
+        let gas_key_nonce = get_gas_key_nonce_by_handle(trie, account_id, key_handle, nonce_index)
+            .map_err(|err| internal_error(err.to_string()))?
+            .ok_or_else(|| {
+                internal_error(format!(
+                    "gas key nonce at index {nonce_index} does not exist for account {account_id}"
+                ))
+            })?;
+        let nonce = gas_key_current_nonce(&access_key, nonce_index, gas_key_nonce);
+        let mut access_key_view: AccessKeyView = access_key.into();
+        access_key_view.nonce = nonce;
         Ok(access_key_view)
     }
 }
@@ -1769,16 +1772,17 @@ fn gap_check_nonce(
         return Ok(Some(nonce));
     }
     let throwaway_trie = trie.recording_reads_new_recorder();
-    if let Some(idx) = tx_nonce_index {
-        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
-    }
     let Some(access_key) = get_access_key(&throwaway_trie, account_id, public_key)? else {
         return Ok(None);
     };
-    if let Some(idx) = resolve_nonce_index(None, Some(&access_key), protocol_version) {
-        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
-    }
-    Ok(Some(access_key.nonce))
+    let Some(idx) = resolve_nonce_index(tx_nonce_index, Some(&access_key), protocol_version) else {
+        return Ok(Some(access_key.nonce));
+    };
+    let Some(gas_key_nonce) = get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(gas_key_current_nonce(&access_key, idx, gas_key_nonce)))
 }
 
 /// How much gas of the next chunk we want to spend on converting new

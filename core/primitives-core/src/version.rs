@@ -500,6 +500,11 @@ pub enum ProtocolFeature {
     /// A transaction without a nonce index, such as `TransactionV0`, that a gas
     /// key signs uses nonce index 0 instead of being rejected.
     GasKeyImplicitNonceIndex,
+    /// A gas key may sign a `Delegate`, which advances only `access_key.nonce`.
+    /// A tx on nonce index 0 must be valid according to `max(access_key.nonce,
+    /// nonce[0])`. One above `nonce[0]` but not above `access_key.nonce` fails,
+    /// and the gas key pays `burnt_amount`.
+    GasKeyDelegateUsesAccessKeyNonce,
 }
 
 impl ProtocolFeature {
@@ -647,6 +652,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeyCoversFailedTxGas => 157,
             ProtocolFeature::GasKeyImplicitNonceIndex => 157,
+            ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

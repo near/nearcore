@@ -2,7 +2,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, Nonce, NonceIndex, ProtocolVersion};
 use near_store::{StorageError, TrieAccess, get_access_key, get_account, get_gas_key_nonce};
-use node_runtime::resolve_nonce_index;
+use node_runtime::{gas_key_current_nonce, resolve_nonce_index};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -47,7 +47,7 @@ impl SignerOverlay {
     }
 
     /// Returns the current nonce from the overlay if available. For gas key
-    /// transactions (see `resolve_nonce_index`), returns the gas key nonce;
+    /// transactions (see `resolve_nonce_index`), returns `gas_key_current_nonce`;
     /// otherwise returns the access key nonce. Returns `None` on cache miss.
     pub fn cached_nonce(
         &self,
@@ -61,7 +61,9 @@ impl SignerOverlay {
         let nonce_index =
             resolve_nonce_index(tx_nonce_index, key_entry.access_key.as_ref(), protocol_version);
         if let Some(idx) = nonce_index {
-            key_entry.gas_key_nonces.get(&idx).copied()
+            let gas_key_nonce = key_entry.gas_key_nonces.get(&idx).copied()?;
+            let access_key = key_entry.access_key.as_ref()?;
+            Some(gas_key_current_nonce(access_key, idx, gas_key_nonce))
         } else {
             // A missing access key means a self-signed state init, whose nonce
             // is on the account instead; see `cached_bootstrap_nonce`.
@@ -223,6 +225,42 @@ mod tests {
         assert_eq!(key_entry.gas_key_nonces.get(&implicit_nonce_index), Some(&gas_key_nonce));
         assert_eq!(
             overlay.cached_nonce(&alice(), &pk(), tx_nonce_index, PROTOCOL_VERSION),
+            Some(gas_key_nonce)
+        );
+    }
+
+    #[test]
+    fn cached_nonce_on_nonce_index_0_counts_access_key_nonce() {
+        let num_nonces = 2;
+        let gas_key_nonce: Nonce = 1_000;
+        let access_key_nonce: Nonce = 1_005;
+        let mut gas_key = AccessKey::gas_key_full_access(num_nonces);
+        gas_key.nonce = access_key_nonce;
+        let mut values = HashMap::new();
+        values.insert(TrieKey::Account { account_id: alice() }.to_vec(), Ok(account_bytes()));
+        values.insert(TrieKey::access_key(alice(), pk()).to_vec(), Ok(to_vec(&gas_key).unwrap()));
+        for nonce_index in 0..num_nonces {
+            values.insert(
+                TrieKey::gas_key_nonce(alice(), pk(), nonce_index).to_vec(),
+                Ok(to_vec(&gas_key_nonce).unwrap()),
+            );
+        }
+        let trie = MockTrie { values };
+        let mut overlay = SignerOverlay::new();
+        let nonce_index_0 = Some(0);
+        let nonce_index_1 = Some(1);
+        for tx_nonce_index in [nonce_index_0, nonce_index_1] {
+            overlay
+                .get_or_load_entry_mut(&trie, &alice(), &pk(), tx_nonce_index, PROTOCOL_VERSION)
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(
+            overlay.cached_nonce(&alice(), &pk(), nonce_index_0, PROTOCOL_VERSION),
+            Some(access_key_nonce)
+        );
+        assert_eq!(
+            overlay.cached_nonce(&alice(), &pk(), nonce_index_1, PROTOCOL_VERSION),
             Some(gas_key_nonce)
         );
     }

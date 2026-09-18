@@ -15,8 +15,8 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 pub use crate::verifier::{
     IMPLICIT_NONCE_INDEX, TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
-    get_signer_and_authorization, is_bootstrap, resolve_nonce_index, set_tx_state_changes,
-    validate_transaction, verify_and_charge_access_key_tx_ephemeral,
+    gas_key_current_nonce, get_signer_and_authorization, is_bootstrap, resolve_nonce_index,
+    set_tx_state_changes, validate_transaction, verify_and_charge_access_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
@@ -292,8 +292,8 @@ pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
     /// Gas key valid with sufficient balance, but the account can't cover its
-    /// share of the cost. The gas key is charged the tokens burnt converting
-    /// the transaction, and the account balance is unchanged.
+    /// share, or a delegate action advanced the nonce past it. The gas key pays
+    /// the burnt tokens and the account balance is unchanged.
     FailedWithGasBurnt { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
@@ -2274,7 +2274,7 @@ impl Runtime {
                     tracing::debug!(
                         %tx_hash,
                         error = &error as &dyn std::error::Error,
-                        "gas key transaction failed balance check, charging the gas key"
+                        "gas key transaction failed to convert, charging the gas key"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(

@@ -4,6 +4,7 @@ use crate::ext::RuntimeExt;
 use crate::function_call::execute_function_call;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
+use crate::verifier::gas_key_current_nonce;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -313,14 +314,14 @@ impl TrieViewer {
         };
         (0..gas_key_info.num_nonces)
             .map(|index| {
-                get_gas_key_nonce(state_update, account_id, public_key, index)?.ok_or_else(|| {
-                errors::ViewGasKeyNoncesError::InternalError {
-                    error_message: format!(
-                        "gas key nonce at index {} does not exist for account {} and public key {}",
-                        index, account_id, public_key
-                    ),
-                }
-            })
+                let gas_key_nonce = get_gas_key_nonce(state_update, account_id, public_key, index)?
+                    .ok_or_else(|| errors::ViewGasKeyNoncesError::InternalError {
+                        error_message: format!(
+                            "gas key nonce at index {} does not exist for account {} and public key {}",
+                            index, account_id, public_key
+                        ),
+                    })?;
+                Ok(gas_key_current_nonce(&access_key, index, gas_key_nonce))
             })
             .collect()
     }
