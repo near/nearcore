@@ -107,6 +107,47 @@ pub(crate) struct GasKeyEnv {
     pub gas_price: Balance,
 }
 
+/// The sender signs with its plain access key, at `sender_nonce` and `sender_nonce + 1`.
+pub(crate) fn add_and_fund_gas_key(
+    env: &mut TestLoopEnv,
+    sender: &AccountId,
+    sender_nonce: Nonce,
+    gas_key_public_key: &PublicKey,
+    gas_key: AccessKey,
+    gas_key_balance: Balance,
+) {
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let add_key_tx = SignedTransaction::from_actions(
+        sender_nonce,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_public_key.clone(),
+            access_key: gas_key,
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    // Run for 1 more block for the access key to be reflected in chunks prev state root.
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        sender_nonce + 1,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_public_key.clone(),
+            deposit: gas_key_balance,
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
+}
+
 /// The sender pays for the setup with its plain access key, using nonces 1 and 2.
 pub(crate) fn setup_funded_gas_key(
     protocol_version: ProtocolVersion,
@@ -131,38 +172,15 @@ pub(crate) fn setup_funded_gas_key(
     let receiver = user_accounts[1].clone();
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let add_key_tx = SignedTransaction::from_actions(
-        1, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(&sender),
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key: gas_key_signer.public_key(),
-            access_key: AccessKey::gas_key_full_access(num_nonces),
-        }))],
-        block_hash,
+    let first_sender_nonce = 1;
+    add_and_fund_gas_key(
+        &mut env,
+        &sender,
+        first_sender_nonce,
+        &gas_key_signer.public_key(),
+        AccessKey::gas_key_full_access(num_nonces),
+        gas_key_balance,
     );
-    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    // Run for 1 more block for the access key to be reflected in chunks prev state root.
-    env.rpc_runner().run_for_number_of_blocks(1);
-
-    // Fund the gas key
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(&sender),
-        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-            public_key: gas_key_signer.public_key(),
-            deposit: gas_key_balance,
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
 
     GasKeyEnv { env, sender, receiver, gas_key_signer, gas_price }
 }
