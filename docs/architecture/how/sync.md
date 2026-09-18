@@ -158,6 +158,43 @@ epoch, state parts become unavailable from peers. When the node detects this
 (the network tip is more than one epoch ahead of the sync hash), it triggers
 the same data-reset-and-restart flow used for stale nodes.
 
+##### State sync under spice
+
+Spice picks a different sync point and a different state to sync to.
+
+The sync hash is the epoch's **first** block, recorded once that block is
+final. Without spice the node waits for two new chunks in every shard, because
+a chunk that is missing leaves that shard's state trailing the previous epoch.
+Spice puts a chunk in every block, so every shard advances at every height and
+the epoch's first block is already a well-defined anchor for all of them.
+
+The state synced is the state that block's chunk *left behind*, not the state
+before it. A spice chunk executes after the block that carries it, so its
+post-execution state root reaches the chain through a `ChunkExecutionResult`
+that a later block certifies, committing it in the `chunk_execution_root`
+field of its own header. State sync therefore serves a `V3` header carrying
+the state root node, that execution result, and a merkle proof of the result's
+`ChunkExecutionRoots` leaf against the committing block's
+`chunk_execution_root`. Header sync runs first, so the syncing node already
+holds the header the proof is checked against.
+
+The leaf commits `execution_result_hash` alongside the three roots, so the proof
+covers the execution result in full. Re-deriving the leaf from the served result
+and comparing it against the proven one ties every field of the recorded
+`ChunkExtra` - the gas limit, the congestion info, the bandwidth requests - to
+what the chain committed, not just the roots the chain reads directly.
+
+Because the state is the post-state, nothing is applied after the download:
+finalization records the certified `ChunkExtra` for the sync block — which is
+what the chunk executor reads to carry on from the next block — moves the flat
+head to the sync block, and sets the spice execution heads to it.
+
+The snapshot that serves all this is taken by the chunk executor, right after
+the epoch's first block has executed for every tracked shard, and is keyed by
+that block rather than by an earlier one. It is announced to the network only
+once the block's chunks are certified, since before that no peer could prove
+the roots it serves.
+
 #### Step 4: block sync
 
 The final step downloads and applies blocks from the sync point to the network

@@ -479,6 +479,12 @@ impl<'a> ChainUpdate<'a> {
             ShardStateSyncResponseHeader::V2(shard_state_header) => {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
+            // Spice finalizes through `Chain::set_spice_state_finalize`, which applies no chunk.
+            ShardStateSyncResponseHeader::V3(_) => {
+                return Err(Error::Other(
+                    "set_state_finalize failed: spice headers carry no chunk to apply".into(),
+                ));
+            }
         };
 
         // Note that block headers are already synced and can be taken

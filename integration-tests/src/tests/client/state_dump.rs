@@ -265,7 +265,7 @@ fn run_state_sync_with_dumped_parts(
         .state_sync_adapter
         .get_state_response_header(shard_id, sync_hash)
         .unwrap();
-    let state_root = state_sync_header.chunk_prev_state_root();
+    let state_root = state_sync_header.synced_state_root();
     let num_parts = state_sync_header.num_state_parts();
 
     for attempt in 0.. {

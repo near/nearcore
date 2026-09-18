@@ -346,7 +346,7 @@ async fn load_state_parts(
 
             let state_header =
                 chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
-            let state_root = state_header.chunk_prev_state_root();
+            let state_root = state_header.synced_state_root();
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
@@ -459,7 +459,7 @@ async fn dump_state_parts(
 
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
-    let state_root = state_header.chunk_prev_state_root();
+    let state_root = state_header.synced_state_root();
     let num_parts = state_header.num_state_parts();
     let state_part_indices =
         get_part_indices(state_part_index_from, state_part_index_to, num_parts);
