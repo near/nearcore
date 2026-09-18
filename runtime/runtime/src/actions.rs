@@ -5,6 +5,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::verifier::{IMPLICIT_NONCE_INDEX, gas_key_current_nonce};
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
@@ -598,20 +599,31 @@ fn validate_delegate_action_key(
         }
     };
 
-    // A plain nonce advances the single access_key.nonce and forbids gas keys;
-    // a gas key nonce advances one of the gas key's nonces selected by
-    // nonce_index.
     let delegate_nonce = delegate_action.nonce();
     let (current_nonce, nonce_update) = match delegate_nonce {
         TransactionNonce::Nonce { .. } => {
-            if access_key.gas_key_info().is_some() {
+            if access_key.gas_key_info().is_none() {
+                (access_key.nonce, DelegateNonceUpdate::AccessKey)
+            } else if ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce
+                .enabled(apply_state.current_protocol_version)
+            {
+                let gas_key_nonce =
+                    get_gas_key_nonce(state_update, sender_id, public_key, IMPLICIT_NONCE_INDEX)?
+                        .ok_or_else(|| {
+                        StorageError::StorageInconsistentState(format!(
+                            "gas key nonce row missing for {sender_id} {public_key} at index {IMPLICIT_NONCE_INDEX}",
+                        ))
+                    })?;
+                let current_nonce =
+                    gas_key_current_nonce(&access_key, IMPLICIT_NONCE_INDEX, gas_key_nonce);
+                (current_nonce, DelegateNonceUpdate::AccessKey)
+            } else {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DelegateActionRequiresNonGasKey,
                 )
                 .into());
                 return Ok(());
             }
-            (access_key.nonce, DelegateNonceUpdate::AccessKey)
         }
         TransactionNonce::GasKeyNonce { nonce_index, .. } => {
             let Some(gas_key_info) = access_key.gas_key_info() else {
@@ -2196,6 +2208,139 @@ mod tests {
                 nonce_index,
                 num_nonces: TEST_GAS_KEY_NUM_NONCES,
             }
+            .into())
+        );
+    }
+
+    fn validate_delegate_on_gas_key(
+        delegate_action: &DelegateAction,
+        access_key_nonce: Nonce,
+        gas_key_nonce: Nonce,
+        protocol_version: ProtocolVersion,
+    ) -> (ActionResult, TrieUpdate) {
+        let sender_id = delegate_action.sender_id.clone();
+        let sender_pub_key = delegate_action.public_key.clone();
+        let mut apply_state = create_apply_state(delegate_action.max_block_height);
+        apply_state.current_protocol_version = protocol_version;
+        let mut access_key = AccessKey::gas_key_full_access(TEST_GAS_KEY_NUM_NONCES);
+        access_key.nonce = access_key_nonce;
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        set_gas_key_nonce(
+            &mut state_update,
+            sender_id,
+            sender_pub_key,
+            IMPLICIT_NONCE_INDEX,
+            gas_key_nonce,
+        );
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            delegate_action.into(),
+            &mut result,
+        )
+        .expect("Expect ok");
+        (result, state_update)
+    }
+
+    #[test]
+    fn test_gas_key_delegate_uses_access_key_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let delegate_action = signed_delegate_action.delegate_action;
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let access_key_nonce = 0;
+        let gas_key_nonce = delegate_action.nonce - 1;
+
+        let (result, state_update) = validate_delegate_on_gas_key(
+            &delegate_action,
+            access_key_nonce,
+            gas_key_nonce,
+            protocol_version,
+        );
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
+        let access_key =
+            get_access_key(&state_update, &delegate_action.sender_id, &delegate_action.public_key)
+                .unwrap()
+                .unwrap();
+        assert_eq!(access_key.nonce, delegate_action.nonce);
+        let stored_gas_key_nonce = get_gas_key_nonce(
+            &state_update,
+            &delegate_action.sender_id,
+            &delegate_action.public_key,
+            IMPLICIT_NONCE_INDEX,
+        )
+        .unwrap();
+        assert_eq!(stored_gas_key_nonce, Some(gas_key_nonce));
+    }
+
+    #[test]
+    fn test_gas_key_delegate_rejects_nonce_at_implicit_nonce_index_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let delegate_action = signed_delegate_action.delegate_action;
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let access_key_nonce = 0;
+        let gas_key_nonce = delegate_action.nonce;
+
+        let (result, _) = validate_delegate_on_gas_key(
+            &delegate_action,
+            access_key_nonce,
+            gas_key_nonce,
+            protocol_version,
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: delegate_action.nonce,
+                ak_nonce: gas_key_nonce,
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_rejects_nonce_at_access_key_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let delegate_action = signed_delegate_action.delegate_action;
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let access_key_nonce = delegate_action.nonce;
+        let gas_key_nonce = delegate_action.nonce - 2;
+
+        let (result, _) = validate_delegate_on_gas_key(
+            &delegate_action,
+            access_key_nonce,
+            gas_key_nonce,
+            protocol_version,
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: delegate_action.nonce,
+                ak_nonce: access_key_nonce,
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_gas_key_delegate_rejected_before_gas_key_delegate_uses_access_key_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let delegate_action = signed_delegate_action.delegate_action;
+        let protocol_version =
+            ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version() - 1;
+        let access_key_nonce = 0;
+        let gas_key_nonce = delegate_action.nonce - 1;
+
+        let (result, _) = validate_delegate_on_gas_key(
+            &delegate_action,
+            access_key_nonce,
+            gas_key_nonce,
+            protocol_version,
+        );
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DelegateActionRequiresNonGasKey,
+            )
             .into())
         );
     }

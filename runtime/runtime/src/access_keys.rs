@@ -201,7 +201,8 @@ fn add_gas_key(
     gas_key_info: &GasKeyInfo,
     block_height: BlockHeight,
 ) -> Result<(), StorageError> {
-    // For gas keys, nonce stored on access key is not used and should always be zero
+    // A gas key's own nonces are separate; `access_key.nonce` starts at zero and
+    // only a delegate action advances it (`GasKeyDelegateUsesAccessKeyNonce`).
     let mut access_key = access_key.clone();
     access_key.nonce = 0;
     set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);

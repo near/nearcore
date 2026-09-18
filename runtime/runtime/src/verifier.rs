@@ -21,6 +21,7 @@ use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
+use std::cmp::max;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -152,6 +153,19 @@ pub fn resolve_nonce_index(
         access_key.is_some_and(|access_key| access_key.gas_key_info().is_some());
     (signed_by_gas_key && ProtocolFeature::GasKeyImplicitNonceIndex.enabled(protocol_version))
         .then_some(IMPLICIT_NONCE_INDEX)
+}
+
+/// The nonce a gas key is at for `nonce_index`. Index 0 also counts
+/// `access_key.nonce`, which only a delegate action advances.
+pub fn gas_key_current_nonce(
+    access_key: &AccessKey,
+    nonce_index: NonceIndex,
+    gas_key_nonce: Nonce,
+) -> Nonce {
+    if nonce_index == IMPLICIT_NONCE_INDEX {
+        return max(access_key.nonce, gas_key_nonce);
+    }
+    gas_key_nonce
 }
 
 /// The way a transaction is authorized.
@@ -469,7 +483,7 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    let effective_nonce = max(access_key.nonce, pending.max_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
     }
@@ -598,7 +612,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     let tx_nonce = tx.nonce().nonce();
     // The bootstrap nonce is the account's, so the floor is too: `max_nonce` is
     // scoped to the signing key, and the state init commits to several.
-    let effective_nonce = std::cmp::max(current_nonce, pending.max_bootstrap_nonce);
+    let effective_nonce = max(current_nonce, pending.max_bootstrap_nonce);
     if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, NonceMode::Strict) {
         return TxVerdict::Failed(e);
     }
@@ -693,8 +707,18 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     }
 
     let tx_nonce = tx.nonce().nonce();
-    let effective_nonce = std::cmp::max(current_nonce, pending.max_nonce);
-    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
+    let effective_nonce = max(current_nonce, pending.max_nonce);
+    let effective_nonce_with_delegate =
+        max(gas_key_current_nonce(access_key, nonce_index, current_nonce), pending.max_nonce);
+    // The queue admits a tx only above both nonces. One above `nonce[0]` but not
+    // above `access_key.nonce` was jumped by a delegate action after
+    // admission, in either nonce mode. It fails below with burnt gas.
+    let jumped_by_delegate =
+        tx_nonce > effective_nonce && tx_nonce <= effective_nonce_with_delegate;
+    if !jumped_by_delegate
+        && let Err(e) =
+            verify_nonce(tx_nonce, effective_nonce_with_delegate, block_height, tx.nonce_mode())
+    {
         return TxVerdict::Failed(e);
     }
 
@@ -787,6 +811,16 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     let make_failure_result = move |new_account_amount| {
         make_result(new_account_amount, Some(new_key_balance_on_failure), None)
     };
+
+    if jumped_by_delegate {
+        return TxVerdict::FailedWithGasBurnt {
+            result: make_failure_result(account.amount()),
+            error: InvalidTxError::InvalidNonce {
+                tx_nonce,
+                ak_nonce: effective_nonce_with_delegate,
+            },
+        };
+    }
 
     // Check account has enough balance, accounting for pending balance costs
     // from prior txs. saturating_sub is fine: on the consensus path pending
@@ -3456,6 +3490,302 @@ mod tests {
                 nonce: initial_nonce + 1,
             }
         );
+    }
+
+    #[test]
+    fn test_tx_on_implicit_nonce_index_jumped_by_delegate_charges_gas_key() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let tx_nonce = initial_nonce + 1;
+        let delegate_nonce = initial_nonce + 5;
+
+        let signed_tx = SignedTransaction::from_actions(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = delegate_nonce;
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                IMPLICIT_NONCE_INDEX,
+                initial_nonce,
+                tx,
+                &cost,
+                None,
+                protocol_version,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        assert_eq!(error, InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_nonce });
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
+                new_allowance: None,
+                nonce_index: IMPLICIT_NONCE_INDEX,
+                nonce: tx_nonce,
+            }
+        );
+        assert_eq!(result.new_account_amount, signer_account.amount());
+    }
+
+    #[test]
+    fn test_tx_on_explicit_nonce_index_0_jumped_by_delegate_charges_gas_key() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let nonce_index = 0;
+        let tx_nonce = initial_nonce + 1;
+        let delegate_nonce = initial_nonce + 5;
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(tx_nonce, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = delegate_nonce;
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                nonce_index,
+                initial_nonce,
+                tx,
+                &cost,
+                None,
+                protocol_version,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        assert_eq!(error, InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_nonce });
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: Some(TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap()),
+                new_allowance: None,
+                nonce_index,
+                nonce: tx_nonce,
+            }
+        );
+        assert_eq!(result.new_account_amount, signer_account.amount());
+    }
+
+    #[test]
+    fn test_strict_tx_on_implicit_nonce_index_follows_access_key_nonce() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let delegate_nonce = initial_nonce + 5;
+        let tx_nonce = delegate_nonce + 1;
+
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(tx_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = delegate_nonce;
+
+        let verdict = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            IMPLICIT_NONCE_INDEX,
+            initial_nonce,
+            tx,
+            &cost,
+            None,
+            protocol_version,
+            &PendingConstraints::default(),
+        );
+        let TxVerdict::Success(result) = verdict else {
+            panic!("expected Success, got {verdict:?}");
+        };
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, tx_nonce)));
+    }
+
+    #[test]
+    fn test_strict_tx_on_implicit_nonce_index_jumped_by_delegate_charges_gas_key() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let tx_nonce = initial_nonce + 1;
+        let delegate_nonce = initial_nonce + 5;
+
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(tx_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = delegate_nonce;
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                IMPLICIT_NONCE_INDEX,
+                initial_nonce,
+                tx,
+                &cost,
+                None,
+                protocol_version,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        assert_eq!(error, InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: delegate_nonce });
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, tx_nonce)));
+    }
+
+    #[test]
+    fn test_strict_tx_on_implicit_nonce_index_jumped_by_second_delegate_charges_gas_key() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let first_delegate_nonce = initial_nonce + 5;
+        let tx_nonce = first_delegate_nonce + 1;
+        let second_delegate_nonce = initial_nonce + 10;
+
+        let signed_tx = SignedTransaction::from_actions_v1_strict(
+            TransactionNonce::from_nonce(tx_nonce),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = second_delegate_nonce;
+
+        let TxVerdict::FailedWithGasBurnt { result, error } =
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                IMPLICIT_NONCE_INDEX,
+                initial_nonce,
+                tx,
+                &cost,
+                None,
+                protocol_version,
+                &PendingConstraints::default(),
+            )
+        else {
+            panic!("expected FailedWithGasBurnt");
+        };
+        assert_eq!(
+            error,
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: second_delegate_nonce }
+        );
+        assert_eq!(result.gas_key_nonce_update(), Some((IMPLICIT_NONCE_INDEX, tx_nonce)));
+    }
+
+    #[test]
+    fn test_tx_on_other_nonce_index_ignores_access_key_nonce() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+        let protocol_version = ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version();
+        let nonce_index = 1;
+        let tx_nonce = initial_nonce + 1;
+        let delegate_nonce = initial_nonce + 5;
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(tx_nonce, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx, protocol_version).unwrap();
+        let mut access_key = authorization.into_access_key().unwrap();
+        access_key.nonce = delegate_nonce;
+
+        let verdict = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            nonce_index,
+            initial_nonce,
+            tx,
+            &cost,
+            None,
+            protocol_version,
+            &PendingConstraints::default(),
+        );
+        let TxVerdict::Success(result) = verdict else {
+            panic!("expected Success, got {verdict:?}");
+        };
+        assert_eq!(result.gas_key_nonce_update(), Some((nonce_index, tx_nonce)));
     }
 
     #[test]
