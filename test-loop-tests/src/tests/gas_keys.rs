@@ -739,24 +739,12 @@ fn test_gas_key_add_full_access_host_function() {
         }, "id": 0},
     ]));
 
-    // Verify the gas key was created with correct properties
-    let (view, balance) =
-        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
-    assert_eq!(balance, Balance::ZERO);
-    assert_eq!(view.nonce, 0);
-    let AccessKeyPermissionView::GasKeyFullAccess { num_nonces: view_num_nonces, .. } =
-        view.permission
-    else {
-        panic!("expected GasKeyFullAccess, got {:?}", view.permission);
-    };
-    assert_eq!(view_num_nonces, num_nonces as u16);
-
     // Verify nonces are initialized
     let response = setup
         .env
         .rpc_node()
         .runtime_query(QueryRequest::ViewGasKeyNonces {
-            account_id: account,
+            account_id: account.clone(),
             public_key: gas_key_signer.public_key(),
         })
         .unwrap();
@@ -764,6 +752,24 @@ fn test_gas_key_add_full_access_host_function() {
         panic!("expected GasKeyNonces response");
     };
     assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
+    // Verify the gas key was created with correct properties
+    let expected_view_nonce = if ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION)
+    {
+        nonces_view.nonces[0]
+    } else {
+        0
+    };
+    let (view, balance) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(balance, Balance::ZERO);
+    assert_eq!(view.nonce, expected_view_nonce);
+    let AccessKeyPermissionView::GasKeyFullAccess { num_nonces: view_num_nonces, .. } =
+        view.permission
+    else {
+        panic!("expected GasKeyFullAccess, got {:?}", view.permission);
+    };
+    assert_eq!(view_num_nonces, num_nonces as u16);
 }
 
 /// Test that a contract can create a gas key with function call permission using the host function.
@@ -791,11 +797,31 @@ fn test_gas_key_add_function_call_host_function() {
         }, "id": 0},
     ]));
 
+    // Verify nonces are initialized
+    let response = setup
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account.clone(),
+            public_key: gas_key_signer.public_key(),
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
+        panic!("expected GasKeyNonces response");
+    };
+    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
     // Verify the gas key was created with correct properties
+    let expected_view_nonce = if ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION)
+    {
+        nonces_view.nonces[0]
+    } else {
+        0
+    };
     let (view, balance) =
         query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(balance, Balance::ZERO);
-    assert_eq!(view.nonce, 0);
+    assert_eq!(view.nonce, expected_view_nonce);
     let AccessKeyPermissionView::GasKeyFunctionCall {
         num_nonces: gas_key_num_nonces,
         allowance,
@@ -810,20 +836,6 @@ fn test_gas_key_add_function_call_host_function() {
     assert!(allowance.is_none());
     assert_eq!(receiver_id.as_str(), account.as_str());
     assert_eq!(method_names, &vec!["method1".to_string(), "method2".to_string()]);
-
-    // Verify nonces are initialized
-    let response = setup
-        .env
-        .rpc_node()
-        .runtime_query(QueryRequest::ViewGasKeyNonces {
-            account_id: account,
-            public_key: gas_key_signer.public_key(),
-        })
-        .unwrap();
-    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
-        panic!("expected GasKeyNonces response");
-    };
-    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
 }
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
