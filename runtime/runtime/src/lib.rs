@@ -13,12 +13,13 @@ use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
-use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
-    get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
-    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    IMPLICIT_NONCE_INDEX, TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    get_signer_and_authorization, is_bootstrap, resolve_nonce_index, set_tx_state_changes,
+    validate_transaction, verify_and_charge_access_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
@@ -252,6 +253,9 @@ pub struct PendingConstraints {
     /// signed with this key (`burnt_amount` of each), plus any pending
     /// WithdrawFromGasKey amounts targeting this key.
     pub paid_from_gas_key: Balance,
+    /// Total `total_cost` of pending transactions signed with this key. A
+    /// function-call key with an allowance pays it from the allowance.
+    pub paid_from_allowance: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
     pub max_nonce: Nonce,
@@ -267,6 +271,7 @@ impl Default for PendingConstraints {
         Self {
             paid_from_balance: Balance::ZERO,
             paid_from_gas_key: Balance::ZERO,
+            paid_from_allowance: Balance::ZERO,
             max_nonce: 0,
             max_bootstrap_nonce: 0,
         }
@@ -318,9 +323,14 @@ pub struct VerificationResult {
 pub enum AccessKeyUpdate {
     /// Regular tx: set access_key.nonce, update allowance if specified.
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
-    /// Gas key tx: set gas_key_info.balance, absent when the balance does not
-    /// change, and persist the external nonce.
-    GasKey { new_balance: Option<Balance>, nonce_index: NonceIndex, nonce: Nonce },
+    /// Gas key tx: set gas_key_info.balance and the function-call allowance,
+    /// each absent when it does not change, and persist the external nonce.
+    GasKey {
+        new_balance: Option<Balance>,
+        new_allowance: Option<Balance>,
+        nonce_index: NonceIndex,
+        nonce: Nonce,
+    },
     /// Self-signed universal-account state init: there is no access key yet, so
     /// the nonce lives on the account until the state init installs the keys.
     Bootstrap { nonce: Nonce },
@@ -332,7 +342,9 @@ impl AccessKeyUpdate {
     pub fn changes_access_key(&self) -> bool {
         match self {
             AccessKeyUpdate::Regular { .. } => true,
-            AccessKeyUpdate::GasKey { new_balance, .. } => new_balance.is_some(),
+            AccessKeyUpdate::GasKey { new_balance, new_allowance, .. } => {
+                new_balance.is_some() || new_allowance.is_some()
+            }
             AccessKeyUpdate::Bootstrap { .. } => false,
         }
     }
@@ -371,12 +383,19 @@ impl VerificationResult {
                     permission.allowance = Some(*a);
                 }
             }
-            AccessKeyUpdate::GasKey { new_balance, .. } => {
+            AccessKeyUpdate::GasKey { new_balance, new_allowance, .. } => {
                 let access_key = access_key.ok_or_else(|| inconsistent("no access key"))?;
                 let gas_key_info =
                     access_key.gas_key_info_mut().ok_or_else(|| inconsistent("no gas key"))?;
                 if let Some(new_balance) = new_balance {
                     gas_key_info.balance = *new_balance;
+                }
+                if let Some(new_allowance) = new_allowance {
+                    let permission = access_key
+                        .permission
+                        .function_call_permission_mut()
+                        .ok_or_else(|| inconsistent("no function call permission"))?;
+                    permission.allowance = Some(*new_allowance);
                 }
             }
             AccessKeyUpdate::Bootstrap { nonce } => {
@@ -2098,11 +2117,25 @@ impl Runtime {
                         accounts.entry(signer_id).or_insert_with(|| {
                             get_account(&processing_state.state_update, signer_id)
                         });
-                        access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                            get_access_key(&processing_state.state_update, signer_id, pubkey)
-                        });
+                        let nonce_index = {
+                            let access_key =
+                                access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
+                                    get_access_key(
+                                        &processing_state.state_update,
+                                        signer_id,
+                                        pubkey,
+                                    )
+                                });
+                            let access_key =
+                                access_key.value().as_ref().ok().and_then(Option::as_ref);
+                            resolve_nonce_index(
+                                tx.transaction.nonce().nonce_index(),
+                                access_key,
+                                protocol_version,
+                            )
+                        };
                         // For gas key transactions, also prefetch the nonce
-                        if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                        if let Some(nonce_index) = nonce_index {
                             gas_key_nonces.entry((signer_id, pubkey, nonce_index)).or_insert_with(
                                 || {
                                     get_gas_key_nonce(
@@ -2216,7 +2249,11 @@ impl Runtime {
                     .clone()
             };
 
-            let nonce_index = tx.transaction.nonce().nonce_index();
+            let nonce_index = resolve_nonce_index(
+                tx.transaction.nonce().nonce_index(),
+                access_key.as_deref(),
+                protocol_version,
+            );
             let authorization = TxAuthorizationRef::new(access_key.as_deref(), nonce_index);
             let verdict = verify_and_charge_tx_ephemeral(
                 &processing_state.apply_state.config,

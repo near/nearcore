@@ -8,9 +8,9 @@ use near_client::pending_transaction_queue::P_MAX;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::action::{AddKeyAction, TransferToGasKeyAction, WithdrawFromGasKeyAction};
-use near_primitives::errors::{InvalidTxError, TxExecutionError};
+use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
@@ -254,6 +254,16 @@ fn setup_gas_key_spice_env(
     num_nonces: NonceIndex,
     fund_amount: Balance,
 ) -> GasKeySpiceEnv {
+    let gas_key = AccessKey::gas_key_full_access(num_nonces);
+    setup_spice_env_with_gas_key(account, receiver, gas_key, fund_amount)
+}
+
+fn setup_spice_env_with_gas_key(
+    account: &AccountId,
+    receiver: &AccountId,
+    gas_key: AccessKey,
+    fund_amount: Balance,
+) -> GasKeySpiceEnv {
     let mut env = TestLoopBuilder::new()
         .validators(1, 1)
         .add_user_account(account, Balance::from_near(1_000))
@@ -280,7 +290,7 @@ fn setup_gas_key_spice_env(
         &create_user_test_signer(account),
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
-            access_key: AccessKey::gas_key_full_access(num_nonces),
+            access_key: gas_key,
         }))],
         block_hash,
     );
@@ -687,6 +697,70 @@ fn test_ptq_gas_key_pays_burnt_amount_when_receipt_drains_account() {
     let (_, gas_key_balance) =
         query_gas_key_and_balance(&env.validator(), &account, &setup.gas_key_signer.public_key());
     assert_eq!(gas_key_balance, fund_amount.checked_sub(tokens_burnt).unwrap());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_ptq_function_call_gas_key_allowance_enforcement() {
+    init_test_logger();
+
+    let account = create_account_id("allowance_account");
+    let receiver = create_account_id("receiver");
+    let gas_key_signer: Signer =
+        InMemorySigner::from_seed(account.clone(), KeyType::ED25519, "gas_key").into();
+    let method_name = "do_something";
+    let function_call_tx = |nonce, block_hash| {
+        SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(nonce, 0),
+            account.clone(),
+            receiver.clone(),
+            &gas_key_signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: method_name.to_string(),
+                args: vec![],
+                gas: Gas::from_teragas(10),
+                deposit: Balance::ZERO,
+            }))],
+            block_hash,
+        )
+    };
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    let tx_total_cost =
+        tx_cost(&config, &function_call_tx(1, CryptoHash::default()).transaction, TEST_GAS_PRICE)
+            .unwrap()
+            .total_cost;
+    let allowance = Balance::from_yoctonear(tx_total_cost.as_yoctonear() * 3 / 2);
+    let gas_key = AccessKey::gas_key_function_call(
+        1,
+        FunctionCallPermission {
+            allowance: Some(allowance),
+            receiver_id: receiver.to_string(),
+            method_names: vec![method_name.to_string()],
+        },
+    );
+    let setup =
+        setup_spice_env_with_gas_key(&account, &receiver, gas_key, Balance::from_millinear(1));
+    let mut env = setup.env;
+
+    let block_hash = env.validator().head().last_block_hash;
+    let first_tx = function_call_tx(setup.gas_key_nonces[0] + 1, block_hash);
+    let first_tx_hash = first_tx.get_hash();
+    env.validator().submit_tx(first_tx);
+    env.validator_runner().run_until_included(&[first_tx_hash]);
+
+    let block_hash = env.validator().head().last_block_hash;
+    let second_tx = function_call_tx(setup.gas_key_nonces[0] + 2, block_hash);
+    let result = env.validator_runner().execute_tx(second_tx, Duration::seconds(5));
+    assert_eq!(
+        result.unwrap_err(),
+        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+            account_id: account.clone(),
+            public_key: gas_key_signer.public_key().into(),
+            allowance: allowance.checked_sub(tx_total_cost).unwrap(),
+            cost: tx_total_cost,
+        })
+    );
 }
 
 fn is_included_in_head(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHash]) -> bool {

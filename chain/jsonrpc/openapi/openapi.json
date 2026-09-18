@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.28"
+    "version": "1.3.29"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -3449,7 +3449,7 @@
             "type": "object"
           },
           {
-            "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
+            "description": "Gas keys with FunctionCall permission cannot have an allowance set before\n`GasKeyCoversFailedTxGas`.",
             "enum": [
               "GasKeyFunctionCallAllowanceNotAllowed"
             ],

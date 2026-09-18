@@ -33,8 +33,8 @@ use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NonceIndex, NumBlocks,
+    NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
@@ -455,8 +455,9 @@ pub enum PendingTxCheckResult {
 
 impl PendingTxCheckResult {
     /// Returns a closure that always admits with default constraints.
-    pub fn always_admit() -> impl FnMut(&SignedTransaction) -> PendingTxCheckResult {
-        |_| PendingTxCheckResult::Admit(PendingConstraints::default())
+    pub fn always_admit()
+    -> impl FnMut(&SignedTransaction, Option<NonceIndex>) -> PendingTxCheckResult {
+        |_, _| PendingTxCheckResult::Admit(PendingConstraints::default())
     }
 }
 
@@ -589,6 +590,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ///   that were included in previous chunks but weren't removed from the pool yet. These
     ///   transactions will still be taken out of the pool and should be reintroduced together with
     ///   PreparedTransactions.
+    /// * `check_pending` - takes the transaction and its nonce index from `resolve_nonce_index`.
     /// * `cancel` - can be used to cancel the preparation when it's running as an async task. When
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
@@ -602,7 +604,10 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
-        check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+        check_pending: &mut dyn FnMut(
+            &SignedTransaction,
+            Option<NonceIndex>,
+        ) -> PendingTxCheckResult,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;

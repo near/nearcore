@@ -39,6 +39,7 @@ mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_key_covers_failed_tx_gas;
+mod gas_key_implicit_nonce_index;
 mod gas_keys;
 mod gas_overflow_optimistic_block;
 mod genesis_chunk_request;

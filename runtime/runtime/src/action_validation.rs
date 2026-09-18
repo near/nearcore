@@ -382,11 +382,13 @@ fn validate_add_key_action(
     if let Some(gas_key_info) = action.access_key.gas_key_info() {
         require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
 
-        // For gas keys with FunctionCallPermission, allowance must be None
-        if let Some(fc) = action.access_key.permission.function_call_permission() {
-            if fc.allowance.is_some() {
-                return Err(ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed);
-            }
+        // A function-call gas key may have an allowance only once the account
+        // pays its gas (`GasKeyCoversFailedTxGas`); before, the key balance was the limit.
+        if let Some(fc) = action.access_key.permission.function_call_permission()
+            && fc.allowance.is_some()
+            && !ProtocolFeature::GasKeyCoversFailedTxGas.enabled(current_protocol_version)
+        {
+            return Err(ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed);
         }
 
         if gas_key_info.num_nonces == 0
@@ -1886,6 +1888,30 @@ mod tests {
                 },
             );
         }
+    }
+
+    #[test]
+    fn test_validate_add_gas_key_allowance_allowed_with_gas_key_covers_failed_tx_gas() {
+        let limit_config = test_limit_config();
+        let num_nonces = 10;
+        let gas_key = AccessKey::gas_key_function_call(
+            num_nonces,
+            FunctionCallPermission {
+                allowance: Some(Balance::from_yoctonear(1000)),
+                receiver_id: "bob.near".parse().unwrap(),
+                method_names: vec![],
+            },
+        );
+        validate_action(
+            &limit_config,
+            &Action::AddKey(Box::new(AddKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                access_key: gas_key,
+            })),
+            &"alice.near".parse().unwrap(),
+            ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version(),
+        )
+        .unwrap();
     }
 
     #[test]

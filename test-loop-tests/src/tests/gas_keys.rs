@@ -107,6 +107,47 @@ pub(crate) struct GasKeyEnv {
     pub gas_price: Balance,
 }
 
+/// The sender signs with its plain access key, at `sender_nonce` and `sender_nonce + 1`.
+pub(crate) fn add_and_fund_gas_key(
+    env: &mut TestLoopEnv,
+    sender: &AccountId,
+    sender_nonce: Nonce,
+    gas_key_public_key: &PublicKey,
+    gas_key: AccessKey,
+    gas_key_balance: Balance,
+) {
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let add_key_tx = SignedTransaction::from_actions(
+        sender_nonce,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_public_key.clone(),
+            access_key: gas_key,
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    // Run for 1 more block for the access key to be reflected in chunks prev state root.
+    env.rpc_runner().run_for_number_of_blocks(1);
+
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        sender_nonce + 1,
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_public_key.clone(),
+            deposit: gas_key_balance,
+        }))],
+        block_hash,
+    );
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
+}
+
 /// The sender pays for the setup with its plain access key, using nonces 1 and 2.
 pub(crate) fn setup_funded_gas_key(
     protocol_version: ProtocolVersion,
@@ -131,38 +172,15 @@ pub(crate) fn setup_funded_gas_key(
     let receiver = user_accounts[1].clone();
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let add_key_tx = SignedTransaction::from_actions(
-        1, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(&sender),
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key: gas_key_signer.public_key(),
-            access_key: AccessKey::gas_key_full_access(num_nonces),
-        }))],
-        block_hash,
+    let first_sender_nonce = 1;
+    add_and_fund_gas_key(
+        &mut env,
+        &sender,
+        first_sender_nonce,
+        &gas_key_signer.public_key(),
+        AccessKey::gas_key_full_access(num_nonces),
+        gas_key_balance,
     );
-    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
-    // Run for 1 more block for the access key to be reflected in chunks prev state root.
-    env.rpc_runner().run_for_number_of_blocks(1);
-
-    // Fund the gas key
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(&sender),
-        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-            public_key: gas_key_signer.public_key(),
-            deposit: gas_key_balance,
-        }))],
-        block_hash,
-    );
-    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
-    env.rpc_runner().run_for_number_of_blocks(1);
 
     GasKeyEnv { env, sender, receiver, gas_key_signer, gas_price }
 }
@@ -721,24 +739,12 @@ fn test_gas_key_add_full_access_host_function() {
         }, "id": 0},
     ]));
 
-    // Verify the gas key was created with correct properties
-    let (view, balance) =
-        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
-    assert_eq!(balance, Balance::ZERO);
-    assert_eq!(view.nonce, 0);
-    let AccessKeyPermissionView::GasKeyFullAccess { num_nonces: view_num_nonces, .. } =
-        view.permission
-    else {
-        panic!("expected GasKeyFullAccess, got {:?}", view.permission);
-    };
-    assert_eq!(view_num_nonces, num_nonces as u16);
-
     // Verify nonces are initialized
     let response = setup
         .env
         .rpc_node()
         .runtime_query(QueryRequest::ViewGasKeyNonces {
-            account_id: account,
+            account_id: account.clone(),
             public_key: gas_key_signer.public_key(),
         })
         .unwrap();
@@ -746,6 +752,24 @@ fn test_gas_key_add_full_access_host_function() {
         panic!("expected GasKeyNonces response");
     };
     assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
+    // Verify the gas key was created with correct properties
+    let expected_view_nonce = if ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION)
+    {
+        nonces_view.nonces[0]
+    } else {
+        0
+    };
+    let (view, balance) =
+        query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
+    assert_eq!(balance, Balance::ZERO);
+    assert_eq!(view.nonce, expected_view_nonce);
+    let AccessKeyPermissionView::GasKeyFullAccess { num_nonces: view_num_nonces, .. } =
+        view.permission
+    else {
+        panic!("expected GasKeyFullAccess, got {:?}", view.permission);
+    };
+    assert_eq!(view_num_nonces, num_nonces as u16);
 }
 
 /// Test that a contract can create a gas key with function call permission using the host function.
@@ -773,11 +797,31 @@ fn test_gas_key_add_function_call_host_function() {
         }, "id": 0},
     ]));
 
+    // Verify nonces are initialized
+    let response = setup
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account.clone(),
+            public_key: gas_key_signer.public_key(),
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
+        panic!("expected GasKeyNonces response");
+    };
+    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
+
     // Verify the gas key was created with correct properties
+    let expected_view_nonce = if ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION)
+    {
+        nonces_view.nonces[0]
+    } else {
+        0
+    };
     let (view, balance) =
         query_gas_key_and_balance(&setup.env.rpc_node(), &account, &gas_key_signer.public_key());
     assert_eq!(balance, Balance::ZERO);
-    assert_eq!(view.nonce, 0);
+    assert_eq!(view.nonce, expected_view_nonce);
     let AccessKeyPermissionView::GasKeyFunctionCall {
         num_nonces: gas_key_num_nonces,
         allowance,
@@ -792,26 +836,12 @@ fn test_gas_key_add_function_call_host_function() {
     assert!(allowance.is_none());
     assert_eq!(receiver_id.as_str(), account.as_str());
     assert_eq!(method_names, &vec!["method1".to_string(), "method2".to_string()]);
-
-    // Verify nonces are initialized
-    let response = setup
-        .env
-        .rpc_node()
-        .runtime_query(QueryRequest::ViewGasKeyNonces {
-            account_id: account,
-            public_key: gas_key_signer.public_key(),
-        })
-        .unwrap();
-    let QueryResponseKind::GasKeyNonces(nonces_view) = response.kind else {
-        panic!("expected GasKeyNonces response");
-    };
-    assert_eq!(nonces_view.nonces.len(), num_nonces as usize);
 }
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
 #[test]
-fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
-    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
+fn test_gas_key_add_function_call_nonzero_allowance_rejected_before_gas_key_covers_failed_tx_gas() {
+    let mut setup = setup_host_function_test(last_version_with_gas_key_gas_prepayment());
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =

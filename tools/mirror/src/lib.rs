@@ -98,6 +98,8 @@ struct NonceLookupKey {
 
 impl NonceLookupKey {
     fn from_tx(tx: &Transaction) -> Self {
+        // TODO(gas-keys): a V0 tx and an index 0 tx from one gas key share nonce[0] on
+        // the target, but are tracked here as two counters, so they can reuse a nonce.
         let kind = match tx.nonce().nonce_index() {
             Some(i) => NonceKind::GasKey(i),
             None => NonceKind::AccessKey,
