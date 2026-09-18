@@ -425,6 +425,7 @@
         "SECP",
         "Seedable",
         "serde",
+        "setscheduler",
         "shardnet",
         "Shreyan",
         "Shutdownable",

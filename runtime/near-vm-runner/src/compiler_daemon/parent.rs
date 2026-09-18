@@ -121,7 +121,7 @@ impl DaemonProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         // Normalize the OS thread scheduling priority for spawned processed,
-        // rather than inherinting the parent's priority.
+        // rather than inheriting the parent's priority.
         //
         // Changing the scheduling policy does not change the nice value,
         // so the child retains neard's baseline nice value.
