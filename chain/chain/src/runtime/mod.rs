@@ -64,8 +64,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, get_signer_and_authorization, resolve_nonce_index,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, gas_key_current_nonce, get_signer_and_authorization,
+    resolve_nonce_index, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -1769,16 +1769,17 @@ fn gap_check_nonce(
         return Ok(Some(nonce));
     }
     let throwaway_trie = trie.recording_reads_new_recorder();
-    if let Some(idx) = tx_nonce_index {
-        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
-    }
     let Some(access_key) = get_access_key(&throwaway_trie, account_id, public_key)? else {
         return Ok(None);
     };
-    if let Some(idx) = resolve_nonce_index(None, Some(&access_key), protocol_version) {
-        return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
-    }
-    Ok(Some(access_key.nonce))
+    let Some(idx) = resolve_nonce_index(tx_nonce_index, Some(&access_key), protocol_version) else {
+        return Ok(Some(access_key.nonce));
+    };
+    let Some(gas_key_nonce) = get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(gas_key_current_nonce(&access_key, idx, gas_key_nonce)))
 }
 
 /// How much gas of the next chunk we want to spend on converting new
