@@ -22,6 +22,8 @@ use crate::compiler_daemon::{
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::metrics::COMPILATION_PATH_TOTAL;
 use crate::wasmtime_runner::compiler_compatibility_hash;
+#[cfg(target_os = "linux")]
+use libc::{SCHED_OTHER, sched_param, sched_setscheduler};
 use near_parameters::vm::LimitConfig;
 use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
@@ -29,6 +31,8 @@ use std::borrow::Cow;
 #[cfg(feature = "test_features")]
 use std::cell::Cell;
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult};
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, OnceLock};
@@ -116,6 +120,23 @@ impl DaemonProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Normalize the OS thread scheduling priority for spawned processed,
+        // rather than inherinting the parent's priority.
+        //
+        // Changing the scheduling policy does not change the nice value,
+        // so the child retains neard's baseline nice value.
+        #[cfg(target_os = "linux")]
+        // SAFETY: `sched_setscheduler` is async-signal-safe and the closure does
+        // not access any state shared with the parent process.
+        unsafe {
+            command.pre_exec(|| {
+                let param = sched_param { sched_priority: 0 };
+                if sched_setscheduler(0, SCHED_OTHER, &param) == -1 {
+                    return Err(IoError::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let mut child = command.spawn()?;
         let stdin = child.stdin.take().expect("stdio configured as piped");
         let stdout = child.stdout.take().expect("stdio configured as piped");
@@ -337,6 +358,7 @@ struct PoolInner {
     high_water: usize,
 }
 
+// TODO: Use separate critical and background worker pools with fixed OS priorities.
 struct DaemonPool {
     binary: PathBuf,
     worker_config: WorkerConfig,
