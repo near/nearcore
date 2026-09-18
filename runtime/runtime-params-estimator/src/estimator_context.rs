@@ -29,7 +29,7 @@ use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
     ApplyState, PendingConstraints, Runtime, SignedValidPeriodTransactions, TxVerdict,
-    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_tx_ephemeral,
+    get_signer_and_authorization, set_tx_state_changes, verify_and_charge_access_key_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
@@ -532,7 +532,7 @@ impl Testbed<'_> {
         let mut access_key = authorization
             .into_access_key()
             .expect("estimator expects a transaction with an access key");
-        let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
+        let TxVerdict::Success(result) = verify_and_charge_access_key_tx_ephemeral(
             &self.apply_state.config,
             &signer,
             &access_key,

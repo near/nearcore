@@ -142,7 +142,7 @@ pub enum SyncStatus {
         start_height: BlockHeight,
         /// Current header head height.
         current_height: BlockHeight,
-        /// Highest height of our peers.
+        /// Height a peer advertises. Nothing proves it.
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
@@ -154,7 +154,7 @@ pub enum SyncStatus {
         start_height: BlockHeight,
         /// Current head height.
         current_height: BlockHeight,
-        /// Highest height of our peers.
+        /// Height a peer advertises. Nothing proves it.
         highest_height: BlockHeight,
     },
 }

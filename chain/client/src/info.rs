@@ -1023,7 +1023,6 @@ mod tests {
                 connected_peers: vec![],
                 num_connected_peers: 0,
                 peer_max_count: 0,
-                highest_height_peers: vec![],
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],

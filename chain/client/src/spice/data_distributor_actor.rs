@@ -20,7 +20,7 @@ use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
-use near_async::time::{Clock, Duration};
+use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
@@ -59,8 +59,9 @@ use near_primitives::spice::partial_data::SpicePartialData;
 use near_primitives::spice::partial_data::SpiceVerifiedPartialData;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse,
+    BoundedContractCodes, CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
+    SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
+    split_contracts_for_response,
 };
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
@@ -291,7 +292,6 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
 pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
-    pub data_verification: Sender<DataVerification>,
 }
 
 struct DataPartsEntry {
@@ -326,35 +326,6 @@ pub struct SpiceDistributorOutgoingReceipts {
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
     pub contract_accesses: HashSet<CodeHash>,
-}
-
-/// Consumer's verification result on data the engine delivered.
-#[derive(Debug, Clone, PartialEq)]
-pub enum DataVerification {
-    /// Consumer verified and persisted the delivered data.
-    Ok(DataId),
-    /// Consumer verified the delivered data and found it invalid. Reporting it bans
-    /// the decoded commitment, so it must never mean the check could not run.
-    Failed(DataId),
-}
-
-impl Handler<DataVerification> for SpiceDataDistributorActor {
-    fn handle(&mut self, verification: DataVerification) {
-        let (data_id, result) = match verification {
-            DataVerification::Ok(data_id) => {
-                let result = self.data_manager.on_verified(&data_id);
-                (data_id, result)
-            }
-            DataVerification::Failed(data_id) => {
-                let result = self.data_manager.on_failed(&data_id);
-                (data_id, result)
-            }
-        };
-        if let Err(err) = result {
-            // A verification result can race item expiry, so failing to apply one is not an error.
-            tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, "ignoring expired data verification result");
-        }
-    }
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -512,7 +483,6 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
 
 impl SpiceDataDistributorActor {
     pub fn new(
-        clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
@@ -529,7 +499,6 @@ impl SpiceDataDistributorActor {
         const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: NonZeroUsize =
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
-            clock,
             DATA_PARTS_RATIO,
             Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
@@ -790,15 +759,16 @@ impl SpiceDataDistributorActor {
                     parts,
                     producers.len(),
                 ) {
-                    Ok(ReceivedParts::Complete(SpiceData::ReceiptProof(receipt_proof))) => {
+                    Ok(ReceivedParts::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
+                        tracing::debug!(target: "spice_data_distribution", ?data_id, ?commitment, "delivering decoded receipt proof");
                         self.executor_sender
                             .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
                         Ok(())
                     }
-                    Ok(ReceivedParts::Complete(SpiceData::StateWitness(_))) => {
+                    Ok(ReceivedParts::Decoded(SpiceData::StateWitness(_))) => {
                         unreachable!("decode checked the data against its receipt-proof id")
                     }
-                    Ok(ReceivedParts::Collecting) => Ok(()),
+                    Ok(ReceivedParts::Collecting | ReceivedParts::Settled) => Ok(()),
                     Ok(ReceivedParts::NotWanted) => Err(Error::DataIsIrrelevant(id)),
                     Err(err) => Err(err.into()),
                 }
@@ -1796,10 +1766,23 @@ impl SpiceDataDistributorActor {
         let storage =
             TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
 
-        let mut contracts = Vec::new();
+        let mut contracts = BoundedContractCodes::default();
         for contract_hash in request.contracts() {
             match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Ok(bytes) => {
+                    // Bounds what one request can make us send; the requester gives up on a set
+                    // past this anyway.
+                    if !contracts.push(CodeBytes(bytes)) {
+                        tracing::warn!(
+                            target: "spice_data_distribution",
+                            ?chunk_id,
+                            ?requester,
+                            total_size = contracts.total_size(),
+                            "requested contract code exceeds the per-request cap, not serving"
+                        );
+                        return Ok(());
+                    }
+                }
                 Err(MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "spice_data_distribution",
@@ -1822,11 +1805,15 @@ impl SpiceDataDistributorActor {
             }
         }
 
-        let response =
-            SpiceContractCodeResponse::encode(chunk_id, &contracts).map_err(Error::StoreIoError)?;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SpiceContractCodeResponse(requester, response),
-        ));
+        // The set may not fit one response. `handle_spice_contract_code_response`
+        // resolves contracts incrementally, so the groups reassemble on the requester.
+        for group in split_contracts_for_response(contracts.into_codes()) {
+            let response = SpiceContractCodeResponse::encode(chunk_id.clone(), &group)
+                .map_err(Error::StoreIoError)?;
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeResponse(requester.clone(), response),
+            ));
+        }
         Ok(())
     }
 
