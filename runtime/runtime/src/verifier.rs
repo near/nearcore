@@ -380,6 +380,7 @@ fn check_and_compute_new_allowance(
     account_id: &AccountId,
     public_key: &PublicKey,
     total_cost: Balance,
+    paid_from_allowance: Balance,
 ) -> Result<Option<Balance>, InvalidTxError> {
     let Some(fc) = access_key.permission.function_call_permission() else {
         return Ok(None);
@@ -387,14 +388,19 @@ fn check_and_compute_new_allowance(
     let Some(allowance) = fc.allowance else {
         return Ok(None);
     };
-    let new_allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-            account_id: account_id.clone(),
-            public_key: public_key.clone().into(),
-            allowance,
-            cost: total_cost,
-        })
-    })?;
+    let available_allowance = allowance.saturating_sub(paid_from_allowance);
+    if available_allowance < total_cost {
+        return Err(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::NotEnoughAllowance {
+                account_id: account_id.clone(),
+                public_key: public_key.clone().into(),
+                allowance: available_allowance,
+                cost: total_cost,
+            },
+        ));
+    }
+    let new_allowance =
+        allowance.checked_sub(total_cost).expect("the allowance check above requires total_cost");
     Ok(Some(new_allowance))
 }
 
@@ -463,6 +469,7 @@ pub fn verify_and_charge_access_key_tx_ephemeral(
         account_id,
         tx.public_key(),
         total_cost,
+        pending.paid_from_allowance,
     ) {
         Ok(a) => a,
         Err(e) => return TxVerdict::Failed(e),
@@ -725,7 +732,13 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     // Once the account pays the gas, the allowance of a function-call gas key
     // limits what the key spends from the account, as for a regular key.
     let new_allowance = if gas_paid_from_account {
-        match check_and_compute_new_allowance(access_key, account_id, tx.public_key(), total_cost) {
+        match check_and_compute_new_allowance(
+            access_key,
+            account_id,
+            tx.public_key(),
+            total_cost,
+            pending.paid_from_allowance,
+        ) {
             Ok(new_allowance) => new_allowance,
             Err(e) => return TxVerdict::Failed(e),
         }
@@ -3040,6 +3053,148 @@ mod tests {
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }
+        );
+    }
+
+    #[test]
+    fn test_access_key_tx_rejects_allowance_paid_by_pending_txs() {
+        let config = RuntimeConfig::test();
+        let allowance = Balance::from_near(1);
+        let (signer, state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(
+                    function_call_permission_with_allowance(allowance),
+                ),
+            }),
+        );
+        let tx_nonce = 1;
+        let signed_tx = SignedTransaction::from_actions(
+            tx_nonce,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "do_something".to_string(),
+                args: vec![],
+                gas: Gas::from_gigagas(10),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let validated_tx = validate_transaction(&config, signed_tx, PROTOCOL_VERSION).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key = authorization.into_access_key().unwrap();
+        let verify = |paid_from_allowance| {
+            let pending =
+                PendingConstraints { paid_from_allowance, ..PendingConstraints::default() };
+            verify_and_charge_access_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                tx,
+                &cost,
+                None,
+                &pending,
+            )
+        };
+
+        let expected_allowance = allowance.checked_sub(cost.total_cost).unwrap();
+        let paid_to_fit = allowance.checked_sub(cost.total_cost).unwrap();
+        let TxVerdict::Success(result) = verify(paid_to_fit) else {
+            panic!("expected Success");
+        };
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::Regular { nonce: tx_nonce, new_allowance: Some(expected_allowance) }
+        );
+
+        let paid_one_over = paid_to_fit.checked_add(Balance::from_yoctonear(1)).unwrap();
+        let TxVerdict::Failed(err) = verify(paid_one_over) else {
+            panic!("expected Failed");
+        };
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                account_id: alice_account(),
+                public_key: signer.public_key().into(),
+                allowance: cost.total_cost.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+                cost: cost.total_cost,
+            })
+        );
+    }
+
+    #[test]
+    fn test_function_call_gas_key_tx_rejects_allowance_paid_by_pending_txs() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let allowance = Balance::from_near(1);
+        let (signer, state_update, gas_price, initial_nonce) = setup_gas_key_account(
+            TESTING_INIT_BALANCE,
+            TESTING_GAS_KEY_BALANCE,
+            num_nonces,
+            Some(function_call_permission_with_allowance(allowance)),
+        );
+        let protocol_version = ProtocolFeature::GasKeyCoversFailedTxGas.protocol_version();
+        let nonce_index = 0;
+        let tx_nonce = initial_nonce + 1;
+        let signed_tx = function_call_gas_key_tx(&signer, tx_nonce, nonce_index);
+        let validated_tx = validate_transaction(&config, signed_tx, protocol_version).unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key = authorization.into_access_key().unwrap();
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+        let verify = |paid_from_allowance| {
+            let pending =
+                PendingConstraints { paid_from_allowance, ..PendingConstraints::default() };
+            verify_and_charge_gas_key_tx_ephemeral(
+                &config,
+                &signer_account,
+                &access_key,
+                current_nonce,
+                tx,
+                &cost,
+                None,
+                protocol_version,
+                &pending,
+            )
+        };
+
+        let expected_allowance = allowance.checked_sub(cost.total_cost).unwrap();
+        let paid_to_fit = allowance.checked_sub(cost.total_cost).unwrap();
+        let TxVerdict::Success(result) = verify(paid_to_fit) else {
+            panic!("expected Success");
+        };
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: None,
+                new_allowance: Some(expected_allowance),
+                nonce_index,
+                nonce: tx_nonce,
+            }
+        );
+
+        let paid_one_over = paid_to_fit.checked_add(Balance::from_yoctonear(1)).unwrap();
+        let TxVerdict::Failed(err) = verify(paid_one_over) else {
+            panic!("expected Failed");
+        };
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                account_id: alice_account(),
+                public_key: signer.public_key().into(),
+                allowance: cost.total_cost.checked_sub(Balance::from_yoctonear(1)).unwrap(),
+                cost: cost.total_cost,
+            })
         );
     }
 

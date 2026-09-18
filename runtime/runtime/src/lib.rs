@@ -252,6 +252,9 @@ pub struct PendingConstraints {
     /// signed with this key (`burnt_amount` of each), plus any pending
     /// WithdrawFromGasKey amounts targeting this key.
     pub paid_from_gas_key: Balance,
+    /// Total `total_cost` of pending transactions signed with this key. A
+    /// function-call key with an allowance pays it from the allowance.
+    pub paid_from_allowance: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
     pub max_nonce: Nonce,
@@ -267,6 +270,7 @@ impl Default for PendingConstraints {
         Self {
             paid_from_balance: Balance::ZERO,
             paid_from_gas_key: Balance::ZERO,
+            paid_from_allowance: Balance::ZERO,
             max_nonce: 0,
             max_bootstrap_nonce: 0,
         }

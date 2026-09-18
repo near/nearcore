@@ -80,8 +80,8 @@ impl ShardedPendingTransactionQueue {
 /// trie holds, and for ML-DSA-65 it is a 32-byte hash in place of a 1952-byte key.
 type NonceScope = (AccountId, Option<PublicKeyHandle>, Option<NonceIndex>);
 
-/// A gas key, which unlike a nonce scope always names a key of its own.
-type GasKey = (AccountId, PublicKeyHandle);
+/// An access or gas key, which unlike a nonce scope always names a key of its own.
+type AccountKey = (AccountId, PublicKeyHandle);
 
 /// The scope of a nonce carried by an access or gas key.
 fn key_nonce_scope(tx: &Transaction, key_handle: &PublicKeyHandle) -> NonceScope {
@@ -106,7 +106,10 @@ pub struct PendingTransactionQueue {
     /// Nonce tracking, per [`NonceScope`].
     pending_nonces: HashMap<NonceScope, PendingNonce>,
     /// Per-gas-key cost. Includes `burnt_amount` from gas key txs + WithdrawFromGasKey amounts.
-    pending_gas_key_costs: HashMap<GasKey, Balance>,
+    pending_gas_key_costs: HashMap<AccountKey, Balance>,
+    /// Per-key `total_cost` of every transaction the key signed, which a
+    /// function-call key with an allowance pays from the allowance.
+    pending_allowance_costs: HashMap<AccountKey, Balance>,
 }
 
 /// Nonce tracking for a single [`NonceScope`]. Stores each
@@ -154,7 +157,9 @@ struct PendingChunkData {
     /// Max nonce for this chunk, per [`NonceScope`].
     nonces: HashMap<NonceScope, Nonce>,
     /// Per-gas-key costs for this chunk (`burnt_amount` + WithdrawFromGasKey).
-    gas_key_costs: HashMap<GasKey, Balance>,
+    gas_key_costs: HashMap<AccountKey, Balance>,
+    /// Per-key `total_cost` for this chunk.
+    allowance_costs: HashMap<AccountKey, Balance>,
 }
 
 /// Aggregate for a set of transactions, per account.
@@ -197,6 +202,7 @@ impl PendingTransactionQueue {
             pending_accounts: HashMap::new(),
             pending_nonces: HashMap::new(),
             pending_gas_key_costs: HashMap::new(),
+            pending_allowance_costs: HashMap::new(),
         }
     }
 
@@ -205,6 +211,7 @@ impl PendingTransactionQueue {
             && self.pending_accounts.is_empty()
             && self.pending_nonces.is_empty()
             && self.pending_gas_key_costs.is_empty()
+            && self.pending_allowance_costs.is_empty()
     }
 
     /// Add transactions from a newly accepted block's chunk.
@@ -219,6 +226,7 @@ impl PendingTransactionQueue {
             accounts: HashMap::new(),
             nonces: HashMap::new(),
             gas_key_costs: HashMap::new(),
+            allowance_costs: HashMap::new(),
         };
 
         for signed_tx in transactions {
@@ -247,6 +255,11 @@ impl PendingTransactionQueue {
             let chunk_account = chunk_data.accounts.entry(signer_id.clone()).or_default();
             chunk_account.paid_from_balance =
                 chunk_account.paid_from_balance.saturating_add(cost.total_cost);
+            let allowance_entry = chunk_data
+                .allowance_costs
+                .entry((signer_id.clone(), key_handle.clone()))
+                .or_insert(Balance::ZERO);
+            *allowance_entry = allowance_entry.saturating_add(cost.total_cost);
             if is_gas_key_tx {
                 let gas_key_entry = chunk_data
                     .gas_key_costs
@@ -289,6 +302,10 @@ impl PendingTransactionQueue {
         for (gas_key, &chunk_gas_key_cost) in &chunk_data.gas_key_costs {
             let entry = self.pending_gas_key_costs.entry(gas_key.clone()).or_insert(Balance::ZERO);
             *entry = entry.saturating_add(chunk_gas_key_cost);
+        }
+        for (key, &chunk_allowance_cost) in &chunk_data.allowance_costs {
+            let entry = self.pending_allowance_costs.entry(key.clone()).or_insert(Balance::ZERO);
+            *entry = entry.saturating_add(chunk_allowance_cost);
         }
 
         debug_assert!(
@@ -341,6 +358,19 @@ impl PendingTransactionQueue {
                 }
             }
         }
+
+        for (key, &chunk_allowance_cost) in &chunk_data.allowance_costs {
+            if let Some(entry) = self.pending_allowance_costs.get_mut(key) {
+                *entry = checked_sub_or_default!(
+                    *entry,
+                    chunk_allowance_cost,
+                    "allowance cost underflow in remove_certified_chunk"
+                );
+                if entry.is_zero() {
+                    self.pending_allowance_costs.remove(key);
+                }
+            }
+        }
     }
 
     /// Clear all pending transaction data (used for reorg re-initialization).
@@ -349,6 +379,7 @@ impl PendingTransactionQueue {
         self.pending_accounts.clear();
         self.pending_nonces.clear();
         self.pending_gas_key_costs.clear();
+        self.pending_allowance_costs.clear();
     }
 
     /// Extract constraints for a given transaction without Skip/Admit logic.
@@ -359,6 +390,7 @@ impl PendingTransactionQueue {
         PendingConstraints {
             paid_from_balance: snapshot.paid_from_balance,
             paid_from_gas_key: snapshot.pending_gas_key_cost,
+            paid_from_allowance: snapshot.pending_allowance_cost,
             max_nonce: snapshot.max_nonce,
             max_bootstrap_nonce: snapshot.max_bootstrap_nonce,
         }
@@ -383,9 +415,11 @@ impl PendingTransactionQueue {
         let paid_from_balance =
             pending_account.map(|a| a.paid_from_balance).unwrap_or(Balance::ZERO);
 
-        let gas_key = (signer_id.clone(), key_handle.clone());
+        let account_key = (signer_id.clone(), key_handle.clone());
         let pending_gas_key_cost =
-            self.pending_gas_key_costs.get(&gas_key).copied().unwrap_or(Balance::ZERO);
+            self.pending_gas_key_costs.get(&account_key).copied().unwrap_or(Balance::ZERO);
+        let pending_allowance_cost =
+            self.pending_allowance_costs.get(&account_key).copied().unwrap_or(Balance::ZERO);
 
         let max_nonce = self.max_pending_nonce(&key_nonce_scope(tx, key_handle));
         // Kept apart from `max_nonce` so it reaches only the reader it belongs to,
@@ -398,6 +432,7 @@ impl PendingTransactionQueue {
             max_nonce,
             max_bootstrap_nonce,
             pending_gas_key_cost,
+            pending_allowance_cost,
         }
     }
 }
@@ -411,13 +446,14 @@ struct PendingStateSnapshot {
     max_nonce: Nonce,
     max_bootstrap_nonce: Nonce,
     pending_gas_key_cost: Balance,
+    pending_allowance_cost: Balance,
 }
 
 /// Per-chunk-production session. Combines pending transaction queue state with session-local tracking
 /// for constraints NOT handled by the ephemeral TrieUpdate.
 ///
 /// The ephemeral TrieUpdate handles within-chunk accumulation for balance
-/// (deducts cost) and nonces (advances after each accepted tx). A successful
+/// and allowance (deducts cost) and nonces (advances after each accepted tx). A successful
 /// gas key tx leaves the key balance unchanged. The session only tracks what
 /// the ephemeral state does NOT cover:
 /// - P_MAX counts (per account)
@@ -436,7 +472,7 @@ pub struct PendingTxSession {
     session_access_key_tx_counts: HashMap<AccountId, usize>,
     /// Per gas key: `WithdrawFromGasKey` amounts and the `burnt_amount` of each
     /// admitted gas key tx, across nonce indexes.
-    session_gas_key_costs: HashMap<GasKey, Balance>,
+    session_gas_key_costs: HashMap<AccountKey, Balance>,
 }
 
 impl PendingTxSession {
@@ -526,6 +562,7 @@ impl PendingTxSession {
         PendingTxCheckResult::Admit(PendingConstraints {
             paid_from_balance: snapshot.paid_from_balance,
             paid_from_gas_key,
+            paid_from_allowance: snapshot.pending_allowance_cost,
             max_nonce: snapshot.max_nonce,
             max_bootstrap_nonce: snapshot.max_bootstrap_nonce,
         })
@@ -963,6 +1000,7 @@ mod tests {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: expected_cost,
                 paid_from_gas_key: Balance::ZERO,
+                paid_from_allowance: expected_cost,
                 max_nonce: 1,
                 max_bootstrap_nonce: 0,
             }),
@@ -990,6 +1028,7 @@ mod tests {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: cost.total_cost,
                 paid_from_gas_key: cost.burnt_amount,
+                paid_from_allowance: cost.total_cost,
                 max_nonce: 1,
                 max_bootstrap_nonce: 0,
             }),
@@ -1021,6 +1060,32 @@ mod tests {
             PendingTxCheckResult::Admit(PendingConstraints {
                 paid_from_balance: Balance::ZERO,
                 paid_from_gas_key: burnt_amount,
+                paid_from_allowance: Balance::ZERO,
+                max_nonce: 0,
+                max_bootstrap_nonce: 0,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_pending_allowance_is_scoped_to_the_signing_key() {
+        let config = RuntimeConfig::test();
+        let sharded = make_sharded_ptq();
+        let signer = test_signer();
+        let other_signer =
+            InMemorySigner::from_seed("alice.near".parse().unwrap(), KeyType::ED25519, "other");
+        let tx = make_transfer_tx(&signer, "bob.near", 1, TEST_DEPOSIT);
+        let cost = tx_cost(&config, &tx.transaction, TEST_GAS_PRICE).unwrap().total_cost;
+        add_chunk_txs(&sharded, CryptoHash::hash_bytes(&[1]), &[tx], &config, TEST_GAS_PRICE);
+
+        let mut session = make_session(&sharded);
+        let other_key_tx = make_transfer_tx(&other_signer, "bob.near", 1, TEST_DEPOSIT);
+        assert_eq!(
+            session.check_pending(&other_key_tx),
+            PendingTxCheckResult::Admit(PendingConstraints {
+                paid_from_balance: cost,
+                paid_from_gas_key: Balance::ZERO,
+                paid_from_allowance: Balance::ZERO,
                 max_nonce: 0,
                 max_bootstrap_nonce: 0,
             }),
@@ -1049,6 +1114,7 @@ mod tests {
                 PendingConstraints {
                     paid_from_balance: expected_cost.saturating_add(expected_cost2),
                     paid_from_gas_key: Balance::ZERO,
+                    paid_from_allowance: expected_cost.saturating_add(expected_cost2),
                     max_nonce: 2,
                     max_bootstrap_nonce: 0,
                 },
