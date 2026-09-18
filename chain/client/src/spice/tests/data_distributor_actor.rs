@@ -3,9 +3,9 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    DATA_PARTS_RATIO, Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD,
+    MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, DataManagerError};
 use assert_matches::assert_matches;
@@ -48,6 +48,7 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{Direction, MerklePathItem, merklize};
+use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
@@ -2136,10 +2137,160 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(actor.is_tracking(&data_id));
-    // TODO(spice-data-distribution): until pull recovery lands, a waited-on receipt
-    // proof is never requested (#16275).
+    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
+}
+
+/// Every data request queued, by the producer it goes to; drops every other message.
+fn drain_outgoing_pull_requests(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    requester: &AccountId,
+) -> BTreeMap<AccountId, BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>> {
+    let mut requests = BTreeMap::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceDataRequest { request, producer },
+        } = message
+        else {
+            continue;
+        };
+        let (wants, sender) = request.into_parts();
+        assert_eq!(&sender, requester);
+        assert!(requests.insert(producer, wants).is_none(), "two requests to one producer");
+    }
+    requests
+}
+
+/// The receipt proof of `block` and the recipient whose node pulls it: a producer of the
+/// destination shard that does not produce the source shard. Asserts one pushed part
+/// cannot decode the proof on its own.
+fn receipt_proof_pull_setup(
+    chain: &Chain,
+    block: &Block,
+) -> (ReceiptProof, Vec<AccountId>, AccountId) {
+    let receipt_proof = new_test_receipt_proof(block);
+    let producers = producers_of_receipt_proof(chain, block, &receipt_proof);
+    assert!(
+        reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO) >= 2,
+        "one part alone must not decode"
+    );
+    let recipient = recipients_of_receipt_proof(chain, block, &receipt_proof)
+        .into_iter()
+        .find(|account| !producers.contains(account))
+        .unwrap();
+    (receipt_proof, producers, recipient)
+}
+
+/// `producer`'s pushed part of `receipt_proof`, as its recipients receive it.
+fn pushed_receipt_proof_part(
+    chain: &Chain,
+    block: &Block,
+    producer: &AccountId,
+    receipt_proof: ReceiptProof,
+) -> SpiceIncomingPartialData {
+    let (data, _) = get_incoming_data(
+        producer,
+        chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![receipt_proof],
+        },
+    );
+    data
+}
+
+/// Once the source chunk is certified, the processed block pulls a receipt proof one
+/// pushed part short: the pushing producer is asked for the commitment's gaps and every
+/// silent producer for its own ordinal, in one request each.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_processed_block_pulls_a_certified_receipt_proof_from_its_producers() {
+    let (_genesis, mut chain) = setup(8, 0);
+    let block = latest_block(&chain);
+    let (receipt_proof, producers, recipient) = receipt_proof_pull_setup(&chain, &block);
+    let pushed = pushed_receipt_proof_part(&chain, &block, &producers[0], receipt_proof);
+    let data_id = SpiceDataIdentifier::from(&test_receipt_proof_data_id(&block));
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(pushed);
+    // The source chunk is not certified as of its own block, so nothing is pulled yet.
+    assert!(drain_outgoing_pull_requests(&mut outgoing_rc, &recipient).is_empty());
+
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &block);
+    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
+
+    let requests = drain_outgoing_pull_requests(&mut outgoing_rc, &recipient);
+    let mut expected = BTreeMap::new();
+    let gaps: BTreeSet<u64> = (1..producers.len() as u64).collect();
+    expected.insert(producers[0].clone(), BTreeMap::from([(data_id.clone(), gaps)]));
+    for (ordinal, producer) in producers.iter().enumerate().skip(1) {
+        let own = BTreeSet::from([ordinal as u64]);
+        expected.insert(producer.clone(), BTreeMap::from([(data_id.clone(), own)]));
+    }
+    assert_eq!(requests, expected);
+}
+
+/// A fabricated commitment that decodes is delivered like any other and settles; it does
+/// not stop the honest one: the next processed block pulls the honest gaps from the honest
+/// producer, whose answer decodes and is delivered too. The liars, bound to the settled
+/// fake, are not asked.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_fabricated_commitment_is_delivered_and_the_next_block_pulls_the_honest_one() {
+    let (_genesis, mut chain) = setup(8, 0);
+    let block = latest_block(&chain);
+    let (honest_proof, producers, recipient) = receipt_proof_pull_setup(&chain, &block);
+    let data_parts = reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO);
+    assert!(data_parts + 1 < producers.len(), "a producer must stay silent");
+    let liars = &producers[1..=data_parts];
+    let mut fake_proof = honest_proof.clone();
+    fake_proof.1.proof =
+        vec![MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left }];
+    let data_id = SpiceDataIdentifier::from(&test_receipt_proof_data_id(&block));
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+
+    // K liars push their parts of the fake: it decodes and reaches the executor.
+    for liar in liars {
+        actor.handle(pushed_receipt_proof_part(&chain, &block, liar, fake_proof.clone()));
+    }
+    let delivered = outgoing_rc.try_recv().unwrap();
+    assert_matches!(
+        delivered,
+        OutgoingMessage::ExecutorIncomingUnverifiedReceipts(ExecutorIncomingUnverifiedReceipts { receipt_proof, .. }) if receipt_proof == fake_proof
+    );
+    // The honest producer's push alone cannot decode.
+    actor.handle(pushed_receipt_proof_part(&chain, &block, &producers[0], honest_proof.clone()));
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &block);
+    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
+
+    let requests = drain_outgoing_pull_requests(&mut outgoing_rc, &recipient);
+    let gaps: BTreeSet<u64> = (1..producers.len() as u64).collect();
+    assert_eq!(requests[&producers[0]], BTreeMap::from([(data_id.clone(), gaps)]));
+    for liar in liars {
+        assert!(!requests.contains_key(liar), "{liar} backs a settled commitment");
+    }
+    for (ordinal, silent) in producers.iter().enumerate().skip(data_parts + 1) {
+        let own = BTreeSet::from([ordinal as u64]);
+        assert_eq!(requests[silent], BTreeMap::from([(data_id.clone(), own)]));
+    }
+
+    // The honest producer answers with one more part: the honest proof is delivered.
+    let answer = pushed_receipt_proof_part(&chain, &block, &producers[1], honest_proof.clone());
+    let answer =
+        SpicePartialDataBuilder::from_default(answer.data).sender(producers[0].clone()).build();
+    actor.handle(SpiceIncomingPartialData { data: answer, recv_permit: RecvMessagePermit::none() });
+    let delivered = outgoing_rc.try_recv().unwrap();
+    assert_matches!(
+        delivered,
+        OutgoingMessage::ExecutorIncomingUnverifiedReceipts(ExecutorIncomingUnverifiedReceipts { receipt_proof, .. }) if receipt_proof == honest_proof
+    );
 }
 
 #[test]
