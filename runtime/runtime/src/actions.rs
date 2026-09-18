@@ -12,7 +12,7 @@ use near_parameters::{
     AccountCreationConfig, ActionCosts, ParameterCost, RuntimeConfig, RuntimeFeesConfig,
 };
 use near_primitives::account::{
-    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo, InvalidAccountState,
+    AccessKey, Account, AccountContract, GasKeyInfo, InvalidAccountState,
 };
 use near_primitives::action::delegate::{
     VersionedDelegateActionRef, VersionedSignedDelegateActionRef,
@@ -138,8 +138,7 @@ pub(crate) fn try_refund_allowance(
 ) -> Result<(), StorageError> {
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
-        if let AccessKeyPermission::FunctionCall(function_call_permission) =
-            &mut access_key.permission
+        if let Some(function_call_permission) = access_key.permission.function_call_permission_mut()
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(deposit);
@@ -953,7 +952,7 @@ mod tests {
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_crypto::{KeyType, Signature};
-    use near_primitives::account::FunctionCallPermission;
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::FunctionCallAction;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
@@ -2023,6 +2022,31 @@ mod tests {
                 },
             )
             .into())
+        );
+    }
+
+    #[test]
+    fn test_try_refund_allowance_raises_function_call_gas_key_allowance() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        let allowance = Balance::from_yoctonear(100);
+        let refund = Balance::from_yoctonear(50);
+        let access_key = AccessKey::gas_key_function_call(
+            TEST_GAS_KEY_NUM_NONCES,
+            FunctionCallPermission {
+                allowance: Some(allowance),
+                receiver_id: "bob.near".to_string(),
+                method_names: vec![],
+            },
+        );
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+
+        try_refund_allowance(&mut state_update, &account_id, &public_key, refund).unwrap();
+
+        let access_key = get_access_key(&state_update, &account_id, &public_key).unwrap().unwrap();
+        assert_eq!(
+            access_key.permission.function_call_permission().unwrap().allowance,
+            Some(allowance.checked_add(refund).unwrap())
         );
     }
 

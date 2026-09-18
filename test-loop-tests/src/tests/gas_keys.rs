@@ -810,8 +810,8 @@ fn test_gas_key_add_function_call_host_function() {
 
 /// Test that a nonzero allowance on a gas key function call is rejected by the verifier.
 #[test]
-fn test_gas_key_add_function_call_nonzero_allowance_rejected() {
-    let mut setup = setup_host_function_test(PROTOCOL_VERSION);
+fn test_gas_key_add_function_call_nonzero_allowance_rejected_before_gas_key_covers_failed_tx_gas() {
+    let mut setup = setup_host_function_test(last_version_with_gas_key_gas_prepayment());
     let account = setup.account.clone();
 
     let gas_key_signer: Signer =
