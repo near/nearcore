@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::tests::gas_keys::query_gas_key_and_balance;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
@@ -9,12 +10,15 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::AccessKey;
 use near_primitives::action::{AddKeyAction, TransferToGasKeyAction, WithdrawFromGasKeyAction};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::{Action, SignedTransaction, TransactionNonce, TransferAction};
-use near_primitives::types::Nonce;
+use near_primitives::transaction::{
+    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransactionNonce,
+    TransferAction,
+};
 use near_primitives::types::{AccountId, Balance, NonceIndex};
+use near_primitives::types::{Gas, Nonce};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use node_runtime::config::tx_cost;
@@ -22,7 +26,7 @@ use std::collections::HashSet;
 
 const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
-fn gas_cost_per_transfer() -> Balance {
+fn burnt_amount_per_transfer() -> Balance {
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let dummy_account = create_account_id("dummy");
@@ -34,7 +38,7 @@ fn gas_cost_per_transfer() -> Balance {
         Balance::from_yoctonear(0),
         CryptoHash::default(),
     );
-    tx_cost(&config, &sample_tx.transaction, TEST_GAS_PRICE).unwrap().gas_cost
+    tx_cost(&config, &sample_tx.transaction, TEST_GAS_PRICE).unwrap().burnt_amount
 }
 
 /// Submit `count` transfer transactions from `sender` to `receiver`.
@@ -337,7 +341,7 @@ fn test_ptq_gas_key_balance_enforcement() {
     let receiver = create_account_id("receiver");
 
     // Fund the gas key with enough for exactly 2 txs but not 3.
-    let fund_amount = gas_cost_per_transfer().checked_mul(2).unwrap();
+    let fund_amount = burnt_amount_per_transfer().checked_mul(2).unwrap();
     let setup = setup_gas_key_spice_env(&account, &receiver, 1, fund_amount);
     let mut env = setup.env;
     let mut gas_key_nonce = setup.gas_key_nonces[0];
@@ -459,7 +463,7 @@ fn test_ptq_gas_key_multiple_nonce_indices() {
     let num_nonces: NonceIndex = 4;
 
     // Fund gas key with enough for exactly 2 txs.
-    let fund_amount = gas_cost_per_transfer().checked_mul(2).unwrap();
+    let fund_amount = burnt_amount_per_transfer().checked_mul(2).unwrap();
     let setup = setup_gas_key_spice_env(&account, &receiver, num_nonces, fund_amount);
     let mut env = setup.env;
 
@@ -543,6 +547,146 @@ fn test_ptq_account_balance_access_key_gas_key_combined() {
     );
     let result = env.validator_runner().execute_tx(gas_key_tx, Duration::seconds(5));
     assert!(matches!(result, Err(InvalidTxError::NotEnoughBalance { .. })), "got {result:?}");
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_ptq_gas_key_reserves_burnt_amount_within_chunk() {
+    init_test_logger();
+
+    let account = create_account_id("burnt_reservation_account");
+    let receiver = create_account_id("receiver");
+    let num_nonces: NonceIndex = 2;
+    let fund_amount = burnt_amount_per_transfer();
+    let setup = setup_gas_key_spice_env(&account, &receiver, num_nonces, fund_amount);
+    let mut env = setup.env;
+
+    // Both txs reach the pool before either is included, so only the session
+    // can see that the key covers just one of them.
+    let block_hash = env.validator().head().last_block_hash;
+    for nonce_index in 0..num_nonces {
+        let tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(
+                setup.gas_key_nonces[nonce_index as usize] + 1,
+                nonce_index,
+            ),
+            account.clone(),
+            receiver.clone(),
+            &setup.gas_key_signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(0) })],
+            block_hash,
+        );
+        env.validator().submit_tx(tx);
+    }
+    env.validator_runner().run_for_number_of_blocks(5);
+    let height = env.validator().head().height;
+    env.validator_runner().run_until_certified(height);
+
+    let response = env
+        .validator()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account,
+            public_key: setup.gas_key_signer.public_key(),
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(view) = response.kind else {
+        panic!("expected GasKeyNonces response");
+    };
+    let advanced_nonce_indexes = view
+        .nonces
+        .iter()
+        .zip(&setup.gas_key_nonces)
+        .filter(|(nonce_after, nonce_before)| nonce_after > nonce_before)
+        .count();
+    assert_eq!(advanced_nonce_indexes, 1);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_ptq_gas_key_pays_burnt_amount_when_receipt_drains_account() {
+    init_test_logger();
+
+    let account = create_account_id("drained_account");
+    let receiver = create_account_id("receiver");
+    let num_nonces: NonceIndex = 1;
+    let fund_amount = Balance::from_millinear(1);
+    let setup = setup_gas_key_spice_env(&account, &receiver, num_nonces, fund_amount);
+    let mut env = setup.env;
+    let access_key_signer = create_user_test_signer(&account);
+    let mut access_key_nonce = setup.next_access_key_nonce;
+
+    let block_hash = env.validator().head().last_block_hash;
+    let deploy_tx = SignedTransaction::deploy_contract(
+        access_key_nonce,
+        &account,
+        near_test_contracts::rs_contract().to_vec(),
+        &access_key_signer,
+        block_hash,
+    );
+    access_key_nonce += 1;
+    env.validator_runner().run_tx(deploy_tx, Duration::seconds(20));
+    let height = env.validator().head().height;
+    env.validator_runner().run_until_certified(height);
+
+    // The contract sends most of the balance away in a receipt. The queue only
+    // reserves this tx's own cost, so it does not see the balance drop.
+    let drained_amount = Balance::from_near(980);
+    let promise_input = serde_json::json!([
+        {"batch_create": {"account_id": receiver.as_str()}, "id": 0},
+        {"action_transfer": {"promise_index": 0, "amount": drained_amount.as_yoctonear().to_string()}, "id": 0},
+    ]);
+    let block_hash = env.validator().head().last_block_hash;
+    let drain_tx = SignedTransaction::from_actions(
+        access_key_nonce,
+        account.clone(),
+        account.clone(),
+        &access_key_signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&promise_input).unwrap(),
+            gas: Gas::from_teragas(100),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
+    let drain_tx_hash = drain_tx.get_hash();
+    env.validator().submit_tx(drain_tx);
+    env.validator_runner().run_until_included(&[drain_tx_hash]);
+
+    // Admitted against certified state, which does not have the drain yet.
+    let transfer_amount = Balance::from_near(50);
+    let block_hash = env.validator().head().last_block_hash;
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(setup.gas_key_nonces[0] + 1, 0),
+        account.clone(),
+        receiver,
+        &setup.gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
+        block_hash,
+    );
+    let gas_key_tx_hash = gas_key_tx.get_hash();
+    env.validator().submit_tx(gas_key_tx);
+    let outcome =
+        env.validator_runner().run_until_outcome_available(gas_key_tx_hash, Duration::seconds(30));
+
+    let status = &outcome.outcome_with_id.outcome.status;
+    assert!(
+        matches!(
+            status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::NotEnoughBalance { .. }
+            )),
+        ),
+        "expected NotEnoughBalance, got {status:?}",
+    );
+    let tokens_burnt = outcome.outcome_with_id.outcome.tokens_burnt;
+    assert!(!tokens_burnt.is_zero());
+
+    let height = env.validator().head().height;
+    env.validator_runner().run_until_certified(height);
+    let (_, gas_key_balance) =
+        query_gas_key_and_balance(&env.validator(), &account, &setup.gas_key_signer.public_key());
+    assert_eq!(gas_key_balance, fund_amount.checked_sub(tokens_burnt).unwrap());
 }
 
 fn is_included_in_head(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHash]) -> bool {

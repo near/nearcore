@@ -457,8 +457,20 @@ impl ChunkProducer {
         }))
     }
 
-    fn new_pending_tx_session(&self, shard_uid: ShardUId) -> PendingTxSession {
-        PendingTxSession::new(Arc::clone(&self.pending_transaction_queue), shard_uid)
+    fn pending_tx_session(
+        &self,
+        shard_uid: ShardUId,
+        prev_block_context: &PrepareTransactionsBlockContext,
+    ) -> Result<PendingTxSession, Error> {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&prev_block_context.next_epoch_id)?;
+        let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version).clone();
+        Ok(PendingTxSession::new(
+            Arc::clone(&self.pending_transaction_queue),
+            shard_uid,
+            runtime_config,
+            prev_block_context.next_gas_price,
+        ))
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
@@ -539,7 +551,7 @@ impl ChunkProducer {
                         &*self.epoch_manager,
                         congestion_info,
                     )?;
-                    let mut session = self.new_pending_tx_session(shard_uid);
+                    let mut session = self.pending_tx_session(shard_uid, &prev_block_context)?;
                     let ptq_enabled = self.spice_pending_transaction_queue_enabled;
                     let (prepared, skipped) = self.runtime_adapter.prepare_transactions_extra(
                         state_update,

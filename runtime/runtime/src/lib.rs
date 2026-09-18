@@ -245,12 +245,12 @@ pub struct ValidatorAccountsUpdate {
 /// for balance and nonce validation during chunk production.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingConstraints {
-    /// Total balance already committed by this account's pending access key
-    /// transactions (total_cost) plus pending gas key deposit costs.
+    /// Total balance already committed by this account's pending transactions
+    /// (`total_cost` of each).
     pub paid_from_balance: Balance,
     /// Total gas key cost already committed by pending gas key transactions
-    /// signed with this key, plus any pending WithdrawFromGasKey amounts
-    /// targeting this key.
+    /// signed with this key (`burnt_amount` of each), plus any pending
+    /// WithdrawFromGasKey amounts targeting this key.
     pub paid_from_gas_key: Balance,
     /// Maximum nonce seen among pending transactions for this (account, key,
     /// nonce_index) combination.
