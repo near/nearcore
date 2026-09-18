@@ -4,13 +4,14 @@ use crate::metrics::{
     COMPILATION_CACHE_WARMING_DROPPED_TOTAL, COMPILATION_CACHE_WARMING_FAILURES,
     COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS,
 };
-use near_async::thread_pool::background_runtime_tasks;
+use near_async::thread_pool::contract_cache_warming_pool;
 use near_parameters::vm::Config;
 use near_store::contract::ContractStorage;
-use near_vm_runner::logic::errors::{CacheError, CompilationError};
+use near_vm_runner::logic::errors::{CompilationError, VMRunnerError};
 use near_vm_runner::{
-    Contract as _, ContractCode, ContractPrecompilatonResult, ContractRuntimeCache,
-    config_cache_key_signature, precompile_contract, try_precompile_contract,
+    CompilePriority, Contract as _, ContractCode, ContractPrecompilatonResult,
+    ContractRuntimeCache, config_cache_key_signature, precompile_contract,
+    try_precompile_contract_with_priority,
 };
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -60,9 +61,11 @@ pub fn cache_keys_differ(a: Arc<Config>, b: Arc<Config>) -> bool {
 /// Precompile `code` against `current_config` synchronously and
 /// — when `next_config` is `Some` and its cache-key signature differs from
 /// `current_config` — additionally enqueue a fire-and-forget warming
-/// compilation against `next_config` on the [`background_runtime_tasks`].
+/// compilation against `next_config` on the [`contract_cache_warming_pool`]
+/// with `CompilePriority::Background`.
 ///
-/// Errors from either compile are dropped.
+/// Errors from either compile are dropped. The synchronous `current_config`
+/// compilation uses `CompilePriority::Critical`.
 pub(crate) fn precompile_contract_with_warming(
     code: &ContractCode,
     current_config: Arc<Config>,
@@ -107,6 +110,8 @@ pub(crate) fn spawn_lazy_cache_warming(
 /// pending-submission slot before enqueue; releases it on dequeue; runs
 /// [`try_precompile_contract`] and records the outcome. Returns silently
 /// when warming is disabled.
+///
+/// Uses a low priority if the out-of-process compiler is enabled.
 fn spawn_warming(
     get_code: Box<dyn FnOnce() -> Option<Arc<ContractCode>> + Send>,
     config: Arc<Config>,
@@ -116,12 +121,17 @@ fn spawn_warming(
         COMPILATION_CACHE_WARMING_DROPPED_TOTAL.inc();
         return;
     }
-    background_runtime_tasks().spawn_boxed(Box::new(move || {
+    contract_cache_warming_pool().spawn_boxed(Box::new(move || {
         release_pending_slot();
         let Some(code) = get_code() else {
             return;
         };
-        let result = try_precompile_contract(code.as_ref(), config, Some(&*cache_handle));
+        let result = try_precompile_contract_with_priority(
+            code.as_ref(),
+            config,
+            Some(&*cache_handle),
+            CompilePriority::Background,
+        );
         update_compilation_cache_warming_metrics(result);
     }));
 }
@@ -129,7 +139,7 @@ fn spawn_warming(
 /// Increment the compiles counter only on a fresh compile;
 /// `ContractAlreadyInCache` is intentionally not counted.
 fn update_compilation_cache_warming_metrics(
-    result: Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>,
+    result: Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError>,
 ) {
     match result {
         Ok(Ok(ContractPrecompilatonResult::ContractCompiled)) => {
