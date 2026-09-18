@@ -279,16 +279,17 @@ impl Default for PendingConstraints {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
-/// - `DepositFailed`: apply gas-only state changes via `VerificationResult::apply`
+/// - `FailedWithGasBurnt`: apply gas-only state changes via `VerificationResult::apply`
 ///   (only returned by gas key path).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
-    /// Gas key valid with sufficient gas balance, but account can't cover deposit.
-    /// Gas key balance is deducted, account balance unchanged.
-    DepositFailed { result: VerificationResult, error: InvalidTxError },
+    /// Gas key valid with sufficient balance, but the account can't cover its
+    /// share of the cost. The gas key is charged the conversion burn and the
+    /// account balance is unchanged.
+    FailedWithGasBurnt { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
 }
@@ -2209,18 +2210,19 @@ impl Runtime {
                 &tx.transaction,
                 &cost,
                 Some(block_height),
+                processing_state.apply_state.current_protocol_version,
                 &PendingConstraints::default(),
                 gas_key_nonce,
             )?;
 
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
-                TxVerdict::DepositFailed { result, error } => {
+                TxVerdict::FailedWithGasBurnt { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
                         error = &error as &dyn std::error::Error,
-                        "gas key transaction failed deposit check, charging gas"
+                        "gas key transaction failed balance check, charging the gas key"
                     );
                     // All gas used for converting the transaction to a receipt is burnt.
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(

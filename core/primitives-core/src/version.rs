@@ -493,6 +493,11 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
+    /// A gas key no longer prepays the gas of its transactions: the signer
+    /// account pays `total_cost` and receives the gas refunds, as it does for
+    /// an access key. The gas key balance covers `burnt_amount` only when the
+    /// transaction fails to convert to a receipt.
+    GasKeyCoversFailedTxGas,
 }
 
 impl ProtocolFeature {
@@ -638,6 +643,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            ProtocolFeature::GasKeyCoversFailedTxGas => 157,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
