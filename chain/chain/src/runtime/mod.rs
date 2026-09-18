@@ -663,6 +663,12 @@ impl NightshadeRuntime {
         key_handle: &PublicKeyHandle,
         access_key: AccessKey,
     ) -> Result<AccessKeyView, QueryError> {
+        // The view reports `max(access_key.nonce, nonce[0])` only for keys that
+        // `resolve_nonce_index` maps to index 0, which needs `GasKeyImplicitNonceIndex`.
+        const _: () = assert!(
+            ProtocolFeature::GasKeyImplicitNonceIndex.protocol_version()
+                <= ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.protocol_version()
+        );
         // Only a gas key needs the protocol version, so other keys skip the epoch lookup.
         let nonce_index = if access_key.gas_key_info().is_some() {
             let (_, protocol_version) =
@@ -671,24 +677,21 @@ impl NightshadeRuntime {
         } else {
             None
         };
-        let mut access_key_view: AccessKeyView = access_key.into();
         let Some(nonce_index) = nonce_index else {
-            return Ok(access_key_view);
+            return Ok(access_key.into());
         };
         let internal_error =
             |error_message| QueryError::InternalError { error_message, block_height, block_hash };
-        access_key_view.nonce = get_gas_key_nonce_by_handle(
-            trie,
-            account_id,
-            key_handle,
-            nonce_index,
-        )
-        .map_err(|err| internal_error(err.to_string()))?
-        .ok_or_else(|| {
-            internal_error(format!(
-                "gas key nonce at index {nonce_index} does not exist for account {account_id}"
-            ))
-        })?;
+        let gas_key_nonce = get_gas_key_nonce_by_handle(trie, account_id, key_handle, nonce_index)
+            .map_err(|err| internal_error(err.to_string()))?
+            .ok_or_else(|| {
+                internal_error(format!(
+                    "gas key nonce at index {nonce_index} does not exist for account {account_id}"
+                ))
+            })?;
+        let nonce = gas_key_current_nonce(&access_key, nonce_index, gas_key_nonce);
+        let mut access_key_view: AccessKeyView = access_key.into();
+        access_key_view.nonce = nonce;
         Ok(access_key_view)
     }
 }

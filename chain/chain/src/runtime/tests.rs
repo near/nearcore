@@ -3167,6 +3167,98 @@ fn test_prepare_transactions_gap_check_uses_access_key_nonce_for_strict_gas_key_
 
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
+fn test_query_view_access_key_reports_access_key_nonce_on_gas_key() {
+    assert!(ProtocolFeature::GasKeyDelegateUsesAccessKeyNonce.enabled(PROTOCOL_VERSION));
+    let (mut env, _, _) = get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    let access_key_nonce = 1_005;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+    set_access_key_nonce_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        access_key_nonce,
+    );
+
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let response = env
+        .runtime
+        .query(
+            shard_uid,
+            &env.state_roots[0],
+            env.head.height,
+            0,
+            &env.head.prev_block_hash,
+            &env.head.last_block_hash,
+            &env.head.epoch_id,
+            &QueryRequest::ViewAccessKey { account_id, public_key: gas_key_signer.public_key() },
+        )
+        .unwrap();
+    let QueryResponseKind::AccessKey(access_key_view) = response.kind else {
+        panic!("unexpected query response kind");
+    };
+    assert_eq!(access_key_view.nonce, access_key_nonce);
+}
+
+#[test]
+fn test_query_view_gas_key_nonces_reports_access_key_nonce_on_nonce_index_0() {
+    let (mut env, _, _) = get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
+    let account_id: AccountId = "test1".parse().unwrap();
+    let gas_key_signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key");
+    let num_nonces = 3;
+    let gas_key_balance = Balance::from_millinear(1);
+    let gas_key_nonce = 1_000;
+    let access_key_nonce = 1_005;
+    set_gas_key_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        num_nonces,
+        gas_key_balance,
+        gas_key_nonce,
+    );
+    set_access_key_nonce_in_trie(
+        &mut env,
+        &account_id,
+        &gas_key_signer.public_key(),
+        access_key_nonce,
+    );
+
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let response = env
+        .runtime
+        .query(
+            shard_uid,
+            &env.state_roots[0],
+            env.head.height,
+            0,
+            &env.head.prev_block_hash,
+            &env.head.last_block_hash,
+            &env.head.epoch_id,
+            &QueryRequest::ViewGasKeyNonces { account_id, public_key: gas_key_signer.public_key() },
+        )
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(gas_key_nonces_view) = response.kind else {
+        panic!("unexpected query response kind");
+    };
+    assert_eq!(gas_key_nonces_view.nonces, vec![access_key_nonce, gas_key_nonce, gas_key_nonce]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_query_view_access_key_reports_implicit_nonce_index_nonce_for_gas_key() {
     assert!(ProtocolFeature::GasKeyImplicitNonceIndex.enabled(PROTOCOL_VERSION));
     let (mut env, _, _) = get_test_env_with_chain_and_pool_at_protocol_version(PROTOCOL_VERSION);
