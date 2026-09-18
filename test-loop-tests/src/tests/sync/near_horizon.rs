@@ -33,8 +33,6 @@ use near_primitives::types::{Balance, ShardId};
 //   - Sync status sequence: AwaitingPeers → NoSync → BlockSync → NoSync
 //   - No EpochSync or StateSync in the status history
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_block_sync() {
     init_test_logger();
 
@@ -78,8 +76,6 @@ fn test_near_horizon_block_sync() {
 //   - Block sync succeeds (all needed blocks within GC window)
 //   - Node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_epoch_sync_boundary() {
     init_test_logger();
 
@@ -119,8 +115,6 @@ fn test_near_horizon_epoch_sync_boundary() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_restart_during_block_sync() {
     init_test_logger();
 
@@ -246,8 +240,6 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
 //   - Node enters BlockSync (near horizon, not EpochSync)
 //   - Node catches up to network tip despite its tight `gc_num_epochs_to_keep`
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_beyond_gc_window() {
     init_test_logger();
 

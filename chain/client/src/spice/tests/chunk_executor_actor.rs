@@ -212,6 +212,7 @@ impl TestActor {
             core_writer_sender,
             data_distributor_adapter,
             ChunkPersistenceConfig::default(),
+            None,
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }

@@ -1357,9 +1357,15 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
-/// Merkle leaf committing to a single chunk's certified execution roots.
+/// Merkle leaf committing to a single chunk's certified execution result.
 /// The `chunk_execution_root` in a spice block header is the merkle root over
 /// these leaves, sorted by `chunk_id`.
+///
+/// Besides the three roots the chain reads directly, the leaf carries
+/// `execution_result_hash`, which covers the `ChunkExecutionResult` in full - the
+/// whole `ChunkExtra`, including the fields no root reflects, such as the gas limit,
+/// the congestion info and the bandwidth requests. A party that proves a leaf
+/// therefore proves every field of the result it was derived from.
 #[derive(
     Debug,
     Clone,
@@ -1393,12 +1399,39 @@ pub struct ChunkExecutionRootsV1 {
     pub state_root: CryptoHash,
     pub outcome_root: CryptoHash,
     pub outgoing_receipts_root: CryptoHash,
+    /// Hash of the whole `ChunkExecutionResult` the three roots above came from.
+    pub execution_result_hash: ChunkExecutionResultHash,
 }
 
 impl ChunkExecutionRoots {
     pub fn chunk_id(&self) -> &SpiceChunkId {
         match self {
             ChunkExecutionRoots::V1(roots) => &roots.chunk_id,
+        }
+    }
+
+    pub fn state_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.state_root,
+        }
+    }
+
+    pub fn outcome_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.outcome_root,
+        }
+    }
+
+    pub fn outgoing_receipts_root(&self) -> &CryptoHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.outgoing_receipts_root,
+        }
+    }
+
+    /// Commitment to the full `ChunkExecutionResult`, not just the three roots.
+    pub fn execution_result_hash(&self) -> &ChunkExecutionResultHash {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.execution_result_hash,
         }
     }
 
@@ -1411,6 +1444,7 @@ impl ChunkExecutionRoots {
             state_root: *execution_result.chunk_extra.state_root(),
             outcome_root: *execution_result.chunk_extra.outcome_root(),
             outgoing_receipts_root: execution_result.outgoing_receipts_root,
+            execution_result_hash: execution_result.compute_hash(),
         })
     }
 }
@@ -1460,7 +1494,19 @@ impl BlockExecutionResults {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkExecutionResultHash(pub CryptoHash);
 
 impl ChunkExecutionResult {
@@ -1574,12 +1620,14 @@ mod tests {
                 state_root: *result_0.chunk_extra.state_root(),
                 outcome_root: *result_0.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_0.outgoing_receipts_root,
+                execution_result_hash: result_0.compute_hash(),
             }),
             ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
                 chunk_id: chunk_id_1.clone(),
                 state_root: *result_1.chunk_extra.state_root(),
                 outcome_root: *result_1.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_1.outgoing_receipts_root,
+                execution_result_hash: result_1.compute_hash(),
             }),
         ];
         let expected = merklize(&expected_leaves).0;
