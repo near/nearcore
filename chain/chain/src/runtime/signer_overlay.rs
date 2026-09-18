@@ -15,6 +15,14 @@ pub(crate) struct KeyEntry {
     pub gas_key_nonces: HashMap<NonceIndex, Nonce>,
 }
 
+/// The overlay state a transaction is verified against.
+pub(crate) struct SignerEntryMut<'a> {
+    pub account: &'a mut Account,
+    pub key_entry: &'a mut KeyEntry,
+    /// Its gas key nonce is loaded in `key_entry`.
+    pub resolved_nonce_index: Option<NonceIndex>,
+}
+
 /// Per-account state in the overlay: the account itself plus per-key entries.
 struct AccountEntry {
     account: Account,
@@ -68,10 +76,10 @@ impl SignerOverlay {
         self.entries.get(account_id)?.account.bootstrap_nonce()
     }
 
-    /// Returns mutable references to the account and per-key state, and the
-    /// nonce index from `resolve_nonce_index`, loading from the trie on first
-    /// access. `Ok(None)` signals that the requested account, access key, or
-    /// gas-key nonce does not exist in state. Storage errors propagate as `Err`.
+    /// Returns mutable references to the account and per-key state, loading
+    /// from the trie on first access. `Ok(None)` signals that the requested
+    /// account, access key, or gas-key nonce does not exist in state. Storage
+    /// errors propagate as `Err`.
     pub fn get_or_load_entry_mut(
         &mut self,
         trie: &dyn TrieAccess,
@@ -79,7 +87,7 @@ impl SignerOverlay {
         public_key: &PublicKey,
         tx_nonce_index: Option<NonceIndex>,
         protocol_version: ProtocolVersion,
-    ) -> Result<Option<(&mut Account, &mut KeyEntry, Option<NonceIndex>)>, StorageError> {
+    ) -> Result<Option<SignerEntryMut<'_>>, StorageError> {
         // Ensure the account is loaded.
         let entry = match self.entries.entry(account_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -120,7 +128,7 @@ impl SignerOverlay {
             }
         }
 
-        Ok(Some((account, key_entry, nonce_index)))
+        Ok(Some(SignerEntryMut { account, key_entry, resolved_nonce_index: nonce_index }))
     }
 }
 
@@ -207,7 +215,7 @@ mod tests {
         let trie = MockTrie { values };
         let mut overlay = SignerOverlay::new();
         let tx_nonce_index = None;
-        let (_, key_entry, nonce_index) = overlay
+        let SignerEntryMut { key_entry, resolved_nonce_index: nonce_index, .. } = overlay
             .get_or_load_entry_mut(&trie, &alice(), &pk(), tx_nonce_index, PROTOCOL_VERSION)
             .unwrap()
             .unwrap();

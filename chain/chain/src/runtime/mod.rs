@@ -1,10 +1,11 @@
 use crate::Error;
+use crate::near_chain_primitives::error::QueryError;
 use crate::runtime::metrics::{
     DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
     DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD, DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE,
     DYNAMIC_RESHARDING_SHARD_MEMORY_USAGE, set_proposed_split_metrics,
 };
-use crate::runtime::signer_overlay::SignerOverlay;
+use crate::runtime::signer_overlay::{SignerEntryMut, SignerOverlay};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
@@ -649,6 +650,47 @@ impl NightshadeRuntime {
         })?;
         Ok((epoch_info.epoch_height(), epoch_info.protocol_version()))
     }
+
+    /// The view of an access key. Under `GasKeyImplicitNonceIndex`, a gas key
+    /// reports the nonce that a transaction without a nonce index uses.
+    fn access_key_view(
+        &self,
+        trie: &dyn TrieAccess,
+        epoch_id: &EpochId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+        account_id: &AccountId,
+        key_handle: &PublicKeyHandle,
+        access_key: AccessKey,
+    ) -> Result<AccessKeyView, QueryError> {
+        // Only a gas key needs the protocol version, so other keys skip the epoch lookup.
+        let nonce_index = if access_key.gas_key_info().is_some() {
+            let (_, protocol_version) =
+                self.query_epoch_info(epoch_id, block_height, block_hash)?;
+            resolve_nonce_index(None, Some(&access_key), protocol_version)
+        } else {
+            None
+        };
+        let mut access_key_view: AccessKeyView = access_key.into();
+        let Some(nonce_index) = nonce_index else {
+            return Ok(access_key_view);
+        };
+        let internal_error =
+            |error_message| QueryError::InternalError { error_message, block_height, block_hash };
+        access_key_view.nonce = get_gas_key_nonce_by_handle(
+            trie,
+            account_id,
+            key_handle,
+            nonce_index,
+        )
+        .map_err(|err| internal_error(err.to_string()))?
+        .ok_or_else(|| {
+            internal_error(format!(
+                "gas key nonce at index {nonce_index} does not exist for account {account_id}"
+            ))
+        })?;
+        Ok(access_key_view)
+    }
 }
 
 fn get_epoch_start_height_from_cold_head(
@@ -1042,8 +1084,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let Some((account, key_entry, nonce_index)) = signer_overlay
-                    .get_or_load_entry_mut(
+                let Some(SignerEntryMut { account, key_entry, resolved_nonce_index: nonce_index }) =
+                    signer_overlay.get_or_load_entry_mut(
                         &state_update,
                         validated_tx.signer_id(),
                         validated_tx.public_key(),
@@ -1379,31 +1421,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                             *block_hash,
                         )
                     })?;
-                let (_, current_protocol_version) =
-                    self.query_epoch_info(epoch_id, block_height, *block_hash)?;
                 let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
                 let keys = access_key_list
                     .into_iter()
                     .map(|(public_key, access_key)| {
-                        let nonce = access_key_view_nonce(
+                        let access_key_view = self.access_key_view(
                             &trie,
+                            epoch_id,
+                            block_height,
+                            *block_hash,
                             account_id,
                             &public_key,
-                            &access_key,
-                            current_protocol_version,
+                            access_key,
                         )?;
-                        let mut access_key_view: AccessKeyView = access_key.into();
-                        access_key_view.nonce = nonce;
                         Ok(AccessKeyInfoView::new(public_key, access_key_view))
                     })
-                    .collect::<Result<_, StorageError>>()
-                    .map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::InternalError {
-                            error_message: err.to_string(),
-                            block_height,
-                            block_hash: *block_hash,
-                        }
-                    })?;
+                    .collect::<Result<_, QueryError>>()?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKeyList(AccessKeyList { keys, last_key }),
                     block_height,
@@ -1420,25 +1453,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                             *block_hash,
                         )
                     })?;
-                let (_, current_protocol_version) =
-                    self.query_epoch_info(epoch_id, block_height, *block_hash)?;
                 let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
-                let nonce = access_key_view_nonce(
+                let access_key_view = self.access_key_view(
                     &trie,
+                    epoch_id,
+                    block_height,
+                    *block_hash,
                     account_id,
                     &public_key.into(),
-                    &access_key,
-                    current_protocol_version,
-                )
-                .map_err(|err| {
-                    crate::near_chain_primitives::error::QueryError::InternalError {
-                        error_message: err.to_string(),
-                        block_height,
-                        block_hash: *block_hash,
-                    }
-                })?;
-                let mut access_key_view: AccessKeyView = access_key.into();
-                access_key_view.nonce = nonce;
+                    access_key,
+                )?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::AccessKey(access_key_view),
                     block_height,
@@ -1751,25 +1775,6 @@ fn gap_check_nonce(
         return get_gas_key_nonce(&throwaway_trie, account_id, public_key, idx);
     }
     Ok(Some(access_key.nonce))
-}
-
-/// The nonce the access key view reports: the one a transaction without a nonce
-/// index uses, which is a gas key nonce under `GasKeyImplicitNonceIndex`.
-fn access_key_view_nonce(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    key_handle: &PublicKeyHandle,
-    access_key: &AccessKey,
-    protocol_version: ProtocolVersion,
-) -> Result<Nonce, StorageError> {
-    let Some(nonce_index) = resolve_nonce_index(None, Some(access_key), protocol_version) else {
-        return Ok(access_key.nonce);
-    };
-    get_gas_key_nonce_by_handle(trie, account_id, key_handle, nonce_index)?.ok_or_else(|| {
-        StorageError::StorageInconsistentState(format!(
-            "gas key nonce at index {nonce_index} does not exist for account {account_id}"
-        ))
-    })
 }
 
 /// How much gas of the next chunk we want to spend on converting new
