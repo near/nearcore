@@ -1107,7 +1107,7 @@ mod tests {
 
         // Fill the requested outgoing buffers.
         let mut state_update = tries.new_trie_update(shard_uid, CryptoHash::default());
-        let mut sink = empty_sink(&state_update.trie, params.clone());
+        let mut sink = empty_sink(&state_update.trie, params);
         let mut nonce = 0u64;
         for (shard, count) in buffers {
             for _ in 0..*count {
@@ -1126,7 +1126,7 @@ mod tests {
 
         // Re-open on the committed trie and generate the request.
         let committed = tries.new_trie_update(shard_uid, root);
-        let sink = empty_sink(&committed.trie, params.clone());
+        let sink = empty_sink(&committed.trie, params);
         let mut stats = ChunkApplyStatsV1::dummy();
         let BandwidthRequests::V1(requests) = sink
             .generate_bandwidth_requests(
