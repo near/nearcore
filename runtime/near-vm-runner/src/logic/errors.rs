@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use std::any::Any;
+#[cfg(any(feature = "wasmtime_vm", test))]
 use std::borrow::Cow;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -127,11 +128,14 @@ pub enum MethodResolveError {
 ///
 /// The frame contains a one-byte enum discriminant and a four-byte Borsh string
 /// length in addition to the message itself.
+#[cfg(any(feature = "wasmtime_vm", test))]
 pub(crate) const MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE: usize = 1024 * 1024 - 5;
+#[cfg(any(feature = "wasmtime_vm", test))]
 const TRUNCATED_WASMTIME_COMPILATION_ERROR_SUFFIX: &str = "\n[compiler error truncated]";
 
 /// Limit a Wasmtime compiler error consistently between in-process and daemon
 /// compilation, so either path produces the same cache entry.
+#[cfg(any(feature = "wasmtime_vm", test))]
 pub(crate) fn truncate_wasmtime_compilation_error_message(message: &str) -> Cow<'_, str> {
     if message.len() <= MAX_WASMTIME_COMPILATION_ERROR_MESSAGE_SIZE {
         return Cow::Borrowed(message);

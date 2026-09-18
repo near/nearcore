@@ -5,7 +5,6 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap, truncate_wasmtime_compilation_error_message,
 };
-
 use crate::logic::host as logic;
 use crate::logic::{
     Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
