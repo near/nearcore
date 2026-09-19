@@ -15,7 +15,8 @@ migration) at epoch boundaries.
   (resharding orchestration lives here; the storage mechanics there).
 
 ## Code to read
-- `core/primitives/src/shard_layout.rs` — `ShardLayout`, shard ids, account→shard mapping.
+- `core/primitives/src/shard_layout/` (`mod.rs`, `v0.rs`–`v3.rs`) — `ShardLayout`, shard
+  ids, account→shard mapping.
 - `chain/chunks/src/shards_manager_actor.rs` — chunk request/response, part tracking,
   forwarding, reconstruction.
 - `chain/chunks/src/{chunk_cache,logic,client}.rs`.
