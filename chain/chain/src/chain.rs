@@ -1643,13 +1643,17 @@ impl Chain {
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
+        let epoch_manager = self.epoch_manager.clone();
         // Update related heads now.
         let mut chain_store_update = self.mut_chain_store().store_update();
         chain_store_update.save_body_head(&tip)?;
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
-        // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
-        // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
+        chain_store_update.clear_data_before_state_sync_tail_update(
+            epoch_manager.as_ref(),
+            new_tail,
+            new_chunk_tail,
+        )?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
         chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
