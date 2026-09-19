@@ -231,6 +231,45 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
     );
 }
 
+// Regression test for #15404: restart with `tracked_shards_config` switched
+// to previously-untracked shards must fail with a clear error, not panic
+// inside memtrie loading.
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[should_panic(expected = "tracked_shards_config includes shards")]
+fn test_near_horizon_change_untracked_shards_errors_on_restart() {
+    init_test_logger();
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .track_all_shards()
+        .config_modifier(|config, idx| {
+            if idx == 0 {
+                config.tracked_shards_config =
+                    TrackedShardsConfig::Schedule(vec![vec![ShardId::new(0), ShardId::new(1)]]);
+            }
+        })
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_new_epoch();
+
+    env.node_runner(0).run_for_number_of_blocks(5);
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let mut killed_state = env.kill_node(&node0_identifier);
+
+    killed_state.client_config.tracked_shards_config =
+        TrackedShardsConfig::Schedule(vec![vec![ShardId::new(2), ShardId::new(3)]]);
+
+    env.node_runner(1).run_until_new_epoch();
+
+    env.restart_node("node0_restart", killed_state);
+}
+
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
 // ~8 epochs ahead, which is beyond the node's GC window (3 epochs = 30 blocks)
 // but within its large horizon (10 epochs = 100 blocks). The node enters
