@@ -1264,7 +1264,12 @@ fn gc_state(
         epoch_manager.get_shard_layout(block_info.epoch_id())?.shard_uids().collect_vec();
 
     // Remove shards that we are currently tracking from shards_to_cleanup
+    let current_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&latest_block_hash)?;
+    let current_shard_layout = epoch_manager.get_shard_layout(&current_epoch_id)?;
     shards_to_cleanup.retain(|shard_uid| {
+        if !current_shard_layout.shard_ids().contains(&shard_uid.shard_id()) {
+            return true;
+        }
         !shard_tracker
             .cares_about_shard_this_or_next_epoch(&latest_block_hash, shard_uid.shard_id())
     });
