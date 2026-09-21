@@ -256,8 +256,10 @@ wasm_storage_iter_create_to_byte: 0
 wasm_storage_iter_next_base: 0
 wasm_storage_iter_next_key_byte: 0
 wasm_storage_iter_next_value_byte: 0
-wasm_touching_trie_node: { gas: 16_101_955_926, compute: 20_000_000_000 }
-wasm_read_cached_trie_node: 2_280_000_000
+# Reading a trie node costs the same for the first and for subsequent accesses, which
+# keeps trie access accounting simple.
+wasm_touching_trie_node: { gas: 2_280_000_000, compute: 4_000_000_000 }
+wasm_read_cached_trie_node: { gas: 2_280_000_000, compute: 4_000_000_000 }
 wasm_promise_and_base: 1_465_013_400
 wasm_promise_and_per_promise: 5_452_176
 wasm_promise_return: 560_152_386
@@ -324,6 +326,8 @@ max_universal_state_init_keys: 1_024
 max_state_init_entries: 4_294_967_295
 max_functions_number_per_contract: 10_000
 max_locals_per_contract: 1_000_000
+max_tables_per_contract: 1
+max_elements_per_contract_table: 10_000
 account_id_validity_rules_version: 1
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
