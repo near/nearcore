@@ -1,4 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::vm::StorageGetMode;
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -265,7 +266,7 @@ pub struct VMConfigView {
     pub bls12381_not_in_group_fix: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
-    pub storage_get_mode: crate::vm::StorageGetMode,
+    pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
     /// Deprecated
@@ -292,7 +293,7 @@ impl From<crate::vm::Config> for VMConfigView {
             linear_op_unit_cost: config.linear_op_unit_cost,
             discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
-            storage_get_mode: config.storage_get_mode,
+            storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
