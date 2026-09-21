@@ -281,11 +281,11 @@ wasm_bls12381_p1_decompress_element: 300_000_000_000_000
 wasm_bls12381_p2_decompress_base: 300_000_000_000_000
 wasm_bls12381_p2_decompress_element: 300_000_000_000_000
 
-wasm_yield_create_base: 300_000_000_000_000
-wasm_yield_create_byte: 300_000_000_000_000
+wasm_yield_create_base: 153_411_779_276
+wasm_yield_create_byte: 15_643_988
 wasm_yield_create_with_id_base: 300_000_000_000_000
-wasm_yield_resume_base: 300_000_000_000_000
-wasm_yield_resume_byte: 300_000_000_000_000
+wasm_yield_resume_base: 1_195_627_285_210
+wasm_yield_resume_byte: 1_195_627_285_210
 
 # Smart contract limits
 max_gas_burnt: 300_000_000_000_000
