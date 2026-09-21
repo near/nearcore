@@ -24,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
     (64, include_config!("64.yaml")),

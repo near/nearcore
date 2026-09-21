@@ -224,19 +224,19 @@ wasm_universal_state_init_to_account_id_base: 8_520_000_000
 wasm_universal_state_init_to_account_id_byte: 21_471_105
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
-wasm_storage_write_base: 64_196_736_000
+wasm_storage_write_base: { gas: 64_196_736_000, compute: 200_000_000_000 }
 wasm_storage_write_key_byte: 70_482_867
 wasm_storage_write_value_byte: 31_018_539
 wasm_storage_write_evicted_byte: 32_117_307
-wasm_storage_read_base: 56_356_845_750
+wasm_storage_read_base: { gas: 56_356_845_750, compute: 200_000_000_000 }
 wasm_storage_read_key_byte: 30_952_533
 wasm_storage_read_value_byte: 5_611_005
 wasm_storage_large_read_overhead_base: 0
 wasm_storage_large_read_overhead_byte: 0
-wasm_storage_remove_base: 53_473_030_500
+wasm_storage_remove_base: { gas: 53_473_030_500, compute: 200_000_000_000 }
 wasm_storage_remove_key_byte: 38_220_384
 wasm_storage_remove_ret_value_byte: 11_531_556
-wasm_storage_has_key_base: 54_039_896_625
+wasm_storage_has_key_base: { gas: 54_039_896_625, compute: 200_000_000_000 }
 wasm_storage_has_key_byte: 30_790_845
 wasm_storage_iter_create_prefix_base: 0
 wasm_storage_iter_create_prefix_byte: 0
@@ -246,7 +246,7 @@ wasm_storage_iter_create_to_byte: 0
 wasm_storage_iter_next_base: 0
 wasm_storage_iter_next_key_byte: 0
 wasm_storage_iter_next_value_byte: 0
-wasm_touching_trie_node: 16_101_955_926
+wasm_touching_trie_node: { gas: 16_101_955_926, compute: 110_000_000_000 }
 wasm_read_cached_trie_node: 2_280_000_000
 wasm_promise_and_base: 1_465_013_400
 wasm_promise_and_per_promise: 5_452_176
@@ -318,7 +318,7 @@ account_id_validity_rules_version: 1
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
-flat_storage_reads: false
+flat_storage_reads: true
 fix_contract_loading_cost: false
 fix_contract_loading_error: false
 vm_kind: Wasmer2
