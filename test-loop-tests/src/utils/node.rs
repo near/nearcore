@@ -1,3 +1,4 @@
+use crate::setup::block_observer::BlockObservers;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::TransactionRunner;
 use futures::future::BoxFuture;
@@ -427,6 +428,8 @@ impl<'a> TestLoopNodeMut<'a> {
 pub struct NodeRunner<'a> {
     pub(crate) test_loop: &'a mut TestLoopV2,
     pub(crate) node_data: &'a NodeExecutionData,
+    pub(crate) node_datas: &'a [NodeExecutionData],
+    pub(crate) block_observers: &'a mut BlockObservers,
 }
 
 #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
@@ -437,8 +440,11 @@ impl<'a> NodeRunner<'a> {
         maximum_duration: Duration,
     ) {
         let node_data = self.node_data;
+        let node_datas = self.node_datas;
+        let block_observers = &mut *self.block_observers;
         self.test_loop.run_until(
             |test_loop_data| {
+                block_observers.call_on_new_blocks(test_loop_data, node_datas);
                 let node = TestLoopNode { data: test_loop_data, node_data };
                 condition(&node)
             },
@@ -627,7 +633,7 @@ impl<'a> NodeRunner<'a> {
             let res = future.await;
             *result_clone.lock() = Some(res);
         });
-        self.test_loop.run_until(|_data| result.lock().is_some(), maximum_duration);
+        self.run_until(|_node| result.lock().is_some(), maximum_duration);
         result.lock().take().unwrap()
     }
 
