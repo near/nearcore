@@ -7,9 +7,10 @@ burnt_gas_reward: {
   numerator: 3,
   denominator: 10,
 }
+# No pessimistic gas price inflation since NEP-536 (https://github.com/near/NEPs/pull/536).
 pessimistic_gas_price_inflation: {
-  numerator: 103,
-  denominator: 100,
+  numerator: 1,
+  denominator: 1,
 }
 gas_refund_penalty: {
   numerator: 0,
@@ -335,7 +336,7 @@ vm_kind: NearVm
 eth_implicit_accounts: true
 universal_accounts: false
 discard_custom_sections: true
-global_contract_host_fns: false
+global_contract_host_fns: true
 reftypes_bulk_memory: false
 gas_key_host_fns: false
 fix_ml_dsa_cost_charging: false

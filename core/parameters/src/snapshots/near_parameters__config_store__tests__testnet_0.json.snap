@@ -101,8 +101,8 @@ snapshot_kind: text
       10
     ],
     "pessimistic_gas_price_inflation_ratio": [
-      103,
-      100
+      1,
+      1
     ],
     "ml_dsa_65_verification_cost": 0
   },
@@ -215,7 +215,7 @@ snapshot_kind: text
     "linear_op_unit_cost": 300000000000000,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
-    "global_contract_host_fns": false,
+    "global_contract_host_fns": true,
     "reftypes_bulk_memory": false,
     "gas_key_host_fns": false,
     "one_yocto_on_promise": false,
