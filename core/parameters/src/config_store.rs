@@ -24,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
     (61, include_config!("61.yaml")),

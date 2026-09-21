@@ -314,6 +314,7 @@ max_universal_state_init_keys: 1_024
 max_state_init_entries: 4_294_967_295
 max_functions_number_per_contract: 10_000
 max_locals_per_contract: 1_000_000
+account_id_validity_rules_version: 1
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 

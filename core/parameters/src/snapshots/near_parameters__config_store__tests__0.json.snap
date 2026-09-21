@@ -259,7 +259,7 @@ snapshot_kind: text
       "max_state_init_entries": 4294967295,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
-      "account_id_validity_rules_version": 0,
+      "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4294967295
