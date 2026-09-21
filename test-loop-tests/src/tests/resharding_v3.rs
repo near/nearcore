@@ -5,23 +5,24 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::node::TestLoopNode;
 use crate::utils::receipts::{
-    ReceiptKind, check_receipts_presence_after_resharding_block,
+    ReceiptKind, assert_receipts_present, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
 use crate::utils::resharding::call_promise_yield_with_id;
 use crate::utils::resharding::{
-    AccountDeletedAfterSplit, BlockAction, BlockNodes, NodeRoles, TrackedShardSchedule,
-    assert_after_resharding, assert_only_shard_state_left, assert_parent_flat_storage_ready,
-    call_burn_gas_contract, call_promise_yield, delayed_receipts_repro_missing_trie_value,
-    delete_state_of_other_shards, execute_money_transfers, execute_storage_operations,
-    gas_key_signer_for_account, install_block_action, promise_yield_repro_missing_trie_value,
-    send_large_cross_shard_receipts, shard_uid_at_head,
+    AccountDeletedAfterSplit, BlockAction, BlockNodes, BurnGasTraffic, NodeRoles,
+    TrackedShardSchedule, assert_after_resharding, assert_only_shard_state_left,
+    assert_parent_flat_storage_ready, call_promise_yield,
+    delayed_receipts_repro_missing_trie_value, delete_state_of_other_shards,
+    execute_money_transfers, execute_storage_operations, gas_key_signer_for_account,
+    install_block_action, promise_yield_repro_missing_trie_value, send_large_cross_shard_receipts,
+    shard_uid_at_head,
 };
 use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, next_block_has_new_shard_layout,
-    print_and_assert_shard_accounts,
+    print_and_assert_shard_accounts, this_block_has_new_shard_layout,
 };
 use crate::utils::transactions::{check_txs, get_smallest_height_head};
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
@@ -49,6 +50,7 @@ use near_primitives::types::{
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::views::FinalExecutionStatus;
 use near_store::ShardUId;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -172,10 +174,6 @@ struct TestReshardingParameters {
     /// in the latest stable protocol version.
     deploy_latest_protocol_test_contract: bool,
     /// Optionally deploy and use test global contracts
-    #[builder(setter(custom))]
-    deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
-    #[builder(setter(custom))]
-    use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
     /// Gas keys to plant directly in genesis. Each tuple is
     /// `(account, gas-key public key, initial nonce per slot)`.
     #[builder(setter(custom))]
@@ -320,8 +318,6 @@ impl TestReshardingParametersBuilder {
             deploy_latest_protocol_test_contract: self
                 .deploy_latest_protocol_test_contract
                 .unwrap_or(false),
-            deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
-            use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
             gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
@@ -352,24 +348,6 @@ impl TestReshardingParametersBuilder {
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
         self.deploy_test_contract.get_or_insert_default().push(account_id);
-        self
-    }
-
-    fn deploy_test_global_contract(
-        mut self,
-        account_id: AccountId,
-        deploy_mode: GlobalContractDeployMode,
-    ) -> Self {
-        self.deploy_test_global_contract.get_or_insert_default().push((account_id, deploy_mode));
-        self
-    }
-
-    fn use_test_global_contract(
-        mut self,
-        account_id: AccountId,
-        identifier: GlobalContractIdentifier,
-    ) -> Self {
-        self.use_test_global_contract.get_or_insert_default().push((account_id, identifier));
         self
     }
 
@@ -603,35 +581,6 @@ fn build_epoch_config_store(
         ));
 
         (store, expected_num_shards, voting_schedule)
-    }
-}
-
-fn setup_global_contracts(
-    env: &mut TestLoopEnv,
-    client_account_id: &AccountId,
-    deploy_test_global_contract: &[(AccountId, GlobalContractDeployMode)],
-    use_test_global_contract: &[(AccountId, GlobalContractIdentifier)],
-    test_setup_transactions: &mut Vec<CryptoHash>,
-) {
-    // Deploy global contracts
-    let node = env.node_for_account(client_account_id);
-    for (deployer_id, deploy_mode) in deploy_test_global_contract {
-        let code = near_test_contracts::backwards_compatible_rs_contract().into();
-        let tx = node.tx_deploy_global_contract(deployer_id, code, deploy_mode.clone());
-        test_setup_transactions.push(node.submit_tx(tx));
-    }
-
-    // Make sure the global contract is deployed before the usage transactions.
-    env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.node_datas, client_account_id, &test_setup_transactions);
-
-    *test_setup_transactions = vec![];
-
-    // Use global contracts
-    let node = env.node_for_account(client_account_id);
-    for (user_id, identifier) in use_test_global_contract {
-        let tx = node.tx_use_global_contract(user_id, identifier.clone());
-        test_setup_transactions.push(node.submit_tx(tx));
     }
 }
 
@@ -1236,6 +1185,79 @@ impl ReshardingTest {
         self.node(node_index).head().height
     }
 
+    /// Runs until the request node's head is the first block of the new shard layout.
+    fn run_until_first_block_after_resharding(&mut self) {
+        let timeout = self.timeout();
+        let request_node_index = self.request_node_index;
+        self.env.node_runner(request_node_index).run_until(
+            |node| {
+                this_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &node.head())
+            },
+            timeout,
+        );
+    }
+
+    /// Runs until every transaction succeeded, checking once per new block of the request node.
+    /// Panics if a transaction failed or its outcome is missing.
+    fn run_until_txs_succeeded(&mut self, txs: &[CryptoHash]) {
+        let timeout = self.timeout();
+        let mut unfinished_txs: Vec<CryptoHash> = txs.to_vec();
+        let request_node_index = self.request_node_index;
+        self.env.node_runner(request_node_index).run_until(
+            |node| {
+                unfinished_txs.retain(|tx_hash| {
+                    let outcome = node.client().chain.get_partial_transaction_result(tx_hash);
+                    let status = match outcome {
+                        Err(err) => panic!("transaction {tx_hash} not found: {err}"),
+                        Ok(outcome) => outcome.status,
+                    };
+                    match status {
+                        FinalExecutionStatus::SuccessValue(_) => false,
+                        FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => true,
+                        FinalExecutionStatus::Failure(error) => {
+                            panic!("transaction {tx_hash} failed with error: {error:?}")
+                        }
+                    }
+                });
+                unfinished_txs.is_empty()
+            },
+            timeout,
+        );
+    }
+
+    /// Submits a transaction that deploys the test contract on `contract_id`, and returns its hash.
+    fn submit_deploy_test_contract(&self, contract_id: &AccountId) -> CryptoHash {
+        let node = self.request_node();
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_contract(contract_id, code);
+        node.submit_tx(tx)
+    }
+
+    fn submit_deploy_global_contract(
+        &self,
+        deployer_id: &AccountId,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> CryptoHash {
+        let node = self.request_node();
+        let code = near_test_contracts::backwards_compatible_rs_contract().into();
+        let tx = node.tx_deploy_global_contract(deployer_id, code, deploy_mode);
+        node.submit_tx(tx)
+    }
+
+    fn submit_use_global_contract(
+        &self,
+        user_id: &AccountId,
+        identifier: GlobalContractIdentifier,
+    ) -> CryptoHash {
+        let node = self.request_node();
+        let tx = node.tx_use_global_contract(user_id, identifier);
+        node.submit_tx(tx)
+    }
+
+    fn request_node_index(&self) -> usize {
+        self.request_node_index
+    }
+
     /// Runs for the time the setup transactions need, then checks that they succeeded.
     fn wait_for_setup_transactions(&mut self, txs: &[CryptoHash]) {
         self.wait_for_setup_transactions_for(Duration::milliseconds(2300), txs);
@@ -1277,15 +1299,6 @@ impl ReshardingTest {
         deleted_account: Option<&AccountDeletedAfterSplit>,
     ) {
         let mut test_setup_transactions = vec![];
-        if !params.deploy_test_global_contract.is_empty() {
-            setup_global_contracts(
-                &mut self.env,
-                &self.request_node_account_id,
-                &params.deploy_test_global_contract,
-                &params.use_test_global_contract,
-                &mut test_setup_transactions,
-            );
-        }
         for contract_id in &params.deploy_test_contract {
             let node = self.env.node_for_account(&self.request_node_account_id);
             let code = if params.deploy_latest_protocol_test_contract {
@@ -2387,21 +2400,41 @@ fn slow_test_resharding_v3_gas_key() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_delayed_receipts_left_child() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let account: AccountId = "account4".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(account.clone())
-        .add_loop_action(call_burn_gas_contract(
-            vec![account.clone()],
-            vec![account.clone()],
-            Gas::from_teragas(275),
-            DEFAULT_EPOCH_LENGTH,
-        ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            vec![account],
-            ReceiptKind::Delayed,
-        ))
-        .build();
-    test_resharding_v3_base(params);
+    let burn_gas_traffic =
+        BurnGasTraffic::new(vec![account.clone()], vec![account.clone()], Gas::from_teragas(275));
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&account),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    assert_receipts_present(&test.request_node(), &[&account], ReceiptKind::Delayed);
+
+    // Wait long enough for the transactions from the past epoch to be settled.
+    let tx_check_height = resharding_height + DEFAULT_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2432,31 +2465,53 @@ fn test_resharding_v3_global_contract_base(
     identifier: GlobalContractIdentifier,
     deploy_mode: GlobalContractDeployMode,
 ) {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let global_contract_deployer: AccountId = "account4".parse().unwrap();
-    let caller_accounts = vec![
-        "account0".parse().unwrap(),
-        "account1".parse().unwrap(),
-        "account3".parse().unwrap(),
-        "account5".parse().unwrap(),
-        "account7".parse().unwrap(),
-    ];
+    let caller_accounts: Vec<AccountId> =
+        ["account0", "account1", "account3", "account5", "account7"]
+            .iter()
+            .map(|account| account.parse().unwrap())
+            .collect();
     let global_contract_user: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_global_contract(global_contract_deployer, deploy_mode)
-        .use_test_global_contract(global_contract_user.clone(), identifier)
-        .add_loop_action(call_burn_gas_contract(
-            caller_accounts,
-            vec![global_contract_user.clone()],
-            Gas::from_teragas(275),
-            INCREASED_EPOCH_LENGTH,
-        ))
+    let burn_gas_traffic = BurnGasTraffic::new(
+        caller_accounts,
+        vec![global_contract_user.clone()],
+        Gas::from_teragas(275),
+    );
+
+    let mut test = TestReshardingParametersBuilder::default()
         .epoch_length(INCREASED_EPOCH_LENGTH)
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            vec![global_contract_user],
-            ReceiptKind::Delayed,
-        ))
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    // The global contract has to be deployed before the account that uses it sends its first call.
+    let deploy_tx = test.submit_deploy_global_contract(&global_contract_deployer, deploy_mode);
+    test.wait_for_setup_transactions_for(Duration::seconds(5), &[deploy_tx]);
+    let setup_txs = [
+        test.submit_use_global_contract(&global_contract_user, identifier),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    assert_receipts_present(&test.request_node(), &[&global_contract_user], ReceiptKind::Delayed);
+
+    let tx_check_height = resharding_height + INCREASED_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2464,22 +2519,42 @@ fn test_resharding_v3_global_contract_base(
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_delayed_receipts_right_child() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let account: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(account.clone())
-        .add_loop_action(call_burn_gas_contract(
-            vec![account.clone()],
-            vec![account.clone()],
-            Gas::from_teragas(275),
-            INCREASED_EPOCH_LENGTH,
-        ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            vec![account],
-            ReceiptKind::Delayed,
-        ))
+    let burn_gas_traffic =
+        BurnGasTraffic::new(vec![account.clone()], vec![account.clone()], Gas::from_teragas(275));
+
+    let mut test = TestReshardingParametersBuilder::default()
         .epoch_length(INCREASED_EPOCH_LENGTH)
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&account),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    assert_receipts_present(&test.request_node(), &[&account], ReceiptKind::Delayed);
+
+    // Wait long enough for the transactions from the past epoch to be settled.
+    let tx_check_height = resharding_height + INCREASED_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2487,30 +2562,50 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_split_parent_buffered_receipts() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(receiver_account.clone())
+    let burn_gas_traffic = BurnGasTraffic::new(
+        vec![account_in_left_child.clone(), account_in_right_child],
+        vec![receiver_account.clone()],
+        Gas::from_teragas(10),
+    );
+
+    let mut test = TestReshardingParametersBuilder::default()
         .limit_outgoing_gas(true)
-        .add_loop_action(call_burn_gas_contract(
-            vec![account_in_left_child.clone(), account_in_right_child],
-            vec![receiver_account],
-            Gas::from_teragas(10),
-            INCREASED_EPOCH_LENGTH,
-        ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            vec![account_in_parent],
-            ReceiptKind::Buffered,
-        ))
-        .add_loop_action(check_receipts_presence_after_resharding_block(
-            vec![account_in_left_child],
-            ReceiptKind::Buffered,
-        ))
         .epoch_length(INCREASED_EPOCH_LENGTH)
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&receiver_account),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    assert_receipts_present(&test.request_node(), &[&account_in_parent], ReceiptKind::Buffered);
+    test.run_until_first_block_after_resharding();
+    assert_receipts_present(&test.request_node(), &[&account_in_left_child], ReceiptKind::Buffered);
+
+    let tx_check_height = resharding_height + INCREASED_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2518,30 +2613,57 @@ fn slow_test_resharding_v3_split_parent_buffered_receipts() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
+    let burn_gas_traffic = BurnGasTraffic::new(
+        vec![account_in_stable_shard.clone()],
+        vec![account_in_left_child.clone(), account_in_right_child.clone()],
+        Gas::from_teragas(10),
+    );
 
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(account_in_left_child.clone())
-        .deploy_test_contract(account_in_right_child.clone())
+    let mut test = TestReshardingParametersBuilder::default()
         .limit_outgoing_gas(true)
-        .add_loop_action(call_burn_gas_contract(
-            vec![account_in_stable_shard.clone()],
-            vec![account_in_left_child, account_in_right_child],
-            Gas::from_teragas(10),
-            DEFAULT_EPOCH_LENGTH,
-        ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            vec![account_in_stable_shard.clone()],
-            ReceiptKind::Buffered,
-        ))
-        .add_loop_action(check_receipts_presence_after_resharding_block(
-            vec![account_in_stable_shard],
-            ReceiptKind::Buffered,
-        ))
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&account_in_left_child),
+        test.submit_deploy_test_contract(&account_in_right_child),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    assert_receipts_present(
+        &test.request_node(),
+        &[&account_in_stable_shard],
+        ReceiptKind::Buffered,
+    );
+    test.run_until_first_block_after_resharding();
+    assert_receipts_present(
+        &test.request_node(),
+        &[&account_in_stable_shard],
+        ReceiptKind::Buffered,
+    );
+
+    let tx_check_height = resharding_height + DEFAULT_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 /// This test sends large (3MB) receipts from a stable shard to shard that will be split into two.
@@ -2588,19 +2710,43 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let receiver_account: AccountId = "account4".parse().unwrap();
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(receiver_account.clone())
-        .add_loop_action(call_burn_gas_contract(
-            vec![account_1_in_stable_shard, account_2_in_stable_shard],
-            vec![receiver_account],
-            Gas::from_teragas(5),
-            DEFAULT_EPOCH_LENGTH,
-        ))
-        .build();
-    test_resharding_v3_base(params);
+    let burn_gas_traffic = BurnGasTraffic::new(
+        vec![account_1_in_stable_shard, account_2_in_stable_shard],
+        vec![receiver_account.clone()],
+        Gas::from_teragas(5),
+    );
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&receiver_account),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    let tx_check_height = resharding_height + DEFAULT_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2608,20 +2754,44 @@ fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParametersBuilder::default()
-        .deploy_test_contract(receiver_account.clone())
-        .add_loop_action(call_burn_gas_contract(
-            vec![account_in_left_child, account_in_right_child],
-            vec![receiver_account],
-            Gas::from_teragas(5),
-            INCREASED_EPOCH_LENGTH,
-        ))
+    let burn_gas_traffic = BurnGasTraffic::new(
+        vec![account_in_left_child, account_in_right_child],
+        vec![receiver_account.clone()],
+        Gas::from_teragas(5),
+    );
+
+    let mut test = TestReshardingParametersBuilder::default()
         .epoch_length(INCREASED_EPOCH_LENGTH)
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(burn_gas_traffic.block_action())
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs = [
+        test.submit_deploy_test_contract(&receiver_account),
+        deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id),
+    ];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    let resharding_height = test.run_until_resharding_block();
+    let tx_check_height = resharding_height + INCREASED_EPOCH_LENGTH;
+    test.run_until_node_height(test.request_node_index(), tx_check_height);
+    test.run_until_txs_succeeded(&burn_gas_traffic.submitted_txs());
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]

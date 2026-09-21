@@ -31,7 +31,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, Gas, NumShards, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, Gas, Nonce, NumShards, ShardId,
 };
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
@@ -249,94 +249,96 @@ fn check_txs_with_retry(
     }
 }
 
-/// Returns a loop action that invokes a costly method from a contract
-/// `CALLS_PER_BLOCK_HEIGHT` times per block height.
+/// Calls the test contract `CALLS_PER_BLOCK` times per new block of the request node, up to and
+/// including the first block of the new shard layout, to pile up receipts at the split.
 ///
-/// The account invoking the contract is taken in sequential order from `signed_ids`.
-///
-/// The account receiving the contract call is taken in sequential order from `receiver_ids`.
-pub(crate) fn call_burn_gas_contract(
-    signer_ids: Vec<AccountId>,
-    receiver_ids: Vec<AccountId>,
+/// The signer of each call is taken in sequential order from `signers`, and the receiver from
+/// `receivers`. Note that if the number of signers and receivers is the same then the traffic will
+/// always flow the same way. It would be nice to randomize it a bit.
+#[derive(Clone)]
+pub(crate) struct BurnGasTraffic {
+    signers: Vec<AccountId>,
+    receivers: Vec<AccountId>,
     gas_burnt_per_call: Gas,
-    epoch_length: u64,
-) -> LoopAction {
-    const CALLS_PER_BLOCK_HEIGHT: usize = 5;
-    // Set to a value large enough, so that transactions from the past epoch are settled.
-    // Must be less than epoch length, otherwise won't be triggered before the test is finished.
-    let tx_check_blocks_after_resharding = epoch_length - 1;
+    state: Rc<RefCell<BurnGasTrafficState>>,
+}
 
-    let resharding_height = Cell::new(None);
-    let nonce = Cell::new(102);
-    let txs = Cell::new(vec![]);
-    let latest_height = Cell::new(0);
-    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
+struct BurnGasTrafficState {
+    nonce: Nonce,
+    resharding_height: Option<BlockHeight>,
+    submitted_txs: Vec<CryptoHash>,
+}
 
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
+impl BurnGasTraffic {
+    pub(crate) fn new(
+        signers: Vec<AccountId>,
+        receivers: Vec<AccountId>,
+        gas_burnt_per_call: Gas,
+    ) -> Self {
+        Self {
+            signers,
+            receivers,
+            gas_burnt_per_call,
+            state: Rc::new(RefCell::new(BurnGasTrafficState {
+                nonce: 102,
+                resharding_height: None,
+                submitted_txs: Vec::new(),
+            })),
+        }
+    }
 
-            // Run this action only once at every block height.
-            if latest_height.get() == tip.height {
-                return;
+    /// The action to register on the request node's blocks.
+    pub(crate) fn block_action(&self) -> Self {
+        self.clone()
+    }
+
+    pub(crate) fn submitted_txs(&self) -> Vec<CryptoHash> {
+        self.state.borrow().submitted_txs.clone()
+    }
+}
+
+impl BlockAction for BurnGasTraffic {
+    fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
+        const CALLS_PER_BLOCK: usize = 5;
+        let node = nodes.request;
+        let tip = nodes.tip();
+        let mut state = self.state.borrow_mut();
+
+        if state.resharding_height.is_none()
+            && next_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &tip)
+        {
+            tracing::debug!(target: "test", height = tip.height, "resharding height set");
+            state.resharding_height = Some(tip.height);
+        }
+        // One more block of traffic after the split, then the receipts are piled up.
+        if let Some(resharding_height) = state.resharding_height {
+            if tip.height > resharding_height + 1 {
+                return ControlFlow::Break(());
             }
-            latest_height.set(tip.height);
+        }
 
-            // After resharding: wait some blocks and check that all txs have been executed correctly.
-            if let Some(height) = resharding_height.get() {
-                if tip.height > height + tx_check_blocks_after_resharding {
-                    check_txs_with_retry(&client_actor.client, &txs, &checked_transactions);
-                }
-            } else {
-                if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip)
-                {
-                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
-                    resharding_height.set(Some(tip.height));
-                }
-            }
-            // Before resharding and one block after: call the test contract a few times per block.
-            // The objective is to pile up receipts (e.g. delayed).
-            if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
-                for i in 0..CALLS_PER_BLOCK_HEIGHT {
-                    // Note that if the number of signers and receivers is the
-                    // same then the traffic will always flow the same way. It
-                    // would be nice to randomize it a bit.
-                    let signer_id = &signer_ids[i % signer_ids.len()];
-                    let receiver_id = &receiver_ids[i % receiver_ids.len()];
-                    let signer: Signer = create_user_test_signer(signer_id).into();
-                    nonce.set(nonce.get() + 1);
-                    let method_name = "burn_gas_raw".to_owned();
-                    let burn_gas: u64 = gas_burnt_per_call.as_gas();
-                    let args = burn_gas.to_le_bytes().to_vec();
-                    let tx = SignedTransaction::call(
-                        nonce.get(),
-                        signer_id.clone(),
-                        receiver_id.clone(),
-                        &signer,
-                        Balance::from_yoctonear(1),
-                        method_name,
-                        args,
-                        gas_burnt_per_call.checked_add(Gas::from_teragas(10)).unwrap(),
-                        tip.last_block_hash,
-                    );
-                    store_and_submit_tx(
-                        &node_datas,
-                        &client_account_id,
-                        &txs,
-                        &signer_id,
-                        &receiver_id,
-                        tip.height,
-                        tx,
-                    );
-                }
-            }
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
+        for call_index in 0..CALLS_PER_BLOCK {
+            let signer_id = &self.signers[call_index % self.signers.len()];
+            let receiver_id = &self.receivers[call_index % self.receivers.len()];
+            let signer: Signer = create_user_test_signer(signer_id).into();
+            state.nonce += 1;
+            let tx = SignedTransaction::call(
+                state.nonce,
+                signer_id.clone(),
+                receiver_id.clone(),
+                &signer,
+                Balance::from_yoctonear(1),
+                "burn_gas_raw".to_owned(),
+                self.gas_burnt_per_call.as_gas().to_le_bytes().to_vec(),
+                self.gas_burnt_per_call.checked_add(Gas::from_teragas(10)).unwrap(),
+                tip.last_block_hash,
+            );
+            let tx_hash = node.submit_tx(tx);
+            resharding_check_trace::submitted_tx(tip.height, signer_id, receiver_id, &tx_hash);
+            state.submitted_txs.push(tx_hash);
+        }
+        ControlFlow::Continue(())
+    }
 }
 
 /// Send 3MB receipts from `signer_ids` shards to `receiver_ids` shards.

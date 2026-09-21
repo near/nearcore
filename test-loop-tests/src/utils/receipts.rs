@@ -2,13 +2,13 @@ use super::loop_action::LoopAction;
 use super::retrieve_client_actor;
 use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
 use crate::setup::state::NodeExecutionData;
+use crate::utils::node::TestLoopNode;
 use crate::utils::resharding_check_trace;
 use crate::utils::sharding::get_memtrie_for_shard;
 use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
-use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -23,6 +23,19 @@ pub enum ReceiptKind {
     Delayed,
     Buffered,
     PromiseYield,
+}
+
+/// Asserts that the shards of `accounts` have a non empty set of receipts of type `kind` at the
+/// node's head.
+pub fn assert_receipts_present(
+    node: &TestLoopNode<'_>,
+    accounts: &[&AccountId],
+    kind: ReceiptKind,
+) {
+    let tip = node.head();
+    for account in accounts {
+        check_receipts_at_block(node.client(), account, &kind, &tip);
+    }
 }
 
 /// Checks that the shards containing `accounts` have a non empty set of receipts
@@ -44,9 +57,9 @@ pub fn check_receipts_presence_at_resharding_block(
                 return;
             }
 
-            accounts
-                .iter()
-                .for_each(|account| check_receipts_at_block(client_actor, &account, &kind, &tip));
+            accounts.iter().for_each(|account| {
+                check_receipts_at_block(&client_actor.client, &account, &kind, &tip)
+            });
             checked_receipts.set(true);
         },
     );
@@ -72,9 +85,9 @@ pub fn check_receipts_presence_after_resharding_block(
                 return;
             }
 
-            accounts
-                .iter()
-                .for_each(|account| check_receipts_at_block(client_actor, &account, &kind, &tip));
+            accounts.iter().for_each(|account| {
+                check_receipts_at_block(&client_actor.client, &account, &kind, &tip)
+            });
             checked_receipts.set(true);
         },
     );
@@ -83,17 +96,16 @@ pub fn check_receipts_presence_after_resharding_block(
 
 /// Asserts the presence of any receipt of type `kind` at the provided chain `tip`.
 pub fn check_receipts_at_block(
-    client_actor: &ClientActor,
+    client: &Client,
     account: &AccountId,
     kind: &ReceiptKind,
     tip: &Tip,
 ) {
-    let epoch_manager = &client_actor.client.epoch_manager;
+    let epoch_manager = &client.epoch_manager;
     let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
     let shard_id = account_id_to_shard_id(epoch_manager.as_ref(), &account, &tip.epoch_id).unwrap();
     let shard_uid = &ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    let congestion_info = &client_actor
-        .client
+    let congestion_info = &client
         .chain
         .chain_store()
         .get_chunk_extra(&tip.last_block_hash, shard_uid)
@@ -104,12 +116,8 @@ pub fn check_receipts_at_block(
     let has_delayed = congestion_info.delayed_receipts_gas() != 0;
     let has_buffered = congestion_info.buffered_receipts_gas() != 0;
     tracing::info!(target: "test", height=tip.height, num_shards, %shard_id, has_delayed, has_buffered, "checking receipts");
-    let node_account_id = client_actor
-        .client
-        .validator_signer
-        .get()
-        .map(|signer| signer.validator_id().clone())
-        .unwrap();
+    let node_account_id =
+        client.validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap();
     let kind_name = match kind {
         ReceiptKind::Delayed => "delayed",
         ReceiptKind::Buffered => "buffered",
@@ -129,25 +137,15 @@ pub fn check_receipts_at_block(
     match kind {
         ReceiptKind::Delayed => {
             assert!(has_delayed);
-            check_delayed_receipts_exist_in_memtrie(
-                &client_actor.client,
-                &shard_uid,
-                &tip.prev_block_hash,
-            );
+            check_delayed_receipts_exist_in_memtrie(client, &shard_uid, &tip.prev_block_hash);
         }
         ReceiptKind::Buffered => {
             assert!(has_buffered);
-            check_buffered_receipts_exist_in_memtrie(
-                &client_actor.client,
-                &shard_uid,
-                &tip.prev_block_hash,
-            );
+            check_buffered_receipts_exist_in_memtrie(client, &shard_uid, &tip.prev_block_hash);
         }
-        ReceiptKind::PromiseYield => check_promise_yield_receipts_exist_in_memtrie(
-            &client_actor.client,
-            &shard_uid,
-            &tip.prev_block_hash,
-        ),
+        ReceiptKind::PromiseYield => {
+            check_promise_yield_receipts_exist_in_memtrie(client, &shard_uid, &tip.prev_block_hash)
+        }
     }
 }
 
