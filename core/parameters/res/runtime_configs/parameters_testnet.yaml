@@ -349,7 +349,9 @@ bls12381_not_in_group_fix: false
 max_congestion_incoming_gas: 400_000_000_000_000_000 # 400 PGas
 max_congestion_outgoing_gas: 10_000_000_000_000_000 # 10 PGas
 max_congestion_memory_consumption: 1_000_000_000 # 1000 MB
-max_congestion_missed_chunks: 5
+# At 125 missed chunks a shard is fully congested. At 100 it is 80% congested and
+# transactions targeting it are rejected, see reject_tx_congestion_threshold.
+max_congestion_missed_chunks: 125
 
 max_outgoing_gas: 300_000_000_000_000_000 # 300 PGas
 min_outgoing_gas: 1_000_000_000_000_000 # 1 PGas
