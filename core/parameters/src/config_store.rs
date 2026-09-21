@@ -24,10 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
-    // set read_cached_trie_node cost, decrease storage key limit
-    (53, include_config!("53.yaml")),
-    (55, include_config!("55.yaml")),
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
@@ -314,7 +310,7 @@ mod tests {
         let base_config = RuntimeConfig::new(&base_params).unwrap();
 
         let mock_diff_str = r#"
-        max_length_storage_key: { old: 4_194_304, new: 42 }
+        max_length_storage_key: { old: 2_048, new: 42 }
         action_receipt_creation: {
           old: {
             send_sir: 108_059_500_000,
