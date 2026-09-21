@@ -6,7 +6,7 @@ use crate::vm;
 #[cfg(feature = "calimero_zero_storage")]
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    // Congestion Control.
-    (68, include_config!("68.yaml")),
     // Stateless Validation.
     (69, include_config!("69.yaml")),
     // Introduce ETH-implicit accounts.
@@ -174,15 +172,9 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
                 let mut config_store = Self::new(None);
 
-                // TODO(limited_replayability): Move tests to use config from latest protocol version.
-                // Get the original congestion control config. The nayduck tests are tuned to this config.
-                #[allow(deprecated)]
-                let source_protocol_version =
-                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
-                let source_runtime_config = config_store.get_config(source_protocol_version);
-
+                // The nayduck tests are tuned to the original congestion control config.
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
-                config.congestion_control_config = source_runtime_config.congestion_control_config;
+                config.congestion_control_config = CongestionControlConfig::test_original();
 
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
@@ -247,6 +239,7 @@ mod tests {
     use super::*;
     use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
+    use near_primitives_core::version::ProtocolFeature;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;

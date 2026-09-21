@@ -344,23 +344,23 @@ bls12381_not_in_group_fix: false
 
 # Congestion Control configuration
 
-# The configs are u64 but yaml only supports i64.
-# i64::MAX == 9_223_372_036_854_775_807i64
+# The default values were defined in NEP-539
+# (https://github.com/near/NEPs/pull/539) after extensive fine-tuning.
 
-max_congestion_incoming_gas: 9_223_372_036_854_775_807
-max_congestion_outgoing_gas: 9_223_372_036_854_775_807
-max_congestion_memory_consumption: 9_223_372_036_854_775_807
-max_congestion_missed_chunks: 9_223_372_036_854_775_807
+max_congestion_incoming_gas: 20_000_000_000_000_000 # 20 PGas
+max_congestion_outgoing_gas: 10_000_000_000_000_000 # 10 PGas
+max_congestion_memory_consumption: 1_000_000_000 # 1000 MB
+max_congestion_missed_chunks: 5
 
-max_outgoing_gas: 9_223_372_036_854_775_807
-min_outgoing_gas: 9_223_372_036_854_775_807
-allowed_shard_outgoing_gas: 9_223_372_036_854_775_807
-max_tx_gas: 9_223_372_036_854_775_807
-min_tx_gas: 9_223_372_036_854_775_807
+max_outgoing_gas: 300_000_000_000_000_000 # 300 PGas
+min_outgoing_gas: 1_000_000_000_000_000 # 1 PGas
+allowed_shard_outgoing_gas: 1_000_000_000_000_000 # 1 PGas
+max_tx_gas: 500_000_000_000_000 # 500 TGas
+min_tx_gas: 20_000_000_000_000 # 20 TGas
 
 reject_tx_congestion_threshold: {
-  numerator: 1,
-  denominator: 1,
+  numerator: 50,
+  denominator: 100,
 }
 
 use_state_stored_receipt: false
