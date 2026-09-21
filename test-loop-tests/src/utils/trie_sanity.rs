@@ -1,4 +1,5 @@
 use super::sharding::shard_was_split;
+use crate::utils::resharding_check_trace;
 use crate::utils::sharding::{
     get_memtrie_for_shard, get_tracked_shards, get_tracked_shards_from_prev_block,
 };
@@ -130,7 +131,11 @@ impl TrieSanityCheck {
             };
             let head = client.chain.head().unwrap();
             if head.epoch_id == EpochId::default() {
-                tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, skipped = "genesis epoch");
+                resharding_check_trace::trie_sanity_skipped(
+                    account_id,
+                    head.height,
+                    "genesis epoch",
+                );
                 continue;
             }
             let final_head = client.chain.final_head().unwrap();
@@ -139,7 +144,11 @@ impl TrieSanityCheck {
             // final blocks. So these two together mean that we should only check this when the head
             // and final head are in the same epoch.
             if head.epoch_id != final_head.epoch_id {
-                tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, skipped = "head and final head in different epochs");
+                resharding_check_trace::trie_sanity_skipped(
+                    account_id,
+                    head.height,
+                    "head and final head in different epochs",
+                );
                 continue;
             }
             let checked_shards = assert_state_sanity(
@@ -148,7 +157,13 @@ impl TrieSanityCheck {
                 self.load_memtries_for_tracked_shards,
                 new_num_shards,
             );
-            tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, final_height = final_head.height, hash = ?final_head.prev_block_hash, ?checked_shards);
+            resharding_check_trace::trie_sanity(
+                account_id,
+                head.height,
+                final_head.height,
+                &final_head.prev_block_hash,
+                &checked_shards,
+            );
             let check = self.get_epoch_check(client, &head, new_num_shards);
             let check = check.get_mut(account_id).unwrap();
             for shard_uid in checked_shards {
@@ -217,6 +232,12 @@ fn assert_state_sanity(
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
+        let account_id = client.validator_signer.get().map(|signer| signer.validator_id().clone());
+        let trace_shard_skipped = |reason: &str| {
+            if let Some(account_id) = &account_id {
+                resharding_check_trace::trie_sanity_shard_skipped(account_id, shard_uid, reason);
+            }
+        };
         if !should_assert_state_sanity(
             load_memtries_for_tracked_shards,
             is_resharded,
@@ -224,6 +245,7 @@ fn assert_state_sanity(
             &shard_layout,
             &shard_uid,
         ) {
+            trace_shard_skipped("not required for this shard");
             continue;
         }
 
@@ -231,6 +253,7 @@ fn assert_state_sanity(
             .shard_tracker
             .cares_about_shard(&final_head.prev_block_hash, shard_uid.shard_id())
         {
+            trace_shard_skipped("shard not tracked");
             continue;
         }
 
@@ -265,16 +288,19 @@ fn assert_state_sanity(
         {
             if status.flat_head.hash != final_head.prev_block_hash {
                 tracing::warn!(target: "test", "skipping flat storage - memtrie state check");
+                trace_shard_skipped("flat head behind the final head");
                 continue;
             } else {
                 tracing::debug!(target: "test", "checking flat storage - memtrie state");
             }
         } else {
+            trace_shard_skipped("flat storage not ready");
             continue;
         };
         let Some(flat_store_chunk_view) =
             flat_storage_manager.chunk_view(shard_uid, final_head.last_block_hash)
         else {
+            trace_shard_skipped("no flat storage chunk view");
             continue;
         };
         let flat_store_state = flat_store_chunk_view

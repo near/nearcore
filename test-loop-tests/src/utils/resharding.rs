@@ -2,6 +2,7 @@ use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_
 use crate::setup::state::NodeExecutionData;
 use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
+use crate::utils::resharding_check_trace;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
 use crate::utils::{get_node_data, retrieve_client_actor};
@@ -43,6 +44,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
+use std::env::var;
 use std::num::NonZero;
 use std::sync::Arc;
 
@@ -102,7 +104,11 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
 
     let latest_height = Cell::new(0);
-    let seed = rand::thread_rng().r#gen::<u64>();
+    // The seed can be fixed, so that two runs of a test submit the same transfers.
+    let seed = match var("NEAR_TEST_RESHARDING_MONEY_TRANSFERS_SEED") {
+        Ok(seed) => seed.parse().unwrap(),
+        Err(_) => rand::thread_rng().r#gen::<u64>(),
+    };
     println!("Random seed: {}", seed);
 
     let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
@@ -933,6 +939,11 @@ pub(crate) fn temporary_account_during_resharding(
                     block_hash,
                 );
                 delete_account_tx_hash.set(Some(node.submit_tx(tx)));
+                resharding_check_trace::deleted_account_step(
+                    "submitted delete",
+                    latest_height.get(),
+                    &temporary_account_id,
+                );
                 target_height
                     .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
                 resharding_height.set(Some(latest_height.get()));
@@ -947,6 +958,11 @@ pub(crate) fn temporary_account_during_resharding(
                     &[delete_account_tx_hash.get().unwrap()],
                 );
                 checked_deleted_account.set(true);
+                resharding_check_trace::deleted_account_step(
+                    "checked delete outcome",
+                    latest_height.get(),
+                    &temporary_account_id,
+                );
             }
 
             if latest_height.get() < target_height.get().unwrap() {
@@ -963,6 +979,11 @@ pub(crate) fn temporary_account_during_resharding(
                 &rpc_id,
                 &temporary_account_id,
                 resharding_height.get().unwrap(),
+            );
+            resharding_check_trace::deleted_account_step(
+                "checked state garbage collected",
+                latest_height.get(),
+                &temporary_account_id,
             );
             done.set(true);
         },
@@ -1532,6 +1553,7 @@ fn store_and_submit_tx(
     height: BlockHeight,
     tx: SignedTransaction,
 ) {
+    resharding_check_trace::submitted_tx(height, signer_id, receiver_id, &tx.get_hash());
     let mut txs_vec = txs.take();
     tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
     txs_vec.push((tx.get_hash(), height));

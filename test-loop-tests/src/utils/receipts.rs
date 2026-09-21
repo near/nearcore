@@ -2,6 +2,7 @@ use super::loop_action::LoopAction;
 use super::retrieve_client_actor;
 use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
 use crate::setup::state::NodeExecutionData;
+use crate::utils::resharding_check_trace;
 use crate::utils::sharding::get_memtrie_for_shard;
 use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
@@ -103,6 +104,27 @@ pub fn check_receipts_at_block(
     let has_delayed = congestion_info.delayed_receipts_gas() != 0;
     let has_buffered = congestion_info.buffered_receipts_gas() != 0;
     tracing::info!(target: "test", height=tip.height, num_shards, %shard_id, has_delayed, has_buffered, "checking receipts");
+    let node_account_id = client_actor
+        .client
+        .validator_signer
+        .get()
+        .map(|signer| signer.validator_id().clone())
+        .unwrap();
+    let kind_name = match kind {
+        ReceiptKind::Delayed => "delayed",
+        ReceiptKind::Buffered => "buffered",
+        ReceiptKind::PromiseYield => "promise yield",
+    };
+    resharding_check_trace::receipt_presence(
+        &node_account_id,
+        tip.height,
+        &tip.last_block_hash,
+        account,
+        *shard_uid,
+        kind_name,
+        has_delayed,
+        has_buffered,
+    );
 
     match kind {
         ReceiptKind::Delayed => {
