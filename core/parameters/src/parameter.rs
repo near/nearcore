@@ -250,7 +250,6 @@ pub enum Parameter {
     MaxGlobalsPerContract,
 
     // Contract runtime features
-    FlatStorageReads,
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,

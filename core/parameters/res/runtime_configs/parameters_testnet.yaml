@@ -329,7 +329,6 @@ account_id_validity_rules_version: 2
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
-flat_storage_reads: true
 fix_contract_loading_cost: false
 fix_contract_loading_error: false
 vm_kind: NearVm
