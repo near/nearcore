@@ -1139,6 +1139,14 @@ fn build_resharding_test(params: &mut TestReshardingParameters) -> ReshardingTes
     }));
 
     let mut env = env;
+    #[cfg(feature = "test_features")]
+    if params.delay_flat_state_resharding > 0 {
+        for node_data in &env.node_datas {
+            let handle = node_data.resharding_sender.actor_handle();
+            let resharding_actor = env.test_loop.data.get_mut(&handle);
+            resharding_actor.adv_task_delay_by_blocks = params.delay_flat_state_resharding;
+        }
+    }
     for action in take(&mut params.request_node_actions) {
         install_block_action(&mut env, BlockSource::Node(client_index), roles, action);
     }
@@ -1284,17 +1292,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let client_handles =
         env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
-
-    #[cfg(feature = "test_features")]
-    {
-        if params.delay_flat_state_resharding > 0 {
-            for node_data in &env.node_datas {
-                let handle = node_data.resharding_sender.actor_handle();
-                let resharding_actor = env.test_loop.data.get_mut(&handle);
-                resharding_actor.adv_task_delay_by_blocks = params.delay_flat_state_resharding;
-            }
-        }
-    }
 
     let num_epochs_to_wait = params.num_epochs_to_wait;
     let latest_block_height = Cell::new(0u64);
@@ -1902,11 +1899,29 @@ fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling() {
-    let params = TestReshardingParametersBuilder::default()
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 /// This tests an edge case where we track the parent in the pre-resharding epoch, then we
@@ -2316,12 +2331,29 @@ fn slow_test_resharding_v3_slower_post_processing_tasks() {
     // even further because the resharding task might have to wait for the state snapshot to be made
     // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
     // So we extend the epoch length a bit in this case.
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .delay_flat_state_resharding(2)
-            .epoch_length(INCREASED_EPOCH_LENGTH)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .delay_flat_state_resharding(2)
+        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2329,13 +2361,31 @@ fn slow_test_resharding_v3_slower_post_processing_tasks() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
-    let params = TestReshardingParametersBuilder::default()
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
         .delay_flat_state_resharding(2)
         .epoch_length(INCREASED_EPOCH_LENGTH)
-        .build();
-    test_resharding_v3_base(params);
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
