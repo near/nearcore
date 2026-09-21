@@ -1690,13 +1690,30 @@ fn slow_test_resharding_v3_skip_when_no_children_tracked() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_track_all_shards() {
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .track_all_shards(true)
-            .all_chunks_expected(true)
-            .epoch_length(INCREASED_EPOCH_LENGTH)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .track_all_shards(true)
+        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(AllChunksIncludedCheck::new(initial_num_shards))
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2192,9 +2209,29 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_load_memtrie() {
-    let params =
-        TestReshardingParametersBuilder::default().load_memtries_for_tracked_shards(false).build();
-    test_resharding_v3_base(params);
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks =
+        TrieSanityChecks::new(expected_num_shards).without_memtries_for_tracked_shards();
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .load_memtries_for_tracked_shards(false)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
