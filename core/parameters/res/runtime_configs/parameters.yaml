@@ -297,8 +297,8 @@ wasm_yield_resume_base: 1_195_627_285_210
 wasm_yield_resume_byte: 47_683_715
 
 # Smart contract limits
-max_gas_burnt: 300_000_000_000_000
-max_gas_burnt_view: 300_000_000_000_000
+max_gas_burnt: 1_000_000_000_000_000
+max_gas_burnt_view: 1_000_000_000_000_000
 max_stack_height: 262_144
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
@@ -307,7 +307,7 @@ max_register_size: 104_857_600
 max_number_registers: 100
 max_number_logs: 100
 max_total_log_length: 16_384
-max_total_prepaid_gas: 300_000_000_000_000
+max_total_prepaid_gas: 1_000_000_000_000_000
 max_actions_per_receipt: 100
 max_deploy_actions_per_receipt: 100
 max_number_bytes_method_names: 2_000
@@ -328,7 +328,7 @@ max_functions_number_per_contract: 10_000
 max_locals_per_contract: 1_000_000
 max_tables_per_contract: 1
 max_elements_per_contract_table: 10_000
-account_id_validity_rules_version: 1
+account_id_validity_rules_version: 2
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
