@@ -373,10 +373,10 @@ use_state_stored_receipt: true
 
 # Bandwidth scheduler
 
-max_shard_bandwidth: 999_999_999_999_999
-max_single_grant: 999_999_999_999_999
-max_allowance: 999_999_999_999_999
-max_base_bandwidth: 999_999_999_999_999
+max_shard_bandwidth: 4_500_000
+max_single_grant: 4_194_304
+max_allowance: 4_500_000
+max_base_bandwidth: 100_000
 
 # Global contracts
 action_deploy_global_contract: {
