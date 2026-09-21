@@ -288,7 +288,7 @@ wasm_yield_create_base: 153_411_779_276
 wasm_yield_create_byte: 15_643_988
 wasm_yield_create_with_id_base: 300_000_000_000_000
 wasm_yield_resume_base: 1_195_627_285_210
-wasm_yield_resume_byte: 1_195_627_285_210
+wasm_yield_resume_byte: 47_683_715
 
 # Smart contract limits
 max_gas_burnt: 300_000_000_000_000
@@ -345,7 +345,7 @@ bls12381_not_in_group_fix: false
 
 # TODO What should be the config for testnet?
 
-max_congestion_incoming_gas: 20_000_000_000_000_000 # 20 PGas
+max_congestion_incoming_gas: 400_000_000_000_000_000 # 400 PGas
 max_congestion_outgoing_gas: 10_000_000_000_000_000 # 10 PGas
 max_congestion_memory_consumption: 1_000_000_000 # 1000 MB
 max_congestion_missed_chunks: 5
@@ -357,7 +357,7 @@ max_tx_gas: 500_000_000_000_000 # 500 TGas
 min_tx_gas: 20_000_000_000_000 # 20 TGas
 
 reject_tx_congestion_threshold: {
-  numerator: 50,
+  numerator: 80,
   denominator: 100,
 }
 

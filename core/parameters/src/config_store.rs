@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    // Fix wasm_yield_resume_byte and relax congestion control.
-    (73, include_config!("73.yaml")),
     (74, include_config!("74.yaml")),
     (77, include_config!("77.yaml")),
     (78, include_config!("78.yaml")),
