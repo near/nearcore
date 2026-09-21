@@ -59,50 +59,6 @@ pub(crate) struct TrackedShardSchedule {
     pub schedule: Vec<Vec<ShardId>>,
 }
 
-// Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
-#[cfg(feature = "test_features")]
-pub(crate) fn fork_before_resharding_block(
-    double_signing: bool,
-    blocks_produced: near_primitives::types::BlockHeight,
-) -> LoopAction {
-    use near_client::client_actor::AdvProduceBlockHeightSelection;
-
-    let (done, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            // It must happen only for the first resharding block encountered.
-            if done.get() {
-                return;
-            }
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
-
-            // If there's a new shard layout force a chain fork.
-            if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
-                println!("creating chain fork at height {}", tip.height);
-                let height_selection = if double_signing {
-                    // In the double signing scenario we want a new block on top of prev block, with consecutive height.
-                    AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
-                        base_block_height: tip.height - 1,
-                    }
-                } else {
-                    // To avoid double signing skip already produced height.
-                    AdvProduceBlockHeightSelection::SelectedHeightOnSelectedBlock {
-                        produced_block_height: tip.height + 1,
-                        base_block_height: tip.height - 1,
-                    }
-                };
-                client_actor.adv_produce_blocks_on(blocks_produced, true, height_selection);
-                done.set(true);
-            }
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
-}
-
 pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction {
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
 

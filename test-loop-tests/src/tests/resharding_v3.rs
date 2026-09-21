@@ -9,8 +9,6 @@ use crate::utils::receipts::{
     check_receipts_presence_at_resharding_block,
 };
 use crate::utils::resharding::call_promise_yield_with_id;
-#[cfg(feature = "test_features")]
-use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
     AccountDeletedAfterSplit, BlockAction, BlockNodes, NodeRoles, TrackedShardSchedule,
     assert_after_resharding, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
@@ -21,7 +19,8 @@ use crate::utils::resharding::{
 use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::utils::sharding::{
-    get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
+    get_shards_will_care_about, get_tracked_shards, next_block_has_new_shard_layout,
+    print_and_assert_shard_accounts,
 };
 use crate::utils::transactions::{check_txs, get_smallest_height_head};
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
@@ -31,6 +30,8 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+#[cfg(feature = "test_features")]
+use near_client::client_actor::AdvProduceBlockHeightSelection;
 use near_crypto::PublicKey;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -1184,6 +1185,20 @@ impl ReshardingTest {
         self.env.node(self.request_node_index)
     }
 
+    /// Runs until the request node's head is the last block of the old shard layout, and returns
+    /// its height.
+    fn run_until_resharding_block(&mut self) -> BlockHeight {
+        let timeout = self.timeout();
+        let request_node_index = self.request_node_index;
+        self.env.node_runner(request_node_index).run_until(
+            |node| {
+                next_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &node.head())
+            },
+            timeout,
+        );
+        self.request_node().head().height
+    }
+
     /// Runs for the time the setup transactions need, then checks that they succeeded.
     fn wait_for_setup_transactions(&mut self, txs: &[CryptoHash]) {
         self.wait_for_setup_transactions_for(Duration::milliseconds(2300), txs);
@@ -1199,14 +1214,18 @@ impl ReshardingTest {
         );
     }
 
+    /// Time the test has to produce `num_epochs_to_wait` epochs. The extra buffer accounts for the
+    /// genesis epoch (which is double-length) and the need for epoch_height to exceed
+    /// num_epochs_to_wait.
+    fn timeout(&self) -> Duration {
+        Duration::seconds(((self.num_epochs_to_wait + 3) * self.epoch_length) as i64)
+    }
+
     /// Runs until no node maps a tracked child shard to the parent and the epoch height passed
     /// `num_epochs_to_wait`, both at the same sample.
     fn run_until_resharding_mapping_removed(&mut self) {
         let progress = self.progress.clone();
-        // Give enough time to produce `num_epochs_to_wait` epochs. Extra buffer accounts for the
-        // genesis epoch (which is double-length) and the need for epoch_height to exceed
-        // num_epochs_to_wait.
-        let timeout = Duration::seconds(((self.num_epochs_to_wait + 3) * self.epoch_length) as i64);
+        let timeout = self.timeout();
         let request_node_index = self.request_node_index;
         self.env
             .node_runner(request_node_index)
@@ -1842,16 +1861,46 @@ fn slow_test_resharding_v3_drop_chunks_all() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_resharding_block_in_fork() {
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(1)
-            .num_producers(1)
-            .num_validators(0)
-            .num_rpcs(0)
-            .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(false, 3))
-            .build(),
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(1)
+        .num_producers(1)
+        .num_validators(0)
+        .num_rpcs(0)
+        .num_archivals(0)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Fork the chain at the last block of the old shard layout.
+    let resharding_height = test.run_until_resharding_block();
+    let num_blocks_to_produce = 3;
+    let only_valid_blocks = true;
+    test.env.node_mut(0).client_actor().adv_produce_blocks_on(
+        num_blocks_to_produce,
+        only_valid_blocks,
+        // To avoid double signing skip already produced height.
+        AdvProduceBlockHeightSelection::SelectedHeightOnSelectedBlock {
+            produced_block_height: resharding_height + 1,
+            base_block_height: resharding_height - 1,
+        },
     );
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -1862,16 +1911,46 @@ fn slow_test_resharding_v3_resharding_block_in_fork() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(1)
-            .num_producers(1)
-            .num_validators(0)
-            .num_rpcs(0)
-            .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(true, 1))
-            .build(),
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(1)
+        .num_producers(1)
+        .num_validators(0)
+        .num_rpcs(0)
+        .num_archivals(0)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Fork the chain at the last block of the old shard layout.
+    let resharding_height = test.run_until_resharding_block();
+    let num_blocks_to_produce = 1;
+    let only_valid_blocks = true;
+    test.env.node_mut(0).client_actor().adv_produce_blocks_on(
+        num_blocks_to_produce,
+        only_valid_blocks,
+        // In the double signing scenario we want a new block on top of prev block, with
+        // consecutive height.
+        AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
+            base_block_height: resharding_height - 1,
+        },
     );
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -1883,16 +1962,46 @@ fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(1)
-            .num_producers(1)
-            .num_validators(0)
-            .num_rpcs(0)
-            .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(true, 3))
-            .build(),
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(1)
+        .num_producers(1)
+        .num_validators(0)
+        .num_rpcs(0)
+        .num_archivals(0)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Fork the chain at the last block of the old shard layout.
+    let resharding_height = test.run_until_resharding_block();
+    let num_blocks_to_produce = 3;
+    let only_valid_blocks = true;
+    test.env.node_mut(0).client_actor().adv_produce_blocks_on(
+        num_blocks_to_produce,
+        only_valid_blocks,
+        // In the double signing scenario we want a new block on top of prev block, with
+        // consecutive height.
+        AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
+            base_block_height: resharding_height - 1,
+        },
     );
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
