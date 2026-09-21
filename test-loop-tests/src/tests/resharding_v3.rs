@@ -1,3 +1,4 @@
+use crate::setup::block_observer::{BlockSource, ObservedBlock};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
@@ -44,8 +45,10 @@ use near_primitives::types::{
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::ControlFlow;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Default and minimal epoch length used in resharding tests.
@@ -608,6 +611,75 @@ fn setup_global_contracts(
     }
 }
 
+/// Prints the chain state and every node's tracked shards at the observed block.
+fn print_chain_state(block: &ObservedBlock<'_>, client_index: usize) {
+    let tip = block.observed_node.head();
+    let client = block.nodes[client_index].client();
+    let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let epoch_height_dbg =
+        client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
+    let protocol_version_dbg =
+        client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
+    let last_final_height = client
+        .chain
+        .get_block_header(block_header.last_final_block())
+        .map(|h| h.height())
+        .unwrap_or(0);
+    println!(
+        "block #{} shards={:?} epoch_height={} pv={} shard_split={:?} last_final={} chunk_mask={:?}",
+        tip.height,
+        shard_layout.shard_ids().collect_vec(),
+        epoch_height_dbg,
+        protocol_version_dbg,
+        block_header.shard_split(),
+        last_final_height,
+        block_header.chunk_mask(),
+    );
+    for (client_index, node) in block.nodes.iter().enumerate() {
+        let client = node.client();
+        let tracked_shards = get_tracked_shards(client, &tip.last_block_hash);
+        let tracked_shards = shard_uids_to_ids(&tracked_shards);
+        // That's not accurate in case of tracked shard schedule: it won't return parent shard before resharding boundary, if we track child after resharding.
+        let shards_will_care_about = &get_shards_will_care_about(client, &tip.last_block_hash);
+        let shards_will_care_about = shard_uids_to_ids(shards_will_care_about);
+        let signer = client.validator_signer.get().unwrap();
+        let account_id = signer.validator_id().as_str();
+        println!(
+            "client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\twill_care_about={shards_will_care_about:?}"
+        );
+    }
+}
+
+/// Asserts that the observed block includes a chunk for every shard.
+fn assert_all_chunks_included(
+    block: &ObservedBlock<'_>,
+    client_index: usize,
+    initial_num_shards: u64,
+) {
+    let tip = block.observed_node.head();
+    let client = block.nodes[client_index].client();
+    let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+    let current_num_shards =
+        client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap().num_shards();
+    tracing::info!(target: "resharding_check", check = "all_chunks_included", height = tip.height, chunk_mask = ?block_header.chunk_mask());
+    assert!(
+        block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit),
+        "missing chunks at block #{} epoch_height={} shards={:?} mask={:?} \
+         initial_num_shards={} current_num_shards={}",
+        tip.height,
+        client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap_or(0),
+        client
+            .epoch_manager
+            .get_shard_layout_from_prev_block(&tip.last_block_hash)
+            .map(|l| l.shard_ids().collect::<Vec<_>>())
+            .unwrap_or_default(),
+        block_header.chunk_mask(),
+        initial_num_shards,
+        current_num_shards,
+    );
+}
+
 /// Base setup to check sanity of Resharding V3.
 fn test_resharding_v3_base(params: TestReshardingParameters) {
     init_test_logger();
@@ -768,20 +840,48 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
     }
 
-    let clients =
-        client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
-    let mut trie_sanity_check =
-        TrieSanityCheck::new(&clients, params.load_memtries_for_tracked_shards);
+    let trie_sanity_check = {
+        let clients = client_handles
+            .iter()
+            .map(|handle| &env.test_loop.data.get(handle).client)
+            .collect_vec();
+        Rc::new(RefCell::new(TrieSanityCheck::new(
+            &clients,
+            params.load_memtries_for_tracked_shards,
+        )))
+    };
+
+    env.on_each_block(BlockSource::SlowestNode, move |block| {
+        print_chain_state(block, client_index);
+        ControlFlow::Continue(())
+    });
+    if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
+        env.on_each_block(BlockSource::SlowestNode, move |block| {
+            assert_all_chunks_included(block, client_index, initial_num_shards);
+            ControlFlow::Continue(())
+        });
+    }
+    {
+        let trie_sanity_check = trie_sanity_check.clone();
+        env.on_each_block(BlockSource::SlowestNode, move |block| {
+            let clients = block.nodes.iter().map(|node| node.client()).collect_vec();
+            trie_sanity_check.borrow_mut().assert_state_sanity(&clients, expected_num_shards);
+            ControlFlow::Continue(())
+        });
+    }
 
     let num_epochs_to_wait = params.num_epochs_to_wait;
     let latest_block_height = Cell::new(0u64);
     let epoch_height_after_first_resharding = Cell::new(None);
     let resharding_block_hash = Cell::new(None);
     let epoch_height_after_resharding = Cell::new(None);
+    let node_datas = &env.node_datas;
+    let block_observers = &mut env.block_observers;
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        params.loop_actions.iter().for_each(|action| {
-            action.call(&env.node_datas, test_loop_data, client_account_id.clone())
-        });
+        params
+            .loop_actions
+            .iter()
+            .for_each(|action| action.call(node_datas, test_loop_data, client_account_id.clone()));
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
 
@@ -792,7 +892,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         let client = clients[client_index];
-        let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let current_num_shards = shard_layout.num_shards();
 
@@ -804,62 +903,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         latest_block_height.set(tip.height);
         tracing::info!(target: "resharding_check", check = "sample", height = tip.height, hash = ?tip.last_block_hash, num_shards = current_num_shards);
 
-        let epoch_height_dbg =
-            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-        let protocol_version_dbg =
-            client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
-        let last_final_height = client
-            .chain
-            .get_block_header(block_header.last_final_block())
-            .map(|h| h.height())
-            .unwrap_or(0);
-        println!(
-            "block #{} shards={:?} epoch_height={} pv={} shard_split={:?} last_final={} chunk_mask={:?}",
-            tip.height,
-            shard_layout.shard_ids().collect_vec(),
-            epoch_height_dbg,
-            protocol_version_dbg,
-            block_header.shard_split(),
-            last_final_height,
-            block_header.chunk_mask(),
-        );
-        for (client_index, client) in clients.iter().enumerate() {
-            let tracked_shards = get_tracked_shards(client, &tip.last_block_hash);
-            let tracked_shards = shard_uids_to_ids(&tracked_shards);
-            // That's not accurate in case of tracked shard schedule: it won't return parent shard before resharding boundary, if we track child after resharding.
-            let shards_will_care_about = &get_shards_will_care_about(client, &tip.last_block_hash);
-            let shards_will_care_about = shard_uids_to_ids(shards_will_care_about);
-            let signer = client.validator_signer.get().unwrap();
-            let account_id = signer.validator_id().as_str();
-            println!(
-                "client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\twill_care_about={shards_will_care_about:?}"
-            );
-        }
-
-        // Check that all chunks are included.
-        if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
-            tracing::info!(target: "resharding_check", check = "all_chunks_included", height = tip.height, chunk_mask = ?block_header.chunk_mask());
-            assert!(
-                block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit),
-                "missing chunks at block #{} epoch_height={} shards={:?} mask={:?} \
-                 initial_num_shards={} current_num_shards={}",
-                tip.height,
-                client
-                    .epoch_manager
-                    .get_epoch_height_from_prev_block(&tip.prev_block_hash)
-                    .unwrap_or(0),
-                client
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&tip.last_block_hash)
-                    .map(|l| l.shard_ids().collect::<Vec<_>>())
-                    .unwrap_or_default(),
-                block_header.chunk_mask(),
-                initial_num_shards,
-                current_num_shards,
-            );
-        }
-
-        trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
+        block_observers.call_on_new_blocks(test_loop_data, node_datas);
 
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
@@ -965,7 +1009,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         Duration::seconds(((num_epochs_to_wait + 3) * params.epoch_length) as i64),
     );
     let client = &env.test_loop.data.get(&client_handles[client_index]).client;
-    trie_sanity_check.check_epochs(client);
+    trie_sanity_check.borrow().check_epochs(client);
 }
 
 #[test]
