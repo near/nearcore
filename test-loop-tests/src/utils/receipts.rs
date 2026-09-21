@@ -1,11 +1,6 @@
-use super::loop_action::LoopAction;
-use super::retrieve_client_actor;
-use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
-use crate::setup::state::NodeExecutionData;
 use crate::utils::node::TestLoopNode;
 use crate::utils::resharding_check_trace;
 use crate::utils::sharding::get_memtrie_for_shard;
-use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
@@ -36,62 +31,6 @@ pub fn assert_receipts_present(
     for account in accounts {
         check_receipts_at_block(node.client(), account, &kind, &tip);
     }
-}
-
-/// Checks that the shards containing `accounts` have a non empty set of receipts
-/// of type `kind` at the resharding block.
-pub fn check_receipts_presence_at_resharding_block(
-    accounts: Vec<AccountId>,
-    kind: ReceiptKind,
-) -> LoopAction {
-    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
-
-            if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
-                return;
-            }
-
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(&client_actor.client, &account, &kind, &tip)
-            });
-            checked_receipts.set(true);
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
-}
-
-/// Checks that the shards containing `accounts` have a non empty set of receipts
-/// of type `kind` at the block after the resharding block.
-pub fn check_receipts_presence_after_resharding_block(
-    accounts: Vec<AccountId>,
-    kind: ReceiptKind,
-) -> LoopAction {
-    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
-
-            if !this_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
-                return;
-            }
-
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(&client_actor.client, &account, &kind, &tip)
-            });
-            checked_receipts.set(true);
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
 }
 
 /// Asserts the presence of any receipt of type `kind` at the provided chain `tip`.

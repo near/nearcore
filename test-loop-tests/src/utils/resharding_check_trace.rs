@@ -120,6 +120,20 @@ pub fn deleted_account_step(step: &str, height: BlockHeight, account: &AccountId
     tracing::info!(target: "resharding_check", check = "deleted_account", step, height, %account);
 }
 
+pub fn indices_node(
+    height: BlockHeight,
+    trie_key: &str,
+    parent: &str,
+    left_child: &str,
+    right_child: &str,
+) {
+    tracing::info!(target: "resharding_check", check = "indices_node", height, trie_key, parent, left_child, right_child);
+}
+
+pub fn transaction_outcome(height: BlockHeight, tx_hash: &CryptoHash, status: &str) {
+    tracing::info!(target: "resharding_check", check = "transaction_outcome", height, ?tx_hash, status);
+}
+
 pub fn submitted_tx(
     height: BlockHeight,
     signer: &AccountId,
