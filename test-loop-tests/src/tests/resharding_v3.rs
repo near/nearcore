@@ -802,6 +802,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             assert_eq!(current_num_shards, initial_num_shards);
         }
         latest_block_height.set(tip.height);
+        tracing::info!(target: "resharding_check", check = "sample", height = tip.height, hash = ?tip.last_block_hash, num_shards = current_num_shards);
 
         let epoch_height_dbg =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
@@ -837,6 +838,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
+            tracing::info!(target: "resharding_check", check = "all_chunks_included", height = tip.height, chunk_mask = ?block_header.chunk_mask());
             assert!(
                 block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit),
                 "missing chunks at block #{} epoch_height={} shards={:?} mask={:?} \
@@ -865,6 +867,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         if epoch_height_after_first_resharding.get().is_none()
             && current_num_shards != initial_num_shards
         {
+            tracing::info!(target: "resharding_check", check = "first_layout_change", height = tip.height, epoch_height);
             epoch_height_after_first_resharding.set(Some(epoch_height));
         }
 
@@ -877,6 +880,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 return false;
             }
             // Just resharded.
+            tracing::info!(target: "resharding_check", check = "final_layout", height = tip.height, epoch_height, resharding_block_hash = ?tip.prev_block_hash);
             resharding_block_hash.set(Some(tip.prev_block_hash));
             epoch_height_after_resharding.set(Some(epoch_height));
             // Assert that we will have a chance for gc to kick in before the test is over.
@@ -925,12 +929,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         let mut all_mappings_removed = true;
-        for (_i, client) in clients.iter().enumerate() {
+        for (client_index, client) in clients.iter().enumerate() {
             let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
             );
+            tracing::info!(target: "resharding_check", check = "parent_mapping", client_index, height = tip.height, num_mapped_children);
 
             if num_mapped_children > 0 {
                 all_mappings_removed = false;
@@ -944,6 +949,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         if epoch_height <= num_epochs_to_wait {
             return false;
         }
+        tracing::info!(target: "resharding_check", check = "completion", height = tip.height, epoch_height);
         for loop_action in &params.loop_actions {
             let status = loop_action.get_status();
             assert_matches!(status, LoopActionStatus::Succeeded);

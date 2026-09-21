@@ -130,6 +130,7 @@ impl TrieSanityCheck {
             };
             let head = client.chain.head().unwrap();
             if head.epoch_id == EpochId::default() {
+                tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, skipped = "genesis epoch");
                 continue;
             }
             let final_head = client.chain.final_head().unwrap();
@@ -138,6 +139,7 @@ impl TrieSanityCheck {
             // final blocks. So these two together mean that we should only check this when the head
             // and final head are in the same epoch.
             if head.epoch_id != final_head.epoch_id {
+                tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, skipped = "head and final head in different epochs");
                 continue;
             }
             let checked_shards = assert_state_sanity(
@@ -146,6 +148,7 @@ impl TrieSanityCheck {
                 self.load_memtries_for_tracked_shards,
                 new_num_shards,
             );
+            tracing::info!(target: "resharding_check", check = "trie_sanity", %account_id, height = head.height, final_height = final_head.height, hash = ?final_head.prev_block_hash, ?checked_shards);
             let check = self.get_epoch_check(client, &head, new_num_shards);
             let check = check.get_mut(account_id).unwrap();
             for shard_uid in checked_shards {
