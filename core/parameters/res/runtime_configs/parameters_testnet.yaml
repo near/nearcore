@@ -375,8 +375,6 @@ reject_tx_congestion_threshold: {
   denominator: 100,
 }
 
-use_state_stored_receipt: true
-
 # Bandwidth scheduler
 max_shard_bandwidth: 4_500_000
 max_single_grant: 4_194_304

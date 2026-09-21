@@ -488,7 +488,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_allowance: params.get(Parameter::MaxAllowance)?,
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
-            use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
             min_gas_purchase_price: params.get(Parameter::MinGasPurchasePrice)?,
             account_creation_charge: params.get(Parameter::AccountCreationCharge)?,
         })

@@ -34,9 +34,6 @@ pub struct RuntimeConfig {
     /// Configuration specific to BandwidthScheduler.
     pub bandwidth_scheduler_config: BandwidthSchedulerConfig,
 
-    /// Whether receipts should be stored as [StateStoredReceipt].
-    pub use_state_stored_receipt: bool,
-
     /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
     /// burned might be lower, in which case the difference is refunded after execution.
     pub min_gas_purchase_price: Balance,
@@ -77,7 +74,6 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
             min_gas_purchase_price: runtime_config.min_gas_purchase_price,
             account_creation_charge: runtime_config.account_creation_charge,
         }
@@ -97,7 +93,6 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
             min_gas_purchase_price: Balance::ZERO,
             // The free config disables all gas costs; keep account_creation_charge at
             // zero as well so the invariant min_gas_purchase_price * create_account_gas_cost >=
