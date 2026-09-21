@@ -36,15 +36,21 @@ pub struct TrieSanityCheck {
 }
 
 impl TrieSanityCheck {
-    pub fn new(clients: &[&Client], load_memtries_for_tracked_shards: bool) -> Self {
-        let accounts = clients
+    /// The accounts to check are read from the nodes at the first check.
+    pub fn new(load_memtries_for_tracked_shards: bool) -> Self {
+        Self { accounts: Vec::new(), load_memtries_for_tracked_shards, checks: HashMap::new() }
+    }
+
+    fn set_accounts_from_clients(&mut self, clients: &[&Client]) {
+        if !self.accounts.is_empty() {
+            return;
+        }
+        self.accounts = clients
             .iter()
-            .filter_map(|c| {
-                let signer = c.validator_signer.get();
-                signer.map(|s| s.validator_id().clone())
+            .filter_map(|client| {
+                client.validator_signer.get().map(|signer| signer.validator_id().clone())
             })
             .collect();
-        Self { accounts, load_memtries_for_tracked_shards, checks: HashMap::new() }
     }
 
     // If it's not already stored, initialize it with the expected ShardUIds for each account
@@ -122,6 +128,7 @@ impl TrieSanityCheck {
 
     // Check trie sanity and keep track of which shards were successfully fully checked
     pub fn assert_state_sanity(&mut self, clients: &[&Client], new_num_shards: NumShards) {
+        self.set_accounts_from_clients(clients);
         for client in clients {
             let signer = client.validator_signer.get();
             let Some(account_id) = signer.as_ref().map(|s| s.validator_id()) else {

@@ -1,10 +1,12 @@
 use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
+use crate::setup::block_observer::BlockSource;
+use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
 use crate::utils::resharding_check_trace;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
-use crate::utils::transactions::{check_txs, get_anchor_hash, get_shared_block_hash};
+use crate::utils::transactions::get_anchor_hash;
 use crate::utils::{get_node_data, retrieve_client_actor};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
@@ -15,7 +17,6 @@ use near_async::test_loop::data::TestLoopData;
 use near_chain::types::Tip;
 use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
-use near_client::Query;
 use near_client::client_actor::ClientActor;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -30,7 +31,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockId, BlockReference, Gas, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, Gas, NumShards, ShardId,
 };
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_store::adapter::StoreAdapter;
@@ -42,10 +43,12 @@ use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
 use std::env::var;
 use std::num::NonZero;
+use std::ops::ControlFlow;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
@@ -828,167 +831,256 @@ pub(crate) fn call_promise_yield_with_id(
     LoopAction::new(action_fn, succeeded)
 }
 
-/// After resharding and gc-period, assert the deleted `account_id`
-/// is still accessible through archival node view client (if available),
-/// and it is not accessible through a regular, RPC node.
-fn check_deleted_account_availability(
-    node_datas: &[NodeExecutionData],
-    test_loop_data: &mut TestLoopData,
-    archival_id: &Option<AccountId>,
-    rpc_id: &AccountId,
-    account_id: &AccountId,
-    height: u64,
-) {
-    let rpc_node_data = get_node_data(node_datas, &rpc_id);
-    let rpc_view_client_handle = rpc_node_data.view_client_sender.actor_handle();
+/// The test's nodes at the observed block.
+pub(crate) struct BlockNodes<'a> {
+    /// Node whose new block this is.
+    pub(crate) observed: &'a TestLoopNode<'a>,
+    pub(crate) all: &'a [TestLoopNode<'a>],
+    /// Node that sends transactions and answers queries.
+    pub(crate) request: &'a TestLoopNode<'a>,
+    pub(crate) archival: Option<&'a TestLoopNode<'a>>,
+}
 
-    let block_reference = BlockReference::BlockId(BlockId::Height(height));
-    let request = QueryRequest::ViewAccount { account_id: account_id.clone() };
-    let msg = Query::new(block_reference, request);
+impl<'a> BlockNodes<'a> {
+    /// Head of the node whose new block this is.
+    pub(crate) fn tip(&self) -> Arc<Tip> {
+        self.observed.head()
+    }
 
-    let rpc_node_result = {
-        let view_client = test_loop_data.get_mut(&rpc_view_client_handle);
-        near_async::messaging::Handler::handle(view_client, msg.clone())
-    };
-    assert_matches!(rpc_node_result, Err(..));
+    pub(crate) fn clients(&self) -> Vec<&'a Client> {
+        self.all.iter().map(|node| node.client()).collect_vec()
+    }
 
-    if let Some(archival_id) = archival_id {
-        let archival_node_data = get_node_data(node_datas, &archival_id);
-        let archival_view_client_handle = archival_node_data.view_client_sender.actor_handle();
-        let _archival_node_result = {
-            let view_client = test_loop_data.get_mut(&archival_view_client_handle);
-            near_async::messaging::Handler::handle(view_client, msg)
-        };
-        // TODO(cloud_archival) Make this assert passes
-        // assert_matches!(
-        //     archival_node_result,
-        //     Ok(QueryResponse { kind: QueryResponseKind::ViewAccount(_), .. })
-        // );
+    /// Number of shards in the shard layout of the observed block's epoch.
+    pub(crate) fn num_shards_at_tip(&self) -> NumShards {
+        let tip = self.tip();
+        self.request.client().epoch_manager.get_shard_layout(&tip.epoch_id).unwrap().num_shards()
+    }
+
+    pub(crate) fn epoch_height_at_tip(&self) -> EpochHeight {
+        let tip = self.tip();
+        self.request
+            .client()
+            .epoch_manager
+            .get_epoch_height_from_prev_block(&tip.prev_block_hash)
+            .unwrap()
+    }
+
+    pub(crate) fn account_id_of(&self, node: &TestLoopNode<'_>) -> AccountId {
+        node.client().validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap()
     }
 }
 
-/// Loop action testing a scenario where a temporary account is deleted after resharding.
-/// After `gc_num_epochs_to_keep epochs` we assert that the account
-/// is not accessible through RPC node but it is still accessible through archival node.
-///
-/// The `temporary_account_id` must be a subaccount of the `originator_id`.
-pub(crate) fn temporary_account_during_resharding(
-    archival_id: Option<AccountId>,
-    rpc_id: AccountId,
-    originator_id: AccountId,
-    temporary_account_id: AccountId,
-) -> LoopAction {
-    let latest_height = Cell::new(0);
-    let resharding_height = Cell::new(None);
-    let target_height = Cell::new(None);
+/// Check, traffic or output that a resharding test runs on each new block of one node.
+pub(crate) trait BlockCheck: 'static {
+    fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()>;
+}
 
-    let delete_account_tx_hash = Cell::new(None);
-    let checked_deleted_account = Cell::new(false);
+/// Indexes of the nodes with a role in the test, used to build `BlockNodes` for every call.
+#[derive(Clone, Copy)]
+pub(crate) struct NodeRoles {
+    pub(crate) request_node_index: usize,
+    pub(crate) archival_node_index: Option<usize>,
+}
 
-    let (done, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            if done.get() {
-                return;
-            }
+/// Registers `check`, called on each new block of `source`.
+pub(crate) fn install_block_check(
+    env: &mut TestLoopEnv,
+    source: BlockSource,
+    roles: NodeRoles,
+    mut check: Box<dyn BlockCheck>,
+) {
+    env.on_each_block(source, move |block| {
+        let nodes = BlockNodes {
+            observed: block.observed_node,
+            all: block.nodes,
+            request: &block.nodes[roles.request_node_index],
+            archival: roles.archival_node_index.map(|index| &block.nodes[index]),
+        };
+        check.on_new_block(&nodes)
+    });
+}
 
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
+/// Submits a transaction that creates `new_account_id` from `originator`.
+pub(crate) fn create_account(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    originator: &AccountId,
+    new_account_id: &AccountId,
+    amount: Balance,
+    nonce: u64,
+) -> CryptoHash {
+    let node = env.node_for_account(rpc_id);
+    let signer = create_user_test_signer(originator);
+    let new_signer: Signer = create_user_test_signer(new_account_id);
 
-            // Run this action only once at every block height.
-            if latest_height.get() == tip.height {
-                return;
-            }
-            latest_height.set(tip.height);
-            let epoch_length = client_actor.client.config.epoch_length;
-            let gc_num_epochs_to_keep = client_actor.client.config.gc.gc_num_epochs_to_keep;
-
-            if resharding_height.get().is_none() {
-                if !this_block_has_new_shard_layout(
-                    client_actor.client.epoch_manager.as_ref(),
-                    &tip,
-                ) {
-                    return;
-                }
-                // Just resharded. Delete the temporary account and set the target height
-                // high enough so that the delete account transaction will be garbage collected.
-                //
-                // We construct the tx manually instead of using node.tx_delete_account()
-                // because that method uses node.head().last_block_hash, which is the
-                // head of a single node. With shard shuffling enabled, nodes can be at
-                // different heights, and the chunk producer that processes the tx might
-                // not know about that block hash yet. Using get_shared_block_hash()
-                // picks the block at the minimum head height across all nodes, which is
-                // guaranteed to be known by every node.
-                let node = TestLoopNode {
-                    data: test_loop_data,
-                    node_data: get_node_data(node_datas, &client_account_id),
-                };
-                let signer = create_user_test_signer(&temporary_account_id);
-                let nonce = node.get_next_nonce(&temporary_account_id);
-                let block_hash = get_shared_block_hash(node_datas, test_loop_data);
-                let tx = SignedTransaction::delete_account(
-                    nonce,
-                    temporary_account_id.clone(),
-                    temporary_account_id.clone(),
-                    originator_id.clone(),
-                    &signer,
-                    block_hash,
-                );
-                delete_account_tx_hash.set(Some(node.submit_tx(tx)));
-                resharding_check_trace::deleted_account_step(
-                    "submitted delete",
-                    latest_height.get(),
-                    &temporary_account_id,
-                );
-                target_height
-                    .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
-                resharding_height.set(Some(latest_height.get()));
-            }
-
-            // If an epoch passed since resharding, make sure the delete account transaction finished.
-            if latest_height.get() == resharding_height.get().unwrap() + epoch_length {
-                check_txs(
-                    test_loop_data,
-                    node_datas,
-                    &client_account_id,
-                    &[delete_account_tx_hash.get().unwrap()],
-                );
-                checked_deleted_account.set(true);
-                resharding_check_trace::deleted_account_step(
-                    "checked delete outcome",
-                    latest_height.get(),
-                    &temporary_account_id,
-                );
-            }
-
-            if latest_height.get() < target_height.get().unwrap() {
-                return;
-            }
-            assert!(checked_deleted_account.get());
-            // Since gc window passed after the account was deleted,
-            // check that it is not accessible through regular node,
-            // but it is accessible through archival node.
-            check_deleted_account_availability(
-                node_datas,
-                test_loop_data,
-                &archival_id,
-                &rpc_id,
-                &temporary_account_id,
-                resharding_height.get().unwrap(),
-            );
-            resharding_check_trace::deleted_account_step(
-                "checked state garbage collected",
-                latest_height.get(),
-                &temporary_account_id,
-            );
-            done.set(true);
-        },
+    let tx = SignedTransaction::create_account(
+        nonce,
+        originator.clone(),
+        new_account_id.clone(),
+        amount,
+        new_signer.public_key(),
+        &signer,
+        node.head().last_block_hash,
     );
-    LoopAction::new(action_fn, succeeded)
+
+    node.submit_tx(tx)
+}
+
+#[derive(Clone)]
+pub(crate) struct AccountDeletedAfterSplit {
+    account_id: AccountId,
+    beneficiary_id: AccountId,
+    state: Rc<RefCell<AccountDeletionState>>,
+}
+
+#[derive(Debug)]
+enum AccountDeletionState {
+    WaitingForNewShardLayout,
+    WaitingForDeleteOutcome { delete_tx_hash: CryptoHash, deleted_at_height: BlockHeight },
+    WaitingForGarbageCollection { deleted_at_height: BlockHeight },
+    Completed,
+}
+
+impl AccountDeletedAfterSplit {
+    /// `account_id` is a sub-account; its parent account created it and gets its balance back.
+    pub(crate) fn new(account_id: AccountId) -> Self {
+        let beneficiary_id = account_id
+            .get_parent_account_id()
+            .unwrap_or_else(|| panic!("{account_id} must be a sub-account"))
+            .to_owned();
+        Self {
+            account_id,
+            beneficiary_id,
+            state: Rc::new(RefCell::new(AccountDeletionState::WaitingForNewShardLayout)),
+        }
+    }
+
+    /// Submits the transaction that creates the account, and returns its hash. The parent account
+    /// creates it with 10 NEAR, using its first nonce.
+    pub(crate) fn submit_create_transaction(
+        &self,
+        env: &TestLoopEnv,
+        request_node_account_id: &AccountId,
+    ) -> CryptoHash {
+        create_account(
+            env,
+            request_node_account_id,
+            &self.beneficiary_id,
+            &self.account_id,
+            Balance::from_near(10),
+            2,
+        )
+    }
+
+    pub(crate) fn assert_completed(&self) {
+        assert_matches!(*self.state.borrow(), AccountDeletionState::Completed);
+    }
+}
+
+impl BlockCheck for AccountDeletedAfterSplit {
+    fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
+        let account_id = &self.account_id;
+        let beneficiary_id = &self.beneficiary_id;
+        let state = &self.state;
+        {
+            let request_node = nodes.request;
+            let tip = nodes.tip();
+            let client_config = &request_node.client().config;
+            let epoch_length = client_config.epoch_length;
+            let gc_num_epochs_to_keep = client_config.gc.gc_num_epochs_to_keep;
+            let next_state = match *state.borrow() {
+                AccountDeletionState::WaitingForNewShardLayout => {
+                    if !this_block_has_new_shard_layout(
+                        request_node.client().epoch_manager.as_ref(),
+                        &tip,
+                    ) {
+                        return ControlFlow::Continue(());
+                    }
+                    // We construct the tx manually instead of using node.tx_delete_account()
+                    // because that method uses node.head().last_block_hash, which is the
+                    // head of a single node. With shard shuffling enabled, nodes can be at
+                    // different heights, and the chunk producer that processes the tx might
+                    // not know about that block hash yet. The block at the minimum head
+                    // height across all nodes is known by every node.
+                    let block_hash = nodes
+                        .all
+                        .iter()
+                        .map(|node| node.head())
+                        .min_by_key(|head| head.height)
+                        .unwrap()
+                        .last_block_hash;
+                    let signer = create_user_test_signer(&account_id);
+                    let nonce = request_node.get_next_nonce(&account_id);
+                    let tx = SignedTransaction::delete_account(
+                        nonce,
+                        account_id.clone(),
+                        account_id.clone(),
+                        beneficiary_id.clone(),
+                        &signer,
+                        block_hash,
+                    );
+                    let delete_tx_hash = request_node.submit_tx(tx);
+                    resharding_check_trace::deleted_account_step(
+                        "submitted delete",
+                        tip.height,
+                        &account_id,
+                    );
+                    AccountDeletionState::WaitingForDeleteOutcome {
+                        delete_tx_hash,
+                        deleted_at_height: tip.height,
+                    }
+                }
+                AccountDeletionState::WaitingForDeleteOutcome {
+                    delete_tx_hash,
+                    deleted_at_height,
+                } => {
+                    if tip.height != deleted_at_height + epoch_length {
+                        return ControlFlow::Continue(());
+                    }
+                    let status = request_node
+                        .client()
+                        .chain
+                        .get_partial_transaction_result(&delete_tx_hash)
+                        .unwrap()
+                        .status;
+                    assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
+                    resharding_check_trace::deleted_account_step(
+                        "checked delete outcome",
+                        tip.height,
+                        &account_id,
+                    );
+                    AccountDeletionState::WaitingForGarbageCollection { deleted_at_height }
+                }
+                AccountDeletionState::WaitingForGarbageCollection { deleted_at_height } => {
+                    let garbage_collected_height =
+                        deleted_at_height + (gc_num_epochs_to_keep + 1) * epoch_length;
+                    if tip.height < garbage_collected_height {
+                        return ControlFlow::Continue(());
+                    }
+                    let query = QueryRequest::ViewAccount { account_id: account_id.clone() };
+                    let request_node_result =
+                        request_node.runtime_query_at_height(deleted_at_height, query.clone());
+                    assert_matches!(request_node_result, Err(..));
+                    if let Some(archival_node) = nodes.archival {
+                        let _archival_node_result =
+                            archival_node.runtime_query_at_height(deleted_at_height, query);
+                        // TODO(cloud_archival) Assert that the archival node still has the account.
+                    }
+                    resharding_check_trace::deleted_account_step(
+                        "checked state garbage collected",
+                        tip.height,
+                        &account_id,
+                    );
+                    AccountDeletionState::Completed
+                }
+                AccountDeletionState::Completed => return ControlFlow::Break(()),
+            };
+            let completed = matches!(next_state, AccountDeletionState::Completed);
+            *state.borrow_mut() = next_state;
+            if completed { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        }
+    }
 }
 
 /// Removes from State column all entries where key does not start with `the_only_shard_uid` ShardUId prefix.

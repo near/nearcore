@@ -26,7 +26,9 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockId, BlockReference, Nonce, ProtocolVersion, ShardId,
+};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -151,6 +153,18 @@ impl<'a> TestLoopNode<'a> {
             ),
             query,
         ))
+    }
+
+    /// Runs `query` against the state at `height`, which the node may no longer have.
+    pub fn runtime_query_at_height(
+        &self,
+        height: BlockHeight,
+        query: QueryRequest,
+    ) -> Result<QueryResponse, QueryError> {
+        let handle = self.node_data.view_client_sender.actor_handle();
+        let view_client: &ViewClientActor = self.data.get(&handle);
+        view_client
+            .handle_query(Query::new(BlockReference::BlockId(BlockId::Height(height)), query))
     }
 
     pub fn view_account_query(&self, account_id: &AccountId) -> Result<AccountView, QueryError> {
