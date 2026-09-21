@@ -225,7 +225,7 @@ mod tests {
     use super::*;
     use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
-    use near_primitives_core::version::ProtocolFeature;
+    use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -427,5 +427,17 @@ mod tests {
         // accumulate, so if the feature moved to a later version and the diff stayed
         // put, the flag would still read as on at the feature's own version.
         assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
+    }
+
+    /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions
+    #[test]
+    fn test_no_deprecated_config() {
+        let min_config_protocol_version = CONFIG_DIFFS[0].0;
+        assert!(
+            min_config_protocol_version > MIN_SUPPORTED_PROTOCOL_VERSION,
+            "CONFIG_DIFFS includes protocol version {} ≤ MIN_SUPPORTED_PROTOCOL_VERSION ({})",
+            min_config_protocol_version,
+            MIN_SUPPORTED_PROTOCOL_VERSION
+        );
     }
 }
