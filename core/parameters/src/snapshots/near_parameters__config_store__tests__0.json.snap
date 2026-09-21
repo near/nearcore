@@ -266,7 +266,7 @@ snapshot_kind: text
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 32,
+    "min_allowed_top_level_account_length": 65,
     "registrar_account_id": "registrar"
   },
   "congestion_control_config": {

@@ -24,7 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (64, include_config!("64.yaml")),
     (66, include_config!("66.yaml")),
     (67, include_config!("67.yaml")),
     // Congestion Control.
@@ -284,10 +283,10 @@ mod tests {
 
     #[test]
     fn test_override_account_length() {
-        // Check that default value is 32.
+        // Check that default value is 65.
         let base_store = RuntimeConfigStore::new(None);
         let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 32);
+        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 65);
 
         let mut cfg = base_cfg.as_ref().clone();
         cfg.account_creation_config.min_allowed_top_level_account_length = 0;
