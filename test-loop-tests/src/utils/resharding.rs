@@ -1,25 +1,19 @@
 use super::sharding::this_block_has_new_shard_layout;
 use crate::setup::block_observer::BlockSource;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::NodeExecutionData;
-use crate::utils::loop_action::LoopAction;
 use crate::utils::node::TestLoopNode;
 use crate::utils::resharding_check_trace;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::get_anchor_hash;
-use crate::utils::{get_node_data, retrieve_client_actor};
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
-use near_async::messaging::CanSend;
-use near_async::test_loop::data::TestLoopData;
+use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
-use near_chain::{ChainStoreAccess, Error};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptOrStateStoredReceipt;
@@ -40,7 +34,7 @@ use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::env::var;
 use std::fmt::Debug;
@@ -727,106 +721,9 @@ fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
     })
 }
 
-/// Submit a transaction to the node with the given account id.
-fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
-    let process_tx_request =
-        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-    let rpc_node_data = get_node_data(node_datas, rpc_id);
-    rpc_node_data.rpc_handler_sender.send(process_tx_request);
-}
-
-/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
-fn store_and_submit_tx(
-    node_datas: &[NodeExecutionData],
-    rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
-    signer_id: &AccountId,
-    receiver_id: &AccountId,
-    height: BlockHeight,
-    tx: SignedTransaction,
-) {
-    resharding_check_trace::submitted_tx(height, signer_id, receiver_id, &tx.get_hash());
-    let mut txs_vec = txs.take();
-    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
-    txs_vec.push((tx.get_hash(), height));
-    txs.set(txs_vec);
-    submit_tx(node_datas, rpc_id, tx);
-}
-
 /// Deterministic test gas-key signer for an account. Setup and verification
 /// share this helper so both sides agree on the public key.
 pub(crate) fn gas_key_signer_for_account(account_id: &AccountId) -> Signer {
     const GAS_KEY_SIGNER_SEED: &str = "gas_key_resharding";
     InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, GAS_KEY_SIGNER_SEED).into()
-}
-
-/// Loop action that fires its `assertion` once, `num_blocks_after_new_layout`
-/// blocks after the first block of the new shard layout (the block right after
-/// the resharding block). Pass `0` to run on the first block of the new layout.
-pub(crate) fn assert_after_resharding<F>(
-    num_blocks_after_new_layout: u64,
-    assertion: F,
-) -> LoopAction
-where
-    F: Fn(&TestLoopNode<'_>) + 'static,
-{
-    let new_layout_height: Cell<Option<u64>> = Cell::new(None);
-    let (done, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData],
-              test_loop_data: &mut TestLoopData,
-              client_account_id: AccountId| {
-            if done.get() {
-                return;
-            }
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
-            let new_layout = match new_layout_height.get() {
-                Some(h) => h,
-                None => {
-                    if !this_block_has_new_shard_layout(
-                        client_actor.client.epoch_manager.as_ref(),
-                        &tip,
-                    ) {
-                        return;
-                    }
-                    new_layout_height.set(Some(tip.height));
-                    tip.height
-                }
-            };
-            if tip.height < new_layout + num_blocks_after_new_layout {
-                return;
-            }
-            let node = TestLoopNode {
-                data: test_loop_data,
-                node_data: get_node_data(node_datas, &client_account_id),
-            };
-            assertion(&node);
-            done.set(true);
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
-}
-
-/// Checks status of the provided transactions. Panics if transaction result is an error.
-/// Removes transactions that finished successfully from the list.
-fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
-    let mut unfinished_txs = Vec::new();
-    for (tx_hash, tx_height) in txs.take() {
-        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
-        let status = tx_outcome.as_ref().map(|o| o.status.clone());
-        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
-        match status {
-            Ok(FinalExecutionStatus::SuccessValue(_)) => continue,
-            Ok(FinalExecutionStatus::NotStarted)
-            | Ok(FinalExecutionStatus::Started)
-            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)),
-            _ => panic!(
-                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
-                tx_hash, tx_height, status
-            ),
-        };
-    }
-    txs.set(unfinished_txs);
 }

@@ -2,15 +2,14 @@ use crate::setup::block_observer::BlockSource;
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::node::TestLoopNode;
 use crate::utils::receipts::{ReceiptKind, assert_receipts_present};
 use crate::utils::resharding::{
     AccountDeletedAfterSplit, BlockAction, BlockNodes, BurnGasTraffic, IndicesNodeReadableCheck,
     MoneyTransfersTraffic, NodeRoles, OutgoingBufferSizesDebugPrint, StorageOperationsTraffic,
-    TrackedShardSchedule, assert_after_resharding, assert_only_shard_state_left,
-    assert_parent_flat_storage_ready, delete_state_of_other_shards, gas_key_signer_for_account,
-    install_block_action, shard_uid_at_head,
+    TrackedShardSchedule, assert_only_shard_state_left, assert_parent_flat_storage_ready,
+    delete_state_of_other_shards, gas_key_signer_for_account, install_block_action,
+    shard_uid_at_head,
 };
 use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
@@ -18,13 +17,12 @@ use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, next_block_has_new_shard_layout,
     print_and_assert_shard_accounts, this_block_has_new_shard_layout,
 };
-use crate::utils::transactions::{check_txs, get_smallest_height_head};
+use crate::utils::transactions::check_txs;
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
 use assert_matches::assert_matches;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use itertools::Itertools;
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_chain_configs::TrackedShardsConfig;
@@ -53,7 +51,7 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::ShardUId;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::take;
 use std::ops::ControlFlow;
@@ -152,9 +150,6 @@ struct TestReshardingParameters {
     // so that we can assert at the end of the test that the state of all other shards have been cleaned up.
     tracked_shard_schedule: Option<TrackedShardSchedule>,
     load_memtries_for_tracked_shards: bool,
-    /// Custom behavior executed at every iteration of test loop.
-    #[builder(setter(custom))]
-    loop_actions: Vec<LoopAction>,
     /// Checks that run on each new block of the slowest node.
     #[builder(setter(custom))]
     slowest_node_actions: Vec<Box<dyn BlockAction>>,
@@ -284,7 +279,6 @@ impl TestReshardingParametersBuilder {
         let new_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
         let temporary_account_id: AccountId =
             format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
-        let loop_actions = self.loop_actions.unwrap_or_default();
         let disable_temporary_account_test = self.disable_temporary_account_test.unwrap_or(false);
 
         TestReshardingParameters {
@@ -311,7 +305,6 @@ impl TestReshardingParametersBuilder {
             track_all_shards: self.track_all_shards.unwrap_or(false),
             tracked_shard_schedule,
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
-            loop_actions,
             slowest_node_actions: self.slowest_node_actions.unwrap_or_default(),
             request_node_actions: self.request_node_actions.unwrap_or_default(),
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
@@ -332,11 +325,6 @@ impl TestReshardingParametersBuilder {
         }
     }
 
-    fn add_loop_action(mut self, loop_action: LoopAction) -> Self {
-        self.loop_actions.get_or_insert_default().push(loop_action);
-        self
-    }
-
     fn on_each_slowest_node_block(mut self, action: impl BlockAction) -> Self {
         self.slowest_node_actions.get_or_insert_default().push(Box::new(action));
         self
@@ -344,11 +332,6 @@ impl TestReshardingParametersBuilder {
 
     fn on_each_request_node_block(mut self, action: impl BlockAction) -> Self {
         self.request_node_actions.get_or_insert_default().push(Box::new(action));
-        self
-    }
-
-    fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
-        self.deploy_test_contract.get_or_insert_default().push(account_id);
         self
     }
 
@@ -1349,124 +1332,6 @@ impl ReshardingTest {
         self.env
             .node_runner(request_node_index)
             .run_until(move |_node| progress.borrow().completed, timeout);
-    }
-
-    /// Deploys the test contracts and creates the temporary account, then waits for those
-    /// transactions and checks that they succeeded.
-    fn submit_and_check_setup_transactions(
-        &mut self,
-        params: &TestReshardingParameters,
-        deleted_account: Option<&AccountDeletedAfterSplit>,
-    ) {
-        let mut test_setup_transactions = vec![];
-        for contract_id in &params.deploy_test_contract {
-            let node = self.env.node_for_account(&self.request_node_account_id);
-            let code = if params.deploy_latest_protocol_test_contract {
-                near_test_contracts::rs_contract().into()
-            } else {
-                near_test_contracts::backwards_compatible_rs_contract().into()
-            };
-            let tx = node.tx_deploy_contract(contract_id, code);
-            test_setup_transactions.push(node.submit_tx(tx));
-        }
-        if let Some(deleted_account) = deleted_account {
-            test_setup_transactions.push(
-                deleted_account.submit_create_transaction(&self.env, &self.request_node_account_id),
-            );
-        }
-        // Wait for the test setup transactions to settle and ensure they all succeeded.
-        self.env.test_loop.run_for(Duration::milliseconds(2300));
-        check_txs(
-            &self.env.test_loop.data,
-            &self.env.node_datas,
-            &self.request_node_account_id,
-            &test_setup_transactions,
-        );
-    }
-}
-
-/// Base setup to check sanity of Resharding V3.
-fn test_resharding_v3_base(params: TestReshardingParameters) {
-    init_test_logger();
-    let mut params = params;
-    let deleted_account = (!params.disable_temporary_account_test)
-        .then(|| AccountDeletedAfterSplit::new(params.temporary_account_id.clone()));
-    if let Some(deleted_account) = &deleted_account {
-        params.request_node_actions.push(Box::new(deleted_account.block_action()));
-    }
-    // The checks every resharding test runs. Migrated tests register these themselves.
-    let initial_num_shards = get_base_shard_layout().num_shards();
-    let expected_num_shards = if params.second_resharding_boundary_account.is_some() {
-        initial_num_shards + 2
-    } else {
-        initial_num_shards + 1
-    };
-    let mut trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
-    if !params.load_memtries_for_tracked_shards {
-        trie_sanity_checks = trie_sanity_checks.without_memtries_for_tracked_shards();
-    }
-    params.slowest_node_actions.push(Box::new(InitialShardChecks::new(initial_num_shards)));
-    params.slowest_node_actions.push(Box::new(ChainStateDebugPrint::new()));
-    if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
-        params.slowest_node_actions.push(Box::new(AllChunksIncludedCheck::new(initial_num_shards)));
-    }
-    params.slowest_node_actions.push(Box::new(trie_sanity_checks.block_action()));
-
-    let mut test = build_resharding_test(&mut params);
-    test.submit_and_check_setup_transactions(&params, deleted_account.as_ref());
-    let client_index = test.request_node_index;
-    let client_account_id = test.request_node_account_id.clone();
-    let progress = test.progress.clone();
-    let mut env = test.env;
-
-    let client_handles =
-        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
-
-    let num_epochs_to_wait = params.num_epochs_to_wait;
-    let latest_block_height = Cell::new(0u64);
-    let node_datas = &env.node_datas;
-    let block_observers = &mut env.block_observers;
-    let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        params
-            .loop_actions
-            .iter()
-            .for_each(|action| action.call(node_datas, test_loop_data, client_account_id.clone()));
-        let clients =
-            client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
-
-        // Skip if we already checked the latest height
-        let tip = get_smallest_height_head(&clients);
-        if latest_block_height.get() == tip.height {
-            return false;
-        }
-
-        latest_block_height.set(tip.height);
-
-        block_observers.call_on_new_blocks(test_loop_data, node_datas);
-
-        // Return false until no node maps a tracked child shard to the parent and the garbage
-        // collection window has passed since the resharding.
-        if !progress.borrow().completed {
-            return false;
-        }
-        for (action_index, loop_action) in params.loop_actions.iter().enumerate() {
-            let status = loop_action.get_status();
-            resharding_check_trace::action_status(action_index, &format!("{status:?}"));
-            assert_matches!(status, LoopActionStatus::Succeeded);
-        }
-        return true;
-    };
-
-    env.test_loop.run_until(
-        success_condition,
-        // Give enough time to produce `num_epochs_to_wait` epochs.
-        // Extra buffer accounts for the genesis epoch (which is double-length) and the
-        // need for epoch_height to exceed num_epochs_to_wait.
-        Duration::seconds(((num_epochs_to_wait + 3) * params.epoch_length) as i64),
-    );
-    trie_sanity_checks.assert_all_epochs_checked(&env.node(client_index));
-    if let Some(deleted_account) = &deleted_account {
-        deleted_account.assert_deleted_and_state_garbage_collected();
     }
 }
 

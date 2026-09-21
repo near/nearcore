@@ -95,10 +95,6 @@ pub fn completion(height: BlockHeight, epoch_height: EpochHeight) {
     tracing::info!(target: "resharding_check", check = "completion", height, epoch_height);
 }
 
-pub fn action_status(action_index: usize, status: &str) {
-    tracing::info!(target: "resharding_check", check = "action_status", action_index, status);
-}
-
 pub fn checked_all_epochs(node: &AccountId, height: BlockHeight) {
     tracing::info!(target: "resharding_check", check = "checked_all_epochs", %node, height);
 }
