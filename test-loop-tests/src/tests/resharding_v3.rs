@@ -97,6 +97,11 @@ const TRACKED_SHARD_SCHEDULE_NUM_EPOCHS_TO_WAIT: u64 = 13 + DYNAMIC_RESHARDING_E
 /// Account used in resharding tests as a split boundary.
 const NEW_BOUNDARY_ACCOUNT: &str = "account6";
 
+/// Sub-account of the split boundary account, so it lands in the right child shard after the split.
+fn account_in_right_child() -> AccountId {
+    format!("{NEW_BOUNDARY_ACCOUNT}.{NEW_BOUNDARY_ACCOUNT}").parse().unwrap()
+}
+
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 #[allow(unused)]
@@ -330,6 +335,16 @@ impl TestReshardingParametersBuilder {
 
     fn add_loop_action(mut self, loop_action: LoopAction) -> Self {
         self.loop_actions.get_or_insert_default().push(loop_action);
+        self
+    }
+
+    fn on_each_slowest_node_block(mut self, check: impl BlockCheck) -> Self {
+        self.slowest_node_checks.get_or_insert_default().push(Box::new(check));
+        self
+    }
+
+    fn on_each_request_node_block(mut self, check: impl BlockCheck) -> Self {
+        self.request_node_checks.get_or_insert_default().push(Box::new(check));
         self
     }
 
@@ -973,6 +988,17 @@ struct ReshardingTest {
     request_node_index: usize,
     request_node_account_id: AccountId,
     progress: Rc<RefCell<ReshardingProgress>>,
+    num_epochs_to_wait: u64,
+    epoch_length: BlockHeightDelta,
+}
+
+impl TestReshardingParametersBuilder {
+    /// Builds the test: genesis, epoch configs, env and the registered checks. The test body sends
+    /// its own setup transactions.
+    fn build_test(self) -> ReshardingTest {
+        let mut params = self.build();
+        build_resharding_test(&mut params)
+    }
 }
 
 /// Builds genesis, the epoch configs and the env of a resharding test, warms it up, and installs
@@ -1133,10 +1159,46 @@ fn build_resharding_test(params: &mut TestReshardingParameters) -> ReshardingTes
         request_node_index: client_index,
         request_node_account_id: client_account_id,
         progress,
+        num_epochs_to_wait: params.num_epochs_to_wait,
+        epoch_length: params.epoch_length,
     }
 }
 
 impl ReshardingTest {
+    /// Node that sends transactions and answers queries.
+    fn request_node(&self) -> TestLoopNode<'_> {
+        self.env.node(self.request_node_index)
+    }
+
+    /// Runs for the time the setup transactions need, then checks that they succeeded.
+    fn wait_for_setup_transactions(&mut self, txs: &[CryptoHash]) {
+        self.wait_for_setup_transactions_for(Duration::milliseconds(2300), txs);
+    }
+
+    fn wait_for_setup_transactions_for(&mut self, duration: Duration, txs: &[CryptoHash]) {
+        self.env.test_loop.run_for(duration);
+        check_txs(
+            &self.env.test_loop.data,
+            &self.env.node_datas,
+            &self.request_node_account_id,
+            txs,
+        );
+    }
+
+    /// Runs until no node maps a tracked child shard to the parent and the epoch height passed
+    /// `num_epochs_to_wait`, both at the same sample.
+    fn run_until_resharding_mapping_removed(&mut self) {
+        let progress = self.progress.clone();
+        // Give enough time to produce `num_epochs_to_wait` epochs. Extra buffer accounts for the
+        // genesis epoch (which is double-length) and the need for epoch_height to exceed
+        // num_epochs_to_wait.
+        let timeout = Duration::seconds(((self.num_epochs_to_wait + 3) * self.epoch_length) as i64);
+        let request_node_index = self.request_node_index;
+        self.env
+            .node_runner(request_node_index)
+            .run_until(move |_node| progress.borrow().completed, timeout);
+    }
+
     /// Deploys the test contracts and creates the temporary account, then waits for those
     /// transactions and checks that they succeeded.
     fn submit_and_check_setup_transactions(
@@ -1280,7 +1342,27 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3() {
-    test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .on_each_request_node_block(deleted_account.clone())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.clone())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_completed();
 }
 
 #[test]
