@@ -44,10 +44,10 @@ impl VMKind {
     }
 }
 
-/// Whether a storage_get call is performed through flat storage or trie.
-///
-/// Only kept for `VMConfigView` compatibility: contract storage reads always go
-/// through flat storage since the `FlatStorageReads` protocol feature.
+// Only kept for `VMConfigView` compatibility: contract storage reads always go
+// through flat storage since the `FlatStorageReads` protocol feature. The doc
+// comment below is the OpenAPI description of this type, so it is left as is.
+/// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum StorageGetMode {
