@@ -1375,15 +1375,24 @@ fn slow_test_resharding_v3() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_two_independent_splits() {
+    init_test_logger();
     let second_resharding_boundary_account = "account2".parse().unwrap();
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .second_resharding_boundary_account(Some(second_resharding_boundary_account))
-            // TODO(resharding) Adjust temporary account test to work with two reshardings.
-            .disable_temporary_account_test(true)
-            .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
-            .build(),
-    );
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 2;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+
+    // TODO(resharding) Adjust the deleted account check to work with two reshardings.
+    let mut test = TestReshardingParametersBuilder::default()
+        .second_resharding_boundary_account(Some(second_resharding_boundary_account))
+        .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
 }
 
 // Takes a sequence of shard ids to track in consecutive epochs,
@@ -1720,51 +1729,115 @@ fn slow_test_resharding_v3_track_all_shards() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_before() {
-    let chunk_ranges_to_drop = HashMap::from([(1, -2..0)]);
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .chunk_ranges_to_drop(chunk_ranges_to_drop)
-            .epoch_length(INCREASED_EPOCH_LENGTH)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .chunk_ranges_to_drop(HashMap::from([(1, -2..0)]))
+        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_after() {
-    let chunk_ranges_to_drop = HashMap::from([(2, 0..2)]);
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .chunk_ranges_to_drop(chunk_ranges_to_drop)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .chunk_ranges_to_drop(HashMap::from([(2, 0..2)]))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_before_and_after() {
-    let chunk_ranges_to_drop = HashMap::from([(0, -2..2)]);
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .chunk_ranges_to_drop(chunk_ranges_to_drop)
-            .epoch_length(INCREASED_EPOCH_LENGTH)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .chunk_ranges_to_drop(HashMap::from([(0, -2..2)]))
+        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_all() {
-    let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]);
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .chunk_ranges_to_drop(chunk_ranges_to_drop)
-            .epoch_length(INCREASED_EPOCH_LENGTH)
-            .build(),
-    );
+    init_test_logger();
+    let initial_num_shards = get_base_shard_layout().num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .chunk_ranges_to_drop(HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]))
+        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
