@@ -871,8 +871,8 @@ impl<'a> BlockNodes<'a> {
     }
 }
 
-/// Check, traffic or output that a resharding test runs on each new block of one node.
-pub(crate) trait BlockCheck: 'static {
+/// Code a resharding test runs on each new block of one node: a check, traffic, or output.
+pub(crate) trait BlockAction: 'static {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()>;
 }
 
@@ -883,12 +883,12 @@ pub(crate) struct NodeRoles {
     pub(crate) archival_node_index: Option<usize>,
 }
 
-/// Registers `check`, called on each new block of `source`.
-pub(crate) fn install_block_check(
+/// Registers `action`, called on each new block of `source`.
+pub(crate) fn install_block_action(
     env: &mut TestLoopEnv,
     source: BlockSource,
     roles: NodeRoles,
-    mut check: Box<dyn BlockCheck>,
+    mut action: Box<dyn BlockAction>,
 ) {
     env.on_each_block(source, move |block| {
         let nodes = BlockNodes {
@@ -897,7 +897,7 @@ pub(crate) fn install_block_check(
             request: &block.nodes[roles.request_node_index],
             archival: roles.archival_node_index.map(|index| &block.nodes[index]),
         };
-        check.on_new_block(&nodes)
+        action.on_new_block(&nodes)
     });
 }
 
@@ -956,6 +956,12 @@ impl AccountDeletedAfterSplit {
         }
     }
 
+    /// The action to register on the request node's blocks: it deletes the account at the first
+    /// block of the new shard layout, then follows it to the garbage collection query.
+    pub(crate) fn block_action(&self) -> Self {
+        self.clone()
+    }
+
     /// Submits the transaction that creates the account, and returns its hash. The parent account
     /// creates it with 10 NEAR, using its first nonce.
     pub(crate) fn submit_create_transaction(
@@ -973,12 +979,20 @@ impl AccountDeletedAfterSplit {
         )
     }
 
-    pub(crate) fn assert_completed(&self) {
-        assert_matches!(*self.state.borrow(), AccountDeletionState::Completed);
+    /// Asserts that the account was deleted at the first block of the new shard layout, that its
+    /// delete transaction succeeded one epoch later, and that after the garbage collection window
+    /// the request node no longer served its state at the deletion height.
+    pub(crate) fn assert_deleted_and_state_garbage_collected(&self) {
+        assert_matches!(
+            *self.state.borrow(),
+            AccountDeletionState::Completed,
+            "{} did not reach the last step of its deletion check",
+            self.account_id
+        );
     }
 }
 
-impl BlockCheck for AccountDeletedAfterSplit {
+impl BlockAction for AccountDeletedAfterSplit {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         let account_id = &self.account_id;
         let beneficiary_id = &self.beneficiary_id;

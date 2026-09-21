@@ -12,10 +12,10 @@ use crate::utils::resharding::call_promise_yield_with_id;
 #[cfg(feature = "test_features")]
 use crate::utils::resharding::fork_before_resharding_block;
 use crate::utils::resharding::{
-    AccountDeletedAfterSplit, BlockCheck, BlockNodes, NodeRoles, TrackedShardSchedule,
+    AccountDeletedAfterSplit, BlockAction, BlockNodes, NodeRoles, TrackedShardSchedule,
     assert_after_resharding, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
     delayed_receipts_repro_missing_trie_value, execute_money_transfers, execute_storage_operations,
-    gas_key_signer_for_account, install_block_check, promise_yield_repro_missing_trie_value,
+    gas_key_signer_for_account, install_block_action, promise_yield_repro_missing_trie_value,
     send_large_cross_shard_receipts,
 };
 use crate::utils::resharding_check_trace;
@@ -152,10 +152,10 @@ struct TestReshardingParameters {
     loop_actions: Vec<LoopAction>,
     /// Checks that run on each new block of the slowest node.
     #[builder(setter(custom))]
-    slowest_node_checks: Vec<Box<dyn BlockCheck>>,
+    slowest_node_actions: Vec<Box<dyn BlockAction>>,
     /// Checks and traffic that run on each new block of the request node.
     #[builder(setter(custom))]
-    request_node_checks: Vec<Box<dyn BlockCheck>>,
+    request_node_actions: Vec<Box<dyn BlockAction>>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
     // epoch length, but it's good to also check what happens with shorter ones.
@@ -311,8 +311,8 @@ impl TestReshardingParametersBuilder {
             tracked_shard_schedule,
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
             loop_actions,
-            slowest_node_checks: self.slowest_node_checks.unwrap_or_default(),
-            request_node_checks: self.request_node_checks.unwrap_or_default(),
+            slowest_node_actions: self.slowest_node_actions.unwrap_or_default(),
+            request_node_actions: self.request_node_actions.unwrap_or_default(),
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
             deploy_latest_protocol_test_contract: self
@@ -338,13 +338,13 @@ impl TestReshardingParametersBuilder {
         self
     }
 
-    fn on_each_slowest_node_block(mut self, check: impl BlockCheck) -> Self {
-        self.slowest_node_checks.get_or_insert_default().push(Box::new(check));
+    fn on_each_slowest_node_block(mut self, action: impl BlockAction) -> Self {
+        self.slowest_node_actions.get_or_insert_default().push(Box::new(action));
         self
     }
 
-    fn on_each_request_node_block(mut self, check: impl BlockCheck) -> Self {
-        self.request_node_checks.get_or_insert_default().push(Box::new(check));
+    fn on_each_request_node_block(mut self, action: impl BlockAction) -> Self {
+        self.request_node_actions.get_or_insert_default().push(Box::new(action));
         self
     }
 
@@ -644,7 +644,7 @@ impl InitialShardChecks {
     }
 }
 
-impl BlockCheck for InitialShardChecks {
+impl BlockAction for InitialShardChecks {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         let tip = nodes.tip();
         let current_num_shards = nodes.num_shards_at_tip();
@@ -665,7 +665,7 @@ impl SampleTrace {
     }
 }
 
-impl BlockCheck for SampleTrace {
+impl BlockAction for SampleTrace {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         let tip = nodes.tip();
         resharding_check_trace::sample(
@@ -687,7 +687,7 @@ impl ChainStateDebugPrint {
     }
 }
 
-impl BlockCheck for ChainStateDebugPrint {
+impl BlockAction for ChainStateDebugPrint {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         print_chain_state(nodes);
         ControlFlow::Continue(())
@@ -704,7 +704,7 @@ impl AllChunksIncludedCheck {
     }
 }
 
-impl BlockCheck for AllChunksIncludedCheck {
+impl BlockAction for AllChunksIncludedCheck {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         assert_all_chunks_included(nodes, self.initial_num_shards);
         ControlFlow::Continue(())
@@ -729,6 +729,12 @@ impl TrieSanityChecks {
         Self { check: Rc::new(RefCell::new(TrieSanityCheck::new(false))), ..self }
     }
 
+    /// The action to register on the slowest node's blocks: it compares the memtrie, the disk trie
+    /// and flat storage of each node, for the shards it tracks.
+    fn block_action(&self) -> Self {
+        self.clone()
+    }
+
     /// Asserts that every tracked shard of every node was checked in every epoch.
     fn assert_all_epochs_checked(&self, node: &TestLoopNode<'_>) {
         self.check.borrow().check_epochs(node.client());
@@ -739,7 +745,7 @@ impl TrieSanityChecks {
     }
 }
 
-impl BlockCheck for TrieSanityChecks {
+impl BlockAction for TrieSanityChecks {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         self.check.borrow_mut().assert_state_sanity(&nodes.clients(), self.expected_num_shards);
         ControlFlow::Continue(())
@@ -836,7 +842,7 @@ struct SplitTracking {
     progress: Rc<RefCell<ReshardingProgress>>,
 }
 
-impl BlockCheck for SplitTracking {
+impl BlockAction for SplitTracking {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         self.progress.borrow_mut().track_split(nodes);
         ControlFlow::Continue(())
@@ -848,7 +854,7 @@ struct ParentMappingCheck {
     progress: Rc<RefCell<ReshardingProgress>>,
 }
 
-impl BlockCheck for ParentMappingCheck {
+impl BlockAction for ParentMappingCheck {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         self.progress.borrow_mut().check_parent_mapping(nodes);
         ControlFlow::Continue(())
@@ -1133,21 +1139,21 @@ fn build_resharding_test(params: &mut TestReshardingParameters) -> ReshardingTes
     }));
 
     let mut env = env;
-    for check in take(&mut params.request_node_checks) {
-        install_block_check(&mut env, BlockSource::Node(client_index), roles, check);
+    for action in take(&mut params.request_node_actions) {
+        install_block_action(&mut env, BlockSource::Node(client_index), roles, action);
     }
     // Scaffolding for the migration comparison, removed with the rest of the tracing.
-    install_block_check(&mut env, BlockSource::SlowestNode, roles, Box::new(SampleTrace::new()));
-    for check in take(&mut params.slowest_node_checks) {
-        install_block_check(&mut env, BlockSource::SlowestNode, roles, check);
+    install_block_action(&mut env, BlockSource::SlowestNode, roles, Box::new(SampleTrace::new()));
+    for action in take(&mut params.slowest_node_actions) {
+        install_block_action(&mut env, BlockSource::SlowestNode, roles, action);
     }
-    install_block_check(
+    install_block_action(
         &mut env,
         BlockSource::SlowestNode,
         roles,
         Box::new(SplitTracking { progress: progress.clone() }),
     );
-    install_block_check(
+    install_block_action(
         &mut env,
         BlockSource::SlowestNode,
         roles,
@@ -1249,7 +1255,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let deleted_account = (!params.disable_temporary_account_test)
         .then(|| AccountDeletedAfterSplit::new(params.temporary_account_id.clone()));
     if let Some(deleted_account) = &deleted_account {
-        params.request_node_checks.push(Box::new(deleted_account.clone()));
+        params.request_node_actions.push(Box::new(deleted_account.block_action()));
     }
     // The checks every resharding test runs. Migrated tests register these themselves.
     let initial_num_shards = get_base_shard_layout().num_shards();
@@ -1262,12 +1268,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     if !params.load_memtries_for_tracked_shards {
         trie_sanity_checks = trie_sanity_checks.without_memtries_for_tracked_shards();
     }
-    params.slowest_node_checks.push(Box::new(InitialShardChecks::new(initial_num_shards)));
-    params.slowest_node_checks.push(Box::new(ChainStateDebugPrint::new()));
+    params.slowest_node_actions.push(Box::new(InitialShardChecks::new(initial_num_shards)));
+    params.slowest_node_actions.push(Box::new(ChainStateDebugPrint::new()));
     if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
-        params.slowest_node_checks.push(Box::new(AllChunksIncludedCheck::new(initial_num_shards)));
+        params.slowest_node_actions.push(Box::new(AllChunksIncludedCheck::new(initial_num_shards)));
     }
-    params.slowest_node_checks.push(Box::new(trie_sanity_checks.clone()));
+    params.slowest_node_actions.push(Box::new(trie_sanity_checks.block_action()));
 
     let mut test = build_resharding_test(&mut params);
     test.submit_and_check_setup_transactions(&params, deleted_account.as_ref());
@@ -1334,7 +1340,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     );
     trie_sanity_checks.assert_all_epochs_checked(&env.node(client_index));
     if let Some(deleted_account) = &deleted_account {
-        deleted_account.assert_completed();
+        deleted_account.assert_deleted_and_state_garbage_collected();
     }
 }
 
@@ -1349,10 +1355,10 @@ fn slow_test_resharding_v3() {
     let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
 
     let mut test = TestReshardingParametersBuilder::default()
-        .on_each_request_node_block(deleted_account.clone())
+        .on_each_request_node_block(deleted_account.block_action())
         .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
         .on_each_slowest_node_block(ChainStateDebugPrint::new())
-        .on_each_slowest_node_block(trie_sanity_checks.clone())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
         .build_test();
 
     let setup_txs =
@@ -1362,7 +1368,7 @@ fn slow_test_resharding_v3() {
     test.run_until_resharding_mapping_removed();
 
     trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
-    deleted_account.assert_completed();
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
