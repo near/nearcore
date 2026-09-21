@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    // Stateless Validation.
-    (69, include_config!("69.yaml")),
     // Introduce ETH-implicit accounts.
     (70, include_config!("70.yaml")),
     // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
