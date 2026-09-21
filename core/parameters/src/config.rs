@@ -256,7 +256,7 @@ impl CongestionControlConfig {
     }
 
     /// The congestion control parameters as originally stabilized at protocol
-    /// version 68 (NEP-539). The live parameters have been retuned since, and
+    /// version 68 (NEP-539). The live parameters have been adjusted since, and
     /// tests calibrated to the original values pin them here so they don't need
     /// adjusting every time the live parameters change.
     // TODO(limited_replayability): Move tests to use config from latest protocol version.
