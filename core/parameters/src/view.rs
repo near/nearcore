@@ -293,7 +293,7 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: config.discard_custom_sections,
+            discard_custom_sections: true,
             limit_config: config.limit_config,
             storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,

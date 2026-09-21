@@ -260,7 +260,6 @@ pub enum Parameter {
     // past protocol version 87, where the feature is enabled.
     UniversalAccounts,
     FixMlDsaCostCharging,
-    DiscardCustomSections,
 
     // Congestion Control
     MaxCongestionIncomingGas,
