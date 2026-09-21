@@ -41,10 +41,11 @@ use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeightDelta, Gas, Nonce, ShardId, ShardIndex,
+    AccountId, Balance, BlockHeightDelta, Gas, Nonce, NumShards, ShardId, ShardIndex,
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_store::ShardUId;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::ControlFlow;
@@ -680,9 +681,21 @@ fn assert_all_chunks_included(
     );
 }
 
-/// Base setup to check sanity of Resharding V3.
-fn test_resharding_v3_base(params: TestReshardingParameters) {
-    init_test_logger();
+/// Env of a resharding test, with the values its checks need.
+struct ReshardingTest {
+    env: TestLoopEnv,
+    /// Node that sends transactions and answers queries: the RPC node, or the first client.
+    request_node_index: usize,
+    request_node_account_id: AccountId,
+    initial_num_shards: NumShards,
+    expected_num_shards: NumShards,
+    parent_shard_uid: ShardUId,
+    /// Boundary account of the last split.
+    split_boundary_account: AccountId,
+}
+
+/// Builds genesis, the epoch configs and the env of a resharding test, and warms it up.
+fn build_resharding_test(params: &TestReshardingParameters) -> ReshardingTest {
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
@@ -723,7 +736,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let base_shard_layout = get_base_shard_layout();
     let base_epoch_config = base_epoch_config.with_shard_layout(base_shard_layout.clone());
-    let mut new_boundary_account = params.new_boundary_account;
+    let mut new_boundary_account = params.new_boundary_account.clone();
     let initial_num_shards = base_shard_layout.num_shards();
 
     let genesis = TestGenesisBuilder::new()
@@ -776,10 +789,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let client_index = params.client_index;
     let client_account_id = params.clients[client_index].clone();
 
-    let mut env = builder
+    let env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
-        .clients(params.clients)
+        .clients(params.clients.clone())
         .cold_storage_archival_clients(params.archivals.clone())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
@@ -791,40 +804,77 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         ))
         .warmup();
 
-    let mut test_setup_transactions = vec![];
-    if !params.deploy_test_global_contract.is_empty() {
-        setup_global_contracts(
-            &mut env,
-            &client_account_id,
-            &params.deploy_test_global_contract,
-            &params.use_test_global_contract,
-            &mut test_setup_transactions,
+    ReshardingTest {
+        env,
+        request_node_index: client_index,
+        request_node_account_id: client_account_id,
+        initial_num_shards,
+        expected_num_shards,
+        parent_shard_uid,
+        split_boundary_account: new_boundary_account,
+    }
+}
+
+impl ReshardingTest {
+    /// Deploys the test contracts and creates the temporary account, then waits for those
+    /// transactions and checks that they succeeded.
+    fn submit_and_check_setup_transactions(&mut self, params: &TestReshardingParameters) {
+        let mut test_setup_transactions = vec![];
+        if !params.deploy_test_global_contract.is_empty() {
+            setup_global_contracts(
+                &mut self.env,
+                &self.request_node_account_id,
+                &params.deploy_test_global_contract,
+                &params.use_test_global_contract,
+                &mut test_setup_transactions,
+            );
+        }
+        for contract_id in &params.deploy_test_contract {
+            let node = self.env.node_for_account(&self.request_node_account_id);
+            let code = if params.deploy_latest_protocol_test_contract {
+                near_test_contracts::rs_contract().into()
+            } else {
+                near_test_contracts::backwards_compatible_rs_contract().into()
+            };
+            let tx = node.tx_deploy_contract(contract_id, code);
+            test_setup_transactions.push(node.submit_tx(tx));
+        }
+        if !params.disable_temporary_account_test {
+            let create_account_tx = create_account(
+                &mut self.env,
+                &self.request_node_account_id,
+                &self.split_boundary_account,
+                &params.temporary_account_id,
+                Balance::from_near(10),
+                2,
+            );
+            test_setup_transactions.push(create_account_tx);
+        }
+        // Wait for the test setup transactions to settle and ensure they all succeeded.
+        self.env.test_loop.run_for(Duration::milliseconds(2300));
+        check_txs(
+            &self.env.test_loop.data,
+            &self.env.node_datas,
+            &self.request_node_account_id,
+            &test_setup_transactions,
         );
     }
-    for contract_id in &params.deploy_test_contract {
-        let node = env.node_for_account(&client_account_id);
-        let code = if params.deploy_latest_protocol_test_contract {
-            near_test_contracts::rs_contract().into()
-        } else {
-            near_test_contracts::backwards_compatible_rs_contract().into()
-        };
-        let tx = node.tx_deploy_contract(contract_id, code);
-        test_setup_transactions.push(node.submit_tx(tx));
-    }
-    if !params.disable_temporary_account_test {
-        let create_account_tx = create_account(
-            &mut env,
-            &client_account_id,
-            &new_boundary_account,
-            &params.temporary_account_id,
-            Balance::from_near(10),
-            2,
-        );
-        test_setup_transactions.push(create_account_tx);
-    }
-    // Wait for the test setup transactions to settle and ensure they all succeeded.
-    env.test_loop.run_for(Duration::milliseconds(2300));
-    check_txs(&env.test_loop.data, &env.node_datas, &client_account_id, &test_setup_transactions);
+}
+
+/// Base setup to check sanity of Resharding V3.
+fn test_resharding_v3_base(params: TestReshardingParameters) {
+    init_test_logger();
+    let mut test = build_resharding_test(&params);
+    test.submit_and_check_setup_transactions(&params);
+    let ReshardingTest {
+        mut env,
+        request_node_index: client_index,
+        request_node_account_id: client_account_id,
+        initial_num_shards,
+        expected_num_shards,
+        parent_shard_uid,
+        ..
+    } = test;
 
     let client_handles =
         env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
