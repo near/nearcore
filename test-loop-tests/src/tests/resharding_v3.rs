@@ -11,10 +11,11 @@ use crate::utils::receipts::{
 use crate::utils::resharding::call_promise_yield_with_id;
 use crate::utils::resharding::{
     AccountDeletedAfterSplit, BlockAction, BlockNodes, NodeRoles, TrackedShardSchedule,
-    assert_after_resharding, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
-    delayed_receipts_repro_missing_trie_value, execute_money_transfers, execute_storage_operations,
+    assert_after_resharding, assert_only_shard_state_left, assert_parent_flat_storage_ready,
+    call_burn_gas_contract, call_promise_yield, delayed_receipts_repro_missing_trie_value,
+    delete_state_of_other_shards, execute_money_transfers, execute_storage_operations,
     gas_key_signer_for_account, install_block_action, promise_yield_repro_missing_trie_value,
-    send_large_cross_shard_receipts,
+    send_large_cross_shard_receipts, shard_uid_at_head,
 };
 use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
@@ -1199,6 +1200,42 @@ impl ReshardingTest {
         self.request_node().head().height
     }
 
+    fn node(&self, node_index: usize) -> TestLoopNode<'_> {
+        self.env.node(node_index)
+    }
+
+    fn run_until_node_height(&mut self, node_index: usize, height: BlockHeight) {
+        let timeout = self.timeout();
+        self.env.node_runner(node_index).run_until(|node| node.head().height >= height, timeout);
+    }
+
+    fn run_until_node_epoch_height(&mut self, node_index: usize, epoch_height: EpochHeight) {
+        let timeout = self.timeout();
+        self.env.node_runner(node_index).run_until(
+            |node| {
+                let head = node.head();
+                node.client()
+                    .epoch_manager
+                    .get_epoch_height_from_prev_block(&head.prev_block_hash)
+                    .unwrap()
+                    >= epoch_height
+            },
+            timeout,
+        );
+    }
+
+    /// Runs until the node's head is the last block of the old shard layout, and returns its height.
+    fn run_until_resharding_block_on_node(&mut self, node_index: usize) -> BlockHeight {
+        let timeout = self.timeout();
+        self.env.node_runner(node_index).run_until(
+            |node| {
+                next_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &node.head())
+            },
+            timeout,
+        );
+        self.node(node_index).head().height
+    }
+
     /// Runs for the time the setup transactions need, then checks that they succeeded.
     fn wait_for_setup_transactions(&mut self, txs: &[CryptoHash]) {
         self.wait_for_setup_transactions_for(Duration::milliseconds(2300), txs);
@@ -1428,6 +1465,7 @@ fn shard_sequence_to_schedule(
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
+    init_test_logger();
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
 
@@ -1477,19 +1515,27 @@ fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
         client_index: (num_clients - 1) as usize,
         schedule: tracked_shard_schedule,
     };
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .num_epochs_to_wait(num_epochs_to_wait)
-            // Make the test more challenging by enabling shard shuffling.
-            .shuffle_shard_assignment_for_chunk_producers(true)
-            .second_resharding_boundary_account(Some(second_resharding_boundary_account))
-            .tracked_shard_schedule(Some(tracked_shard_schedule))
-            .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
-            // TODO(resharding) Adjust temporary account test to work with two reshardings.
-            .disable_temporary_account_test(true)
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 2;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+
+    // TODO(resharding) Adjust the deleted account check to work with two reshardings.
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        // Make the test more challenging by enabling shard shuffling.
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .second_resharding_boundary_account(Some(second_resharding_boundary_account))
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
 }
 
 // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
@@ -1498,30 +1544,56 @@ fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_state_cleanup() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
     let (child_shard_id, _) = get_child_shard_ids(&base_shard_layout);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence =
         vec![parent_shard_id, parent_shard_id, child_shard_id, unrelated_shard_id];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, parent_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, unrelated_shard_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 // Track parent shard before resharding, but do not track any child shard after resharding.
@@ -1529,29 +1601,55 @@ fn slow_test_resharding_v3_state_cleanup() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence =
         vec![parent_shard_id, parent_shard_id, unrelated_shard_id, unrelated_shard_id];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, parent_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, unrelated_shard_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 // Track parent shard before resharding, and a child shard after resharding.
@@ -1562,13 +1660,13 @@ fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
     let (child_shard_id, _) = get_child_shard_ids(&base_shard_layout);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence = vec![
         parent_shard_id,
         parent_shard_id,
@@ -1581,20 +1679,46 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
         child_shard_id,
     ];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = TRACKED_SHARD_SCHEDULE_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, parent_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, child_shard_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 // Track parent shard before resharding, and track the first child after resharding.
@@ -1606,13 +1730,13 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
     let (left_child_id, right_child_id) = get_child_shard_ids(&base_shard_layout);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence = vec![
         parent_shard_id,
         parent_shard_id,
@@ -1625,20 +1749,46 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
         left_child_id,
     ];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = TRACKED_SHARD_SCHEDULE_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, parent_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, left_child_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 // Sets up an extra node that doesn't track the parent, doesn't track the child in the first post-resharding
@@ -1647,28 +1797,54 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_sync_child() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let (child_shard_id, _) = get_child_shard_ids(&base_shard_layout);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence =
         vec![unrelated_shard_id, unrelated_shard_id, unrelated_shard_id, child_shard_id];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-            .build(),
-    );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, unrelated_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, child_shard_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 // Track parent shard before resharding, but do not track any child shard after resharding.
@@ -1677,38 +1853,57 @@ fn slow_test_resharding_v3_sync_child() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_skip_when_no_children_tracked() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&split_boundary_account);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     // Track parent before resharding, then immediately switch to unrelated shard (no children tracked).
     let tracked_shard_sequence =
         vec![parent_shard_id, parent_shard_id, unrelated_shard_id, unrelated_shard_id];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
 
-    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&split_boundary_account);
+    let mut test = TestReshardingParametersBuilder::default()
+        .num_clients(num_clients)
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
 
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-            .num_clients(num_clients)
-            .num_epochs_to_wait(num_epochs_to_wait)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(
-                crate::utils::resharding::check_resharding_skipped_when_no_children_tracked(
-                    parent_shard_uid,
-                    tracked_shard_schedule,
-                ),
-            )
-            .build(),
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // The node tracks no child shard after the split, so its resharding is skipped and the parent
+    // shard's flat storage stays ready.
+    let resharding_height = test.run_until_resharding_block_on_node(schedule_node_index);
+    let blocks_after_resharding_to_check = 4;
+    test.run_until_node_height(
+        schedule_node_index,
+        resharding_height + blocks_after_resharding_to_check,
     );
+    assert_parent_flat_storage_ready(&test.node(schedule_node_index), parent_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]
@@ -2041,30 +2236,57 @@ fn slow_test_resharding_v3_shard_shuffling() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling_untrack_then_track() {
+    init_test_logger();
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
     let (child_shard_id, _) = get_child_shard_ids(&base_shard_layout);
     let unrelated_shard_id = base_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
-
     let tracked_shard_sequence =
         vec![parent_shard_id, parent_shard_id, unrelated_shard_id, child_shard_id];
     let num_clients = 8;
+    let schedule_node_index = (num_clients - 1) as usize;
     let num_epochs_to_wait = INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = make_tracked_shard_schedule(
         tracked_shard_sequence,
         num_epochs_to_wait,
-        (num_clients - 1) as usize,
+        schedule_node_index,
     );
-    let params = TestReshardingParametersBuilder::default()
+    let initial_num_shards = base_shard_layout.num_shards();
+    let expected_num_shards = initial_num_shards + 1;
+    let trie_sanity_checks = TrieSanityChecks::new(expected_num_shards);
+    let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
+
+    let mut test = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .num_epochs_to_wait(num_epochs_to_wait)
         .num_clients(num_clients)
-        .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-        .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
-        .build();
-    test_resharding_v3_base(params);
+        .num_epochs_to_wait(num_epochs_to_wait)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        .on_each_request_node_block(deleted_account.block_action())
+        .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
+        .on_each_slowest_node_block(ChainStateDebugPrint::new())
+        .on_each_slowest_node_block(trie_sanity_checks.block_action())
+        .build_test();
+
+    let setup_txs =
+        [deleted_account.submit_create_transaction(&test.env, &test.request_node_account_id)];
+    test.wait_for_setup_transactions(&setup_txs);
+
+    // Genesis writes the state of every shard, so drop the shards this node does not track.
+    let schedule_node = test.node(schedule_node_index);
+    let first_tracked_shard_uid = shard_uid_at_head(&schedule_node, parent_shard_id);
+    delete_state_of_other_shards(&schedule_node, first_tracked_shard_uid);
+
+    test.run_until_node_epoch_height(schedule_node_index, num_epochs_to_wait);
+    let schedule_node = test.node(schedule_node_index);
+    let last_tracked_shard_uid = shard_uid_at_head(&schedule_node, child_shard_id);
+    assert_only_shard_state_left(&schedule_node, last_tracked_shard_uid);
+
+    test.run_until_resharding_mapping_removed();
+
+    trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
+    deleted_account.assert_deleted_and_state_garbage_collected();
 }
 
 #[test]

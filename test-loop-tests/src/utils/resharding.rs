@@ -1053,8 +1053,32 @@ impl BlockAction for AccountDeletedAfterSplit {
     }
 }
 
-/// Removes from State column all entries where key does not start with `the_only_shard_uid` ShardUId prefix.
-fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+/// The uid of `shard_id` in the shard layout of the node's head.
+pub(crate) fn shard_uid_at_head(node: &TestLoopNode<'_>, shard_id: ShardId) -> ShardUId {
+    let head = node.head();
+    shard_id_to_uid(node.client().epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap()
+}
+
+/// Asserts that the parent shard's flat storage is still ready, which is what happens when a node
+/// tracks no child shard after the split and its resharding is skipped.
+pub(crate) fn assert_parent_flat_storage_ready(
+    node: &TestLoopNode<'_>,
+    parent_shard_uid: ShardUId,
+) {
+    let flat_store = node.client().runtime_adapter.store().flat_store();
+    let status = flat_store.get_flat_storage_status(parent_shard_uid);
+    assert_matches!(
+        status,
+        FlatStorageStatus::Ready(_),
+        "unexpected parent shard status for {parent_shard_uid}"
+    );
+}
+
+/// Deletes the state of every shard other than `kept_shard_uid`, so that a test can later assert
+/// that only the state of the shard a node tracks is left. Genesis writes the state of all shards.
+pub(crate) fn delete_state_of_other_shards(node: &TestLoopNode<'_>, kept_shard_uid: ShardUId) {
+    let client = node.client();
+    let the_only_shard_uid = kept_shard_uid;
     let store = client.chain.chain_store.store().trie_store();
     let mut store_update = store.store_update();
     for (key, value) in store.store().iter_raw_bytes(DBCol::State) {
@@ -1070,8 +1094,9 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     store_update.commit();
 }
 
-/// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
-fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+/// Asserts that the state of every shard other than `the_only_shard_uid` has been cleaned up.
+pub(crate) fn assert_only_shard_state_left(node: &TestLoopNode<'_>, the_only_shard_uid: ShardUId) {
+    let client = node.client();
     let store = client.chain.chain_store.store();
     let mut shard_uid_prefixes = HashSet::new();
     for (key, _) in store.iter_raw_bytes(DBCol::State) {
@@ -1081,126 +1106,6 @@ fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId)
     assert_eq!(shard_uid_prefixes.into_iter().collect_vec(), [the_only_shard_uid]);
 }
 
-/// Loop action testing that resharding is skipped when no children are tracked.
-/// Verifies that parent shard flat storage remains Ready after resharding.
-pub(crate) fn check_resharding_skipped_when_no_children_tracked(
-    parent_shard_uid: ShardUId,
-    tracked_shard_schedule: TrackedShardSchedule,
-) -> LoopAction {
-    let client_index = tracked_shard_schedule.client_index;
-    let latest_height = Cell::new(0);
-    let resharding_height = Cell::new(None);
-    let checked = Cell::new(false);
-
-    let (done, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData], test_loop_data: &mut TestLoopData, _: AccountId| {
-            if done.get() || checked.get() {
-                return;
-            }
-
-            let client_handle = node_datas[client_index].client_sender.actor_handle();
-            let client = &test_loop_data.get_mut(&client_handle).client;
-            let tip = client.chain.head().unwrap();
-
-            // Run this action only once at every block height.
-            if latest_height.get() == tip.height {
-                return;
-            }
-            latest_height.set(tip.height);
-
-            if resharding_height.get().is_none() {
-                if next_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
-                    resharding_height.set(Some(tip.height));
-                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
-                }
-            }
-
-            // Check flat storage status after resharding.
-            if let Some(resharding_h) = resharding_height.get() {
-                if tip.height > resharding_h + 3 && !checked.get() {
-                    let flat_store = client.runtime_adapter.store().flat_store();
-                    let status = flat_store.get_flat_storage_status(parent_shard_uid);
-
-                    match status {
-                        FlatStorageStatus::Ready(_) => {
-                            // Flat storage should be Ready.
-                        }
-                        status => {
-                            panic!(
-                                "Unexpected parent shard status {:?} for shard {:?}",
-                                status, parent_shard_uid
-                            );
-                        }
-                    }
-                    checked.set(true);
-                    done.set(true);
-                }
-            }
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
-}
-
-/// Loop action testing state cleanup.
-/// It assumes single shard tracking and it waits for `num_epochs_to_wait`.
-/// Then it checks whether the last shard tracked by the client
-/// is the only ShardUId prefix for nodes in the State column.
-pub(crate) fn check_state_cleanup(
-    tracked_shard_schedule: TrackedShardSchedule,
-    num_epochs_to_wait: u64,
-) -> LoopAction {
-    let client_index = tracked_shard_schedule.client_index;
-    let latest_height = Cell::new(0);
-
-    let (done, succeeded) = LoopAction::shared_success_flag();
-    let action_fn = Box::new(
-        move |node_datas: &[NodeExecutionData], test_loop_data: &mut TestLoopData, _: AccountId| {
-            if done.get() {
-                return;
-            }
-
-            let client_handle = node_datas[client_index].client_sender.actor_handle();
-            let client = &test_loop_data.get_mut(&client_handle).client;
-            let tip = client.chain.head().unwrap();
-
-            // Run this action only once at every block height.
-            if latest_height.get() == tip.height {
-                return;
-            }
-
-            let epoch_height = client
-                .epoch_manager
-                .get_epoch_height_from_prev_block(&tip.prev_block_hash)
-                .unwrap();
-            let [tracked_shard_id] =
-                tracked_shard_schedule.schedule[epoch_height as usize].clone().try_into().unwrap();
-            let tracked_shard_uid =
-                shard_id_to_uid(client.epoch_manager.as_ref(), tracked_shard_id, &tip.epoch_id)
-                    .unwrap();
-
-            if latest_height.get() == 0 {
-                // This is beginning of the test, and the first epoch after genesis has height 1.
-                assert_eq!(epoch_height, 1);
-                // Get rid of the part of the Genesis State other than the shard we initially track.
-                retain_the_only_shard_state(client, tracked_shard_uid);
-            }
-            latest_height.set(tip.height);
-
-            if epoch_height < num_epochs_to_wait {
-                return;
-            }
-            // At this point, we should only have State from the last tracked shard.
-            check_has_the_only_shard_state(&client, tracked_shard_uid);
-            done.set(true);
-        },
-    );
-    LoopAction::new(action_fn, succeeded)
-}
-
-/// Repro case for the issue of 'Missing TrieValue' after GC period for refcounted trie nodes
-/// that are duplicated to both children during resharding. This particular scenario tests
-/// promise yield indices.
 pub(crate) fn promise_yield_repro_missing_trie_value(
     left_child_account: AccountId,
     right_child_account: AccountId,
