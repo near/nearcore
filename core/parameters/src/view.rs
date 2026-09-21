@@ -265,7 +265,8 @@ pub struct VMConfigView {
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
 
-    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
+    /// Deprecated: contract storage is always read through flat storage, so this is
+    /// always `FlatStorage`.
     pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
