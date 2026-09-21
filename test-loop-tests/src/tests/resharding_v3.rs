@@ -42,7 +42,8 @@ use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, NumShards, ShardId, ShardIndex,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, Nonce, NumShards, ShardId,
+    ShardIndex,
 };
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
@@ -686,6 +687,143 @@ fn assert_all_chunks_included(
     );
 }
 
+/// Follows the splits of a resharding test and checks what depends on them: the split happens
+/// early enough, the test runs long enough for garbage collection, the shards of the final layout,
+/// validator stickiness, the gap between two splits, and the mapping of the children to the parent.
+struct ReshardingProgress {
+    request_node_index: usize,
+    initial_num_shards: NumShards,
+    expected_num_shards: NumShards,
+    parent_shard_uid: ShardUId,
+    num_epochs_to_wait: u64,
+    shuffle_shard_assignment_for_chunk_producers: bool,
+    has_second_split: bool,
+    first_split_epoch_height: Option<EpochHeight>,
+    /// Last block of the old layout of the final split, from the first sample that showed it.
+    final_split_resharding_block_hash: Option<CryptoHash>,
+    /// Height of the last sample where no node mapped a tracked child to the parent.
+    height_without_mapped_children: Option<BlockHeight>,
+}
+
+impl ReshardingProgress {
+    fn track_split(&mut self, block: &ObservedBlock<'_>) {
+        let tip = block.observed_node.head();
+        let clients = block.nodes.iter().map(|node| node.client()).collect_vec();
+        let client = clients[self.request_node_index];
+        let current_num_shards =
+            client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap().num_shards();
+        let epoch_height =
+            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
+
+        if self.first_split_epoch_height.is_none() && current_num_shards != self.initial_num_shards
+        {
+            resharding_check_trace::first_layout_change(tip.height, epoch_height);
+            self.first_split_epoch_height = Some(epoch_height);
+        }
+
+        if self.final_split_resharding_block_hash.is_some() {
+            return;
+        }
+        // Resharding should activate within the first few epochs. Static resharding
+        // activates at epoch ~2, dynamic at ~4 due to the proposal-to-activation delay.
+        let epoch_height_limit = 5 + DYNAMIC_RESHARDING_EXTRA_EPOCHS;
+        resharding_check_trace::split_deadline(tip.height, epoch_height, epoch_height_limit);
+        assert!(epoch_height < epoch_height_limit);
+        if current_num_shards != self.expected_num_shards {
+            return;
+        }
+        // Just resharded.
+        resharding_check_trace::final_layout(
+            tip.height,
+            epoch_height,
+            &tip.prev_block_hash,
+            current_num_shards,
+        );
+        self.final_split_resharding_block_hash = Some(tip.prev_block_hash);
+        // Assert that we will have a chance for gc to kick in before the test is over.
+        resharding_check_trace::gc_budget(
+            epoch_height,
+            GC_NUM_EPOCHS_TO_KEEP,
+            self.num_epochs_to_wait,
+        );
+        assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < self.num_epochs_to_wait);
+        println!("State after resharding:");
+        print_and_assert_shard_accounts(&clients, &tip);
+
+        // Verify chunk-producer stickiness across resharding: unchanged shards
+        // keep at least one of their previous validators by ShardId, and split
+        // children inherit at least one of the parent's validators. The shuffle
+        // flag intentionally overrides stickiness, so this only fires when
+        // shuffling is off (which is the default for these tests).
+        if !self.shuffle_shard_assignment_for_chunk_producers
+            && ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION)
+        {
+            let post_epoch_id = client.epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
+            let prev_epoch_id = client
+                .epoch_manager
+                .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
+                .unwrap();
+            let post_info = client.epoch_manager.get_epoch_info(&post_epoch_id).unwrap();
+            let prev_info = client.epoch_manager.get_epoch_info(&prev_epoch_id).unwrap();
+            let post_layout = client.epoch_manager.get_shard_layout(&post_epoch_id).unwrap();
+            let prev_layout = client.epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
+            let post_config = client.epoch_manager.get_epoch_config(&post_epoch_id).unwrap();
+            assert_validator_stickiness_after_resharding(
+                tip.height,
+                &prev_info,
+                &prev_layout,
+                &post_info,
+                &post_layout,
+                post_config.minimum_validators_per_shard,
+            );
+        }
+        if self.has_second_split {
+            // With static resharding, the two splits are triggered by consecutive protocol
+            // upgrades, so the second activates 1 epoch after the first. With dynamic
+            // resharding, each split has a 2-epoch proposal-to-activation delay and only
+            // one shard is split per epoch, so the gap is 2 epochs.
+            let expected_gap = if DYNAMIC_RESHARDING { 2 } else { 1 };
+            let first_split_epoch_height = self.first_split_epoch_height.unwrap();
+            resharding_check_trace::two_split_epoch_gap(first_split_epoch_height, epoch_height);
+            assert_eq!(epoch_height, first_split_epoch_height + expected_gap);
+        }
+    }
+
+    /// Asserts that every node can read the parent shard state through the children it tracks, and
+    /// records whether any tracked child still maps to the parent at this sample.
+    fn check_parent_mapping(&mut self, block: &ObservedBlock<'_>) {
+        let Some(resharding_block_hash) = self.final_split_resharding_block_hash else {
+            return;
+        };
+        let tip = block.observed_node.head();
+        let mut all_mappings_removed = true;
+        for node in block.nodes {
+            let client = node.client();
+            let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
+                client,
+                &resharding_block_hash,
+                self.parent_shard_uid,
+            );
+            let client_head = client.chain.head().unwrap();
+            let client_account_id =
+                client.validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap();
+            resharding_check_trace::parent_mapping(
+                &client_account_id,
+                tip.height,
+                client_head.height,
+                &client_head.last_block_hash,
+                self.parent_shard_uid,
+                num_mapped_children,
+            );
+
+            if num_mapped_children > 0 {
+                all_mappings_removed = false;
+            }
+        }
+        self.height_without_mapped_children = all_mappings_removed.then_some(tip.height);
+    }
+}
+
 /// Env of a resharding test, with the values its checks need.
 struct ReshardingTest {
     env: TestLoopEnv,
@@ -926,10 +1064,35 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
 
     let num_epochs_to_wait = params.num_epochs_to_wait;
+    let progress = Rc::new(RefCell::new(ReshardingProgress {
+        request_node_index: client_index,
+        initial_num_shards,
+        expected_num_shards,
+        parent_shard_uid,
+        num_epochs_to_wait,
+        shuffle_shard_assignment_for_chunk_producers: params
+            .shuffle_shard_assignment_for_chunk_producers,
+        has_second_split: params.second_resharding_boundary_account.is_some(),
+        first_split_epoch_height: None,
+        final_split_resharding_block_hash: None,
+        height_without_mapped_children: None,
+    }));
+    {
+        let progress = progress.clone();
+        env.on_each_block(BlockSource::SlowestNode, move |block| {
+            progress.borrow_mut().track_split(block);
+            ControlFlow::Continue(())
+        });
+    }
+    {
+        let progress = progress.clone();
+        env.on_each_block(BlockSource::SlowestNode, move |block| {
+            progress.borrow_mut().check_parent_mapping(block);
+            ControlFlow::Continue(())
+        });
+    }
+
     let latest_block_height = Cell::new(0u64);
-    let epoch_height_after_first_resharding = Cell::new(None);
-    let resharding_block_hash = Cell::new(None);
-    let epoch_height_after_resharding = Cell::new(None);
     let node_datas = &env.node_datas;
     let block_observers = &mut env.block_observers;
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
@@ -976,111 +1139,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
 
-        if epoch_height_after_first_resharding.get().is_none()
-            && current_num_shards != initial_num_shards
-        {
-            resharding_check_trace::first_layout_change(tip.height, epoch_height);
-            epoch_height_after_first_resharding.set(Some(epoch_height));
-        }
-
-        // Return false if we have not resharded yet.
-        if epoch_height_after_resharding.get().is_none() {
-            // Resharding should activate within the first few epochs. Static resharding
-            // activates at epoch ~2, dynamic at ~4 due to the proposal-to-activation delay.
-            let epoch_height_limit = 5 + DYNAMIC_RESHARDING_EXTRA_EPOCHS;
-            resharding_check_trace::split_deadline(tip.height, epoch_height, epoch_height_limit);
-            assert!(epoch_height < epoch_height_limit);
-            if current_num_shards != expected_num_shards {
-                return false;
-            }
-            // Just resharded.
-            resharding_check_trace::final_layout(
-                tip.height,
-                epoch_height,
-                &tip.prev_block_hash,
-                current_num_shards,
-            );
-            resharding_block_hash.set(Some(tip.prev_block_hash));
-            epoch_height_after_resharding.set(Some(epoch_height));
-            // Assert that we will have a chance for gc to kick in before the test is over.
-            resharding_check_trace::gc_budget(
-                epoch_height,
-                GC_NUM_EPOCHS_TO_KEEP,
-                num_epochs_to_wait,
-            );
-            assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < num_epochs_to_wait);
-            println!("State after resharding:");
-            print_and_assert_shard_accounts(&clients, &tip);
-
-            // Verify chunk-producer stickiness across resharding: unchanged shards
-            // keep at least one of their previous validators by ShardId, and split
-            // children inherit at least one of the parent's validators. The shuffle
-            // flag intentionally overrides stickiness, so this only fires when
-            // shuffling is off (which is the default for these tests).
-            if !params.shuffle_shard_assignment_for_chunk_producers
-                && ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION)
-            {
-                let post_epoch_id =
-                    client.epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
-                let prev_epoch_id = client
-                    .epoch_manager
-                    .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
-                    .unwrap();
-                let post_info = client.epoch_manager.get_epoch_info(&post_epoch_id).unwrap();
-                let prev_info = client.epoch_manager.get_epoch_info(&prev_epoch_id).unwrap();
-                let post_layout = client.epoch_manager.get_shard_layout(&post_epoch_id).unwrap();
-                let prev_layout = client.epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
-                let post_config = client.epoch_manager.get_epoch_config(&post_epoch_id).unwrap();
-                assert_validator_stickiness_after_resharding(
-                    tip.height,
-                    &prev_info,
-                    &prev_layout,
-                    &post_info,
-                    &post_layout,
-                    post_config.minimum_validators_per_shard,
-                );
-            }
-            if params.second_resharding_boundary_account.is_some() {
-                // With static resharding, the two splits are triggered by consecutive protocol
-                // upgrades, so the second activates 1 epoch after the first. With dynamic
-                // resharding, each split has a 2-epoch proposal-to-activation delay and only
-                // one shard is split per epoch, so the gap is 2 epochs.
-                let expected_gap = if DYNAMIC_RESHARDING { 2 } else { 1 };
-                resharding_check_trace::two_split_epoch_gap(
-                    epoch_height_after_first_resharding.get().unwrap(),
-                    epoch_height,
-                );
-                assert_eq!(
-                    epoch_height,
-                    epoch_height_after_first_resharding.get().unwrap() + expected_gap
-                );
-            }
-        }
-
-        let mut all_mappings_removed = true;
-        for client in clients.iter() {
-            let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
-                client,
-                &resharding_block_hash.get().unwrap(),
-                parent_shard_uid,
-            );
-            let client_head = client.chain.head().unwrap();
-            let client_account_id =
-                client.validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap();
-            resharding_check_trace::parent_mapping(
-                &client_account_id,
-                tip.height,
-                client_head.height,
-                &client_head.last_block_hash,
-                parent_shard_uid,
-                num_mapped_children,
-            );
-
-            if num_mapped_children > 0 {
-                all_mappings_removed = false;
-            }
-        }
-        if !all_mappings_removed {
+        // Return false if any node still maps a tracked child shard to the parent.
+        if progress.borrow().height_without_mapped_children != Some(tip.height) {
             return false;
         }
 
