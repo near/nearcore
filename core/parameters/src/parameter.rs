@@ -261,7 +261,6 @@ pub enum Parameter {
     UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
-    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,

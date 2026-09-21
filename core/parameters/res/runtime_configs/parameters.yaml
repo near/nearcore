@@ -350,7 +350,6 @@ eth_implicit_accounts: true
 universal_accounts: false
 discard_custom_sections: true
 global_contract_host_fns: true
-reftypes_bulk_memory: true
 gas_key_host_fns: false
 fix_ml_dsa_cost_charging: false
 one_yocto_on_promise: false
