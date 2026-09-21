@@ -232,7 +232,7 @@ snapshot_kind: text
     "universal_accounts": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
-      "max_stack_height": 16384,
+      "max_stack_height": 262144,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,

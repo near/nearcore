@@ -290,7 +290,7 @@ wasm_yield_resume_byte: 300_000_000_000_000
 # Smart contract limits
 max_gas_burnt: 300_000_000_000_000
 max_gas_burnt_view: 300_000_000_000_000
-max_stack_height: 16_384
+max_stack_height: 262_144
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
 registers_memory_limit: 1_073_741_824
@@ -325,7 +325,7 @@ max_yield_payload_size: 1_024 # kiB
 flat_storage_reads: true
 fix_contract_loading_cost: false
 fix_contract_loading_error: false
-vm_kind: Wasmer2
+vm_kind: NearVm
 eth_implicit_accounts: false
 universal_accounts: false
 discard_custom_sections: false
