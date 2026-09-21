@@ -38,25 +38,34 @@ fn test_block_observers_run_once_per_head_height_in_registration_order() {
 }
 
 #[test]
-fn test_block_observer_removed_after_break() {
+fn test_block_observer_removed_after_break_leaves_the_others() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().build();
-    let num_calls = Rc::new(Cell::new(0));
+    let num_calls_of_removed_observer = Rc::new(Cell::new(0));
     let num_calls_before_break = 2;
     {
-        let num_calls = num_calls.clone();
+        let num_calls_of_removed_observer = num_calls_of_removed_observer.clone();
         env.on_each_block(BlockSource::Node(0), move |_block| {
-            num_calls.set(num_calls.get() + 1);
-            if num_calls.get() == num_calls_before_break {
+            num_calls_of_removed_observer.set(num_calls_of_removed_observer.get() + 1);
+            if num_calls_of_removed_observer.get() == num_calls_before_break {
                 return ControlFlow::Break(());
             }
+            ControlFlow::Continue(())
+        });
+    }
+    let num_calls_of_kept_observer = Rc::new(Cell::new(0));
+    {
+        let num_calls_of_kept_observer = num_calls_of_kept_observer.clone();
+        env.on_each_block(BlockSource::Node(0), move |_block| {
+            num_calls_of_kept_observer.set(num_calls_of_kept_observer.get() + 1);
             ControlFlow::Continue(())
         });
     }
 
     env.validator_runner().run_for_number_of_blocks(5);
 
-    assert_eq!(num_calls.get(), num_calls_before_break);
+    assert_eq!(num_calls_of_removed_observer.get(), num_calls_before_break);
+    assert!(num_calls_of_kept_observer.get() > num_calls_before_break);
 }
 
 #[test]
