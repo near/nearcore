@@ -24,8 +24,6 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
-    (72, include_config!("72.yaml")),
     // Fix wasm_yield_resume_byte and relax congestion control.
     (73, include_config!("73.yaml")),
     (74, include_config!("74.yaml")),
