@@ -53,7 +53,7 @@ use near_store::ShardUId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::take;
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Range};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -139,7 +139,7 @@ struct TestReshardingParameters {
     new_boundary_account: AccountId,
     initial_balance: Balance,
     epoch_length: BlockHeightDelta,
-    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     // Manually specify what shards will be tracked for a given client ID.
