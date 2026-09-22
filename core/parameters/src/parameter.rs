@@ -253,9 +253,6 @@ pub enum Parameter {
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
-    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
-    // protocol version 70, where the feature is enabled.
-    EthImplicitAccounts,
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
     // past protocol version 87, where the feature is enabled.
     UniversalAccounts,
@@ -303,7 +300,6 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    GlobalContractHostFns,
 
     // Flag to enable gas key host functions
     GasKeyHostFns,

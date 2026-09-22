@@ -342,9 +342,7 @@ max_yield_payload_size: 1_024 # kiB
 fix_contract_loading_cost: false
 fix_contract_loading_error: false
 vm_kind: Wasmtime
-eth_implicit_accounts: true
 universal_accounts: false
-global_contract_host_fns: true
 gas_key_host_fns: false
 fix_ml_dsa_cost_charging: false
 one_yocto_on_promise: false
