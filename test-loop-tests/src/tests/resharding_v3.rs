@@ -155,20 +155,6 @@ struct TestReshardingParameters {
     /// Checks and traffic that run on each new block of the request node.
     #[builder(setter(custom))]
     request_node_actions: Vec<Box<dyn BlockAction>>,
-    // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
-    // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
-    // epoch length, but it's good to also check what happens with shorter ones.
-    all_chunks_expected: bool,
-    /// Optionally deploy the test contract
-    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
-    #[builder(setter(custom))]
-    deploy_test_contract: Vec<AccountId>,
-    /// When true, `deploy_test_contract` deploys the latest-protocol build of the test contract
-    /// (`near_test_contracts::rs_contract()`) instead of the backwards-compatible
-    /// build. Required when the test invokes host functions that are only available
-    /// in the latest stable protocol version.
-    deploy_latest_protocol_test_contract: bool,
-    /// Optionally deploy and use test global contracts
     /// Gas keys to plant directly in genesis. Each tuple is
     /// `(account, gas-key public key, initial nonce per slot)`.
     #[builder(setter(custom))]
@@ -180,11 +166,6 @@ struct TestReshardingParameters {
     delay_flat_state_resharding: BlockHeightDelta,
     /// Make promise yield timeout much shorter than normal.
     short_yield_timeout: bool,
-    /// If not disabled, use testloop action that will delete an account after resharding
-    /// and check that the account is accessible through archival node but not through a regular node.
-    disable_temporary_account_test: bool,
-    #[builder(setter(skip))]
-    temporary_account_id: AccountId,
     /// For how many epochs should the test be running.
     num_epochs_to_wait: u64,
     /// If set, proceed with second resharding using the provided boundary account.
@@ -276,9 +257,6 @@ impl TestReshardingParametersBuilder {
         println!("Num extra nodes: {num_extra_nodes}");
 
         let new_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
-        let temporary_account_id: AccountId =
-            format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
-        let disable_temporary_account_test = self.disable_temporary_account_test.unwrap_or(false);
 
         TestReshardingParameters {
             num_accounts,
@@ -306,17 +284,10 @@ impl TestReshardingParametersBuilder {
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
             slowest_node_actions: self.slowest_node_actions.unwrap_or_default(),
             request_node_actions: self.request_node_actions.unwrap_or_default(),
-            all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
-            deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
-            deploy_latest_protocol_test_contract: self
-                .deploy_latest_protocol_test_contract
-                .unwrap_or(false),
             gas_key_accounts: self.gas_key_accounts.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            disable_temporary_account_test,
-            temporary_account_id,
             num_epochs_to_wait,
             second_resharding_boundary_account: self
                 .second_resharding_boundary_account
@@ -1155,8 +1126,8 @@ impl ReshardingTest {
 
     /// Runs until the final outcome of every transaction is a success, reading from the request
     /// node on each stop condition call. A transaction whose outcome is not stored yet counts as
-    /// unfinished, which is what the yield and receipt tests need and the partial outcome wait
-    /// treats as a failure.
+    /// unfinished, which is what the large receipt test needs and the partial outcome wait treats
+    /// as a failure.
     fn run_until_final_outcomes_succeeded(&mut self, txs: &[CryptoHash]) {
         let timeout = self.timeout();
         let mut unfinished_txs: Vec<CryptoHash> = txs.to_vec();
@@ -1205,6 +1176,20 @@ impl ReshardingTest {
             !next_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &node.head()),
             "the epoch ended before the test could send its transactions",
         );
+    }
+
+    /// The height `num_blocks` before the end of the epoch whose next shard layout differs, which
+    /// is where `run_until_blocks_before_resharding_epoch_ends` stops when no height is skipped.
+    fn height_blocks_before_resharding_epoch_ends(
+        &self,
+        num_blocks: BlockHeightDelta,
+    ) -> BlockHeight {
+        let node = self.request_node();
+        let head = node.head();
+        let client = node.client();
+        let epoch_start =
+            client.epoch_manager.get_epoch_start_height(&head.last_block_hash).unwrap();
+        epoch_start + client.config.epoch_length - num_blocks
     }
 
     /// Submits a transaction that deploys the test contract on `contract_id`, and returns its hash.
@@ -2637,8 +2622,10 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
 
     let request_node_index = test.request_node_index();
     let mut calls = ContractCalls::new();
-    test.run_until_blocks_before_resharding_epoch_ends(5);
-    let first_height_sending_receipts = test.request_node().head().height;
+    let num_blocks_before_epoch_end_to_send = 5;
+    test.run_until_blocks_before_resharding_epoch_ends(num_blocks_before_epoch_end_to_send);
+    let first_height_sending_receipts =
+        test.height_blocks_before_resharding_epoch_ends(num_blocks_before_epoch_end_to_send);
     let mut txs = Vec::new();
     for height_offset in 0..num_heights_sending_receipts {
         test.run_until_node_height_exactly(
