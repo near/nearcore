@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.29"
+    "version": "1.3.30"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -23236,7 +23236,7 @@
             "type": "boolean"
           },
           "discard_custom_sections": {
-            "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
+            "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
             "type": "boolean"
           },
           "eth_implicit_accounts": {

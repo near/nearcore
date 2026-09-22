@@ -242,7 +242,7 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
+    /// Deprecated: custom sections are always discarded, so this is always `true`.
     pub discard_custom_sections: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,
@@ -293,7 +293,7 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: config.discard_custom_sections,
+            discard_custom_sections: true,
             limit_config: config.limit_config,
             storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
