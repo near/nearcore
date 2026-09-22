@@ -3,32 +3,40 @@ mod core;
 mod core_writer_actor;
 mod header_chunk_endorsements;
 
-use crate::Chain;
 use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
+use crate::{Chain, ChainStoreAccess};
 use near_async::time::Clock;
 use near_chain_configs::Genesis;
 use near_primitives::block::Block;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
-use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion, ShardId};
 use std::sync::Arc;
 
 /// Saves the block and records it in the epoch manager the way block postprocessing
-/// does, so epoch lookups keyed on its hash resolve, without running block
-/// processing.
+/// does, so epoch lookups keyed on its hash resolve and epochs end, without running
+/// block processing.
 pub(crate) fn save_and_record_block(
     chain: &mut Chain,
     block: &Arc<Block>,
     protocol_version: ProtocolVersion,
 ) {
+    let last_final_block = block.header().last_final_block();
+    let last_finalized_height = if last_final_block == &CryptoHash::default() {
+        chain.chain_store.get_genesis_height()
+    } else {
+        chain.chain_store.get_block_header(last_final_block).unwrap().height()
+    };
     let mut store_update = chain.chain_store.store_update();
     store_update.save_block(block.clone());
     store_update.save_block_header(block.header().clone()).unwrap();
-    let block_info = BlockInfo::from_header(block.header(), 0, protocol_version);
+    let block_info =
+        BlockInfo::from_header(block.header(), last_finalized_height, protocol_version);
     let epoch_manager_update = chain
         .epoch_manager
         .add_validator_proposals(block_info, *block.header().random_value())
@@ -40,10 +48,27 @@ pub(crate) fn save_and_record_block(
 /// A chain with a pre-spice genesis, for the activation-boundary tests. Its blocks
 /// are fabricated with [`add_pre_spice_block`], not processed.
 pub(crate) fn setup_pre_spice_chain(num_shards: NumShards) -> Chain {
+    let genesis = pre_spice_genesis(num_shards);
+    get_chain_with_genesis(Clock::real(), genesis)
+}
+
+/// [`setup_pre_spice_chain`] with `epoch_length`, for tests that need the fabricated
+/// chain to cross epochs.
+pub(crate) fn setup_pre_spice_chain_with_epoch_length(
+    num_shards: NumShards,
+    epoch_length: BlockHeightDelta,
+) -> Chain {
+    let mut genesis = pre_spice_genesis(num_shards);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
+    get_chain_with_genesis(Clock::real(), genesis)
+}
+
+fn pre_spice_genesis(num_shards: NumShards) -> Genesis {
     let mut genesis =
         Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, num_shards);
     genesis.config.protocol_version = pre_spice_protocol_version();
-    get_chain_with_genesis(Clock::real(), genesis)
+    genesis
 }
 
 /// Endorsement slots for a fabricated pre-spice block at `height`, one per chunk
@@ -79,6 +104,22 @@ pub(crate) fn add_pre_spice_block(
     prev_block: &Block,
     new_chunk_shards: &[ShardId],
 ) -> Arc<Block> {
+    let block =
+        build_pre_spice_block(chain, prev_block, new_chunk_shards, pre_spice_protocol_version());
+    save_and_record_block(chain, &block, pre_spice_protocol_version());
+    block
+}
+
+/// Fabricates the next pre-spice block without saving it, voting for
+/// `latest_protocol_version`: shards in `new_chunk_shards` get a new (fake) chunk
+/// header, every other shard carries the previous block's header, i.e. its chunk is
+/// missing.
+pub(crate) fn build_pre_spice_block(
+    chain: &Chain,
+    prev_block: &Block,
+    new_chunk_shards: &[ShardId],
+    latest_protocol_version: ProtocolVersion,
+) -> Arc<Block> {
     let epoch_manager = chain.epoch_manager.clone();
     let new_chunks = get_fake_next_block_chunk_headers(prev_block, epoch_manager.as_ref());
     let chunks: Vec<_> = prev_block
@@ -94,11 +135,16 @@ pub(crate) fn add_pre_spice_block(
     let signer = Arc::new(create_test_signer("test1"));
     let height = prev_block.header().height() + 1;
     let chunk_endorsements = pre_spice_chunk_endorsements(chain, prev_block, height, &chunks);
-    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash()).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev_block.hash()).unwrap();
+    let mut block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer.clone())
         .chunks(chunks)
         .chunk_endorsements(chunk_endorsements)
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
         .protocol_version(pre_spice_protocol_version())
-        .build();
-    save_and_record_block(chain, &block, pre_spice_protocol_version());
-    block
+        .build_owned();
+    block.mut_header().set_latest_protocol_version(latest_protocol_version);
+    block.mut_header().resign(signer.as_ref());
+    Arc::new(block)
 }
