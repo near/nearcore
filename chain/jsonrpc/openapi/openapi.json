@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.27"
+    "version": "1.3.29"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -23306,7 +23306,7 @@
             "type": "boolean"
           },
           "reftypes_bulk_memory": {
-            "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
+            "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
             "type": "boolean"
           },
           "regular_op_cost": {
@@ -23325,7 +23325,7 @@
                 "$ref": "#/components/schemas/StorageGetMode"
               }
             ],
-            "description": "See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode)."
+            "description": "Deprecated: contract storage is always read through flat storage, so this is\nalways `FlatStorage`."
           },
           "universal_accounts": {
             "description": "See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).",

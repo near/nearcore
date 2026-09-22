@@ -1,11 +1,10 @@
-use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::spice::chunk_executor_actor::{
     ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
+use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::chunk_executor_actor::{
-    ExecutorApplyChunksDone, get_witness, receipt_proof_exists,
+    ExecutorIncomingUnverifiedReceipts, receipt_proof_exists,
 };
-use crate::spice::data_distributor_actor::DataVerification;
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
@@ -105,7 +104,6 @@ enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
-    DataVerification(DataVerification),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -131,9 +129,6 @@ impl Clone for OutgoingMessage {
                 state_witness: state_witness.clone(),
                 contract_accesses: contract_accesses.clone(),
             }),
-            OutgoingMessage::DataVerification(verification) => {
-                OutgoingMessage::DataVerification(verification.clone())
-            }
         }
     }
 }
@@ -195,16 +190,10 @@ impl TestActor {
                 }
             }),
             witness: Sender::from_fn({
-                let outgoing_sc = outgoing_sc.clone();
                 move |message| {
                     outgoing_sc
                         .unbounded_send(OutgoingMessage::SpiceDistributorStateWitness(message))
                         .unwrap();
-                }
-            }),
-            data_verification: Sender::from_fn({
-                move |message| {
-                    outgoing_sc.unbounded_send(OutgoingMessage::DataVerification(message)).unwrap();
                 }
             }),
         };
@@ -380,7 +369,6 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
             }
         }
         OutgoingMessage::SpiceDistributorStateWitness(_) => {}
-        OutgoingMessage::DataVerification(_) => {}
     }
 }
 
@@ -922,7 +910,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_verifying_a_network_receipt_reports_verified() {
+fn test_a_valid_network_receipt_is_saved() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
@@ -932,24 +920,24 @@ fn test_verifying_a_network_receipt_reports_verified() {
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
-    let receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
-    let data_id = DataId::receipt_proof(
-        *block.hash(),
-        receipt_proof.1.from_shard_id,
-        receipt_proof.1.to_shard_id,
-    );
+    // A proof another actor produced for the shard this one tracks: only the network
+    // path can put it in this actor's store.
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let store = actors[0].chain.chain_store.store();
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 
-    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-        data_id: data_id.clone(),
-        receipt_proof,
-    });
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
 
-    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Ok(data_id)]);
+    assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_verifying_an_invalid_network_receipt_reports_failed() {
+fn test_an_invalid_network_receipt_is_dropped() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
@@ -959,51 +947,129 @@ fn test_verifying_an_invalid_network_receipt_reports_failed() {
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
-    let mut receipt_proof = outgoing_receipt_proof(&mut outgoing_rc);
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let mut receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     receipt_proof.0.push(Receipt::new_balance_refund(
         &AccountId::from_str("test1").unwrap(),
         Balance::from_near(1),
     ));
-    let data_id = DataId::receipt_proof(
-        *block.hash(),
-        receipt_proof.1.from_shard_id,
-        receipt_proof.1.to_shard_id,
-    );
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
 
-    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts {
-        data_id: data_id.clone(),
-        receipt_proof,
-    });
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
 
-    assert_eq!(drain_verifications(&mut outgoing_rc), vec![DataVerification::Failed(data_id)]);
+    let store = actors[0].chain.chain_store.store();
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
+    // Nothing is buffered for a later retry either.
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 }
 
-/// First receipt proof the actors sent out; drops every other queued message.
-fn outgoing_receipt_proof(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> ReceiptProof {
+/// A receipt for a tracked shard that arrives before anything created that shard's
+/// executor is buffered, not dropped.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_arriving_before_its_executor_exists_is_buffered() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    // Only the other actor executes, so this one never reconciles its tracked shards.
+    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[1], &block));
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+
+    let to_shard_id = tracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+
+    assert_eq!(actors[0].actor.pending_receipts_count(), 1);
+}
+
+/// A receipt for a shard this node does not track is dropped, not buffered: an early
+/// receipt must not create an executor for a shard the node has no business executing.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_for_an_untracked_shard_is_dropped() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis_block = actors[0].chain.genesis_block();
+    let block = produce_block(&mut actors, &genesis_block);
+    // No endorsements are recorded, so a buffered receipt would stay buffered.
+    for actor in &mut actors {
+        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        assert!(block_executed(&actor, &block));
+    }
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+
+    let to_shard_id = untracked_shard(&actors[0], &block);
+    let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
+    let from_shard_id = receipt_proof.1.from_shard_id;
+    let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+
+    actors[0]
+        .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
+
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+}
+
+/// A shard `actor` tracks neither this nor next epoch as of `block`.
+fn untracked_shard(actor: &TestActor, block: &Block) -> ShardId {
+    let tracked =
+        actor.actor.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.hash()).unwrap();
+    actor
+        .actor
+        .epoch_manager
+        .shard_uids(block.header().epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_uid| shard_uid.shard_id())
+        .find(|shard_id| !tracked.iter().any(|shard_uid| shard_uid.shard_id() == *shard_id))
+        .expect("actor does not track every shard")
+}
+
+/// The shard `actor` tracks in `block`'s epoch.
+fn tracked_shard(actor: &TestActor, block: &Block) -> ShardId {
+    actor
+        .actor
+        .epoch_manager
+        .shard_uids(block.header().epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_uid| shard_uid.shard_id())
+        .find(|shard_id| actor.actor.shard_tracker.cares_about_shard(block.hash(), *shard_id))
+        .expect("actor tracks a shard")
+}
+
+/// First receipt proof the actors sent out from another shard into `to_shard_id`; drops
+/// every other queued message.
+fn outgoing_receipt_proof_to(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    to_shard_id: ShardId,
+) -> ReceiptProof {
     let mut proof = None;
     while let Ok(Some(message)) = outgoing_rc.try_next() {
+        let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
+            receipt_proofs,
+            ..
+        }) = &message
+        else {
+            continue;
+        };
         if proof.is_none() {
-            if let OutgoingMessage::SpiceDistributorOutgoingReceipts(
-                SpiceDistributorOutgoingReceipts { receipt_proofs, .. },
-            ) = &message
-            {
-                proof = Some(receipt_proofs[0].clone());
-            }
+            proof = receipt_proofs
+                .iter()
+                .find(|proof| {
+                    proof.1.to_shard_id == to_shard_id && proof.1.from_shard_id != to_shard_id
+                })
+                .cloned();
         }
     }
-    proof.expect("executing a block should send receipt proofs")
-}
-
-fn drain_verifications(
-    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
-) -> Vec<DataVerification> {
-    let mut verifications = Vec::new();
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
-        if let OutgoingMessage::DataVerification(verification) = message {
-            verifications.push(verification);
-        }
-    }
-    verifications
+    proof.expect("executing a block should send receipt proofs into the tracked shard")
 }
 
 #[test]

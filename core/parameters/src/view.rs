@@ -1,4 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::vm::StorageGetMode;
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -245,7 +246,8 @@ pub struct VMConfigView {
     pub discard_custom_sections: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,
-    /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
+    /// Deprecated: reference types and bulk memory wasm extensions are always
+    /// enabled, so this is always `true`.
     pub reftypes_bulk_memory: bool,
     /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
     pub gas_key_host_fns: bool,
@@ -264,8 +266,9 @@ pub struct VMConfigView {
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
 
-    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
-    pub storage_get_mode: crate::vm::StorageGetMode,
+    /// Deprecated: contract storage is always read through flat storage, so this is
+    /// always `FlatStorage`.
+    pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
     /// Deprecated
@@ -292,14 +295,14 @@ impl From<crate::vm::Config> for VMConfigView {
             linear_op_unit_cost: config.linear_op_unit_cost,
             discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
-            storage_get_mode: config.storage_get_mode,
+            storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
             universal_accounts: config.universal_accounts,
             global_contract_host_fns: config.global_contract_host_fns,
-            reftypes_bulk_memory: config.reftypes_bulk_memory,
+            reftypes_bulk_memory: true,
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,

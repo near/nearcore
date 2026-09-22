@@ -167,6 +167,49 @@ impl ChunkExecutorActor {
             .find(|executor| executor.shard_uid().shard_id() == shard_id)
     }
 
+    /// The `ShardUId` for `shard_id` if this node tracks it this or next epoch as of
+    /// `anchor`, which is read as a prev hash.
+    fn tracked_shard_uid(
+        &self,
+        anchor: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<ShardUId>, Error> {
+        Ok(self
+            .shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(anchor)?
+            .into_iter()
+            .find(|shard_uid| shard_uid.shard_id() == shard_id))
+    }
+
+    /// Create the destination shard's executor if this node tracks that shard as of
+    /// both the source block and the head, so an early receipt is buffered rather than
+    /// dropped: the push is not retried.
+    /// TODO(spice-resharding): neither anchor is enough when the source block is in a
+    /// different shard layout.
+    fn create_executor_if_shard_tracked(
+        &mut self,
+        to_shard_id: ShardId,
+        source_block: &CryptoHash,
+    ) -> Result<(), Error> {
+        if self.executor_for_shard_id(to_shard_id).is_some() {
+            return Ok(());
+        }
+        let head = self.chain_store.head()?.last_block_hash;
+        let anchor = match self.chain_store.get_block_header(source_block) {
+            Ok(_) => *source_block,
+            Err(Error::DBNotFoundErr(_)) => head,
+            Err(err) => return Err(err),
+        };
+        let Some(shard_uid) = self.tracked_shard_uid(&anchor, to_shard_id)? else {
+            return Ok(());
+        };
+        if anchor != head && self.tracked_shard_uid(&head, to_shard_id)?.is_none() {
+            return Ok(());
+        }
+        self.get_or_create_per_shard_executor(shard_uid);
+        Ok(())
+    }
+
     /// Spawn executors for shards tracked this or next epoch and evict ones no
     /// longer tracked. The this-or-next-epoch set matches the
     /// `should_apply_chunk(IsCaughtUp, ..)` gate the monolithic executor used:
@@ -403,44 +446,16 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
         let to_shard_id = *to_shard;
-        // A receipt for a shard this node does track can arrive before anything created
-        // the executor, and the push is not retried, so create it here if the shard
-        // is tracked as of the source block.
-        // TODO(spice-resharding): anchoring on the source block (or the head when it
-        // is not received yet) is not enough when the source block is in a different
-        // shard layout.
-        if self.executor_for_shard_id(to_shard_id).is_none() {
-            let anchor = if self.chain_store.get_block_header(&block_hash).is_ok() {
-                block_hash
-            } else {
-                match self.chain_store.head() {
-                    Ok(head) => head.last_block_hash,
-                    Err(err) => {
-                        tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read head looking up tracking for a receipt");
-                        return;
-                    }
-                }
-            };
-            let tracked = match self.shard_tracker.tracked_shard_uids_this_or_next_epoch(&anchor) {
-                Ok(tracked) => tracked,
-                Err(err) => {
-                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to look up tracked shards for a receipt");
-                    return;
-                }
-            };
-            if let Some(shard_uid) =
-                tracked.into_iter().find(|shard_uid| shard_uid.shard_id() == to_shard_id)
-            {
-                self.get_or_create_per_shard_executor(shard_uid);
-            }
+        if let Err(err) = self.create_executor_if_shard_tracked(to_shard_id, &block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, ?to_shard_id, "failed to look up tracking for an incoming receipt");
         }
-        // TODO(spice-data-distribution): dropping leaves the data manager's item parked
-        // with no verification result until it expires (#16275).
+        // TODO(spice-data-distribution): a dropped delivery is lost: the data manager
+        // settled its commitment and does not re-deliver (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;
         };
-        if let Err(err) = executor.handle_incoming_receipt(data_id, receipt_proof) {
+        if let Err(err) = executor.handle_incoming_receipt(block_hash, receipt_proof) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
     }

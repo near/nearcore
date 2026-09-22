@@ -250,7 +250,6 @@ pub enum Parameter {
     MaxGlobalsPerContract,
 
     // Contract runtime features
-    FlatStorageReads,
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
@@ -262,7 +261,6 @@ pub enum Parameter {
     UniversalAccounts,
     FixMlDsaCostCharging,
     DiscardCustomSections,
-    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,
