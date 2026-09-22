@@ -67,28 +67,9 @@ fn spice_enabled_or_imminent_at_head(
         || spice_activation_imminent_at_head(chain_store, epoch_manager)?)
 }
 
-/// Whether a spice message about `block_hash` is about the last pre-spice block, whose
-/// boundary data legitimately arrives while the block is still pre-spice.
-fn is_last_pre_spice_block_or_log(
-    epoch_manager: &dyn EpochManagerAdapter,
-    kind: SpiceMessageKind,
-    block_hash: &CryptoHash,
-) -> bool {
-    match is_last_pre_spice_block(epoch_manager, block_hash) {
-        Ok(is_last_pre_spice) => is_last_pre_spice,
-        Err(err) => {
-            tracing::debug!(
-                target: "spice_activation",
-                ?err,
-                kind = kind.as_str(),
-                %block_hash,
-                "cannot tell whether spice message is about the last pre-spice block, dropping",
-            );
-            false
-        }
-    }
-}
-
+/// Whether spice work exists for `block_hash`: it is a spice block, or the last
+/// pre-spice block, whose boundary data legitimately arrives while it is still
+/// pre-spice. Errors when the block's header or its epoch record is not on disk.
 pub fn spice_relevant_block(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -142,8 +123,9 @@ impl SpiceMessageGate {
     /// Whether an inbound spice message referencing `block_hash` should be processed.
     ///
     /// The authoritative answer is the referenced block itself, plus the last
-    /// pre-spice block. When the block is not on disk, fall back to the head:
-    /// spice legitimately receives data ahead of its block and buffers it.
+    /// pre-spice block. When the block's header or its epoch record is not on disk
+    /// yet, fall back to the head: spice legitimately receives data ahead of its
+    /// block and buffers it.
     pub fn should_process(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -175,10 +157,8 @@ impl SpiceMessageGate {
         block_hash: &CryptoHash,
         unit: DropUnit,
     ) -> bool {
-        let enabled = match spice_enabled_for_block(chain_store, block_hash) {
-            Ok(enabled) => {
-                enabled || is_last_pre_spice_block_or_log(epoch_manager, kind, block_hash)
-            }
+        let enabled = match spice_relevant_block(chain_store, epoch_manager, block_hash) {
+            Ok(enabled) => enabled,
             Err(_) => match spice_enabled_or_imminent_at_head(chain_store, epoch_manager) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
@@ -236,7 +216,7 @@ mod tests {
         default_reward_calculator, epoch_config_at_version, record_block_with_version, stake,
     };
     use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-    use near_primitives::block::Tip;
+    use near_primitives::block::{Block, Tip};
     use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
@@ -254,9 +234,9 @@ mod tests {
     const NUM_BLOCKS: usize = 12;
 
     /// A chain whose headers are all on disk as pre-spice headers, paired with an
-    /// epoch manager that recorded the same hashes with every block after genesis
+    /// epoch manager that recorded the same blocks with every block after genesis
     /// voting `vote`.
-    fn setup_gated_chain(vote: ProtocolVersion) -> (Chain, EpochManagerHandle, Vec<CryptoHash>) {
+    fn setup_gated_chain(vote: ProtocolVersion) -> (Chain, EpochManagerHandle, Vec<Arc<Block>>) {
         let genesis_protocol_version = pre_spice_protocol_version();
         let mut genesis =
             Genesis::test_sharded(Clock::real(), vec!["test1".parse().unwrap()], 1, 1);
@@ -297,7 +277,7 @@ mod tests {
         );
 
         let signer = Arc::new(create_test_signer("test1"));
-        let mut hashes = vec![*genesis_block.hash()];
+        let mut blocks = vec![genesis_block.clone()];
         let mut store_update = chain.chain_store().store().store_update();
         let mut prev_block = genesis_block;
         for height in 1..NUM_BLOCKS as u64 {
@@ -314,19 +294,19 @@ mod tests {
                 vec![],
                 vote,
             );
-            hashes.push(*block.hash());
+            blocks.push(block.clone());
             prev_block = block;
         }
         store_update.commit();
-        (chain, epoch_manager.into_handle(), hashes)
+        (chain, epoch_manager.into_handle(), blocks)
     }
 
     /// Index of the last block whose epoch is pre-spice while its successor's is spice.
-    fn last_pre_spice_index(epoch_manager: &EpochManagerHandle, hashes: &[CryptoHash]) -> usize {
-        let versions: Vec<_> = hashes
+    fn last_pre_spice_index(epoch_manager: &EpochManagerHandle, blocks: &[Arc<Block>]) -> usize {
+        let versions: Vec<_> = blocks
             .iter()
-            .map(|hash| {
-                let epoch_id = epoch_manager.get_epoch_id(hash).unwrap();
+            .map(|block| {
+                let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
                 epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap()
             })
             .collect();
@@ -345,10 +325,10 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn gate_accepts_messages_about_the_last_pre_spice_block() {
-        let (chain, epoch_manager, hashes) =
+        let (chain, epoch_manager, blocks) =
             setup_gated_chain(ProtocolFeature::Spice.protocol_version());
         let chain_store = chain.chain_store().store().chain_store();
-        let last_pre_spice_index = last_pre_spice_index(&epoch_manager, &hashes);
+        let last_pre_spice_index = last_pre_spice_index(&epoch_manager, &blocks);
         let mut gate = SpiceMessageGate::default();
 
         for kind in SpiceMessageKind::iter() {
@@ -356,13 +336,13 @@ mod tests {
                 &chain_store,
                 &epoch_manager,
                 kind,
-                &hashes[last_pre_spice_index]
+                blocks[last_pre_spice_index].hash()
             ));
             assert!(gate.should_process_entry(
                 &chain_store,
                 &epoch_manager,
                 kind,
-                &hashes[last_pre_spice_index]
+                blocks[last_pre_spice_index].hash()
             ));
             #[cfg(feature = "test_features")]
             assert_eq!(gate.dropped_count(kind), 0);
@@ -373,10 +353,60 @@ mod tests {
             &chain_store,
             &epoch_manager,
             SpiceMessageKind::ChunkEndorsement,
-            &hashes[last_pre_spice_index - 1]
+            blocks[last_pre_spice_index - 1].hash()
         ));
         #[cfg(feature = "test_features")]
         assert_eq!(gate.dropped_count(SpiceMessageKind::ChunkEndorsement), 1);
+    }
+
+    /// A header on disk whose block the epoch manager has not recorded yet, as during
+    /// header sync, is judged by the head like an unknown block: dropped while the head
+    /// is two epochs or more before activation, buffered once activation is imminent.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn gate_falls_back_to_head_for_a_header_without_an_epoch_record() {
+        let (chain, epoch_manager, blocks) =
+            setup_gated_chain(ProtocolFeature::Spice.protocol_version());
+        let store = chain.chain_store().store();
+        let chain_store = store.chain_store();
+        let last_pre_spice_index = last_pre_spice_index(&epoch_manager, &blocks);
+        let unrecorded = TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            &blocks[last_pre_spice_index],
+            Arc::new(create_test_signer("test1")),
+        )
+        .protocol_version(pre_spice_protocol_version())
+        .build();
+        let mut store_update = store.store_update();
+        store_update.chain_store_update().set_block_header_only(unrecorded.header());
+        store_update.commit();
+        let mut gate = SpiceMessageGate::default();
+
+        let set_head = |block: &Block| {
+            let mut store_update = store.store_update();
+            store_update.set_ser(DBCol::BlockMisc, HEAD_KEY, &Tip::from_header(block.header()));
+            store_update.commit();
+        };
+
+        set_head(&blocks[0]);
+        assert!(!gate.should_process(
+            &chain_store,
+            &epoch_manager,
+            SpiceMessageKind::StateWitness,
+            unrecorded.hash()
+        ));
+        #[cfg(feature = "test_features")]
+        assert_eq!(gate.dropped_count(SpiceMessageKind::StateWitness), 1);
+
+        set_head(&blocks[last_pre_spice_index]);
+        assert!(gate.should_process(
+            &chain_store,
+            &epoch_manager,
+            SpiceMessageKind::StateWitness,
+            unrecorded.hash()
+        ));
+        #[cfg(feature = "test_features")]
+        assert_eq!(gate.dropped_count(SpiceMessageKind::StateWitness), 1);
     }
 
     /// On a chain that never votes spice the gate keeps dropping everything,
@@ -384,23 +414,23 @@ mod tests {
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn gate_still_drops_everything_on_a_pre_spice_chain() {
-        let (chain, epoch_manager, hashes) = setup_gated_chain(pre_spice_protocol_version());
+        let (chain, epoch_manager, blocks) = setup_gated_chain(pre_spice_protocol_version());
         let chain_store = chain.chain_store().store().chain_store();
         let mut gate = SpiceMessageGate::default();
 
-        for (i, hash) in hashes.iter().enumerate() {
+        for (i, block) in blocks.iter().enumerate() {
             assert!(
                 !gate.should_process(
                     &chain_store,
                     &epoch_manager,
                     SpiceMessageKind::ChunkEndorsement,
-                    hash
+                    block.hash()
                 ),
                 "block at index {i}",
             );
         }
         #[cfg(feature = "test_features")]
-        assert_eq!(gate.dropped_count(SpiceMessageKind::ChunkEndorsement), hashes.len() as u64);
+        assert_eq!(gate.dropped_count(SpiceMessageKind::ChunkEndorsement), blocks.len() as u64);
     }
 
     /// A node that has not synced anything yet is pre-spice rather than a panic.

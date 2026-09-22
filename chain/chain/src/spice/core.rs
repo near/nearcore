@@ -1367,7 +1367,7 @@ pub fn get_last_certified_block_header(
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
         // No uncertified-chunks tracking means the block has nothing to
-        // certify: genesis, or a pre-spice block at the activation
+        // certify: genesis, or a pre-spice block below the activation
         // boundary. Both are fully certified by definition.
         let header = chain_store.get_block_header(block_hash)?;
         debug_assert!(

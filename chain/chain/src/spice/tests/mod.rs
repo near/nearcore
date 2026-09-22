@@ -3,6 +3,7 @@ mod core;
 mod core_writer_actor;
 mod header_chunk_endorsements;
 
+use crate::spice::boundary::is_last_pre_spice_block;
 use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
 use crate::{Chain, ChainStoreAccess};
 use near_async::time::Clock;
@@ -16,6 +17,7 @@ use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion, ShardId};
+use near_primitives::version::ProtocolFeature;
 use std::sync::Arc;
 
 /// Saves the block and records it in the epoch manager the way block postprocessing
@@ -94,6 +96,28 @@ pub(crate) fn pre_spice_chunk_endorsements(
             vec![None; assignments.len()]
         })
         .collect()
+}
+
+/// Fabricates blocks that vote for spice on top of the genesis of `chain`
+/// until the tip is the last pre-spice block. Returns that block
+/// and its parent.
+pub(crate) fn grow_to_last_pre_spice_block(chain: &mut Chain) -> (Arc<Block>, Arc<Block>) {
+    // The vote takes two epochs to activate; leave room for a longer epoch.
+    const MAX_BLOCKS: usize = 1000;
+    let epoch_manager = chain.epoch_manager.clone();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let all_shards: Vec<ShardId> =
+        chain.genesis_block().chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    let mut prev_block = chain.genesis_block();
+    for _ in 0..MAX_BLOCKS {
+        let block = build_pre_spice_block(chain, &prev_block, &all_shards, spice_protocol_version);
+        save_and_record_block(chain, &block, pre_spice_protocol_version());
+        if is_last_pre_spice_block(epoch_manager.as_ref(), block.hash()).unwrap() {
+            return (block, prev_block);
+        }
+        prev_block = block;
+    }
+    panic!("chain should reach the last pre-spice block within {MAX_BLOCKS} blocks");
 }
 
 /// Fabricates, saves and records the next pre-spice block: shards in

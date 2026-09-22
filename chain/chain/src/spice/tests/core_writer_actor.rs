@@ -8,7 +8,8 @@ use crate::spice::tests::all_stake_fallback::{
 };
 use crate::spice::tests::core::endorse_chunk;
 use crate::spice::tests::{
-    build_pre_spice_block, save_and_record_block, setup_pre_spice_chain_with_epoch_length,
+    build_pre_spice_block, grow_to_last_pre_spice_block, save_and_record_block,
+    setup_pre_spice_chain_with_epoch_length,
 };
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
@@ -596,22 +597,7 @@ fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_b
     let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
     let all_shards: Vec<ShardId> =
         chain.genesis_block().chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
-
-    // Grow a chain voting for spice until its tip is the last pre-spice block; the vote
-    // takes two epochs to activate.
-    const MAX_BLOCKS: usize = 40;
-    let mut prev_block = chain.genesis_block();
-    let mut last_pre_spice = None;
-    for _ in 0..MAX_BLOCKS {
-        let block = build_pre_spice_block(&chain, &prev_block, &all_shards, spice_protocol_version);
-        save_and_record_block(&mut chain, &block, pre_spice_protocol_version());
-        if is_last_pre_spice_block(epoch_manager.as_ref(), block.hash()).unwrap() {
-            last_pre_spice = Some(block);
-            break;
-        }
-        prev_block = block;
-    }
-    let last_pre_spice = last_pre_spice.expect("chain should reach the last pre-spice block");
+    let (last_pre_spice, prev_block) = grow_to_last_pre_spice_block(&mut chain);
 
     // A sibling last pre-spice block whose endorsements arrive before the block does.
     let block = build_pre_spice_block(&chain, &prev_block, &all_shards, spice_protocol_version);
