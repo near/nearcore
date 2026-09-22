@@ -742,14 +742,19 @@ impl SpiceChunkValidatorActor {
             return Ok(());
         }
         let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        // The producers holding the code are those that executed the chunk, which for a
+        // boundary chunk of the last pre-spice block are the first spice epoch's.
+        let producers_epoch_id =
+            spice_producers_epoch_id(self.epoch_manager.as_ref(), &chunk_id.block_hash)?;
         // TODO(spice-data-distribution): this always asks the first producer; spread requesters
         // over the producers and retry with another one if it does not answer.
         let sender = self
             .epoch_manager
-            .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?
+            .get_epoch_chunk_producers_for_shard(&producers_epoch_id, chunk_id.shard_id)?
             .into_iter()
             .next()
             .ok_or_else(|| Error::Other("chunk has no producers".to_owned()))?;
+        // The chunk itself applies under its own block's protocol version.
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
         let cache = self.runtime_adapter.compiled_contract_cache();
