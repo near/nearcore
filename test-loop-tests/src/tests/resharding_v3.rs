@@ -5,11 +5,11 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 use crate::utils::receipts::{ReceiptKind, assert_receipts_present};
 use crate::utils::resharding::{
-    AccountDeletedAfterSplit, BlockAction, BlockNodes, BurnGasTraffic, IndicesNodeReadableCheck,
-    MoneyTransfersTraffic, NodeRoles, OutgoingBufferSizesDebugPrint, StorageOperationsTraffic,
-    TrackedShardSchedule, assert_only_shard_state_left, assert_parent_flat_storage_ready,
-    delete_state_of_other_shards, gas_key_signer_for_account, install_block_action,
-    shard_uid_at_head,
+    AccountDeletedAfterSplit, BlockAction, BlockNodes, BurnGasTraffic,
+    IndicesTrieNodeReadableCheck, MoneyTransfersTraffic, NodeRoles, OutgoingReceiptBufferCheck,
+    StorageOperationsTraffic, TrackedShardSchedule, assert_only_shard_state_left,
+    assert_parent_flat_storage_ready, delete_state_of_other_shards, gas_key_signer_for_account,
+    install_block_action, shard_uid_at_head,
 };
 use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
@@ -1189,8 +1189,8 @@ impl ReshardingTest {
         );
     }
 
-    /// Runs until every transaction succeeded, checking once per new block of the request node.
-    /// Panics if a transaction failed or its outcome is missing.
+    /// Runs until every transaction succeeded, reading the partial outcome from the request node
+    /// on each stop condition call. Panics if a transaction failed or its outcome is missing.
     fn run_until_txs_succeeded(&mut self, txs: &[CryptoHash]) {
         let timeout = self.timeout();
         let mut unfinished_txs: Vec<CryptoHash> = txs.to_vec();
@@ -1217,8 +1217,10 @@ impl ReshardingTest {
         );
     }
 
-    /// Runs until the final outcome of every transaction is a success, checking once per new block
-    /// of the request node. A transaction whose outcome is not stored yet counts as unfinished.
+    /// Runs until the final outcome of every transaction is a success, reading from the request
+    /// node on each stop condition call. A transaction whose outcome is not stored yet counts as
+    /// unfinished, which is what the yield and receipt tests need and the partial outcome wait
+    /// treats as a failure.
     fn run_until_final_outcomes_succeeded(&mut self, txs: &[CryptoHash]) {
         let timeout = self.timeout();
         let mut unfinished_txs: Vec<CryptoHash> = txs.to_vec();
@@ -2251,15 +2253,16 @@ fn slow_test_resharding_v3_shard_shuffling_intense() {
     let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let num_accounts = 8;
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
+    let money_transfers = MoneyTransfersTraffic::new(
+        TestReshardingParametersBuilder::compute_initial_accounts(num_accounts),
+    );
 
     let mut test = TestReshardingParametersBuilder::default()
         .num_accounts(num_accounts)
         .epoch_length(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .chunk_ranges_to_drop(chunk_ranges_to_drop)
-        .on_each_request_node_block(MoneyTransfersTraffic::new(
-            TestReshardingParametersBuilder::compute_initial_accounts(num_accounts),
-        ))
+        .on_each_request_node_block(money_transfers.block_action())
         .on_each_request_node_block(deleted_account.block_action())
         .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
         .on_each_slowest_node_block(ChainStateDebugPrint::new())
@@ -2272,6 +2275,7 @@ fn slow_test_resharding_v3_shard_shuffling_intense() {
 
     test.run_until_resharding_mapping_removed();
 
+    assert!(money_transfers.num_submitted_transfers() > 0, "the money transfers never ran");
     trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
     deleted_account.assert_deleted_and_state_garbage_collected();
 }
@@ -2291,14 +2295,12 @@ fn slow_test_resharding_v3_storage_operations() {
     let deleted_account = AccountDeletedAfterSplit::new(account_in_right_child());
     let sender_account: AccountId = "account1".parse().unwrap();
     let contract_in_parent: AccountId = "account4".parse().unwrap();
+    let storage_traffic = StorageOperationsTraffic::new(sender_account, contract_in_parent.clone());
 
     let mut test = TestReshardingParametersBuilder::default()
         .delay_flat_state_resharding(2)
         .epoch_length(13)
-        .on_each_request_node_block(StorageOperationsTraffic::new(
-            sender_account,
-            contract_in_parent.clone(),
-        ))
+        .on_each_request_node_block(storage_traffic.block_action())
         .on_each_request_node_block(deleted_account.block_action())
         .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
         .on_each_slowest_node_block(ChainStateDebugPrint::new())
@@ -2314,6 +2316,7 @@ fn slow_test_resharding_v3_storage_operations() {
 
     test.run_until_resharding_mapping_removed();
 
+    assert!(storage_traffic.num_submitted_calls() > 0, "the storage operations never ran");
     trie_sanity_checks.assert_all_epochs_checked(&test.request_node());
     deleted_account.assert_deleted_and_state_garbage_collected();
 }
@@ -2681,7 +2684,7 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let num_heights_sending_receipts = 3;
 
     let mut test = TestReshardingParametersBuilder::default()
-        .on_each_request_node_block(OutgoingBufferSizesDebugPrint::new())
+        .on_each_request_node_block(OutgoingReceiptBufferCheck::new())
         .on_each_request_node_block(deleted_account.block_action())
         .on_each_slowest_node_block(InitialShardChecks::new(initial_num_shards))
         .on_each_slowest_node_block(ChainStateDebugPrint::new())
@@ -3123,11 +3126,9 @@ fn assert_transactions_succeeded(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHas
     }
 }
 
-/// The chain keeps the outcome of a transaction only while its block is within the GC window.
-fn assert_transaction_outcomes_garbage_collected(
-    node: &TestLoopNode<'_>,
-    tx_hashes: &[CryptoHash],
-) {
+/// The chain keeps the outcome of a transaction only while its block is within the GC window, so
+/// garbage collection is the expected reason the outcomes of these transactions are gone.
+fn assert_transaction_outcomes_unavailable(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHash]) {
     for tx_hash in tx_hashes {
         let outcome = node.client().chain.get_partial_transaction_result(tx_hash);
         let status = outcome.as_ref().map(|outcome| outcome.status.clone());
@@ -3345,7 +3346,7 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     );
 
     let mut test = TestReshardingParametersBuilder::default()
-        .on_each_request_node_block(IndicesNodeReadableCheck::<PromiseYieldIndices>::new(
+        .on_each_request_node_block(IndicesTrieNodeReadableCheck::<PromiseYieldIndices>::new(
             TrieKey::PromiseYieldIndices,
             &shard_layout_after_resharding,
             &contract_in_left_child,
@@ -3387,7 +3388,7 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
         calls.submit_yield_resume(&test, &contract_in_right_child, &contract_in_left_child);
 
     test.run_until_node_height_exactly(request_node_index, gc_height + 7);
-    assert_transaction_outcomes_garbage_collected(
+    assert_transaction_outcomes_unavailable(
         &test.request_node(),
         &[create_before_resharding, create_after_resharding],
     );
@@ -3421,7 +3422,7 @@ fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
     let gas_to_burn_per_call = Gas::from_teragas(275);
 
     let mut test = TestReshardingParametersBuilder::default()
-        .on_each_request_node_block(IndicesNodeReadableCheck::<DelayedReceiptIndices>::new(
+        .on_each_request_node_block(IndicesTrieNodeReadableCheck::<DelayedReceiptIndices>::new(
             TrieKey::DelayedReceiptIndices,
             &shard_layout_after_resharding,
             &contract_in_left_child,

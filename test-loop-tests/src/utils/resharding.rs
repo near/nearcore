@@ -34,7 +34,7 @@ use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
 use std::env::var;
 use std::fmt::Debug;
@@ -54,9 +54,11 @@ pub(crate) struct TrackedShardSchedule {
 
 /// Sends random transfers between `account_ids` at every block of the request node. The seed comes
 /// from `NEAR_TEST_RESHARDING_MONEY_TRANSFERS_SEED` when it is set, so that a run can be repeated.
+#[derive(Clone)]
 pub(crate) struct MoneyTransfersTraffic {
     account_ids: Vec<AccountId>,
     seed: u64,
+    num_submitted_transfers: Rc<Cell<usize>>,
 }
 
 impl MoneyTransfersTraffic {
@@ -66,7 +68,16 @@ impl MoneyTransfersTraffic {
             Err(_) => rand::thread_rng().r#gen::<u64>(),
         };
         println!("Random seed: {}", seed);
-        Self { account_ids, seed }
+        Self { account_ids, seed, num_submitted_transfers: Rc::default() }
+    }
+
+    /// The action to register on the request node's blocks.
+    pub(crate) fn block_action(&self) -> Self {
+        self.clone()
+    }
+
+    pub(crate) fn num_submitted_transfers(&self) -> usize {
+        self.num_submitted_transfers.get()
     }
 }
 
@@ -95,24 +106,46 @@ impl BlockAction for MoneyTransfersTraffic {
                 anchor_hash,
             );
             node.submit_tx(tx);
+            self.num_submitted_transfers.set(self.num_submitted_transfers.get() + 1);
         }
         ControlFlow::Continue(())
     }
 }
 
 /// Sends one transaction per new block of the request node that reads a key and writes a key-value
-/// pair in the contract storage, and asserts each transaction succeeded once it is
-/// `TX_CHECK_DEADLINE` blocks old.
+/// pair in the contract storage, and asserts each transaction succeeded once it is more than
+/// `TX_CHECK_DEADLINE` blocks old. The transactions younger than that when the test ends stay
+/// unchecked.
+#[derive(Clone)]
 pub(crate) struct StorageOperationsTraffic {
     sender_id: AccountId,
     contract_id: AccountId,
+    state: Rc<RefCell<StorageOperationsState>>,
+}
+
+struct StorageOperationsState {
     next_nonce: Nonce,
-    submitted_txs: Vec<(CryptoHash, BlockHeight)>,
+    unchecked_txs: Vec<(CryptoHash, BlockHeight)>,
+    num_submitted_calls: usize,
 }
 
 impl StorageOperationsTraffic {
     pub(crate) fn new(sender_id: AccountId, contract_id: AccountId) -> Self {
-        Self { sender_id, contract_id, next_nonce: 103, submitted_txs: Vec::new() }
+        let state = StorageOperationsState {
+            next_nonce: 103,
+            unchecked_txs: Vec::new(),
+            num_submitted_calls: 0,
+        };
+        Self { sender_id, contract_id, state: Rc::new(RefCell::new(state)) }
+    }
+
+    /// The action to register on the request node's blocks.
+    pub(crate) fn block_action(&self) -> Self {
+        self.clone()
+    }
+
+    pub(crate) fn num_submitted_calls(&self) -> usize {
+        self.state.borrow().num_submitted_calls
     }
 }
 
@@ -121,7 +154,8 @@ impl BlockAction for StorageOperationsTraffic {
         const TX_CHECK_DEADLINE: BlockHeightDelta = 5;
         let node = nodes.request;
         let height = node.head().height;
-        self.submitted_txs.retain(|(tx_hash, tx_height)| {
+        let state = &mut *self.state.borrow_mut();
+        state.unchecked_txs.retain(|(tx_hash, tx_height)| {
             if tx_height + TX_CHECK_DEADLINE >= height {
                 return true;
             }
@@ -148,17 +182,18 @@ impl BlockAction for StorageOperationsTraffic {
             deposit: Balance::ZERO,
         }));
         let tx = SignedTransaction::from_actions(
-            self.next_nonce,
+            state.next_nonce,
             self.sender_id.clone(),
             self.contract_id.clone(),
             &create_user_test_signer(&self.sender_id).into(),
             vec![read_action, write_action],
             anchor_hash,
         );
-        self.next_nonce += 1;
+        state.next_nonce += 1;
         let tx_hash = node.submit_tx(tx);
         resharding_check_trace::submitted_tx(height, &self.sender_id, &self.contract_id, &tx_hash);
-        self.submitted_txs.push((tx_hash, height));
+        state.unchecked_txs.push((tx_hash, height));
+        state.num_submitted_calls += 1;
         ControlFlow::Continue(())
     }
 }
@@ -255,9 +290,10 @@ impl BlockAction for BurnGasTraffic {
     }
 }
 
-/// Reads the indices node of the parent shard and of both child shards at every block, and asserts
-/// the read succeeds on each shard the request node tracks.
-pub(crate) struct IndicesNodeReadableCheck<Indices> {
+/// Reads the indices trie node of the parent shard and of both child shards at every block, and
+/// asserts the read succeeds on each shard the request node tracks. A shard without a chunk extra
+/// reads as `None`, and a missing key reads as the default value, as in the checks this replaces.
+pub(crate) struct IndicesTrieNodeReadableCheck<Indices> {
     trie_key: TrieKey,
     parent_shard_uid: ShardUId,
     left_child_shard_uid: ShardUId,
@@ -265,7 +301,7 @@ pub(crate) struct IndicesNodeReadableCheck<Indices> {
     indices_type: PhantomData<Indices>,
 }
 
-impl<Indices> IndicesNodeReadableCheck<Indices> {
+impl<Indices> IndicesTrieNodeReadableCheck<Indices> {
     pub(crate) fn new(
         trie_key: TrieKey,
         shard_layout_after_resharding: &ShardLayout,
@@ -289,7 +325,7 @@ impl<Indices> IndicesNodeReadableCheck<Indices> {
 }
 
 impl<Indices: BorshDeserialize + Default + Debug + 'static> BlockAction
-    for IndicesNodeReadableCheck<Indices>
+    for IndicesTrieNodeReadableCheck<Indices>
 {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         let node = nodes.request;
@@ -324,17 +360,17 @@ impl<Indices: BorshDeserialize + Default + Debug + 'static> BlockAction
     }
 }
 
-/// Prints the size of every buffered outgoing receipt of every shard at each block of the request
-/// node, and expects each one to carry its congestion metadata.
-pub(crate) struct OutgoingBufferSizesDebugPrint;
+/// Asserts every buffered outgoing receipt of every shard carries its congestion metadata, at each
+/// block of the request node, and logs the sizes.
+pub(crate) struct OutgoingReceiptBufferCheck;
 
-impl OutgoingBufferSizesDebugPrint {
+impl OutgoingReceiptBufferCheck {
     pub(crate) fn new() -> Self {
         Self
     }
 }
 
-impl BlockAction for OutgoingBufferSizesDebugPrint {
+impl BlockAction for OutgoingReceiptBufferCheck {
     fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
         let client = nodes.request.client();
         let head = nodes.request.head();
