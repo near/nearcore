@@ -44,6 +44,7 @@ use near_network::types::{
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
@@ -61,6 +62,7 @@ use near_primitives::spice::partial_data::{
 };
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeHash, SpiceContractCodeRequest,
 };
@@ -68,10 +70,12 @@ use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
 use near_primitives::types::AccountId;
+use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
@@ -3801,8 +3805,10 @@ fn test_handling_batched_data_request_gates_entries_separately() {
         &HashSet::new(),
     );
 
-    // A block header from the pre-spice side of activation, taken from a pre-spice genesis. Only
-    // the header is saved, since that is all the gate reads.
+    // A pre-spice header, taken from a pre-spice genesis, plus an epoch record for its hash
+    // as the next block after the head. The gate reads both to rule out the last pre-spice
+    // block, and the epoch manager records blocks by hash and height without reading the
+    // header, so the record can be a stub. Only the header is saved.
     let pre_spice_header = {
         let pre_spice_genesis = TestGenesisBuilder::new()
             .protocol_version(pre_spice_protocol_version())
@@ -3813,8 +3819,28 @@ fn test_handling_batched_data_request_gates_entries_separately() {
     };
     assert!(!pre_spice_header.is_spice());
     let pre_spice_block_hash = *pre_spice_header.hash();
+    let pre_spice_block_info = BlockInfo::new(
+        pre_spice_block_hash,
+        block.header().height() + 1,
+        block.header().height(),
+        *block.hash(),
+        *block.hash(),
+        vec![],
+        vec![],
+        Balance::ZERO,
+        PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
+        0,
+        ChunkEndorsementsBitmap::new(0),
+        None,
+    );
+    let epoch_manager_update = chain
+        .epoch_manager
+        .add_validator_proposals(pre_spice_block_info, CryptoHash::default())
+        .unwrap();
     let mut store_update = chain.mut_chain_store().store_update();
     store_update.save_block_header(pre_spice_header).unwrap();
+    store_update.merge(epoch_manager_update.into());
     store_update.commit().unwrap();
 
     let mut producers = witness_producer_accounts(&chain, &block, &state_witness);
