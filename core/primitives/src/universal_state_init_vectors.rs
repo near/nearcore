@@ -101,7 +101,7 @@ pub mod wallet_contract {
     pub const DETERMINISTIC_ACCOUNT_ID: &str = "0scdb6cfeed476fc878af9d3246768cbe803714c87";
 
     /// Canonical borsh of the universal re-expression, which is what the `0u` id
-    /// hashes. Published so a reimplementation can check its own derivation
+    /// hashes. Recorded here so a reimplementation can check its own derivation
     /// without rebuilding the struct.
     pub const UNIVERSAL_STATE_INIT: &str = concat!(
         "00",       // UniversalStateInit::V1

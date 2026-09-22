@@ -49,6 +49,7 @@ use near_primitives::views::{
     QueryRequest, QueryResponseKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::str;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
@@ -138,6 +139,12 @@ impl Env {
     /// global contract account id.
     fn deploy_global_contract(&mut self) -> GlobalContractIdentifier {
         let account = self.global_contract_account.clone();
+        self.deploy_global_contract_to(account)
+    }
+
+    /// Deploy the standard test contract as a global contract addressed by
+    /// `account`.
+    fn deploy_global_contract_to(&mut self, account: AccountId) -> GlobalContractIdentifier {
         let tx = SignedTransaction::deploy_global_contract(
             self.next_nonce(),
             account.clone(),
@@ -156,15 +163,7 @@ impl Env {
     /// part the account id derives from, is the vector's own.
     fn deploy_wallet_global_contract(&mut self) {
         let account = self.wallet_code_account.clone();
-        let tx = SignedTransaction::deploy_global_contract(
-            self.next_nonce(),
-            account.clone(),
-            near_test_contracts::rs_contract().to_vec(),
-            &create_user_test_signer(&account),
-            self.block_hash(),
-            GlobalContractDeployMode::AccountId,
-        );
-        self.run_tx(tx);
+        self.deploy_global_contract_to(account);
     }
 
     /// Storage of `account`, as key-value pairs.
@@ -473,7 +472,7 @@ fn test_universal_state_init_wallet_contract_vector() {
     // real import table.
     let returned = env.deploy_and_call(derive_wasm(&raw.0));
     let derived: AccountId =
-        std::str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
+        str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
     assert_eq!(derived, vector.universal_account_id);
 
     // B: the chain accepts that id as the receiver of a state init over those
@@ -497,11 +496,19 @@ fn test_universal_state_init_wallet_contract_vector() {
 
     // D: and no access keys, since the wallet's key is a credential inside `data`.
     assert!(vector.universal.access_keys().is_empty());
-    let public_key = SecretKey::from_seed(KeyType::ED25519, "uaid-wallet-vector").public_key();
-    assert!(
-        env.env.rpc_node().view_access_key_query(&derived, &public_key).is_err(),
-        "the vector installs no protocol access key"
-    );
+    let response = env
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewAccessKeyList {
+            account_id: derived.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .expect("view access key list query");
+    let QueryResponseKind::AccessKeyList(list) = response.kind else {
+        panic!("unexpected query response type")
+    };
+    assert!(list.keys.is_empty(), "the vector installs no protocol access key");
 }
 
 /// A state init whose borsh is valid but is not what the typed form would write:
@@ -614,7 +621,7 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     // A: derive on-chain, through the real import table.
     let returned = env.deploy_and_call(derive_wasm(&raw.0));
     let derived: AccountId =
-        std::str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
+        str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
 
     // B: it is the canonical vector, and agrees with the derivation the receiver
     // check uses.
