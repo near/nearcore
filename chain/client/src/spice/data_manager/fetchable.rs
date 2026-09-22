@@ -23,8 +23,8 @@ pub(crate) trait DataPolicy {
     /// Whether the durable artifact this item exists to obtain is already in the store.
     fn is_done(&self, id: &DataId) -> Result<bool, Error>;
 
-    /// The nodes that hold the item's data and can serve a pull. Their count is
-    /// the number of parts the data is coded into.
+    /// The nodes that hold the item's data and can serve a pull, in encoding order:
+    /// the node at index `i` produced part `i`, and their count is the number of parts.
     fn sources(&self, id: &DataId) -> Result<Vec<AccountId>, Error>;
 
     /// Whether the item sourced from a block at `height` should be pulled.

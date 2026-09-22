@@ -478,7 +478,7 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
                 }
             }
             Err(err) => {
-                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when pulling missing data");
+                tracing::debug!(target: "spice_data_distribution", ?err, ?block_hash, "failure when pulling missing data");
             }
         }
         if let Err(err) = self.process_pending_partial_data(&block_hash) {
@@ -850,7 +850,7 @@ impl SpiceDataDistributorActor {
             // insert_part; the unwrap below goes with the old tracker (#16275).
             let verified =
                 VerifiedCodedPart::verify(&commitment, total_parts, part_ord, part, &merkle_proof)
-                    .map_err(|_| Error::InvalidCommitment)?;
+                    .ok_or(Error::InvalidCommitment)?;
             // TODO(spice): Verify that size of partial data isn't too large.
             let create_decode_span = None;
             let ordinal = verified.ordinal();

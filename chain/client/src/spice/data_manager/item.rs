@@ -1,5 +1,5 @@
+use super::DataId;
 use super::pull::PullState;
-use super::{DataId, SenderFault};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::Instant;
 use near_primitives::hash::hash;
@@ -165,7 +165,7 @@ impl VerifiedCodedPart {
         ordinal: u64,
         part: Box<[u8]>,
         merkle_proof: &MerklePath,
-    ) -> Result<Self, SenderFault> {
+    ) -> Option<Self> {
         if !verify_path_with_index(
             commitment.root,
             merkle_proof,
@@ -173,11 +173,11 @@ impl VerifiedCodedPart {
             ordinal,
             total_parts as u64,
         ) {
-            return Err(SenderFault::InvalidMerkleProof);
+            return None;
         }
         // the index check above bounds the ordinal by `total_parts`, a usize
         let ordinal = usize::try_from(ordinal).expect("verified ordinal fits in usize");
-        Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
+        Some(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
     // TODO(spice-data-distribution): these accessors only feed the old witness ingress

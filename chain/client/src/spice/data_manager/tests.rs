@@ -148,14 +148,12 @@ fn mismatched_proof_fails_verification() {
     VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 0, parts[0].clone(), &proofs[0]).unwrap();
     // Right proof, wrong ordinal; then right proof, wrong content.
     let wrong_ordinal =
-        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 1, parts[0].clone(), &proofs[0])
-            .unwrap_err();
+        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 1, parts[0].clone(), &proofs[0]);
     let wrong_content =
-        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 0, parts[1].clone(), &proofs[0])
-            .unwrap_err();
+        VerifiedCodedPart::verify(&commitment, TOTAL_PARTS, 0, parts[1].clone(), &proofs[0]);
 
-    assert_matches!(wrong_ordinal, SenderFault::InvalidMerkleProof);
-    assert_matches!(wrong_content, SenderFault::InvalidMerkleProof);
+    assert!(wrong_ordinal.is_none());
+    assert!(wrong_content.is_none());
 }
 
 #[test]
@@ -1135,18 +1133,19 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn a_source_lookup_failure_skips_tracking_that_id() {
+    fn a_source_lookup_failure_propagates_and_a_later_track_block_tracks_the_id() {
         let (chain, blocks) = chain_with_blocks(1);
         let block = &blocks[0];
         let mut manager = TestManager::with(&chain, PullConfig::default(), sources(), vec![(1, 1)]);
         let failing = receipt_id(block, 1, 1);
         manager.manager.policies.failing_sources.insert(failing.clone());
 
-        manager.manager.track_block(block.header()).unwrap();
-
+        assert!(manager.manager.track_block(block.header()).is_err());
         assert!(!manager.manager.is_tracking(&failing));
-        assert!(manager.manager.is_tracking(&receipt_id(block, 0, 1)));
-        assert_eq!(manager.manager.items_by_height[&1].len(), 1);
+
+        manager.manager.policies.failing_sources.clear();
+        manager.manager.track_block(block.header()).unwrap();
+        assert!(manager.manager.is_tracking(&failing));
     }
 
     /// Six heights, two items each, nothing pushed: every producer is asked for its own
@@ -1246,6 +1245,36 @@ mod manager {
         let repacked: BTreeMap<DataId, BTreeSet<u64>> =
             packed.into_iter().flat_map(|request| request.wants).collect();
         assert_eq!(repacked, unpacked[0].wants);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn an_items_ask_larger_than_one_request_spans_requests() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let config = PullConfig { max_parts_per_request: 3, ..PullConfig::default() };
+        let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+        let backer = sources()[0].clone();
+        let id = receipt_id(&blocks[0], 0, 1);
+        let mut manager = TestManager::with(&chain, config, sources(), Vec::new());
+        manager.manager.track_block(blocks[0].header()).unwrap();
+        manager.push(&backer, &id, &commitment, parts_with_ordinals(&parts, &[0]));
+        manager.certify_up_to(1);
+
+        let requests: Vec<PullRequest> = manager
+            .on_new_block(&blocks[0])
+            .into_iter()
+            .filter(|request| request.producer == backer)
+            .collect();
+
+        assert_eq!(requests.len(), 2, "four gaps over a cap of three: {requests:?}");
+        let mut asked = BTreeSet::new();
+        for request in &requests {
+            assert_eq!(request.wants.keys().collect::<Vec<_>>(), vec![&id]);
+            let ordinals = &request.wants[&id];
+            assert!(ordinals.len() <= 3, "request over the cap: {request:?}");
+            asked.extend(ordinals.iter().copied());
+        }
+        assert_eq!(asked, BTreeSet::from([1, 2, 3, 4]));
     }
 
     #[test]
