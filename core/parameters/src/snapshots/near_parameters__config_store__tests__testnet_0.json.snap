@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -211,12 +210,12 @@ snapshot_kind: text
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
-    "linear_op_base_cost": 300000000000000,
-    "linear_op_unit_cost": 300000000000000,
+    "linear_op_base_cost": 26328192,
+    "linear_op_unit_cost": 822756,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
     "global_contract_host_fns": true,
-    "reftypes_bulk_memory": false,
+    "reftypes_bulk_memory": true,
     "gas_key_host_fns": false,
     "one_yocto_on_promise": false,
     "p256_verify_host_fn": false,
@@ -242,7 +241,7 @@ snapshot_kind: text
       "max_total_log_length": 16384,
       "max_total_prepaid_gas": 1000000000000000,
       "max_actions_per_receipt": 100,
-      "max_deploy_actions_per_receipt": 100,
+      "max_deploy_actions_per_receipt": 10,
       "max_number_bytes_method_names": 2000,
       "max_length_method_name": 256,
       "max_arguments_length": 4194304,
@@ -259,8 +258,16 @@ snapshot_kind: text
       "max_state_init_entries": 4294967295,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
+      "max_params_per_contract": 50000,
+      "max_params_per_function": 64,
+      "max_operand_stack_bytes_per_function": 8192,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
+      "max_function_body_size": 196608,
+      "max_instrumented_code_size": 16777216,
+      "max_blocks_per_function": 5000,
+      "max_blocks_per_contract": 50000,
+      "max_types_per_contract": 1024,
       "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
