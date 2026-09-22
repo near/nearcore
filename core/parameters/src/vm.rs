@@ -249,14 +249,8 @@ pub struct Config {
     // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
 
-    /// Whether to discard custom sections.
-    pub discard_custom_sections: bool,
-
     /// Whether to enable global contract related host functions.
     pub global_contract_host_fns: bool,
-
-    /// Whether to enable saturating reference types and bulk memory wasm extensions.
-    pub reftypes_bulk_memory: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,

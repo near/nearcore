@@ -260,8 +260,6 @@ pub enum Parameter {
     // past protocol version 87, where the feature is enabled.
     UniversalAccounts,
     FixMlDsaCostCharging,
-    DiscardCustomSections,
-    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -275,9 +273,6 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
-
-    // Use the StateStoredReceipt structure when storing receipts in State.
-    UseStateStoredReceipt,
 
     // Bandwidth scheduler
     MaxShardBandwidth,

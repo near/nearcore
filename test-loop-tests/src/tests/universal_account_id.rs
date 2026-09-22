@@ -41,12 +41,15 @@ use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
+use near_primitives::universal_state_init_vectors::wallet_contract;
 use near_primitives::utils::derive_universal_account_id;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyPermissionView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    QueryRequest, QueryResponseKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::str;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
@@ -55,6 +58,10 @@ struct Env {
     user_account: AccountId,
     global_contract_account: AccountId,
     caller_account: AccountId,
+    /// Holds the global contract the wallet-contract re-derivation vector names.
+    /// Seeded in genesis under the vector's own `0s` id, so the vector's exact
+    /// bytes can be initialized on chain rather than a rewritten copy of them.
+    wallet_code_account: AccountId,
     nonce: u64,
 }
 
@@ -62,6 +69,8 @@ impl Env {
     fn setup() -> Self {
         let [user_account, global_contract_account, caller_account] =
             create_account_ids(["account0", "account", "account2"]);
+        let wallet_code_account: AccountId =
+            wallet_contract::GLOBAL_CONTRACT.parse().expect("valid account id");
         let boundary_accounts = create_account_ids(["account1"]).to_vec();
         let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
         let validators_spec = create_validators_spec(2, 2);
@@ -71,7 +80,12 @@ impl Env {
             .validators_spec(validators_spec)
             .shard_layout(shard_layout)
             .add_user_accounts_simple(
-                &[user_account.clone(), global_contract_account.clone(), caller_account.clone()],
+                &[
+                    user_account.clone(),
+                    global_contract_account.clone(),
+                    caller_account.clone(),
+                    wallet_code_account.clone(),
+                ],
                 Balance::from_near(100),
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
@@ -85,7 +99,14 @@ impl Env {
             .runtime_config_store(RuntimeConfigStore::new(None))
             .build();
 
-        Self { env, user_account, global_contract_account, caller_account, nonce: 1 }
+        Self {
+            env,
+            user_account,
+            global_contract_account,
+            caller_account,
+            wallet_code_account,
+            nonce: 1,
+        }
     }
 
     fn next_nonce(&mut self) -> u64 {
@@ -118,6 +139,12 @@ impl Env {
     /// global contract account id.
     fn deploy_global_contract(&mut self) -> GlobalContractIdentifier {
         let account = self.global_contract_account.clone();
+        self.deploy_global_contract_to(account)
+    }
+
+    /// Deploy the standard test contract as a global contract addressed by
+    /// `account`.
+    fn deploy_global_contract_to(&mut self, account: AccountId) -> GlobalContractIdentifier {
         let tx = SignedTransaction::deploy_global_contract(
             self.next_nonce(),
             account.clone(),
@@ -128,6 +155,35 @@ impl Env {
         );
         self.run_tx(tx);
         GlobalContractIdentifier::AccountId(account)
+    }
+
+    /// Deploy a contract as a global contract addressed by the account id the
+    /// wallet-contract vector names, so a state init carrying that identifier can
+    /// resolve its code. Only the code is a stand-in; the identifier, which is the
+    /// part the account id derives from, is the vector's own.
+    fn deploy_wallet_global_contract(&mut self) {
+        let account = self.wallet_code_account.clone();
+        self.deploy_global_contract_to(account);
+    }
+
+    /// Storage of `account`, as key-value pairs.
+    fn view_state(&mut self, account: &AccountId) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.env.test_loop.run_for(Duration::seconds(2));
+        let response = self
+            .env
+            .rpc_node()
+            .runtime_query(QueryRequest::ViewState {
+                account_id: account.clone(),
+                prefix: Vec::new().into(),
+                after_key: None,
+                limit: None,
+                include_proof: false,
+            })
+            .expect("view state query");
+        let QueryResponseKind::ViewState(view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        view.values.into_iter().map(|entry| (entry.key.into(), entry.value.into())).collect()
     }
 
     /// Submit a `UniversalStateInit` action creating `receiver` from `state_init`,
@@ -394,6 +450,67 @@ fn test_universal_state_init_after_transfer() {
     );
 }
 
+/// The wallet-contract re-derivation vector, end to end on a running chain.
+///
+/// [`near_primitives::universal_state_init_vectors`] pins the vector's two ids
+/// offline: the `0s` id is the one a live mainnet instance actually has, which is
+/// what makes the fixture the deployed state init rather than an invented one,
+/// and the `0u` id is what the same code and data derive to once re-expressed.
+/// This test carries the second id onto a chain: a contract asks the host for it,
+/// action validation accepts it as the receiver, and the state that gets installed
+/// is the vector's own bytes.
+#[test]
+fn test_universal_state_init_wallet_contract_vector() {
+    init_test_logger();
+    let mut env = Env::setup();
+    env.deploy_wallet_global_contract();
+
+    let vector = wallet_contract();
+    let raw = vector.universal.to_raw();
+
+    // A: a contract derives the recorded id from the vector's bytes, through the
+    // real import table.
+    let returned = env.deploy_and_call(derive_wasm(&raw.0));
+    let derived: AccountId =
+        str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
+    assert_eq!(derived, vector.universal_account_id);
+
+    // B: the chain accepts that id as the receiver of a state init over those
+    // same bytes, and installs the account.
+    env.create_universal_account(raw, &derived, Balance::from_near(1));
+
+    // C: what got installed is the vector, unchanged. The contract is the global
+    // one the `0s` deployment named, and the storage is byte-identical, which is
+    // the whole of the one-to-one claim: the wallet's own state, addressed under
+    // the new scheme, with nothing rewritten on the way in.
+    let view = env.view_account(&derived);
+    assert_eq!(
+        view.global_contract_account_id.as_ref(),
+        Some(&env.wallet_code_account),
+        "the account must use the global contract the vector names"
+    );
+    let installed = env.view_state(&derived);
+    let expected: Vec<_> =
+        vector.universal.data().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    assert_eq!(installed, expected, "installed storage must be the vector's own bytes");
+
+    // D: and no access keys, since the wallet's key is a credential inside `data`.
+    assert!(vector.universal.access_keys().is_empty());
+    let response = env
+        .env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewAccessKeyList {
+            account_id: derived.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .expect("view access key list query");
+    let QueryResponseKind::AccessKeyList(list) = response.kind else {
+        panic!("unexpected query response type")
+    };
+    assert!(list.keys.is_empty(), "the vector installs no protocol access key");
+}
+
 /// A state init whose borsh is valid but is not what the typed form would write:
 /// the storage entries are in descending key order, which borsh accepts and
 /// re-sorts on decode. Hand-assembled, since the typed API cannot express it.
@@ -504,7 +621,7 @@ fn test_universal_state_init_to_account_id_matches_receiver_check() {
     // A: derive on-chain, through the real import table.
     let returned = env.deploy_and_call(derive_wasm(&raw.0));
     let derived: AccountId =
-        std::str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
+        str::from_utf8(&returned).expect("utf8 account id").parse().expect("valid account id");
 
     // B: it is the canonical vector, and agrees with the derivation the receiver
     // check uses.

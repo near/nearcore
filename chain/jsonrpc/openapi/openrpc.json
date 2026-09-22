@@ -13528,7 +13528,7 @@
             "type": "boolean"
           },
           "discard_custom_sections": {
-            "description": "See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).",
+            "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
             "type": "boolean"
           },
           "eth_implicit_accounts": {
@@ -13598,7 +13598,7 @@
             "type": "boolean"
           },
           "reftypes_bulk_memory": {
-            "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
+            "description": "Deprecated: reference types and bulk memory wasm extensions are always\nenabled, so this is always `true`.",
             "type": "boolean"
           },
           "regular_op_cost": {

@@ -451,8 +451,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
                 linear_op_base_cost: params.get(Parameter::WasmLinearOpBaseCost)?,
                 linear_op_unit_cost: params.get(Parameter::WasmLinearOpUnitCost)?,
-                discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
-                reftypes_bulk_memory: params.get(Parameter::ReftypesBulkMemory)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
@@ -490,7 +488,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_allowance: params.get(Parameter::MaxAllowance)?,
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
-            use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
             min_gas_purchase_price: params.get(Parameter::MinGasPurchasePrice)?,
             account_creation_charge: params.get(Parameter::AccountCreationCharge)?,
         })
