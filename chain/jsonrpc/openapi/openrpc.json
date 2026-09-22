@@ -13552,7 +13552,7 @@
             "type": "boolean"
           },
           "global_contract_host_fns": {
-            "description": "See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).",
+            "description": "Deprecated: the global contract host functions are always enabled, so this is\nalways `true`.",
             "type": "boolean"
           },
           "grow_mem_cost": {

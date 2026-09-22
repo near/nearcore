@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.30"
+    "version": "1.3.31"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -23260,7 +23260,7 @@
             "type": "boolean"
           },
           "global_contract_host_fns": {
-            "description": "See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).",
+            "description": "Deprecated: the global contract host functions are always enabled, so this is\nalways `true`.",
             "type": "boolean"
           },
           "grow_mem_cost": {

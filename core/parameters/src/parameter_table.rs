@@ -457,7 +457,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
-                global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
                 one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,

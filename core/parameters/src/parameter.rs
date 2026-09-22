@@ -303,7 +303,6 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    GlobalContractHostFns,
 
     // Flag to enable gas key host functions
     GasKeyHostFns,

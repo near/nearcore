@@ -244,7 +244,8 @@ pub struct VMConfigView {
     pub vm_kind: crate::vm::VMKind,
     /// Deprecated: custom sections are always discarded, so this is always `true`.
     pub discard_custom_sections: bool,
-    /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
+    /// Deprecated: the global contract host functions are always enabled, so this is
+    /// always `true`.
     pub global_contract_host_fns: bool,
     /// Deprecated: reference types and bulk memory wasm extensions are always
     /// enabled, so this is always `true`.
@@ -301,7 +302,7 @@ impl From<crate::vm::Config> for VMConfigView {
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
             universal_accounts: config.universal_accounts,
-            global_contract_host_fns: config.global_contract_host_fns,
+            global_contract_host_fns: true,
             reftypes_bulk_memory: true,
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
