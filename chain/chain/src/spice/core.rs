@@ -3,6 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
+use crate::spice::boundary::{last_pre_spice_block_header, seeded_uncertified_chunks};
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -147,7 +148,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than the last
+    /// pre-spice block, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -319,9 +321,13 @@ impl SpiceCoreReader {
         if !all_present && !last_certified.is_genesis() {
             let relevant_blocks = HashSet::from([*last_certified.hash()]);
             let mut results_by_block = HashMap::new();
-            self.collect_certified_execution_results_from_ancestry(
+            let stop_header = self.get_last_certified_block_header_or_last_pre_spice_block(
                 block_hash,
                 &last_certified,
+            )?;
+            self.collect_certified_execution_results_from_ancestry(
+                block_hash,
+                &stop_header,
                 &relevant_blocks,
                 &mut results_by_block,
             )?;
@@ -340,6 +346,20 @@ impl SpiceCoreReader {
             state_roots.push(*result.chunk_extra.state_root());
         }
         Ok(Some(merklize(&state_roots).0))
+    }
+
+    /// Where an ancestry walk for core statements from `block_hash` stops: the last
+    /// certified block, or the last pre-spice block when the certified one is still
+    /// pre-spice, since no core statements exist at or below the activation boundary.
+    fn get_last_certified_block_header_or_last_pre_spice_block(
+        &self,
+        block_hash: &CryptoHash,
+        last_certified: &Arc<BlockHeader>,
+    ) -> Result<Arc<BlockHeader>, Error> {
+        if last_certified.is_spice() {
+            return Ok(Arc::clone(last_certified));
+        }
+        last_pre_spice_block_header(&self.chain_store, self.epoch_manager.as_ref(), block_hash)
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
@@ -957,8 +977,10 @@ fn get_uncertified_chunks(
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block = chain_store.get_block(block_hash)?;
 
-    if block.header().is_genesis() || !block.is_spice_block() {
+    if block.header().is_genesis() {
         Ok(vec![])
+    } else if !block.is_spice_block() {
+        Ok(seeded_uncertified_chunks(chain_store, block_hash))
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())

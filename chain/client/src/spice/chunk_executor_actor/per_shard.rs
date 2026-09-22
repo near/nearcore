@@ -789,12 +789,13 @@ pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,
     header: &BlockHeader,
 ) -> bool {
-    // The final execution head is seeded at genesis whenever spice is enabled, and
-    // this runs only on spice-gated paths, so its absence is a bug rather than a
-    // recoverable "not set yet" state — fail loud.
+    // The final execution head is seeded at genesis on a spice chain and at block
+    // postprocessing of a first spice block on an upgraded chain, and this runs only
+    // on spice-gated paths, so its absence is a bug rather than a recoverable "not
+    // set yet" state — fail loud.
     let final_execution_head = chain_store
         .spice_final_execution_head()
-        .expect("spice final execution head is seeded at genesis when spice is enabled");
+        .expect("spice final execution head is seeded at genesis or at spice activation");
     let mut height = header.height();
     if height <= final_execution_head.height {
         return false;

@@ -3,7 +3,8 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use near_chain::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_relevant_block};
+use near_chain::spice::boundary::spice_producers_epoch_id;
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -187,8 +188,9 @@ impl SpiceChunkValidatorActor {
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         // Pre-spice chunks are validated as part of block processing; no witness
-        // can be waiting on a pre-spice block.
-        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+        // can be waiting on a pre-spice block — except a last pre-spice block, whose
+        // boundary witness can arrive before the block itself.
+        match spice_relevant_block(&self.chain_store, self.epoch_manager.as_ref(), &block_hash) {
             Ok(true) => {}
             Ok(false) => return,
             Err(err) => {
@@ -235,6 +237,7 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
     ) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ContractAccesses,
             &accesses.chunk_id().block_hash,
         ) {
@@ -253,6 +256,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
     ) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ContractCodeResponse,
             &response.chunk_id().block_hash,
         ) {
@@ -275,6 +279,7 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::StateWitness,
             &witness.chunk_id().block_hash,
         ) {
@@ -572,13 +577,16 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err.into()),
         };
-        let producers =
-            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+        let producers_epoch_id =
+            spice_producers_epoch_id(self.epoch_manager.as_ref(), &chunk_id.block_hash)?;
+        let producers = self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&producers_epoch_id, chunk_id.shard_id)?;
         // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
         // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
         let sender = producers.iter().find(|account_id| {
             let Ok(validator) =
-                self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+                self.epoch_manager.get_validator_by_account_id(&producers_epoch_id, account_id)
             else {
                 return false;
             };
