@@ -417,17 +417,13 @@ fn validate_access_key_permission(
 ) -> Result<(), ActionsValidationError> {
     if let Some(fc) = permission.function_call_permission() {
         // Check whether `receiver_id` is a valid account_id. Historically, we
-        // allowed arbitrary strings there!
-        match limit_config.account_id_validity_rules_version {
-            near_primitives_core::config::AccountIdValidityRulesVersion::V0 => (),
-            near_primitives_core::config::AccountIdValidityRulesVersion::V1
-            | near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
-                if let Err(_) = fc.receiver_id.parse::<AccountId>() {
-                    return Err(ActionsValidationError::InvalidAccountId {
-                        account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
-                    });
-                }
-            }
+        // allowed arbitrary strings there, and testnet genesis still contains
+        // some. Those keys remain usable: this check runs only for new keys
+        // being added.
+        if let Err(_) = fc.receiver_id.parse::<AccountId>() {
+            return Err(ActionsValidationError::InvalidAccountId {
+                account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
+            });
         }
 
         // Checking method name length limits

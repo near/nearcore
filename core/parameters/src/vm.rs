@@ -190,9 +190,9 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
-    /// Whether to enforce account_id well-formed-ness where it wasn't enforced
-    /// historically.
-    #[serde(default = "AccountIdValidityRulesVersion::v0")]
+    /// Deprecated: full account id validation is always enforced, so this is
+    /// always `V2`.
+    #[serde(default = "AccountIdValidityRulesVersion::v2")]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,

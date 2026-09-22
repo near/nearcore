@@ -25,9 +25,12 @@ pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
 )]
 #[repr(u8)]
 pub enum AccountIdValidityRulesVersion {
-    /// Skip account ID validation according to legacy rules.
+    /// Deprecated: skipped account ID validation according to legacy rules. No
+    /// supported protocol version uses it; kept so old configs still deserialize.
     V0,
-    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
+    /// Deprecated: limited `receiver_id` in `FunctionCallPermission` to a valid
+    /// account ID. No supported protocol version uses it; kept so old configs
+    /// still deserialize.
     V1,
     /// Enforce full AccountId validation in all places that parse from strings.
     V2,
@@ -45,8 +48,8 @@ impl schemars::JsonSchema for AccountIdValidityRulesVersion {
 }
 
 impl AccountIdValidityRulesVersion {
-    pub fn v0() -> AccountIdValidityRulesVersion {
-        AccountIdValidityRulesVersion::V0
+    pub fn v2() -> AccountIdValidityRulesVersion {
+        AccountIdValidityRulesVersion::V2
     }
 }
 

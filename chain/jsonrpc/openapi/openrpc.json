@@ -7243,8 +7243,8 @@
                 "$ref": "#/components/schemas/AccountIdValidityRulesVersion"
               }
             ],
-            "default": 0,
-            "description": "Whether to enforce account_id well-formed-ness where it wasn't enforced\nhistorically."
+            "default": 2,
+            "description": "Deprecated: full account id validation is always enforced, so this is\nalways `V2`."
           },
           "initial_memory_pages": {
             "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
