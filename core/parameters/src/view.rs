@@ -242,7 +242,7 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
+    /// Deprecated: custom sections are always discarded, so this is always `true`.
     pub discard_custom_sections: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,

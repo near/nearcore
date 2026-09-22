@@ -274,7 +274,6 @@ impl<'a> PrepareContext<'a> {
                     func_validator.validate(&func).map_err(|_| PrepareError::Deserialization)?;
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
-                // Custom sections are discarded.
                 wp::Payload::CustomSection(_) => {}
 
                 // Extensions not supported.
