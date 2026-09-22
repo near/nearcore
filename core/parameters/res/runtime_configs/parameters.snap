@@ -268,7 +268,6 @@ max_globals_per_contract                              65_536
 fix_contract_loading_cost               false
 fix_contract_loading_error              true
 vm_kind                                 Wasmtime
-eth_implicit_accounts                   true
 universal_accounts                      true
 fix_ml_dsa_cost_charging                true
 max_congestion_incoming_gas             400_000_000_000_000_000

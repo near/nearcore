@@ -274,7 +274,7 @@ pub struct VMConfigView {
     pub fix_contract_loading_cost: bool,
     /// Deprecated
     pub implicit_account_creation: bool,
-    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
+    /// Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.
     pub eth_implicit_accounts: bool,
     /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
     pub universal_accounts: bool,
@@ -300,7 +300,7 @@ impl From<crate::vm::Config> for VMConfigView {
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
-            eth_implicit_accounts: config.eth_implicit_accounts,
+            eth_implicit_accounts: true,
             universal_accounts: config.universal_accounts,
             global_contract_host_fns: true,
             reftypes_bulk_memory: true,

@@ -238,11 +238,6 @@ pub struct Config {
     /// `Module::deserialize`.
     pub fix_contract_loading_error: bool,
 
-    /// Enable the `EthImplicitAccounts` protocol feature.
-    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
-    // protocol version 70, where the feature is enabled.
-    pub eth_implicit_accounts: bool,
-
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
@@ -320,7 +315,6 @@ impl Config {
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
-        self.eth_implicit_accounts = true;
         self.universal_accounts = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;

@@ -13532,7 +13532,7 @@
             "type": "boolean"
           },
           "eth_implicit_accounts": {
-            "description": "See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).",
+            "description": "Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.",
             "type": "boolean"
           },
           "ext_costs": {
