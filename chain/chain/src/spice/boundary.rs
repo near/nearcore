@@ -5,7 +5,7 @@
 //! Boundary chunk ids carry shard ids of the last pre-spice layout, while the routing
 //! helpers below resolve them against the first spice epoch, which is where their
 //! producers live. If a resharding lands on the same epoch boundary the old shard ids
-//! are absent from the new layout and every lookup fails. 
+//! are absent from the new layout and every lookup fails.
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
