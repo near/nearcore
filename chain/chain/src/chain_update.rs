@@ -295,8 +295,8 @@ impl<'a> ChainUpdate<'a> {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            record_uncertified_chunks_for_block(
+        let spice_certification_lag = if ProtocolFeature::Spice.enabled(protocol_version) {
+            let certification_lag = record_uncertified_chunks_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
                 &block,
@@ -306,7 +306,10 @@ impl<'a> ChainUpdate<'a> {
                 self.epoch_manager.as_ref(),
                 &block,
             )?;
-        }
+            Some(certification_lag)
+        } else {
+            None
+        };
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
@@ -334,6 +337,9 @@ impl<'a> ChainUpdate<'a> {
             let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
             SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
             SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
+            if let Some(certification_lag) = spice_certification_lag {
+                metrics::SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
+            }
         }
         Ok(res)
     }

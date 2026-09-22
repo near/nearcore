@@ -27,7 +27,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 use std::sync::Arc;
 
@@ -42,12 +42,8 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 
 // Pin the congestion control parameters so the test doesn't need fixing every
 // time the live parameters change.
-fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    // TODO(limited_replayability): Start using congestion control config from latest protocol version.
-    #[allow(deprecated)]
-    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
-    let cc_config = config_store.get_config(cc_protocol_version);
-    config.congestion_control_config = cc_config.congestion_control_config;
+fn set_default_congestion_control(config: &mut RuntimeConfig) {
+    config.congestion_control_config = CongestionControlConfig::test_original();
 }
 
 /// Single node tracking all 4 shards, with inflated per-op wasm cost (so
@@ -67,10 +63,9 @@ fn setup_congestion_env() -> TestLoopEnv {
     let epoch_config_store =
         TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
 
-    let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
     set_wasm_cost(&mut config);
-    set_default_congestion_control(&config_store, &mut config);
+    set_default_congestion_control(&mut config);
     let runtime_config_store = RuntimeConfigStore::with_one_config(config);
 
     TestLoopBuilder::new()

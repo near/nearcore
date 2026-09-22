@@ -5,8 +5,7 @@ use crate::cost::{
     StorageUsageConfig,
 };
 use crate::parameter::{FeeParameter, Parameter};
-use crate::vm::VMKind;
-use crate::vm::{Config, StorageGetMode};
+use crate::vm::{Config, VMKind};
 use near_primitives_core::account::id::ParseAccountError;
 use near_primitives_core::types::{AccountId, Balance, Compute, Gas, ShardId};
 use num_rational::Rational32;
@@ -458,10 +457,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
                 fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
-                storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
-                    true => StorageGetMode::FlatStorage,
-                    false => StorageGetMode::Trie,
-                },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,

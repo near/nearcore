@@ -7,8 +7,7 @@ pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
 pub use item::DataId;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
-use item::{FetchItem, Item, PartInsertResult};
-use near_async::time::Clock;
+use item::{FetchItem, PartInsertResult};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -25,37 +24,29 @@ mod tests;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DataManagerError {
-    #[error("no item tracks this data")]
-    UnknownItem,
     #[error("commitment decoded to garbage: {0}")]
     GarbageCommitment(AssembledDataError),
-    #[error("item is not collecting")]
-    NotCollecting,
-    #[error("item is not waiting for a verification result")]
-    NotDelivered,
     #[error("part merkle proof does not verify against the commitment root")]
     InvalidMerkleProof,
-    #[error("part ordinal is out of range")]
-    InvalidOrdinal,
     #[error("part was verified against a different total parts count")]
     WrongTotalParts,
     #[error("part length does not match the commitment's encoded length")]
     WrongPartLength,
     #[error("sender already backed another commitment")]
     ConflictingCommitment,
-    #[error("commitment was rejected after validation")]
-    BannedCommitment,
 }
 
 /// Outcome of accepting parts for an item.
 #[must_use]
 #[derive(Debug)]
 pub(crate) enum ReceivedParts {
-    /// Parts accepted; the item is still collecting.
+    /// Parts accepted; no commitment decoded.
     Collecting,
-    /// The parts completed the item; the data is handed to the consumer.
-    Complete(SpiceData),
-    /// No item tracks the id, or the item is past collecting (delivered or processed).
+    /// A commitment decoded to this data, which matches the committed hash and the id.
+    Decoded(SpiceData),
+    /// The commitment was already decoded; a late or re-sent part.
+    Settled,
+    /// No item tracks the id.
     NotWanted,
 }
 
@@ -94,26 +85,22 @@ impl DataPolicy for Policies {
 
 /// Owns the per-item fetch lifecycle: what this node still needs, the parts received so
 /// far and who sent them, and when an item stops being relevant.
-/// Validation results are reported back via [`Self::on_verified`]/[`Self::on_failed`].
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
 pub(crate) struct SpiceDataManager {
-    clock: Clock,
     encoders: ReedSolomonEncoderCache,
     policies: Policies,
     /// All tracked items, in any state.
-    items: HashMap<DataId, Item>,
+    items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
-    /// Highest final execution head reported; `None` until the first report. Items at
-    /// or below it can never be applied.
+    /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
 }
 
 impl SpiceDataManager {
-    pub(crate) fn new(clock: Clock, data_parts_ratio: f64, policies: Policies) -> Self {
+    pub(crate) fn new(data_parts_ratio: f64, policies: Policies) -> Self {
         Self {
-            clock,
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
             policies,
             items: HashMap::new(),
@@ -140,16 +127,15 @@ impl SpiceDataManager {
                 continue;
             }
             self.items_by_height.entry(height).or_default().push(id.clone());
-            self.items.insert(id, Item::Fetch(FetchItem::waiting_for_push(height)));
+            self.items.insert(id, FetchItem::new(height));
         }
         Ok(())
     }
 
     /// The only insert path for received units. Verifies each part against the
-    /// commitment and inserts it. A completing insert checks the decoded data against
-    /// the committed hash and the id: a failure bans the commitment, a match returns the
-    /// data for handoff to the consumer, leaving the item parked until the consumer's
-    /// (local) verification result arrives. Errors are attributable to the sender.
+    /// commitment and inserts it. A decoding insert checks the decoded data against the
+    /// committed hash and the id, settles the commitment either way, and returns matching
+    /// data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
@@ -158,7 +144,7 @@ impl SpiceDataManager {
         parts: Vec<SpiceDataPart>,
         total_parts: usize,
     ) -> Result<ReceivedParts, DataManagerError> {
-        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
+        let Some(item) = self.items.get_mut(id) else {
             return Ok(ReceivedParts::NotWanted);
         };
         let encoder = self.encoders.entry(total_parts);
@@ -167,41 +153,18 @@ impl SpiceDataManager {
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
             let verified =
                 VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)?;
-            match item.insert_part(&self.clock, &encoder, id, sender, verified) {
-                Ok(PartInsertResult::Complete(data)) => return Ok(ReceivedParts::Complete(data)),
-                Ok(PartInsertResult::Garbage { contributors, error }) => {
-                    tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "commitment decoded to garbage");
+            match item.insert_part(&encoder, id, sender, verified)? {
+                PartInsertResult::Decoded(data) => {
+                    return Ok(ReceivedParts::Decoded(data));
+                }
+                PartInsertResult::Garbage(error) => {
                     return Err(DataManagerError::GarbageCommitment(error));
                 }
-                Ok(PartInsertResult::Accepted | PartInsertResult::Duplicate) => {}
-                Err(DataManagerError::NotCollecting) => return Ok(ReceivedParts::NotWanted),
-                Err(err) => return Err(err),
+                PartInsertResult::Settled => return Ok(ReceivedParts::Settled),
+                PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
             }
         }
         Ok(ReceivedParts::Collecting)
-    }
-
-    /// Consumer validated and persisted the delivered data (so `is_done` holds for it from now on).
-    /// A verification result for an expired item is rejected without effect.
-    pub(crate) fn on_verified(&mut self, id: &DataId) -> Result<(), DataManagerError> {
-        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
-            return Err(DataManagerError::UnknownItem);
-        };
-        item.mark_verified()?;
-        Ok(())
-    }
-
-    /// Consumer rejected the delivered data: the delivered commitment is banned and
-    /// collecting resumes from the remaining trackers. A verification result for an
-    /// expired item is rejected without effect.
-    pub(crate) fn on_failed(&mut self, id: &DataId) -> Result<(), DataManagerError> {
-        let Some(Item::Fetch(item)) = self.items.get_mut(id) else {
-            return Err(DataManagerError::UnknownItem);
-        };
-        // TODO(spice-data-distribution): feed the contributors into reputation (#16275).
-        let contributors = item.mark_failed()?;
-        tracing::debug!(target: "spice_data_distribution", ?id, ?contributors, "delivered data failed consumer validation");
-        Ok(())
     }
 
     /// The final execution head advanced: the chain is past every item at or below it,
@@ -216,8 +179,7 @@ impl SpiceDataManager {
         let expired = std::mem::replace(&mut self.items_by_height, live);
         for (bucket_height, ids) in expired {
             for id in ids {
-                let Item::Fetch(item) =
-                    self.items.get(&id).expect("index entry names a tracked item");
+                let item = self.items.get(&id).expect("index entry names a tracked item");
                 assert_eq!(item.height, bucket_height, "index entry height matches its item");
                 self.items.remove(&id);
             }

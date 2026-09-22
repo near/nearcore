@@ -44,6 +44,9 @@ impl VMKind {
     }
 }
 
+// Only kept for `VMConfigView` compatibility: contract storage reads always go
+// through flat storage since the `FlatStorageReads` protocol feature. The doc
+// comment below is the OpenAPI description of this type, so it is left as is.
 /// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -225,10 +228,6 @@ pub struct Config {
 
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
-
-    /// Set to `StorageGetMode::FlatStorage` in order to enable the `FlatStorageReads` protocol
-    /// feature.
-    pub storage_get_mode: StorageGetMode,
 
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,

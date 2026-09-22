@@ -15,10 +15,9 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    TxAuthorization, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_authorization,
-    is_bootstrap, set_tx_state_changes, validate_transaction,
-    verify_and_charge_bootstrap_tx_ephemeral, verify_and_charge_gas_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral,
+    TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    get_signer_and_authorization, is_bootstrap, set_tx_state_changes, validate_transaction,
+    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -276,7 +275,7 @@ impl Default for PendingConstraints {
 
 /// Outcome of transaction verification and charging.
 ///
-/// Returned by both `verify_and_charge_tx_ephemeral` and
+/// Returned by both `verify_and_charge_access_key_tx_ephemeral` and
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
@@ -691,6 +690,7 @@ impl Runtime {
                     &state_update,
                     &epoch_info_provider.chain_id(),
                     AccessOptions::DEFAULT,
+                    apply_state.current_protocol_version,
                 )?;
                 let contract = preparation_pipeline.get_contract(
                     receipt,
@@ -2148,10 +2148,11 @@ impl Runtime {
                     }
                 };
 
-            let mut account = accounts.get_mut(signer_id);
-            let account = match account.as_deref_mut() {
-                Some(Ok(Some(a))) => a,
-                Some(Ok(None)) => {
+            let mut account =
+                accounts.get_mut(signer_id).expect("accounts should've been prefetched");
+            let account = match &mut *account {
+                Ok(Some(a)) => a,
+                Ok(None) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, "transaction signed by unknown account");
                     let outcome = ExecutionOutcomeWithId::failed(
@@ -2161,18 +2162,20 @@ impl Runtime {
                     processing_state.outcomes.push(outcome);
                     continue;
                 }
-                Some(Err(e)) => return Err(e.clone().into()),
-                None => unreachable!("accounts should've been prefetched"),
+                Err(e) => return Err(e.clone().into()),
             };
-            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
-            let mut access_key = match access_key.as_deref_mut() {
-                Some(Ok(Some(ak))) => Some(ak),
+
+            let mut access_key = access_keys
+                .get_mut(&(signer_id, pubkey))
+                .expect("access keys should've been prefetched");
+            let mut access_key = match &mut *access_key {
+                Ok(Some(ak)) => Some(ak),
                 // A self-signed state init is the only transaction that may have
                 // no access key: the key it is signed with arrives with the
                 // state init the transaction itself carries. Its nonce lives on
                 // the account instead, so nothing is written to the key store.
-                Some(Ok(None)) if is_bootstrap(account, &tx.transaction) => None,
-                Some(Ok(None)) => {
+                Ok(None) if is_bootstrap(account, &tx.transaction) => None,
+                Ok(None) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
                     let outcome = ExecutionOutcomeWithId::failed(
@@ -2188,72 +2191,28 @@ impl Runtime {
                     processing_state.outcomes.push(outcome);
                     continue;
                 }
-                Some(Err(e)) => return Err(e.clone().into()),
-                None => unreachable!("access keys should've been prefetched"),
+                Err(e) => return Err(e.clone().into()),
             };
 
-            let verdict = match access_key.as_deref_mut() {
-                // A self-signed universal-account state init. Its nonce lives on
-                // the account until the state init installs the keys, so nothing
-                // is read from or written to the key store on this path.
-                None => verify_and_charge_bootstrap_tx_ephemeral(
-                    &processing_state.apply_state.config,
-                    account,
-                    &tx.transaction,
-                    &cost,
-                    Some(block_height),
-                    &PendingConstraints::default(),
-                ),
-                Some(access_key) => {
-                    if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
-                        // Gas key transaction - load nonce from prefetched cache
-                        let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
-                        let current_nonce = match nonce_entry.as_deref() {
-                            Some(Ok(Some(n))) => *n,
-                            Some(Ok(None)) => {
-                                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                                tracing::debug!(%tx_hash, "gas key nonce not found");
-                                let num_nonces = access_key
-                                    .gas_key_info()
-                                    .map(|info| info.num_nonces)
-                                    .unwrap_or(0);
-                                let outcome = ExecutionOutcomeWithId::failed(
-                                    tx,
-                                    InvalidTxError::InvalidNonceIndex {
-                                        tx_nonce_index: Some(nonce_index),
-                                        num_nonces,
-                                    },
-                                );
-                                processing_state.outcomes.push(outcome);
-                                continue;
-                            }
-                            Some(Err(e)) => return Err(e.clone().into()),
-                            None => unreachable!("gas key nonces should've been prefetched"),
-                        };
-                        verify_and_charge_gas_key_tx_ephemeral(
-                            &processing_state.apply_state.config,
-                            account,
-                            access_key,
-                            current_nonce,
-                            &tx.transaction,
-                            &cost,
-                            Some(block_height),
-                            &PendingConstraints::default(),
-                        )
-                    } else {
-                        // Regular access key transaction
-                        verify_and_charge_tx_ephemeral(
-                            &processing_state.apply_state.config,
-                            account,
-                            access_key,
-                            &tx.transaction,
-                            &cost,
-                            Some(block_height),
-                            &PendingConstraints::default(),
-                        )
-                    }
-                }
+            let gas_key_nonce = |nonce_index| {
+                gas_key_nonces
+                    .get(&(signer_id, pubkey, nonce_index))
+                    .expect("gas key nonces should've been prefetched")
+                    .clone()
             };
+
+            let nonce_index = tx.transaction.nonce().nonce_index();
+            let authorization = TxAuthorizationRef::new(access_key.as_deref(), nonce_index);
+            let verdict = verify_and_charge_tx_ephemeral(
+                &processing_state.apply_state.config,
+                account,
+                authorization,
+                &tx.transaction,
+                &cost,
+                Some(block_height),
+                &PendingConstraints::default(),
+                gas_key_nonce,
+            )?;
 
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
@@ -3057,6 +3016,7 @@ fn action_transfer_or_implicit_account_creation(
             deposit,
             apply_state.block_height,
             epoch_info_provider,
+            apply_state.current_protocol_version,
         );
     })
 }
@@ -3303,6 +3263,7 @@ impl<'a> ApplyProcessingState<'a> {
             self.state_update.contract_storage().clone(),
             self.epoch_info_provider.chain_id(),
             self.apply_state.shard_id,
+            self.apply_state.current_protocol_version,
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3524,6 +3485,7 @@ pub mod estimator {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            apply_state.current_protocol_version,
         );
         let mut receipt_to_tx = Vec::new();
         let apply_result = Runtime {}.apply_action_receipt(
