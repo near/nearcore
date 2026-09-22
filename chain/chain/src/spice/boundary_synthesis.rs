@@ -217,15 +217,13 @@ pub fn check_pre_spice_execution_result(
 mod tests {
     use super::{
         check_pre_spice_execution_result, execution_result_from_pre_spice_apply,
-        execution_result_from_pre_spice_child, get_incoming_receipt_blocks_for_shard,
-        get_last_new_chunk_block_and_old_chunk_blocks,
+        execution_result_from_pre_spice_child,
     };
     use crate::Chain;
     use crate::spice::tests::{add_pre_spice_block, setup_pre_spice_chain};
     use near_async::time::Clock;
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::block::Block;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::gas::Gas;
     use near_primitives::hash::CryptoHash;
