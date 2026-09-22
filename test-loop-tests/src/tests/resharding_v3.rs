@@ -11,7 +11,6 @@ use crate::utils::resharding::{
     assert_parent_flat_storage_ready, delete_state_of_other_shards, gas_key_signer_for_account,
     install_block_action, shard_uid_at_head,
 };
-use crate::utils::resharding_check_trace;
 use crate::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, next_block_has_new_shard_layout,
@@ -373,7 +372,6 @@ fn get_base_shard_layout() -> ShardLayout {
 /// Caller must guarantee that `shuffle_shard_assignment_for_chunk_producers`
 /// is disabled.
 fn assert_validator_stickiness_after_resharding(
-    height: BlockHeight,
     prev_info: &EpochInfo,
     prev_layout: &ShardLayout,
     new_info: &EpochInfo,
@@ -405,7 +403,6 @@ fn assert_validator_stickiness_after_resharding(
             "sticky-resharding check skipped: too few producers ({num_chunk_producers}) \
              for {num_new_shards} shards at {min_validators_per_shard}/shard"
         );
-        resharding_check_trace::validator_stickiness_skipped(height, "too few chunk producers");
         return;
     }
 
@@ -421,7 +418,6 @@ fn assert_validator_stickiness_after_resharding(
                 continue;
             }
             let kept = prev_validators.intersection(&new_validators).count();
-            resharding_check_trace::validator_stickiness(height, new_shard_id, kept);
             assert!(
                 kept > 0,
                 "sticky-resharding violation: unchanged shard {} kept zero validators \
@@ -443,7 +439,6 @@ fn assert_validator_stickiness_after_resharding(
                 continue;
             }
             let inherited = parent_validators.intersection(&new_validators).count();
-            resharding_check_trace::validator_stickiness(height, new_shard_id, inherited);
             assert!(
                 inherited > 0,
                 "sticky-resharding violation: split child {} (parent {}) inherited zero \
@@ -586,31 +581,7 @@ impl BlockAction for InitialShardChecks {
         println!("State before resharding:");
         print_and_assert_shard_accounts(&nodes.clients(), &tip);
         assert_eq!(current_num_shards, self.initial_num_shards);
-        resharding_check_trace::initial_shard_accounts(tip.height, current_num_shards);
         ControlFlow::Break(())
-    }
-}
-
-/// Records the sample that the checks of a block run on.
-struct SampleTrace;
-
-impl SampleTrace {
-    fn new() -> Self {
-        Self
-    }
-}
-
-impl BlockAction for SampleTrace {
-    fn on_new_block(&mut self, nodes: &BlockNodes<'_>) -> ControlFlow<()> {
-        let tip = nodes.tip();
-        resharding_check_trace::sample(
-            tip.height,
-            &tip.last_block_hash,
-            nodes.num_shards_at_tip(),
-            &nodes.account_id_of(nodes.observed),
-            &nodes.account_id_of(nodes.request),
-        );
-        ControlFlow::Continue(())
     }
 }
 
@@ -673,10 +644,6 @@ impl TrieSanityChecks {
     /// Asserts that every tracked shard of every node was checked in every epoch.
     fn assert_all_epochs_checked(&self, node: &TestLoopNode<'_>) {
         self.check.borrow().check_epochs(node.client());
-        resharding_check_trace::checked_all_epochs(
-            &node.client().validator_signer.get().unwrap().validator_id().clone(),
-            node.head().height,
-        );
     }
 }
 
@@ -734,7 +701,6 @@ fn assert_all_chunks_included(nodes: &BlockNodes<'_>, initial_num_shards: NumSha
     let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
     let current_num_shards =
         client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap().num_shards();
-    resharding_check_trace::all_chunks_included(tip.height, block_header.chunk_mask());
     assert!(
         block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit),
         "missing chunks at block #{} epoch_height={} shards={:?} mask={:?} \
@@ -805,7 +771,6 @@ impl ReshardingProgress {
         let epoch_height = nodes.epoch_height_at_tip();
         if self.first_split_epoch_height.is_none() && current_num_shards != self.initial_num_shards
         {
-            resharding_check_trace::first_layout_change(tip.height, epoch_height);
             self.first_split_epoch_height = Some(epoch_height);
         }
 
@@ -815,25 +780,13 @@ impl ReshardingProgress {
         // Resharding should activate within the first few epochs. Static resharding
         // activates at epoch ~2, dynamic at ~4 due to the proposal-to-activation delay.
         let epoch_height_limit = 5 + DYNAMIC_RESHARDING_EXTRA_EPOCHS;
-        resharding_check_trace::split_deadline(tip.height, epoch_height, epoch_height_limit);
         assert!(epoch_height < epoch_height_limit);
         if current_num_shards != self.expected_num_shards {
             return;
         }
         // Just resharded.
-        resharding_check_trace::final_layout(
-            tip.height,
-            epoch_height,
-            &tip.prev_block_hash,
-            current_num_shards,
-        );
         self.final_split_resharding_block_hash = Some(tip.prev_block_hash);
         // Assert that we will have a chance for gc to kick in before the test is over.
-        resharding_check_trace::gc_budget(
-            epoch_height,
-            GC_NUM_EPOCHS_TO_KEEP,
-            self.num_epochs_to_wait,
-        );
         assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < self.num_epochs_to_wait);
         println!("State after resharding:");
         print_and_assert_shard_accounts(&clients, &tip);
@@ -857,7 +810,6 @@ impl ReshardingProgress {
             let prev_layout = client.epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
             let post_config = client.epoch_manager.get_epoch_config(&post_epoch_id).unwrap();
             assert_validator_stickiness_after_resharding(
-                tip.height,
                 &prev_info,
                 &prev_layout,
                 &post_info,
@@ -872,7 +824,6 @@ impl ReshardingProgress {
             // one shard is split per epoch, so the gap is 2 epochs.
             let expected_gap = if DYNAMIC_RESHARDING { 2 } else { 1 };
             let first_split_epoch_height = self.first_split_epoch_height.unwrap();
-            resharding_check_trace::two_split_epoch_gap(first_split_epoch_height, epoch_height);
             assert_eq!(epoch_height, first_split_epoch_height + expected_gap);
         }
     }
@@ -892,18 +843,6 @@ impl ReshardingProgress {
                 &resharding_block_hash,
                 self.parent_shard_uid,
             );
-            let client_head = client.chain.head().unwrap();
-            let client_account_id =
-                client.validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap();
-            resharding_check_trace::parent_mapping(
-                &client_account_id,
-                tip.height,
-                client_head.height,
-                &client_head.last_block_hash,
-                self.parent_shard_uid,
-                num_mapped_children,
-            );
-
             if num_mapped_children > 0 {
                 all_mappings_removed = false;
             }
@@ -917,7 +856,6 @@ impl ReshardingProgress {
         if epoch_height <= self.num_epochs_to_wait {
             return;
         }
-        resharding_check_trace::completion(tip.height, epoch_height);
         self.completed = true;
     }
 }
@@ -1085,8 +1023,6 @@ fn build_resharding_test(params: &mut TestReshardingParameters) -> ReshardingTes
     for action in take(&mut params.request_node_actions) {
         install_block_action(&mut env, BlockSource::Node(client_index), roles, action);
     }
-    // Scaffolding for the migration comparison, removed with the rest of the tracing.
-    install_block_action(&mut env, BlockSource::SlowestNode, roles, Box::new(SampleTrace::new()));
     for action in take(&mut params.slowest_node_actions) {
         install_block_action(&mut env, BlockSource::SlowestNode, roles, action);
     }
@@ -3108,7 +3044,6 @@ impl ContractCalls {
         );
         self.next_nonce += 1;
         let tx_hash = node.submit_tx(tx);
-        resharding_check_trace::submitted_tx(head.height, signer_id, contract_id, &tx_hash);
         tx_hash
     }
 }
@@ -3117,11 +3052,6 @@ fn assert_transactions_succeeded(node: &TestLoopNode<'_>, tx_hashes: &[CryptoHas
     for tx_hash in tx_hashes {
         let outcome = node.client().chain.get_partial_transaction_result(tx_hash);
         let status = outcome.as_ref().map(|outcome| outcome.status.clone());
-        resharding_check_trace::transaction_outcome(
-            node.head().height,
-            tx_hash,
-            &format!("{status:?}"),
-        );
         assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
     }
 }
@@ -3132,11 +3062,6 @@ fn assert_transaction_outcomes_unavailable(node: &TestLoopNode<'_>, tx_hashes: &
     for tx_hash in tx_hashes {
         let outcome = node.client().chain.get_partial_transaction_result(tx_hash);
         let status = outcome.as_ref().map(|outcome| outcome.status.clone());
-        resharding_check_trace::transaction_outcome(
-            node.head().height,
-            tx_hash,
-            &format!("{status:?}"),
-        );
         assert_matches!(status, Err(_));
     }
 }

@@ -12,7 +12,6 @@ pub(crate) mod network;
 pub(crate) mod node;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
-pub(crate) mod resharding_check_trace;
 pub(crate) mod rotating_validators_runner;
 pub(crate) mod setups;
 pub(crate) mod sharded_rpc;

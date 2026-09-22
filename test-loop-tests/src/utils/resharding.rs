@@ -2,7 +2,6 @@ use super::sharding::this_block_has_new_shard_layout;
 use crate::setup::block_observer::BlockSource;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-use crate::utils::resharding_check_trace;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::get_anchor_hash;
 use assert_matches::assert_matches;
@@ -191,7 +190,6 @@ impl BlockAction for StorageOperationsTraffic {
         );
         state.next_nonce += 1;
         let tx_hash = node.submit_tx(tx);
-        resharding_check_trace::submitted_tx(height, &self.sender_id, &self.contract_id, &tx_hash);
         state.unchecked_txs.push((tx_hash, height));
         state.num_submitted_calls += 1;
         ControlFlow::Continue(())
@@ -283,7 +281,6 @@ impl BlockAction for BurnGasTraffic {
                 tip.last_block_hash,
             );
             let tx_hash = node.submit_tx(tx);
-            resharding_check_trace::submitted_tx(tip.height, signer_id, receiver_id, &tx_hash);
             state.submitted_txs.push(tx_hash);
         }
         ControlFlow::Continue(())
@@ -346,13 +343,6 @@ impl<Indices: BorshDeserialize + Default + Debug + 'static> BlockAction
         let right_child = format!("{indices_right_child_shard:?}");
         tracing::debug!(target: "test", height = head.height, epoch = ?head.epoch_id,
                 parent, left_child, right_child, "indices node");
-        resharding_check_trace::indices_node(
-            head.height,
-            &format!("{:?}", self.trie_key),
-            &parent,
-            &left_child,
-            &right_child,
-        );
         assert_matches!(indices_parent_shard, Some(Ok(_)) | None);
         assert_matches!(indices_left_child_shard, Some(Ok(_)) | None);
         assert_matches!(indices_right_child_shard, Some(Ok(_)) | None);
@@ -433,10 +423,6 @@ impl<'a> BlockNodes<'a> {
             .epoch_manager
             .get_epoch_height_from_prev_block(&tip.prev_block_hash)
             .unwrap()
-    }
-
-    pub(crate) fn account_id_of(&self, node: &TestLoopNode<'_>) -> AccountId {
-        node.client().validator_signer.get().map(|signer| signer.validator_id().clone()).unwrap()
     }
 }
 
@@ -604,11 +590,6 @@ impl BlockAction for AccountDeletedAfterSplit {
                         block_hash,
                     );
                     let delete_tx_hash = request_node.submit_tx(tx);
-                    resharding_check_trace::deleted_account_step(
-                        "submitted delete",
-                        tip.height,
-                        &account_id,
-                    );
                     AccountDeletionState::WaitingForDeleteOutcome {
                         delete_tx_hash,
                         deleted_at_height: tip.height,
@@ -628,11 +609,6 @@ impl BlockAction for AccountDeletedAfterSplit {
                         .unwrap()
                         .status;
                     assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
-                    resharding_check_trace::deleted_account_step(
-                        "checked delete outcome",
-                        tip.height,
-                        &account_id,
-                    );
                     AccountDeletionState::WaitingForGarbageCollection { deleted_at_height }
                 }
                 AccountDeletionState::WaitingForGarbageCollection { deleted_at_height } => {
@@ -650,11 +626,6 @@ impl BlockAction for AccountDeletedAfterSplit {
                             archival_node.runtime_query_at_height(deleted_at_height, query);
                         // TODO(cloud_archival) Assert that the archival node still has the account.
                     }
-                    resharding_check_trace::deleted_account_step(
-                        "checked state garbage collected",
-                        tip.height,
-                        &account_id,
-                    );
                     AccountDeletionState::Completed
                 }
                 AccountDeletionState::Completed => return ControlFlow::Break(()),
