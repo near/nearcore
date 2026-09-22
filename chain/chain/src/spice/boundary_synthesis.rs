@@ -47,10 +47,15 @@ pub fn execution_result_and_receipt_proofs_from_pre_spice_apply(
     let shard_index = shard_layout.get_shard_index(shard_id)?;
     let chunks = block.chunks();
     let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    let mut inclusion_header = chain_store.get_block_header(block.hash())?;
-    while inclusion_header.height() != chunk_header.height_included() {
+    let mut inclusion_header = Arc::new(block.header().clone());
+    while inclusion_header.height() > chunk_header.height_included() {
         inclusion_header = chain_store.get_block_header(inclusion_header.prev_hash())?;
     }
+    assert_eq!(
+        inclusion_header.height(),
+        chunk_header.height_included(),
+        "chunk inclusion height is not on the ancestry of its block"
+    );
     let outgoing_receipts =
         chain_store.get_outgoing_receipts(inclusion_header.hash(), shard_id)?.to_vec();
 
@@ -81,6 +86,9 @@ pub fn execution_result_from_pre_spice_child(
     if !chunk_header.is_new_chunk(block.header().height()) {
         return Ok(None);
     }
+    // The unprefixed fields (gas limit, congestion info, bandwidth requests, proposed split)
+    // describe the previous chunk's result too: the pre-spice chunk producer copies them
+    // from that chunk's extra into the header unchanged.
     let chunk_extra = ChunkExtra::new(
         &chunk_header.prev_state_root(),
         *chunk_header.prev_outcome_root(),
@@ -127,6 +135,11 @@ pub fn get_last_new_chunk_block_and_old_chunk_blocks(
         old_chunk_blocks.push(last_new_chunk_block);
         last_new_chunk_block = chain_store.get_block(&prev_hash)?;
     }
+    assert_eq!(
+        last_new_chunk_block.header().height(),
+        height_included,
+        "chunk inclusion height is not on the ancestry of its block"
+    );
     old_chunk_blocks.reverse();
     Ok(PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks })
 }
@@ -147,12 +160,17 @@ pub fn get_incoming_receipt_blocks_for_shard(
         prev_chunks.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
 
     let mut source_blocks = Vec::new();
-    let mut block = chain_store.get_block(last_new_chunk_block.header().hash())?;
+    let mut block = chain_store.get_block(last_new_chunk_block.hash())?;
     while block.header().height() > previous_inclusion_height {
         let prev_hash = *block.header().prev_hash();
         source_blocks.push(block);
         block = chain_store.get_block(&prev_hash)?;
     }
+    assert_eq!(
+        block.header().height(),
+        previous_inclusion_height,
+        "chunk inclusion height is not on the ancestry of its block"
+    );
     Ok(source_blocks)
 }
 
@@ -199,13 +217,15 @@ pub fn check_pre_spice_execution_result(
 mod tests {
     use super::{
         check_pre_spice_execution_result, execution_result_from_pre_spice_apply,
-        execution_result_from_pre_spice_child,
+        execution_result_from_pre_spice_child, get_incoming_receipt_blocks_for_shard,
+        get_last_new_chunk_block_and_old_chunk_blocks,
     };
     use crate::Chain;
     use crate::spice::tests::{add_pre_spice_block, setup_pre_spice_chain};
     use near_async::time::Clock;
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::block::Block;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::gas::Gas;
     use near_primitives::hash::CryptoHash;
