@@ -1142,6 +1142,14 @@ impl ReshardingTest {
         self.env.node_runner(node_index).run_until(|node| node.head().height >= height, timeout);
     }
 
+    /// Runs until the node's head is this height, for steps the old loop actions ran at that height
+    /// and nowhere else. A skipped height fails the test instead of moving the step to a later one.
+    fn run_until_node_height_exactly(&mut self, node_index: usize, height: BlockHeight) {
+        self.run_until_node_height(node_index, height);
+        let head_height = self.node(node_index).head().height;
+        assert_eq!(head_height, height, "node {node_index} skipped height {height}");
+    }
+
     fn run_until_node_epoch_height(&mut self, node_index: usize, epoch_height: EpochHeight) {
         let timeout = self.timeout();
         self.env.node_runner(node_index).run_until(
@@ -1253,6 +1261,11 @@ impl ReshardingTest {
                 head.height + num_blocks >= epoch_start + epoch_length
             },
             timeout,
+        );
+        let node = self.request_node();
+        assert!(
+            !next_block_has_new_shard_layout(node.client().epoch_manager.as_ref(), &node.head()),
+            "the epoch ended before the test could send its transactions",
         );
     }
 
@@ -2689,7 +2702,7 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let first_height_sending_receipts = test.request_node().head().height;
     let mut txs = Vec::new();
     for height_offset in 0..num_heights_sending_receipts {
-        test.run_until_node_height(
+        test.run_until_node_height_exactly(
             request_node_index,
             first_height_sending_receipts + height_offset,
         );
@@ -3173,7 +3186,7 @@ fn slow_test_resharding_v3_yield_resume() {
 
     // The first block of the new epoch is skipped, because the request node may see it before the
     // chunk producers do, which makes them reject the forwarded transaction as expired.
-    test.run_until_node_height(test.request_node_index(), resharding_height + 2);
+    test.run_until_node_height_exactly(test.request_node_index(), resharding_height + 2);
     txs.extend([
         calls.submit_yield_resume(&test, &contract_in_left_child, &contract_in_left_child),
         calls.submit_yield_resume(&test, &contract_in_right_child, &contract_in_right_child),
@@ -3238,7 +3251,7 @@ fn slow_test_resharding_v3_yield_resume_with_id() {
     test.run_until_first_block_after_resharding();
     assert_receipts_present(&test.request_node(), &contracts, ReceiptKind::PromiseYield);
 
-    test.run_until_node_height(test.request_node_index(), resharding_height + 2);
+    test.run_until_node_height_exactly(test.request_node_index(), resharding_height + 2);
     txs.extend([
         calls.submit_yield_resume_with_id(
             &test,
@@ -3358,22 +3371,22 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
         calls.submit_yield_create(&test, &contract_in_left_child, &contract_in_right_child);
 
     let resharding_height = test.run_until_resharding_block();
-    test.run_until_node_height(request_node_index, resharding_height + 2);
+    test.run_until_node_height_exactly(request_node_index, resharding_height + 2);
     let create_after_resharding =
         calls.submit_yield_create(&test, &contract_in_left_child, &contract_in_right_child);
 
     // Height at which the epoch of the old shard layout is garbage collected.
     let gc_height = resharding_height + GC_NUM_EPOCHS_TO_KEEP * DEFAULT_EPOCH_LENGTH + 5;
-    test.run_until_node_height(request_node_index, gc_height);
+    test.run_until_node_height_exactly(request_node_index, gc_height);
     let create_after_gc =
         calls.submit_yield_create(&test, &contract_in_right_child, &contract_in_left_child);
 
     // The promise yield receipt takes one more block when it goes to another shard.
-    test.run_until_node_height(request_node_index, gc_height + 2);
+    test.run_until_node_height_exactly(request_node_index, gc_height + 2);
     let resume_after_gc =
         calls.submit_yield_resume(&test, &contract_in_right_child, &contract_in_left_child);
 
-    test.run_until_node_height(request_node_index, gc_height + 7);
+    test.run_until_node_height_exactly(request_node_index, gc_height + 7);
     assert_transaction_outcomes_garbage_collected(
         &test.request_node(),
         &[create_before_resharding, create_after_resharding],
@@ -3441,7 +3454,7 @@ fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
     // The calls after the split lower the refcount of the delayed receipts indices node the two
     // children share.
     let resharding_height = test.run_until_resharding_block();
-    test.run_until_node_height(request_node_index, resharding_height + 2);
+    test.run_until_node_height_exactly(request_node_index, resharding_height + 2);
     txs.extend(calls.submit_burn_gas(
         &test,
         &contract_in_left_child,
@@ -3450,11 +3463,11 @@ fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
         gas_to_burn_per_call,
     ));
 
-    test.run_until_node_height(request_node_index, resharding_height + 10);
+    test.run_until_node_height_exactly(request_node_index, resharding_height + 10);
     assert_transactions_succeeded(&test.request_node(), &txs);
 
     let gc_height = resharding_height + GC_NUM_EPOCHS_TO_KEEP * DEFAULT_EPOCH_LENGTH + 10;
-    test.run_until_node_height(request_node_index, gc_height);
+    test.run_until_node_height_exactly(request_node_index, gc_height);
 
     test.run_until_resharding_mapping_removed();
 
