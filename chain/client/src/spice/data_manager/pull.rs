@@ -6,7 +6,7 @@ use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher as _};
-use std::mem::replace;
+use std::mem::take;
 use time::ext::InstantExt as _;
 
 /// One pull request to send: the ordinals asked of `producer` for each item.
@@ -32,7 +32,7 @@ pub(crate) struct PullConfig {
 impl Default for PullConfig {
     fn default() -> Self {
         Self {
-            request_timeout: Duration::milliseconds(1200),
+            request_timeout: Duration::milliseconds(600),
             max_outstanding_per_producer: 4,
             max_ids_per_request: 32,
             max_parts_per_request: 256,
@@ -128,7 +128,7 @@ impl PullState {
         budget.take(&source);
         self.in_flight = Some(InFlightRequest { source: source.clone(), sent_at: now });
         // the next rotation starts right after the member asked
-        self.rotation_cursor += offset as u64 + 1;
+        self.rotation_cursor = self.rotation_cursor.wrapping_add(offset as u64 + 1);
         Some(source)
     }
 
@@ -274,7 +274,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
     }
 
     /// Splits a producer's wants into requests within `max_ids_per_request` and
-    /// `max_parts_per_request`, items in order.
+    /// `max_parts_per_request`, items in order; one item's ordinals may span requests.
     fn pack_requests(
         &self,
         producer: AccountId,
@@ -285,19 +285,20 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         let mut current: BTreeMap<DataId, BTreeSet<u64>> = BTreeMap::new();
         let mut current_parts = 0;
         for (id, ordinals) in wants {
-            debug_assert!(
-                ordinals.len() <= max_parts_per_request,
-                "one item's ask exceeds the parts a request may carry"
-            );
-            let overflows = current.len() + 1 > max_ids_per_request
-                || current_parts + ordinals.len() > max_parts_per_request;
-            if overflows && !current.is_empty() {
-                let wants = replace(&mut current, BTreeMap::new());
-                requests.push(PullRequest { producer: producer.clone(), wants });
-                current_parts = 0;
+            let mut ordinals = ordinals.into_iter().peekable();
+            while ordinals.peek().is_some() {
+                let full =
+                    current.len() >= max_ids_per_request || current_parts >= max_parts_per_request;
+                if full && !current.is_empty() {
+                    let wants = take(&mut current);
+                    requests.push(PullRequest { producer: producer.clone(), wants });
+                    current_parts = 0;
+                }
+                let room = max_parts_per_request - current_parts;
+                let chunk: BTreeSet<u64> = ordinals.by_ref().take(room).collect();
+                current_parts += chunk.len();
+                current.insert(id.clone(), chunk);
             }
-            current_parts += ordinals.len();
-            current.insert(id, ordinals);
         }
         if !current.is_empty() {
             requests.push(PullRequest { producer, wants: current });

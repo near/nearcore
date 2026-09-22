@@ -179,13 +179,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
             if self.items.contains_key(&id) || self.policies.is_done(&id)? {
                 continue;
             }
-            let sources = match self.policies.sources(&id) {
-                Ok(sources) => sources,
-                Err(err) => {
-                    tracing::debug!(target: "spice_data_distribution", ?err, ?id, "failed to resolve the sources to pull from; not tracking the item");
-                    continue;
-                }
-            };
+            let sources = self.policies.sources(&id)?;
             self.items_by_height.entry(height).or_default().push(id.clone());
             self.items.insert(id, FetchItem::new(height, sources));
         }
@@ -232,9 +226,8 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
             match VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)
             {
-                Ok(part) => verified.push(part),
-                Err(SenderFault::InvalidMerkleProof) => rejected += 1,
-                Err(other) => return Err(other),
+                Some(part) => verified.push(part),
+                None => rejected += 1,
             }
         }
         // A message with no verifying part does not bind the sender. That costs at worst one extra
