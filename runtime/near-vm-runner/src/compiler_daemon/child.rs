@@ -124,7 +124,7 @@ fn handle_request(
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]
     if let Some(action) = request.test_action {
-        return match action {
+        match action {
             super::protocol::TestAction::Abort => std::process::abort(),
             super::protocol::TestAction::Timeout => loop {
                 park();
@@ -134,12 +134,12 @@ fn handle_request(
             }
             #[cfg(target_os = "linux")]
             super::protocol::TestAction::LandlockProbe => {
-                match sandbox::run_probe(sandbox_status) {
+                return match sandbox::run_probe(sandbox_status) {
                     Ok(()) => Ok(Vec::new()),
                     Err(err) => Err(err),
-                }
+                };
             }
-        };
+        }
     }
     let _ = sandbox_status;
     handle_compile(engines, request)
