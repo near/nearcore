@@ -36,7 +36,12 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
-near-store.workspace = true
+# Declared directly rather than via `workspace = true` so near-runtime can opt
+# out of near-store's default `rocksdb`/`cloud_archive` features: the runtime
+# only needs the trie/store APIs, and embedders using the in-memory store
+# should not have to build RocksDB. Keep this on one line: cargo-workspaces
+# adds the `version` to it at publish time.
+near-store = { path = "../../core/store", default-features = false }
 near-vm-runner = { workspace = true, features = ["wasmtime_vm"] }
 near-wallet-contract.workspace = true
 

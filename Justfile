@@ -72,6 +72,12 @@ check-non-default:
     # Ensure that near-store builds without RocksDB and cloud archive (in-memory only)
     RUSTFLAGS="-D warnings" \
     cargo check -p near-store --no-default-features
+    # Ensure that near-runtime builds on its own and does not pull RocksDB or cloud
+    # storage, so it can be used with only near-store's in-memory store
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-runtime
+    deps="$(cargo tree -p near-runtime -e normal --target all -i rocksdb -i object_store)" \
+        && echo "$deps" && test -z "$deps"
 
 # check rust formatting
 check-cargo-fmt:
