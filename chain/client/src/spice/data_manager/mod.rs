@@ -125,6 +125,18 @@ impl ChainView for Policies {
         }
     }
 
+    fn final_head_height(&self) -> Result<BlockHeight, Error> {
+        Ok(self.chain_store.final_head()?.height)
+    }
+
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+        match self.chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => Ok(Some(hash)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
     fn certified_frontier(
         &self,
         block: &BlockHeader,
@@ -148,6 +160,9 @@ pub(crate) struct SpiceDataManager<P: DataPolicy + ChainView = Policies> {
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
+    /// Height up to which tracked items were checked against the canonical chain; `None`
+    /// before the first check.
+    canonical_checked_height: Option<BlockHeight>,
 }
 
 impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
@@ -159,6 +174,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
             final_execution_head: None,
+            canonical_checked_height: None,
         }
     }
 
@@ -175,10 +191,22 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
+        let mut new_ids = Vec::new();
         for id in self.policies.needed_ids(block)? {
-            if self.items.contains_key(&id) || self.policies.is_done(&id)? {
-                continue;
+            if !self.items.contains_key(&id) && !self.policies.is_done(&id)? {
+                new_ids.push(id);
             }
+        }
+        if new_ids.is_empty() {
+            return Ok(());
+        }
+        // The chain finalized past the block on another branch.
+        if self.canonical_checked_height.is_some_and(|checked| height <= checked)
+            && self.policies.canonical_block_hash(height)? != Some(*block.hash())
+        {
+            return Ok(());
+        }
+        for id in new_ids {
             let sources = self.policies.sources(&id)?;
             self.items_by_height.entry(height).or_default().push(id.clone());
             self.items.insert(id, FetchItem::new(height, sources));
@@ -187,9 +215,10 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
     }
 
     /// The block was processed at `now`: expires the items at or below the final execution
-    /// head, tracks the items needed from the block, retires the pullable ones already in
-    /// the store, and returns the requests for the rest, grouped by producer. Without a
-    /// `requester` nothing is requested and the items stay.
+    /// head and the items whose block the chain finalized past on another branch, tracks
+    /// the items needed from the block, retires the pullable ones already in the store,
+    /// and returns the requests for the rest, grouped by producer. Without a `requester`
+    /// nothing is requested and the items stay.
     pub(crate) fn on_new_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -199,6 +228,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         let block = self.policies.block_header(block_hash)?;
         let block = block.as_ref();
         self.expire_at_or_below(self.policies.final_execution_head_height()?);
+        self.expire_forked()?;
         self.track_block(block)?;
         let certified_frontier = self.policies.certified_frontier(block)?;
         self.retire_done_items(&certified_frontier);
@@ -269,6 +299,29 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         if ids.is_empty() {
             self.items_by_height.remove(&item.height);
         }
+    }
+
+    /// Stops tracking items whose block is not the canonical block at its height, over
+    /// the heights the chain finalized since the last check.
+    fn expire_forked(&mut self) -> Result<(), Error> {
+        let final_height = self.policies.final_head_height()?;
+        let from = match self.canonical_checked_height {
+            Some(checked) if checked >= final_height => return Ok(()),
+            Some(checked) => checked + 1,
+            None => 0,
+        };
+        let mut forked = Vec::new();
+        for (height, ids) in self.items_by_height.range(from..=final_height) {
+            let canonical = self.policies.canonical_block_hash(*height)?;
+            forked.extend(
+                ids.iter().filter(|id| canonical.as_ref() != Some(id.block_hash())).cloned(),
+            );
+        }
+        for id in &forked {
+            self.remove_item(id);
+        }
+        self.canonical_checked_height = Some(final_height);
+        Ok(())
     }
 
     /// Stops tracking items at or below `height`.

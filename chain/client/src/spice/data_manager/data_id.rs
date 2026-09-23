@@ -27,6 +27,12 @@ impl DataId {
         }
     }
 
+    /// Hash of the block the data comes from.
+    pub(crate) fn block_hash(&self) -> &CryptoHash {
+        let DataId::ReceiptProof { source, .. } = self;
+        &source.block_hash
+    }
+
     /// Checks that decoded data is the data this id names.
     pub(crate) fn verify_data(&self, data: &SpiceData) -> Result<(), AssembledDataError> {
         let DataId::ReceiptProof { source, to_shard } = self;

@@ -3333,12 +3333,11 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
-    // The dead fork's witness is purged at the final head; the canonical block's stays.
+    // The dead fork's witness and receipt proof are purged at the final head; the
+    // canonical block's stay, the proof's item until the final execution head passes it.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
-    // Receipt proofs expire at the final execution head instead, which still sits below
-    // the fork, so both blocks' items are still tracked.
-    assert!(actor.is_tracking(&proof_id(&fork_block)));
+    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(actor.is_tracking(&proof_id(&next_block)));
     let requested_blocks: HashSet<_> = drain_outgoing_data_requests(&mut outgoing_rc)
         .into_iter()
@@ -3347,12 +3346,9 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(!requested_blocks.contains(fork_block.hash()));
     assert!(requested_blocks.contains(next_block.hash()));
 
-    // Once the final execution head passes their height, the dead fork's item and the
-    // executed canonical block's item are both moot and expire.
     save_final_execution_head(&chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
-    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(!actor.is_tracking(&proof_id(&next_block)));
 }
 

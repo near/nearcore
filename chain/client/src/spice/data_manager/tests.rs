@@ -492,6 +492,34 @@ mod manager {
         (chain, blocks)
     }
 
+    /// Builds and processes a block on top of `prev` at `height`; the chain keeps it
+    /// whether or not it becomes the head.
+    fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
+        let signer = Arc::new(create_test_signer("test1"));
+        let block =
+            TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build();
+        process_block_sync(
+            chain,
+            block.clone().into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+        block
+    }
+
+    /// A chain with canonical blocks at heights 1, 2 and 4, and two forks off height 2:
+    /// one at the skipped height 3, one at height 4. Returned as
+    /// `(chain, canonical, [fork_at_3, fork_at_4])`.
+    fn chain_with_forks() -> (Chain, Vec<Arc<Block>>, [Arc<Block>; 2]) {
+        let (mut chain, mut canonical) = chain_with_blocks(2);
+        let fork_at_3 = process_block_at(&mut chain, &canonical[1], 3);
+        canonical.push(process_block_at(&mut chain, &canonical[1], 4));
+        let fork_at_4 = process_block_at(&mut chain, &canonical[1], 4);
+        assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical[2].hash());
+        (chain, canonical, [fork_at_3, fork_at_4])
+    }
+
     /// The chain's policies with fixed source lists in place of the chain's single
     /// chunk producer, extra receipt-proof (from, to) pairs, and an injected certified
     /// height shared by every shard.
@@ -506,8 +534,10 @@ mod manager {
         failing_sources: HashSet<DataId>,
         certified_height: Arc<AtomicU64>,
         final_execution_head: Arc<AtomicU64>,
+        final_head: Arc<AtomicU64>,
         sources_calls: AtomicUsize,
         is_done_calls: AtomicUsize,
+        canonical_calls: AtomicUsize,
     }
 
     impl DataPolicy for TestPolicy {
@@ -557,6 +587,15 @@ mod manager {
             Ok(self.final_execution_head.load(Ordering::Relaxed))
         }
 
+        fn final_head_height(&self) -> Result<BlockHeight, Error> {
+            Ok(self.final_head.load(Ordering::Relaxed))
+        }
+
+        fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+            self.canonical_calls.fetch_add(1, Ordering::Relaxed);
+            self.chain.canonical_block_hash(height)
+        }
+
         fn certified_frontier(
             &self,
             _block: &BlockHeader,
@@ -599,13 +638,15 @@ mod manager {
 
     /// A manager whose policy applies shard 1 only: of a block's four proofs it needs
     /// `(0 -> 1)`, unless that proof is on disk. Nothing is certified until
-    /// `certify_up_to` says so, and nothing is finally executed until
-    /// `set_final_execution_head` says so. Time stands still until `clock` is advanced.
+    /// `certify_up_to` says so, nothing is finally executed until
+    /// `set_final_execution_head` says so, and the chain's final head stays at genesis
+    /// until `set_final_head` says so. Time stands still until `clock` is advanced.
     struct TestManager {
         manager: SpiceDataManager<TestPolicy>,
         clock: FakeClock,
         certified_height: Arc<AtomicU64>,
         final_execution_head: Arc<AtomicU64>,
+        final_head: Arc<AtomicU64>,
     }
 
     impl TestManager {
@@ -634,6 +675,7 @@ mod manager {
             );
             let certified_height = Arc::new(AtomicU64::new(0));
             let final_execution_head = Arc::new(AtomicU64::new(0));
+            let final_head = Arc::new(AtomicU64::new(0));
             let policy = TestPolicy {
                 chain: policies,
                 sources,
@@ -642,14 +684,17 @@ mod manager {
                 failing_sources: HashSet::new(),
                 certified_height: certified_height.clone(),
                 final_execution_head: final_execution_head.clone(),
+                final_head: final_head.clone(),
                 sources_calls: AtomicUsize::new(0),
                 is_done_calls: AtomicUsize::new(0),
+                canonical_calls: AtomicUsize::new(0),
             };
             Self {
                 manager: SpiceDataManager::new(pull_config, 0.6, policy),
                 clock: FakeClock::default(),
                 certified_height,
                 final_execution_head,
+                final_head,
             }
         }
 
@@ -660,6 +705,10 @@ mod manager {
 
         fn set_final_execution_head(&self, height: BlockHeight) {
             self.final_execution_head.store(height, Ordering::Relaxed);
+        }
+
+        fn set_final_head(&self, height: BlockHeight) {
+            self.final_head.store(height, Ordering::Relaxed);
         }
 
         /// Items from `from_shard` are served by `producers` instead of the default list.
@@ -673,6 +722,10 @@ mod manager {
 
         fn is_done_calls(&self) -> usize {
             self.manager.policies.is_done_calls.load(Ordering::Relaxed)
+        }
+
+        fn canonical_calls(&self) -> usize {
+            self.manager.policies.canonical_calls.load(Ordering::Relaxed)
         }
 
         /// `block` was processed at the clock's current time.
@@ -849,6 +902,86 @@ mod manager {
         assert!(!manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
         assert!(manager.manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
         assert_eq!(manager.manager.items_by_height.keys().copied().collect::<Vec<_>>(), vec![4]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_fork_item_expires_once_the_chain_finalizes_past_its_height_and_the_canonical_item_stays() {
+        let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
+        let mut manager = TestManager::new(&chain);
+        for block in canonical.iter().chain([&fork_at_3, &fork_at_4]) {
+            manager.manager.track_block(block.header()).unwrap();
+        }
+        let canonical_ids: Vec<DataId> =
+            canonical.iter().map(|block| receipt_id(block, 0, 1)).collect();
+        let fork_at_3_id = receipt_id(&fork_at_3, 0, 1);
+        let fork_at_4_id = receipt_id(&fork_at_4, 0, 1);
+
+        // Finality below the forks: nothing about them is known yet.
+        manager.set_final_head(2);
+        manager.on_new_block(&canonical[2]);
+        assert!(manager.manager.is_tracking(&fork_at_3_id));
+        assert!(manager.manager.is_tracking(&fork_at_4_id));
+
+        // The chain finalized past the skipped height.
+        manager.set_final_head(3);
+        manager.on_new_block(&canonical[2]);
+        assert!(!manager.manager.is_tracking(&fork_at_3_id));
+        assert!(manager.manager.is_tracking(&fork_at_4_id));
+
+        // And past the height the canonical block occupies.
+        manager.set_final_head(4);
+        manager.on_new_block(&canonical[2]);
+        assert!(!manager.manager.is_tracking(&fork_at_4_id));
+        for id in &canonical_ids {
+            assert!(manager.manager.is_tracking(id), "canonical item expired: {id:?}");
+        }
+        assert_eq!(
+            manager.manager.items_by_height.keys().copied().collect::<Vec<_>>(),
+            vec![1, 2, 4]
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn each_finalized_height_with_items_is_checked_against_the_canonical_chain_once() {
+        let (chain, blocks) = chain_with_blocks(4);
+        let mut manager = TestManager::new(&chain);
+        // Heights 1 and 4 hold items; 2 and 3 hold none.
+        manager.manager.track_block(blocks[0].header()).unwrap();
+        manager.manager.track_block(blocks[3].header()).unwrap();
+
+        manager.set_final_head(2);
+        manager.on_new_block(&blocks[3]);
+        assert_eq!(manager.canonical_calls(), 1);
+
+        // Finality did not move: nothing is re-read.
+        manager.on_new_block(&blocks[3]);
+        assert_eq!(manager.canonical_calls(), 1);
+
+        manager.set_final_head(4);
+        manager.on_new_block(&blocks[3]);
+        assert_eq!(manager.canonical_calls(), 2);
+        manager.on_new_block(&blocks[3]);
+        assert_eq!(manager.canonical_calls(), 2);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_fork_block_at_a_finalized_height_is_not_tracked_while_the_canonical_one_is() {
+        let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
+        let mut manager = TestManager::new(&chain);
+        manager.set_final_head(4);
+        manager.on_new_block(&canonical[2]);
+
+        manager.manager.track_block(fork_at_3.header()).unwrap();
+        manager.manager.track_block(fork_at_4.header()).unwrap();
+        manager.manager.track_block(canonical[1].header()).unwrap();
+
+        assert!(!manager.manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
+        assert!(!manager.manager.is_tracking(&receipt_id(&fork_at_4, 0, 1)));
+        assert!(manager.manager.is_tracking(&receipt_id(&canonical[1], 0, 1)));
+        assert!(manager.manager.is_tracking(&receipt_id(&canonical[2], 0, 1)));
     }
 
     #[test]
