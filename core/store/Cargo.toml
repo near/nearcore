@@ -20,7 +20,7 @@ ahash.workspace = true
 dashmap = { workspace = true, features = ["raw-api"] }
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
-smallvec.workspace = true
+smallvec = { workspace = true, features = ["const_new"] }
 futures.workspace = true
 enum-map.workspace = true
 hex.workspace = true
@@ -57,7 +57,8 @@ near-chain-primitives.workspace = true
 near-crypto.workspace = true
 near-external-storage = { workspace = true, optional = true }
 near-fmt.workspace = true
-near-o11y.workspace = true
+# No `otlp`: see the note on near-o11y's features. Keep on one line (cargo-workspaces).
+near-o11y = { path = "../o11y", default-features = false }
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-schema-checker-lib.workspace = true
