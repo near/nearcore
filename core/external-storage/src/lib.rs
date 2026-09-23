@@ -247,17 +247,75 @@ fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
     return path_buf.file_name().unwrap().to_str().unwrap().to_string();
 }
 
+/// Signing region for a custom endpoint, where the `region` config value holds the endpoint.
+const CUSTOM_ENDPOINT_SIGNING_REGION: &str = "us-east-1";
+
+/// Region to sign S3 requests with, and the endpoint to send them to if it is not AWS.
+#[derive(Debug, PartialEq)]
+struct S3RegionAndEndpoint {
+    region: String,
+    endpoint: Option<String>,
+}
+
+/// Parses the `region` config value the way the `rust-s3` crate did: names of non-AWS
+/// providers and values with a scheme or a dot are endpoints, anything else is an AWS region.
+fn parse_s3_region_and_endpoint(region: &str) -> S3RegionAndEndpoint {
+    let provider_region_and_endpoint = match region {
+        "nyc3" | "ams3" | "sgp1" | "fra1" => {
+            Some((region, format!("https://{region}.digitaloceanspaces.com")))
+        }
+        "yandex" | "ru-central1" => {
+            Some(("ru-central1", "https://storage.yandexcloud.net".to_string()))
+        }
+        _ => region.strip_prefix("wa-").map(|wasabi_region| {
+            (wasabi_region, format!("https://s3.{wasabi_region}.wasabisys.com"))
+        }),
+    };
+    if let Some((provider_region, endpoint)) = provider_region_and_endpoint {
+        return S3RegionAndEndpoint {
+            region: provider_region.to_string(),
+            endpoint: Some(endpoint),
+        };
+    }
+    let custom_endpoint = if region.contains("://") {
+        region.to_string()
+    } else if region.contains('.') {
+        format!("https://{region}")
+    } else {
+        return S3RegionAndEndpoint { region: region.to_string(), endpoint: None };
+    };
+    S3RegionAndEndpoint {
+        region: CUSTOM_ENDPOINT_SIGNING_REGION.to_string(),
+        endpoint: Some(custom_endpoint),
+    }
+}
+
+/// Sets bucket, region, endpoint and request timeout on an S3 client builder.
+fn apply_s3_location_and_timeout(
+    builder: AmazonS3Builder,
+    bucket: &str,
+    region: &str,
+    timeout: Duration,
+) -> AmazonS3Builder {
+    let S3RegionAndEndpoint { region, endpoint } = parse_s3_region_and_endpoint(region);
+    let allow_http = endpoint.as_deref().is_some_and(|endpoint| endpoint.starts_with("http://"));
+    let builder = builder.with_bucket_name(bucket).with_region(region).with_client_options(
+        ClientOptions::new().with_timeout(timeout).with_allow_http(allow_http),
+    );
+    match endpoint {
+        Some(endpoint) => builder.with_endpoint(endpoint),
+        None => builder,
+    }
+}
+
 /// Create an anonymous, read-only S3 client.
 fn create_s3_client_readonly(
     bucket: &str,
     region: &str,
     timeout: Duration,
 ) -> Result<AmazonS3, anyhow::Error> {
-    AmazonS3Builder::new()
-        .with_bucket_name(bucket)
-        .with_region(region)
+    apply_s3_location_and_timeout(AmazonS3Builder::new(), bucket, region, timeout)
         .with_skip_signature(true)
-        .with_client_options(ClientOptions::new().with_timeout(timeout))
         .build()
         .map_err(Into::into)
 }
@@ -276,26 +334,59 @@ fn create_s3_client_read_write(
     timeout: Duration,
     credentials_file: Option<PathBuf>,
 ) -> Result<AmazonS3, anyhow::Error> {
-    let client_options = ClientOptions::new().with_timeout(timeout);
     let s3 = match credentials_file {
         Some(credentials_file) => {
             let mut file = std::fs::File::open(credentials_file)?;
             let mut json_config_str = String::new();
             file.read_to_string(&mut json_config_str)?;
             let credentials_config: S3CredentialsConfig = serde_json::from_str(&json_config_str)?;
-            AmazonS3Builder::new()
-                .with_bucket_name(bucket)
-                .with_region(region)
+            apply_s3_location_and_timeout(AmazonS3Builder::new(), bucket, region, timeout)
                 .with_access_key_id(&credentials_config.access_key)
                 .with_secret_access_key(&credentials_config.secret_key)
-                .with_client_options(client_options)
                 .build()?
         }
-        None => AmazonS3Builder::from_env()
-            .with_bucket_name(bucket)
-            .with_region(region)
-            .with_client_options(client_options)
+        None => apply_s3_location_and_timeout(AmazonS3Builder::from_env(), bucket, region, timeout)
             .build()?,
     };
     Ok(s3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn aws_region(region: &str) -> S3RegionAndEndpoint {
+        S3RegionAndEndpoint { region: region.to_string(), endpoint: None }
+    }
+
+    fn region_with_endpoint(region: &str, endpoint: &str) -> S3RegionAndEndpoint {
+        S3RegionAndEndpoint { region: region.to_string(), endpoint: Some(endpoint.to_string()) }
+    }
+
+    #[test]
+    fn parse_s3_region_keeps_aws_region_names() {
+        assert_eq!(parse_s3_region_and_endpoint("us-east-1"), aws_region("us-east-1"));
+        assert_eq!(parse_s3_region_and_endpoint("ap-south-2"), aws_region("ap-south-2"));
+    }
+
+    #[test]
+    fn parse_s3_region_maps_provider_names_to_endpoints() {
+        let digitalocean = region_with_endpoint("nyc3", "https://nyc3.digitaloceanspaces.com");
+        let yandex = region_with_endpoint("ru-central1", "https://storage.yandexcloud.net");
+        let wasabi = region_with_endpoint("eu-central-2", "https://s3.eu-central-2.wasabisys.com");
+        assert_eq!(parse_s3_region_and_endpoint("nyc3"), digitalocean);
+        assert_eq!(parse_s3_region_and_endpoint("yandex"), yandex);
+        assert_eq!(parse_s3_region_and_endpoint("ru-central1"), yandex);
+        assert_eq!(parse_s3_region_and_endpoint("wa-eu-central-2"), wasabi);
+    }
+
+    #[test]
+    fn parse_s3_region_uses_custom_endpoint_with_default_signing_region() {
+        let url_endpoint =
+            region_with_endpoint(CUSTOM_ENDPOINT_SIGNING_REGION, "http://localhost:9000");
+        let host_endpoint =
+            region_with_endpoint(CUSTOM_ENDPOINT_SIGNING_REGION, "https://s3.example.com");
+        assert_eq!(parse_s3_region_and_endpoint("http://localhost:9000"), url_endpoint);
+        assert_eq!(parse_s3_region_and_endpoint("s3.example.com"), host_endpoint);
+    }
 }
