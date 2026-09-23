@@ -16,7 +16,7 @@ use near_primitives::config::ViewConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Gas, ShardId};
+use near_primitives::types::{AccountId, Gas, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
@@ -83,6 +83,8 @@ pub(crate) struct ReceiptPreparationPipeline {
 
     /// Priority for compilations triggered by this pipeline's preparations.
     priority: CompilePriority,
+
+    current_protocol_version: ProtocolVersion,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -120,6 +122,7 @@ impl ReceiptPreparationPipeline {
         chain_id: String,
         shard_id: ShardId,
         priority: CompilePriority,
+        current_protocol_version: ProtocolVersion,
     ) -> Self {
         debug_assert!(
             next_wasm_config.as_ref().is_none_or(|next| cache_keys_differ(
@@ -140,6 +143,7 @@ impl ReceiptPreparationPipeline {
             chain_id,
             shard_id,
             priority,
+            current_protocol_version,
         }
     }
 
@@ -237,6 +241,7 @@ impl ReceiptPreparationPipeline {
                         state_update,
                         &self.chain_id,
                         AccessOptions::NO_SIDE_EFFECTS,
+                        self.current_protocol_version,
                     ) else {
                         continue;
                     };

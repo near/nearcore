@@ -142,6 +142,7 @@ impl TrieViewer {
             state_update,
             chain_id,
             AccessOptions::DEFAULT,
+            current_protocol_version,
         )?;
         let maybe_code = match contract_id {
             RuntimeContractIdentifier::None => None,
@@ -499,6 +500,7 @@ impl TrieViewer {
             apply_state.shard_id,
             // View calls are user-facing (RPC) but off the block-production path.
             CompilePriority::Interactive,
+            apply_state.current_protocol_version,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
@@ -508,6 +510,7 @@ impl TrieViewer {
             &state_update,
             &epoch_info_provider.chain_id(),
             AccessOptions::DEFAULT,
+            apply_state.current_protocol_version,
         )?;
         let contract =
             pipeline.get_contract(&receipt, contract_id_resolved.clone(), 0, view_config.clone());
@@ -522,7 +525,6 @@ impl TrieViewer {
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
-            config.wasm_config.storage_get_mode,
             Arc::clone(&apply_state.trie_access_tracker_state),
             None,
         );

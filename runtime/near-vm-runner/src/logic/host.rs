@@ -3608,13 +3608,11 @@ pub fn promise_batch_action_transfer(
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
-        ctx.config.eth_implicit_accounts,
         ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
-        ctx.config.eth_implicit_accounts,
         ctx.config.universal_accounts,
         receiver_id.get_account_type(),
     );

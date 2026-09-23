@@ -34,9 +34,6 @@ pub struct RuntimeConfig {
     /// Configuration specific to BandwidthScheduler.
     pub bandwidth_scheduler_config: BandwidthSchedulerConfig,
 
-    /// Whether receipts should be stored as [StateStoredReceipt].
-    pub use_state_stored_receipt: bool,
-
     /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
     /// burned might be lower, in which case the difference is refunded after execution.
     pub min_gas_purchase_price: Balance,
@@ -77,7 +74,6 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
             min_gas_purchase_price: runtime_config.min_gas_purchase_price,
             account_creation_charge: runtime_config.account_creation_charge,
         }
@@ -97,7 +93,6 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            use_state_stored_receipt: runtime_config.use_state_stored_receipt,
             min_gas_purchase_price: Balance::ZERO,
             // The free config disables all gas costs; keep account_creation_charge at
             // zero as well so the invariant min_gas_purchase_price * create_account_gas_cost >=
@@ -252,6 +247,38 @@ impl CongestionControlConfig {
             reject_tx_congestion_threshold: 2.0,
             outgoing_receipts_usual_size_limit: max_value,
             outgoing_receipts_big_size_limit: max_value,
+        }
+    }
+
+    /// The congestion control parameters as originally stabilized at protocol
+    /// version 68 (NEP-539). The live parameters have been adjusted since, and
+    /// tests calibrated to the original values pin them here so they don't need
+    /// adjusting every time the live parameters change.
+    // TODO(limited_replayability): Move tests to use config from latest protocol version.
+    pub fn test_original() -> Self {
+        Self {
+            // 20 PGas
+            max_congestion_incoming_gas: Gas::from_gas(20_000_000_000_000_000),
+            // 10 PGas
+            max_congestion_outgoing_gas: Gas::from_gas(10_000_000_000_000_000),
+            // 1000 MB
+            max_congestion_memory_consumption: 1_000_000_000,
+            max_congestion_missed_chunks: 5,
+            // 300 PGas
+            max_outgoing_gas: Gas::from_gas(300_000_000_000_000_000),
+            // 1 PGas
+            min_outgoing_gas: Gas::from_gas(1_000_000_000_000_000),
+            // 1 PGas
+            allowed_shard_outgoing_gas: Gas::from_gas(1_000_000_000_000_000),
+            // 500 TGas
+            max_tx_gas: Gas::from_gas(500_000_000_000_000),
+            // 20 TGas
+            min_tx_gas: Gas::from_gas(20_000_000_000_000),
+            reject_tx_congestion_threshold: 0.5,
+            // Effectively unlimited: the outgoing receipt size limits were only
+            // introduced at protocol version 69.
+            outgoing_receipts_usual_size_limit: 4_294_967_295,
+            outgoing_receipts_big_size_limit: 4_294_967_295,
         }
     }
 }

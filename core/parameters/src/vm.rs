@@ -44,6 +44,9 @@ impl VMKind {
     }
 }
 
+// Only kept for `VMConfigView` compatibility: contract storage reads always go
+// through flat storage since the `FlatStorageReads` protocol feature. The doc
+// comment below is the OpenAPI description of this type, so it is left as is.
 /// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -226,10 +229,6 @@ pub struct Config {
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
-    /// Set to `StorageGetMode::FlatStorage` in order to enable the `FlatStorageReads` protocol
-    /// feature.
-    pub storage_get_mode: StorageGetMode,
-
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
@@ -239,25 +238,11 @@ pub struct Config {
     /// `Module::deserialize`.
     pub fix_contract_loading_error: bool,
 
-    /// Enable the `EthImplicitAccounts` protocol feature.
-    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
-    // protocol version 70, where the feature is enabled.
-    pub eth_implicit_accounts: bool,
-
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
     // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
-
-    /// Whether to discard custom sections.
-    pub discard_custom_sections: bool,
-
-    /// Whether to enable global contract related host functions.
-    pub global_contract_host_fns: bool,
-
-    /// Whether to enable saturating reference types and bulk memory wasm extensions.
-    pub reftypes_bulk_memory: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
@@ -330,9 +315,7 @@ impl Config {
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
-        self.eth_implicit_accounts = true;
         self.universal_accounts = true;
-        self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;
         self.p256_verify_host_fn = true;
