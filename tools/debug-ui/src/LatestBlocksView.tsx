@@ -3,7 +3,8 @@ import { Dispatch, Fragment, ReactElement, SetStateAction, useCallback, useMemo,
 import XarrowImport, { Xwrapper, useXarrow } from 'react-xarrows';
 // Vite's dev-mode CJS interop binds the default import to `module.exports` rather
 // than unwrapping `.default`, so `XarrowImport` may be the namespace object.
-const Xarrow = (XarrowImport as unknown as { default?: typeof XarrowImport }).default ?? XarrowImport;
+const Xarrow =
+    (XarrowImport as unknown as { default?: typeof XarrowImport }).default ?? XarrowImport;
 import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
 
