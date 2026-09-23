@@ -434,7 +434,7 @@ async fn account_balance(
         };
 
     let account_balances =
-        crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
+        crate::utils::RosettaAccountBalances::from_account(&account_info, &runtime_config);
 
     let balance = if let Some(sub_account) = &account_identifier.sub_account {
         match sub_account.address {
@@ -1031,6 +1031,7 @@ async fn construction_submit(
             models::TransactionIdentifierResponse,
             models::TransactionMetadata,
             models::TransactionType,
+            models::ExecutionStatus,
             models::Version,
         )
     ),
@@ -1068,7 +1069,7 @@ fn get_cors(cors_allowed_origins: &[String]) -> CorsLayer {
     }
     cors.allow_methods([Method::GET, Method::POST])
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
-        .max_age(Duration::from_secs(3600))
+        .max_age(Duration::from_hours(1))
 }
 
 pub fn start_rosetta_rpc(

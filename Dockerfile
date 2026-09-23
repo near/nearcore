@@ -11,6 +11,7 @@ RUN apt-get update -qq && apt-get install -y \
     curl \
     llvm \
     clang \
+    libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 VOLUME [ /near ]

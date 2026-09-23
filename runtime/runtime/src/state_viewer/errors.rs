@@ -26,8 +26,14 @@ pub enum ViewContractCodeError {
 pub enum ViewAccessKeyError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account ID #{requested_account_id} does not exist")]
+    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys { requested_account_id: near_primitives::types::AccountId, limit: u32 },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }
@@ -52,6 +58,10 @@ pub enum ViewStateError {
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("The state of {requested_account_id} is too large")]
     AccountStateTooLarge { requested_account_id: near_primitives::types::AccountId },
+    #[error("include_proof is not supported with paginated view_state")]
+    ProofUnsupportedWithPagination,
+    #[error("after_key must start with prefix")]
+    AfterKeyOutsidePrefix,
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }

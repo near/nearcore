@@ -5,7 +5,6 @@ use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
 mod instrument_v3;
-mod prepare_v2;
 mod prepare_v3;
 
 /// Loads the given module given in `original_code`, performs some checks on it and
@@ -25,11 +24,7 @@ pub fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
-    if config.reftypes_bulk_memory || config.vm_kind == VMKind::Wasmtime {
-        prepare_v3::prepare_contract(original_code, features, config, kind)
-    } else {
-        prepare_v2::prepare_contract(original_code, features, config, kind)
-    }
+    prepare_v3::prepare_contract(original_code, features, config, kind)
 }
 
 #[cfg(test)]
@@ -37,6 +32,8 @@ mod tests {
     use super::*;
     use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
+    use std::borrow::Cow;
+    use wasm_encoder::{CustomSection, Encode, Section};
 
     fn parse_and_prepare_wat(
         config: &Config,
@@ -45,6 +42,46 @@ mod tests {
     ) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         prepare_contract(wasm.as_ref(), &config, vm_kind)
+    }
+
+    fn append_custom_section_padding(wasm: &mut Vec<u8>, size: usize) {
+        let section =
+            CustomSection { name: Cow::Borrowed("padding"), data: Cow::Owned(vec![0; size]) };
+        wasm.push(section.id());
+        section.encode(wasm);
+    }
+
+    #[test]
+    fn locals_limit_depends_on_contract_size() {
+        const LOCALS: usize = 100;
+
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
+        config.limit_config.max_locals_per_contract = None;
+        config.limit_config.min_contract_size_per_local = Some(2);
+
+        let compact = near_test_contracts::LargeContract {
+            functions: 1,
+            locals_per_function: LOCALS as u32,
+            ..Default::default()
+        }
+        .make();
+        assert!(compact.len() < 2 * LOCALS);
+        assert_matches!(
+            prepare_contract(&compact, &config, VMKind::Wasmtime),
+            Err(PrepareError::TooManyLocals)
+        );
+
+        let mut padded = compact;
+        append_custom_section_padding(&mut padded, 2 * LOCALS);
+        assert!(padded.len() >= 2 * LOCALS);
+        assert_matches!(prepare_contract(&padded, &config, VMKind::Wasmtime), Ok(_));
+
+        // The absolute limit continues to apply independently of contract size.
+        config.limit_config.max_locals_per_contract = Some(LOCALS as u64 - 1);
+        assert_matches!(
+            prepare_contract(&padded, &config, VMKind::Wasmtime),
+            Err(PrepareError::TooManyLocals)
+        );
     }
 
     #[test]
@@ -156,6 +193,339 @@ mod tests {
             let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
             assert_matches!(r, Err(Error::Instantiate));
             */
+        })
+    }
+
+    #[test]
+    fn function_body_too_large() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 1000;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_function_body_size = Some(limit);
+
+            // A function body with nops just over the limit should be rejected.
+            let wasm = near_test_contracts::function_with_a_lot_of_nop(limit);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::FunctionBodyTooLarge));
+
+            // A function body with nops just under the limit should be accepted.
+            let wasm = near_test_contracts::function_with_a_lot_of_nop(limit / 2);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a wasm module with many small functions, each containing a single
+    /// `if` block. The gas instrumentation inserts metering at every block
+    /// boundary, so the instrumented output is much larger than the input.
+    // TODO: move to near-test-contracts.
+    fn contract_with_many_blocks(num_functions: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
+        };
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        types.ty().function([ValType::I32], []);
+        module.section(&types);
+
+        let mut functions = FunctionSection::new();
+        // function 0 is "main" with type 0
+        functions.function(0);
+        // remaining functions have type 1 (take an i32 param)
+        for _ in 0..num_functions {
+            functions.function(1);
+        }
+        module.section(&functions);
+
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+
+        let mut code = CodeSection::new();
+        // main: empty
+        let mut main_fn = Function::new([]);
+        main_fn.instruction(&Instruction::End);
+        code.function(&main_fn);
+        // each helper function: if (param) { nop } end
+        for _ in 0..num_functions {
+            let mut f = Function::new([]);
+            f.instruction(&Instruction::LocalGet(0));
+            f.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            f.instruction(&Instruction::Nop);
+            f.instruction(&Instruction::End); // end if
+            f.instruction(&Instruction::End); // end function
+            code.function(&f);
+        }
+        module.section(&code);
+        module.finish()
+    }
+
+    /// Build a wasm module with a single function containing `num_blocks`
+    /// sequential if-blocks.
+    // TODO: move to near-test-contracts.
+    fn contract_with_blocks_in_one_function(num_blocks: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
+        };
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([ValType::I32], []);
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        functions.function(0);
+        module.section(&functions);
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+        let mut code = CodeSection::new();
+        let mut f = Function::new([]);
+        for _ in 0..num_blocks {
+            f.instruction(&Instruction::LocalGet(0));
+            f.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            f.instruction(&Instruction::Nop);
+            f.instruction(&Instruction::End);
+        }
+        f.instruction(&Instruction::End);
+        code.function(&f);
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn too_many_blocks_per_function() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 100;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_blocks_per_function = Some(limit);
+
+            // A function with blocks over the limit should be rejected.
+            let wasm = contract_with_blocks_in_one_function(limit as u32 + 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerFunction));
+
+            // A function with blocks at the limit should be accepted.
+            let wasm = contract_with_blocks_in_one_function(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
+    fn too_many_blocks_per_contract() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 50;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_blocks_per_contract = Some(limit);
+            // No per-function limit.
+            config.limit_config.max_blocks_per_function = None;
+
+            // 100 functions x 1 block = 100 total blocks, should be rejected.
+            let wasm = contract_with_many_blocks(100);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyBlocksPerContract));
+
+            // 50 functions x 1 block = 50 total blocks, should be accepted.
+            let wasm = contract_with_many_blocks(50);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    /// Build a wasm module that declares `n` entries in the type section,
+    /// each a `(func)` signature with a different i32 param count. One
+    /// trivial `main` function exercises type 0 so the module is otherwise
+    /// valid.
+    fn contract_with_n_types(n: u32) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+            TypeSection, ValType,
+        };
+        assert!(n >= 1, "need at least one type for the main function");
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        for i in 0..n {
+            let params = vec![ValType::I32; i as usize];
+            types.ty().function(params, []);
+        }
+        module.section(&types);
+        let mut functions = FunctionSection::new();
+        functions.function(0);
+        module.section(&functions);
+        let mut exports = ExportSection::new();
+        exports.export("main", ExportKind::Func, 0);
+        module.section(&exports);
+        let mut code = CodeSection::new();
+        let mut main_fn = Function::new([]);
+        main_fn.instruction(&Instruction::End);
+        code.function(&main_fn);
+        module.section(&code);
+        module.finish()
+    }
+
+    #[test]
+    fn too_many_types() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 16;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_types_per_contract = Some(limit);
+
+            let wasm = contract_with_n_types(limit as u32 + 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyTypes));
+
+            let wasm = contract_with_n_types(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
+    fn too_many_globals() {
+        with_vm_variants(|kind| {
+            let limit: u64 = 1000;
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_globals_per_contract = Some(limit);
+
+            // Over the limit: rejected at prepare time.
+            let wasm = near_test_contracts::contract_with_num_globals((limit + 1) as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::TooManyGlobals));
+
+            // At the limit: accepted.
+            let wasm = near_test_contracts::contract_with_num_globals(limit as u32);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
+    fn instrumented_code_too_large() {
+        with_vm_variants(|kind| {
+            let mut config = test_vm_config(Some(kind));
+            // Raise the function body size limit so it doesn't interfere.
+            config.limit_config.max_function_body_size = None;
+
+            // First, figure out the instrumented size without a limit so we can
+            // set a meaningful threshold.
+            config.limit_config.max_instrumented_code_size = None;
+            let wasm = contract_with_many_blocks(200);
+            let instrumented = prepare_contract(&wasm, &config, kind).unwrap();
+            let threshold = instrumented.len() as u64;
+
+            // With a limit just below the instrumented size, preparation should
+            // fail.
+            config.limit_config.max_instrumented_code_size = Some(threshold - 1);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Err(PrepareError::InstrumentedCodeTooLarge));
+
+            // With a limit at exactly the instrumented size, it should pass.
+            config.limit_config.max_instrumented_code_size = Some(threshold);
+            let r = prepare_contract(&wasm, &config, kind);
+            assert_matches!(r, Ok(_));
+        });
+    }
+
+    #[test]
+    fn too_many_function_params() {
+        // Hard-coding config parameters in this test.
+        // If the config changes and you have to update these numbers, it most
+        // likely means you are about to make a breaking change to WASM
+        // contracts, so be careful if that's why you are reading this.
+        let max_per_fn = 64;
+        let max_per_contract = 50_000;
+
+        // num_params, num_functions, expected preparation Result
+        check(1, 1000, Ok(()));
+        check(max_per_fn, max_per_contract / max_per_fn, Ok(()));
+        check(
+            max_per_fn,
+            (max_per_contract + max_per_fn) / max_per_fn,
+            Err(PrepareError::TooManyParamsPerContract),
+        );
+
+        // check that TooManyParamsPerFunction hits before TooManyParamsPerContract
+        check(
+            max_per_fn + 1,
+            (max_per_contract + max_per_fn) / max_per_fn,
+            Err(PrepareError::TooManyParamsPerFunction),
+        );
+
+        // check that TooManyFunctions hits before TooManyParamsPerFunction
+        check(max_per_fn + 1, 1, Err(PrepareError::TooManyParamsPerFunction));
+        check(max_per_fn + 1, 10_001, Err(PrepareError::TooManyFunctions));
+
+        // check that TooManyFunctions hits before TooManyParamsPerContract
+        check(
+            (max_per_contract + 10_000) / 10_000,
+            10_000,
+            Err(PrepareError::TooManyParamsPerContract),
+        );
+        check((max_per_contract + 10_000) / 10_000, 10_001, Err(PrepareError::TooManyFunctions));
+
+        #[track_caller]
+        fn check(num_params: usize, num_functions: usize, expect: Result<(), PrepareError>) {
+            with_vm_variants(|kind| {
+                let config = test_vm_config(Some(kind));
+                let params =
+                    std::iter::repeat("i32").take(num_params).collect::<Vec<_>>().join(" ");
+                // anonymous function with N parameters and no body
+                let function_def = format!("(func (param {params}))\n");
+                let all_function_defs = function_def.repeat(num_functions);
+                let test_result = parse_and_prepare_wat(
+                    &config,
+                    kind,
+                    &format!(
+                        r#"(module
+                            {all_function_defs}
+                        )"#
+                    ),
+                );
+
+                if let Err(expected_err) = &expect {
+                    let Err(err) = test_result else {
+                        panic!(
+                            "got Ok expecting error {expected_err}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                        );
+                    };
+                    assert_eq!(
+                        err, *expected_err,
+                        "got the wrong error, got {err} but was expecting {expected_err}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                    );
+                } else {
+                    assert!(
+                        test_result.is_ok(),
+                        "got error when expecting ok, {test_result:?}, vm={kind:?}, num_params={num_params}, num_functions={num_functions}"
+                    );
+                }
+            })
+        }
+    }
+
+    /// Reject contracts whose static operand-stack size (bytes) in any single
+    /// function exceeds `max_operand_stack_bytes_per_function`.
+    #[test]
+    fn operand_stack_too_large() {
+        with_vm_variants(|kind| {
+            // 16 i64 pushes leave 128 bytes on the operand stack at peak.
+            // Cap of 127 should reject; cap of 128 should accept.
+            let push_then_drop = "(i64.const 0) ".repeat(16) + &"(drop) ".repeat(16);
+            let wat = format!(
+                r#"(module
+                    (func (export "main") {push_then_drop})
+                )"#
+            );
+
+            let mut config = test_vm_config(Some(kind));
+            config.limit_config.max_operand_stack_bytes_per_function = Some(127);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Err(PrepareError::OperandStackTooLarge));
+
+            config.limit_config.max_operand_stack_bytes_per_function = Some(128);
+            let r = parse_and_prepare_wat(&config, kind, &wat);
+            assert_matches!(r, Ok(_));
         })
     }
 }

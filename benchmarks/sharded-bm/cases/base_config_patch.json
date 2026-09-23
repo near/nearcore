@@ -12,9 +12,6 @@
         "load_mem_tries_for_tracked_shards": true,
         "col_state_cache_size": 32000000,
         "col_flat_state_cache_size": 32000000,
-        "state_snapshot_config": {
-            "state_snapshot_type": "Disabled"
-        },
         "max_open_files": 20000,
         "rocksdb": {
             "bytes_per_sync": 4194304,

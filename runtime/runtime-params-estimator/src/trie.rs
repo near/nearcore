@@ -1,6 +1,9 @@
-use crate::estimator_context::{EstimatorContext, Testbed};
+use crate::estimator_context::{BlockLatency, EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
-use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
+use crate::utils::{
+    aggregate_per_block_measurements, extra_refund_block_latency, overhead_per_measured_block,
+    percentiles,
+};
 use near_parameters::ExtCosts;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::trie_key::TrieKey;
@@ -20,7 +23,7 @@ pub(crate) fn write_node(
     measured_iters: usize,
     final_key_len: usize,
 ) -> GasCost {
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     let overhead = overhead_per_measured_block(ctx, block_latency);
     let mut testbed = ctx.testbed();
     let tb = testbed.transaction_builder();
@@ -49,7 +52,7 @@ pub(crate) fn write_node(
             .map(|value| vec![tb.account_insert_key(signer.clone(), key.as_bytes(), *value)])
             .take(measured_iters + warmup_iters),
     );
-    let results = &testbed.measure_blocks(blocks, block_latency)[1..];
+    let results = &testbed.measure_blocks(blocks, BlockLatency::Uniform(block_latency))[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
         1,
@@ -296,7 +299,7 @@ fn read_node_from_accounting_cache_ext(
                 let key = j.to_le_bytes().to_vec();
                 setup_block.push(tb.account_insert_key(signer.clone(), &key, &value));
             }
-            testbed.process_block(setup_block, 0);
+            testbed.process_block(setup_block, extra_refund_block_latency());
 
             // Collect keys of the inserted nodes and select a subset for testing.
             let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();

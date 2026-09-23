@@ -16,7 +16,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_chain_configs::TrackedShardsConfig;
-use near_client::sync::SYNC_V2_ENABLED;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{Balance, ShardId};
 
@@ -43,9 +42,6 @@ use near_primitives::types::{Balance, ShardId};
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sync_then_shard_catchup() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;
@@ -119,9 +115,6 @@ fn test_sync_then_shard_catchup() {
 #[test]
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_then_shard_catchup() {
-    if !SYNC_V2_ENABLED {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 10;

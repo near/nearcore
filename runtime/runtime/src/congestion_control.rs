@@ -7,7 +7,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
-use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, ReceiptsStats};
+use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -16,12 +16,12 @@ use near_primitives::receipt::{
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 pub(crate) enum ReceiptSink {
@@ -205,7 +205,7 @@ impl ReceiptSink {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         match self {
             ReceiptSink::V2(sink_with_info) => sink_with_info.sink.generate_bandwidth_requests(
@@ -310,14 +310,7 @@ impl ReceiptSinkV2WithInfo {
         )? {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
-                self.sink.buffer_receipt(
-                    receipt,
-                    size,
-                    gas,
-                    state_update,
-                    shard,
-                    apply_state.config.use_state_stored_receipt,
-                )?;
+                self.sink.buffer_receipt(receipt, size, gas, state_update, shard)?;
             }
         }
         Ok(())
@@ -439,11 +432,18 @@ impl ReceiptSinkV2 {
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        if forward_limit.gas >= gas && forward_limit.size >= size {
+        let admission_gas = if ProtocolFeature::ClampOutgoingGasAdmission
+            .enabled(apply_state.current_protocol_version)
+        {
+            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas)
+        } else {
+            gas
+        };
+
+        if forward_limit.gas >= admission_gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
-            // underflow impossible: checked forward_limit > gas/size_to_forward above
-            forward_limit.gas = forward_limit.gas.checked_sub(gas).unwrap();
+            forward_limit.gas = forward_limit.gas.saturating_sub(gas);
             forward_limit.size -= size;
             stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, gas);
 
@@ -462,18 +462,10 @@ impl ReceiptSinkV2 {
         gas: Gas,
         state_update: &mut TrieUpdate,
         shard: ShardId,
-        use_state_stored_receipt: bool,
     ) -> Result<(), RuntimeError> {
-        let receipt = match use_state_stored_receipt {
-            true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
-                let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
-                receipt
-            }
-            false => ReceiptOrStateStoredReceipt::Receipt(std::borrow::Cow::Owned(receipt)),
-        };
+        let metadata = StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+        let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
 
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
@@ -497,7 +489,7 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
-        stats: &mut ChunkApplyStatsV0,
+        stats: &mut ChunkApplyStatsV1,
     ) -> Result<BandwidthRequests, StorageError> {
         let params = &self.bandwidth_scheduler_output.params;
 
@@ -712,11 +704,12 @@ fn action_receipt_congestion_gas(
 ) -> Result<Gas, IntegerOverflowError> {
     let prepaid_exec_gas =
         total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
+            .gas
+            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
             .ok_or(IntegerOverflowError)?;
     // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_gas = total_prepaid_send_fees(config, &action_receipt.actions())?;
-    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_gas)?;
+    let prepaid_send_cost = total_prepaid_send_fees(config, &action_receipt.actions())?;
+    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_cost.gas)?;
 
     // account for gas potentially used for dynamic execution
     let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions())?;
@@ -839,15 +832,9 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
         // TODO It would be great to have this method take owned Receipt and
         // get rid of the Cow from the Receipt and StateStoredReceipt.
-        let receipt = match config.use_state_stored_receipt {
-            true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
-                ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
-            }
-            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
-        };
+        let metadata = StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
+        let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
+        let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
 
         self.new_delayed_gas = self.new_delayed_gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.new_delayed_bytes =
@@ -872,7 +859,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         &mut self,
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
-    ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
+    ) -> Result<Option<ReceiptOrStateStoredReceipt<'_>>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
         loop {

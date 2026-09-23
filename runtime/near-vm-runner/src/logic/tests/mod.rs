@@ -1,3 +1,5 @@
+// cspell:words wycheproof
+
 mod alt_bn128;
 mod bls12381;
 mod context;
@@ -7,11 +9,15 @@ pub(crate) mod helpers;
 mod iterators;
 mod logs;
 mod miscs;
+mod ml_dsa_verify;
+mod p256_verify;
+mod p256_verify_wycheproof;
 mod promises;
 mod registers;
 mod storage_read_write;
 mod storage_usage;
 mod view_method;
 mod vm_logic_builder;
+mod yield_resume;
 
 use vm_logic_builder::TestVMLogic;

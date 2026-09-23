@@ -487,7 +487,7 @@ class NeardRunner:
         self.save_config()
 
     # This RPC method tells to stop neard and re-initialize its home dir. This returns the
-    # validator and node key that resulted from the initialization. We can't yet call amend-genesis
+    # validator and node key that resulted from the initialization. We can't yet call fork-network
     # and compute state roots, because the caller of this method needs to hear back from
     # each node before it can build the list of initial validators. So after this RPC method returns,
     # we'll be waiting for the network_init RPC.
@@ -575,7 +575,7 @@ class NeardRunner:
             }
 
     # After the new_test RPC, we wait to get this RPC that gives us the list of validators
-    # and boot nodes for the test network. After this RPC call, we run amend-genesis and
+    # and boot nodes for the test network. After this RPC call, we run fork-network and
     # start neard to compute genesis state roots.
     def do_network_init(self,
                         validators,
@@ -675,6 +675,7 @@ class NeardRunner:
     class StartParams(BaseModel):
         batch_interval_millis: int | None = None
         binary_idx: int | None = None
+        force_restart: bool = False
 
         model_config = ConfigDict(extra='forbid')
 
@@ -683,6 +684,7 @@ class NeardRunner:
             params = self.StartParams(**kwargs)
             batch_interval_millis = params.batch_interval_millis
             binary_idx = params.binary_idx
+            force_restart = params.force_restart
         except ValueError as e:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32602, message=f'Invalid arguments: {e}')
@@ -705,7 +707,7 @@ class NeardRunner:
                 batch_interval_millis = None
                 # TODO: restart it if we get a different batch_interval_millis than last time
 
-            should_restart = False
+            should_restart = force_restart
             if current_path != new_path:
                 should_restart = True
 
@@ -1155,18 +1157,13 @@ class NeardRunner:
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
     def set_state_sync_config(self, config, location):
-        config['store']['state_snapshot_config'] = {
-            'state_snapshot_type': "Enabled"
-        }
+        # Nodes always take state snapshots so they can serve state parts to
+        # peers; state sync itself is peer-to-peer (the default), so no `sync`
+        # config is set. A `location` is only used to configure a state dumper.
         if location is None:
             return config
 
         config['state_sync'] = config.get('state_sync', {})
-        config['state_sync']['sync'] = {
-            'ExternalStorage': {
-                'location': location
-            }
-        }
         if self.want_state_dump():
             config['state_sync']['dump'] = {'location': location}
 

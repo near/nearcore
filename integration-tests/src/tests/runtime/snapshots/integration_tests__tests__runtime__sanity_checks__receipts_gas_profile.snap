@@ -22,7 +22,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "CREATE_ACCOUNT",
-            gas_used: 7700000000000,
+            gas_used: 1000000000000,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -437,6 +437,8 @@ expression: receipts_gas_profile
     [],
     [],
     [],
+    [],
+    [],
     [
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -454,6 +456,7 @@ expression: receipts_gas_profile
             gas_used: 0,
         },
     ],
+    [],
     [],
     [],
     [],
@@ -502,5 +505,6 @@ expression: receipts_gas_profile
             gas_used: 2865522486,
         },
     ],
+    [],
     [],
 ]

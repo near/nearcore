@@ -10,6 +10,7 @@ use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
 use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
+use near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 use near_network::test_utils::wait_or_timeout;
@@ -25,6 +26,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use reqwest::StatusCode;
 use serde_json::Value;
+use std::num::NonZeroU32;
 use std::ops::ControlFlow;
 
 /// Retrieve blocks via json rpc
@@ -247,7 +249,7 @@ async fn test_query_by_path_access_keys() {
     };
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 // here
@@ -260,7 +262,11 @@ async fn test_query_access_keys() {
     let query_response = client
         .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
             block_reference: BlockReference::latest(),
-            request: QueryRequest::ViewAccessKeyList { account_id: "test1".parse().unwrap() },
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: "test1".parse().unwrap(),
+                after_key: None,
+                limit: None,
+            },
         })
         .await
         .unwrap();
@@ -274,7 +280,7 @@ async fn test_query_access_keys() {
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     assert_eq!(access_keys.keys.len(), 1);
     assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(access_keys.keys[0].public_key, signer.public_key());
+    assert_eq!(access_keys.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Connect to json rpc and query account info with soft-deprecated query API.
@@ -341,6 +347,8 @@ async fn test_query_state() {
             request: QueryRequest::ViewState {
                 account_id: "test1".parse().unwrap(),
                 prefix: vec![].into(),
+                after_key: None,
+                limit: None,
                 include_proof: false,
             },
         })
@@ -358,8 +366,6 @@ async fn test_query_state() {
 
 /// Connect to json rpc and call function
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -393,8 +399,6 @@ async fn test_query_call_function() {
 
 /// query contract code
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -685,6 +689,69 @@ async fn test_good_handler_error_status_code() {
 }
 
 #[tokio::test]
+async fn test_receipt_to_tx_handler_error_status_code() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let json = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "EXPERIMENTAL_receipt_to_tx",
+        "params": serde_json::json!({"receipt_id": CryptoHash::new().to_string()})
+    });
+
+    let (status, response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+
+    let response: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
+    let error_data = &response["error"]["data"];
+    // The jsonrpc test setup uses ClientConfig::test(), which sets
+    // tracked_shards_config = NoShards, so receipt_to_tx returns Unsupported
+    // before attempting the lookup.
+    assert_eq!(error_data["name"].as_str().unwrap(), "UNSUPPORTED");
+}
+
+#[tokio::test]
+async fn test_receipt_to_tx_hint_window_too_large() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    // Pick deterministic error: window > receipt_to_tx_max_hint_window
+    // (default 20) → rejected at request validation before tracking check
+    // or scan work.
+    let json = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "EXPERIMENTAL_receipt_to_tx",
+        "params": serde_json::json!({
+            "receipt_id": CryptoHash::new().to_string(),
+            "block_height": 1u64,
+            "shard_id": 0u64,
+            "window": 999u64,
+        })
+    });
+
+    let (status, response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT, &[])
+        .await
+        .unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+
+    let response: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
+    let error_data = &response["error"]["data"];
+    assert_eq!(error_data["name"].as_str().unwrap(), "WINDOW_TOO_LARGE");
+    assert_eq!(error_data["info"]["requested"].as_u64().unwrap(), 999);
+    assert_eq!(error_data["info"]["maximum"].as_u64().unwrap(), 20);
+}
+
+#[tokio::test]
 async fn test_get_chunk_with_object_in_params() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
     let client = new_client(&setup.server_addr);
@@ -717,15 +784,11 @@ async fn test_get_chunk_with_object_in_params() {
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_hash() {
     test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
 #[tokio::test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_account_id() {
     test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }
@@ -925,8 +988,6 @@ async fn test_experimental_view_account_missing_account() {
 }
 
 /// Test EXPERIMENTAL_view_code method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_view_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -983,6 +1044,8 @@ async fn test_experimental_view_state() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            after_key: None,
+            limit: None,
             include_proof: false,
         })
         .await
@@ -1004,6 +1067,8 @@ async fn test_experimental_view_state_with_proof() {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
+            after_key: None,
+            limit: None,
             include_proof: true,
         })
         .await
@@ -1011,6 +1076,91 @@ async fn test_experimental_view_state_with_proof() {
 
     assert!(response.block_height < 100);
     assert_ne!(response.block_hash, CryptoHash::default());
+}
+
+/// Test EXPERIMENTAL_view_state with pagination
+#[tokio::test]
+async fn test_experimental_view_state_paginated() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            after_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: false,
+        })
+        .await
+        .unwrap();
+
+    // test1 has no contract data, so a single empty page with no cursor.
+    assert_eq!(response.state.values.len(), 0);
+    assert_eq!(response.state.last_key, None);
+}
+
+/// Test EXPERIMENTAL_view_state rejects include_proof combined with pagination
+#[tokio::test]
+async fn test_experimental_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            after_key: None,
+            limit: Some(NonZeroU32::new(5).unwrap()),
+            include_proof: true,
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
+}
+
+/// Test `query` rejects ViewState combining include_proof with pagination.
+#[tokio::test]
+async fn test_query_view_state_proof_with_pagination_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewState {
+                account_id: "test1".parse().unwrap(),
+                prefix: vec![].into(),
+                after_key: None,
+                limit: Some(NonZeroU32::new(5).unwrap()),
+                include_proof: true,
+            },
+        })
+        .await;
+
+    result.expect_err("include_proof + pagination must be rejected");
+}
+
+/// Test EXPERIMENTAL_view_state rejects an after_key that doesn't start with prefix.
+#[tokio::test]
+async fn test_experimental_view_state_after_key_outside_prefix_rejected() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: b"aaa".to_vec().into(),
+            after_key: Some(b"bbb".to_vec().into()),
+            limit: None,
+            include_proof: false,
+        })
+        .await;
+
+    result.expect_err("after_key outside prefix range must be rejected");
 }
 
 /// Test EXPERIMENTAL_view_access_key method
@@ -1065,6 +1215,133 @@ async fn test_experimental_view_access_key_unknown_key() {
     );
 }
 
+/// A missing account must report the account, not the key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key");
+}
+
+/// A missing account must report the account, not the gas key. See nearcore#16185.
+#[tokio::test]
+async fn test_experimental_view_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .EXPERIMENTAL_view_gas_key_nonces(RpcViewGasKeyNoncesRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_gas_key_nonces");
+}
+
+/// A missing account must be a structured error, not the legacy flat shape.
+/// Clients such as near-jsonrpc-client-rs word-match the flat message and read an
+/// unrecognized one as a contract execution error. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKey {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key");
+}
+
+/// Gas-key queries have no legacy flat shape, so this stays a structured error.
+#[tokio::test]
+async fn test_query_gas_key_nonces_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&missing_account);
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewGasKeyNonces {
+                account_id: missing_account.clone(),
+                public_key: signer.public_key(),
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_gas_key_nonces");
+}
+
+/// A missing account must report the account, not an empty key list. See nearcore#16185.
+#[tokio::test]
+async fn test_query_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: missing_account.clone(),
+                after_key: None,
+                limit: None,
+            },
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "query view_access_key_list");
+}
+
+#[tokio::test]
+async fn test_experimental_view_access_key_list_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+            after_key: None,
+            limit: None,
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key_list");
+}
+
 /// Test EXPERIMENTAL_view_access_key_list method
 #[tokio::test]
 async fn test_experimental_view_access_key_list() {
@@ -1078,6 +1355,8 @@ async fn test_experimental_view_access_key_list() {
         .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
             block_reference: BlockReference::latest(),
             account_id: account,
+            after_key: None,
+            limit: None,
         })
         .await
         .unwrap();
@@ -1086,7 +1365,7 @@ async fn test_experimental_view_access_key_list() {
     assert_ne!(response.block_hash, CryptoHash::default());
     assert_eq!(response.access_key_list.keys.len(), 1);
     assert_eq!(response.access_key_list.keys[0].access_key, AccessKey::full_access().into());
-    assert_eq!(response.access_key_list.keys[0].public_key, signer.public_key());
+    assert_eq!(response.access_key_list.keys[0].public_key, (&signer.public_key()).into());
 }
 
 /// Test EXPERIMENTAL_view_access_key_list error on unknown block
@@ -1099,6 +1378,8 @@ async fn test_experimental_view_access_key_list_unknown_block() {
         .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
             block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
             account_id: "test1".parse().unwrap(),
+            after_key: None,
+            limit: None,
         })
         .await;
 
@@ -1106,8 +1387,6 @@ async fn test_experimental_view_access_key_list_unknown_block() {
 }
 
 /// Test EXPERIMENTAL_call_function method
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1134,8 +1413,6 @@ async fn test_experimental_call_function() {
 }
 
 /// Test EXPERIMENTAL_call_function error on missing method (MethodNotFound)
-// TODO(spice): Fix test setup to support SPICE's async chunk execution.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function_nonexisting_method() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);

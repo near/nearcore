@@ -94,7 +94,9 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     trie_config,
                     DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                     false,
+                    1,
                     true,
+                    None,
                 )
             };
         let dummy_runtime_configs =

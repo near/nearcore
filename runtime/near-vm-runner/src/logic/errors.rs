@@ -54,6 +54,11 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
+    /// The compiled module was rejected by the VM host when instantiating it.
+    /// This covers host-side resource limits.
+    LoadingError {
+        msg: String,
+    },
 }
 
 impl FunctionCallError {
@@ -61,7 +66,9 @@ impl FunctionCallError {
         const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
         match self {
             FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
-            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::LinkError { msg } | FunctionCallError::LoadingError { msg } => {
+                BASE_SIZE + msg.len()
+            }
             FunctionCallError::MethodResolveError(_)
             | FunctionCallError::WasmTrap(_)
             | FunctionCallError::HostError(_) => BASE_SIZE,
@@ -183,6 +190,25 @@ pub enum PrepareError {
     TooManyTables = 9,
     /// Contract contains too many table elements.
     TooManyTableElements = 10,
+    /// A function body in the contract exceeds the size limit.
+    FunctionBodyTooLarge = 11,
+    /// The instrumented code exceeds the size limit.
+    InstrumentedCodeTooLarge = 12,
+    /// A function contains too many basic blocks.
+    TooManyBlocksPerFunction = 13,
+    /// A contract contains too many basic blocks.
+    TooManyBlocksPerContract = 14,
+    /// Contract declares too many entries in the wasm type section.
+    TooManyTypes = 15,
+    /// All contract functions combined have more than `max_params_per_contract` parameters.
+    TooManyParamsPerContract = 16,
+    /// A function has more than `max_params_per_function` parameters.
+    TooManyParamsPerFunction = 17,
+    /// A function's max operand-stack size (in bytes) exceeds
+    /// `max_operand_stack_bytes_per_function`.
+    OperandStackTooLarge = 18,
+    /// Contract declares too many entries in the wasm global section.
+    TooManyGlobals = 19,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
@@ -306,6 +332,19 @@ pub enum HostError {
     Ed25519VerifyInvalidInput {
         msg: String,
     },
+    /// Input length mismatch for p256 signature verification (signature is not 64
+    /// bytes or public key is not 33 bytes). Parse failures of otherwise
+    /// well-sized inputs return 0 from the host function instead of aborting.
+    P256VerifyInvalidInput {
+        msg: String,
+    },
+    /// Input length mismatch for ML-DSA-65 signature verification (signature is
+    /// not 3309 bytes or public key is not 1952 bytes). Parse failures of
+    /// otherwise well-sized inputs return 0 from the host function instead of
+    /// aborting.
+    MlDsaVerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
     BLS12381InvalidInput {
         msg: String,
@@ -317,6 +356,9 @@ pub enum HostError {
     },
     /// Yield resumption data id is malformed.
     DataIdMalformed,
+    /// User-provided yield id (for `promise_yield_create_with_id` /
+    /// `promise_yield_resume_with_yield_id`) is malformed.
+    YieldIdMalformed,
     /// Size of the recorded trie storage proof has exceeded the allowed limit.
     RecordedStorageExceeded {
         limit: ByteSize,
@@ -407,6 +449,15 @@ impl fmt::Display for PrepareError {
             TooManyLocals => "Too many locals declared in the contract.",
             TooManyTables => "Too many tables declared in the contract.",
             TooManyTableElements => "Too many table elements declared in the contract.",
+            FunctionBodyTooLarge => "A function body in the contract exceeds the size limit.",
+            InstrumentedCodeTooLarge => "The instrumented code exceeds the size limit.",
+            TooManyBlocksPerFunction => "Too many basic blocks in a function.",
+            TooManyBlocksPerContract => "Too many basic blocks in a contract.",
+            TooManyTypes => "Too many type-section entries declared in the contract.",
+            TooManyParamsPerContract => "Too many function parameters in the contract",
+            TooManyParamsPerFunction => "Too many parameters in a single function",
+            OperandStackTooLarge => "A function uses too much operand stack.",
+            TooManyGlobals => "Too many globals declared in the contract.",
         })
     }
 }
@@ -418,6 +469,7 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::MethodResolveError(e) => e.fmt(f),
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
+            FunctionCallError::LoadingError { msg } => write!(f, "Loading error: {}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
         }
     }
@@ -568,12 +620,19 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
+            P256VerifyInvalidInput { msg } => {
+                write!(f, "P256 signature verification error: {}", msg)
+            }
+            MlDsaVerifyInvalidInput { msg } => {
+                write!(f, "ML-DSA-65 signature verification error: {}", msg)
+            }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(
                 f,
                 "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
             ),
             DataIdMalformed => write!(f, "yield resumption token is malformed"),
+            YieldIdMalformed => write!(f, "yield id is malformed"),
             RecordedStorageExceeded { limit } => write!(
                 f,
                 "Size of the recorded trie storage proof has exceeded the allowed limit ({})",

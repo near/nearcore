@@ -1,5 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::get_node_data;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
@@ -9,8 +10,9 @@ use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{ProcessTxRequest, Query};
+use near_client::{ProcessTxRequest, Query, QueryError};
 use near_network::types::NetworkRequests;
+use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -95,13 +97,16 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let mut genesis_builder = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(validator_spec)
-        .add_user_accounts_simple(&validator_accounts, stake)
+        .add_user_accounts_simple(
+            &validator_accounts,
+            stake.checked_add(Balance::from_near(1)).unwrap(),
+        )
         .shard_layout(shard_layout);
 
     let mut balances = vec![];
 
     for (i, account) in test_accounts.iter().enumerate() {
-        let amount = Balance::from_yoctonear((1000 + 100 * i).try_into().unwrap());
+        let amount = Balance::from_near((1000 + 100 * i).try_into().unwrap());
         genesis_builder = genesis_builder.add_user_account_simple(account.clone(), amount);
 
         balances.push(amount);
@@ -122,7 +127,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         let rng = rng.clone();
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut rng = rng.write();
             match &request {
                 NetworkRequests::PartialEncodedChunkRequest { .. }
@@ -130,12 +135,12 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 | NetworkRequests::PartialEncodedChunkMessage { .. }
                 | NetworkRequests::PartialEncodedChunkForward { .. } => {
                     if drop_chunks && rng.gen_ratio(1, 5) {
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
                 }
                 _ => (),
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 
@@ -143,7 +148,8 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     let mut nonce = 1;
     let mut unsuccessful_queries = 0;
 
-    let observed_balances = get_balances(&mut env.test_loop.data, &env.node_datas, &test_accounts);
+    let observed_balances =
+        get_balances(&mut env.test_loop.data, &env.node_datas, &test_accounts).unwrap();
     assert_eq!(balances, observed_balances);
 
     let node_datas = env.node_datas.clone();
@@ -152,7 +158,10 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
     runner.run_until(
         &mut env,
         |test_loop_data| {
-            let observed_balances = get_balances(test_loop_data, &node_datas, &test_accounts);
+            let Some(observed_balances) = get_balances(test_loop_data, &node_datas, &test_accounts)
+            else {
+                return false;
+            };
             if balances != observed_balances {
                 unsuccessful_queries += 1;
                 if unsuccessful_queries % 100 == 0 {
@@ -203,7 +212,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
 
             false
         },
-        Duration::seconds(num_transfers as i64 * 4),
+        Duration::seconds(num_transfers as i64 * 8),
     );
 }
 
@@ -228,11 +237,14 @@ impl Runner {
     }
 }
 
+/// Each producer is picked from the first node's head epoch but answers at its own
+/// head. Returns `None` when it is already in a later epoch and no longer tracks
+/// the shard; the next call picks the producer of that later epoch.
 fn get_balances(
     test_loop_data: &mut TestLoopData,
     node_datas: &Vec<NodeExecutionData>,
     test_accounts: &Vec<AccountId>,
-) -> Vec<Balance> {
+) -> Option<Vec<Balance>> {
     let client_handle = node_datas[0].client_sender.actor_handle();
     let client = &test_loop_data.get(&client_handle).client;
     let epoch_manager = client.chain.epoch_manager.clone();
@@ -257,14 +269,18 @@ fn get_balances(
                 QueryRequest::ViewAccount { account_id: account.clone() },
             ));
 
-            let query_response = query_response.unwrap();
+            let query_response = match query_response {
+                Ok(query_response) => query_response,
+                Err(QueryError::UnavailableShard { .. }) => return None,
+                Err(err) => panic!("unexpected query error: {err:?}"),
+            };
 
             let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
                 panic!();
             };
-            view_account_result.amount
+            Some(view_account_result.amount)
         })
-        .collect_vec()
+        .collect()
 }
 
 #[test]

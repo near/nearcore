@@ -13,7 +13,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::types::ShardIndex;
 use near_primitives::types::StateRoot;
 use std::error::Error;
@@ -30,6 +30,8 @@ pub enum SnapshotError {
     // Lock for snapshot acquired by another process.
     // Most likely the StateSnapshotActor is creating a snapshot or doing compaction.
     LockWouldBlock,
+    // Error while reading from the snapshot.
+    Storage(StorageError),
     // Any other unexpected error
     Other(String),
 }
@@ -48,6 +50,7 @@ impl std::fmt::Display for SnapshotError {
             SnapshotError::LockWouldBlock => {
                 write!(f, "Accessing state snapshot would block. Retry in a few seconds.")
             }
+            SnapshotError::Storage(err) => write!(f, "{}", err),
             SnapshotError::Other(err_msg) => write!(f, "{}", err_msg),
         }
     }
@@ -57,7 +60,10 @@ impl Error for SnapshotError {}
 
 impl From<SnapshotError> for StorageError {
     fn from(err: SnapshotError) -> Self {
-        StorageError::StorageInconsistentState(err.to_string())
+        match err {
+            SnapshotError::Storage(err) => err,
+            err => StorageError::StorageInconsistentState(err.to_string()),
+        }
     }
 }
 
@@ -133,26 +139,46 @@ impl StateSnapshot {
 #[derive(Debug)]
 pub enum StateSnapshotConfig {
     Disabled,
-    Enabled { state_snapshots_dir: PathBuf },
+    Enabled {
+        state_snapshots_dir: PathBuf,
+        /// Only epoch heights that are multiples of this value produce a snapshot.
+        snapshot_every_n_epochs: u64,
+    },
 }
 
 impl StateSnapshotConfig {
     const STATE_SNAPSHOT_DIR: &str = "state_snapshot";
 
     pub fn enabled(hot_store_path: impl AsRef<Path>) -> Self {
+        Self::enabled_with_cadence(hot_store_path, 1)
+    }
+
+    pub fn enabled_with_cadence(
+        hot_store_path: impl AsRef<Path>,
+        snapshot_every_n_epochs: u64,
+    ) -> Self {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         Self::Enabled {
             state_snapshots_dir: hot_store_path.as_ref().join(Self::STATE_SNAPSHOT_DIR),
+            snapshot_every_n_epochs,
         }
     }
 
     pub fn state_snapshots_dir(&self) -> Option<&Path> {
         match self {
             StateSnapshotConfig::Disabled => None,
-            StateSnapshotConfig::Enabled { state_snapshots_dir } => Some(state_snapshots_dir),
+            StateSnapshotConfig::Enabled { state_snapshots_dir, .. } => Some(state_snapshots_dir),
         }
+    }
+
+    /// Configured snapshot cadence in epochs. Defaults to `1`.
+    pub fn snapshot_cadence(&self) -> u64 {
+        if let StateSnapshotConfig::Enabled { snapshot_every_n_epochs, .. } = self {
+            return *snapshot_every_n_epochs;
+        }
+        1
     }
 }
 
@@ -175,17 +201,16 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         block_hash: &CryptoHash,
-        part_id: PartId,
+        part_id: StatePartId,
         state_trie: Trie,
-    ) -> Result<PartialState, StorageError> {
+    ) -> Result<PartialState, SnapshotError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
         if &data.prev_block_hash != block_hash {
             return Err(SnapshotError::IncorrectSnapshotRequested(
                 *block_hash,
                 data.prev_block_hash,
-            )
-            .into());
+            ));
         };
         let cache = self
             .get_trie_cache_for(shard_uid, true)
@@ -195,7 +220,9 @@ impl ShardTries {
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
+        snapshot_trie
+            .get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
+            .map_err(SnapshotError::Storage)
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.

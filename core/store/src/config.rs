@@ -97,8 +97,6 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    pub state_snapshot_config: StateSnapshotConfig,
-
     #[serde(skip_serializing_if = "RocksDbConfig::is_default")]
     pub rocksdb: RocksDbConfig,
 }
@@ -108,31 +106,6 @@ impl StoreConfig {
     pub fn state_snapshot_store_config() -> Self {
         Self::default()
     }
-
-    pub fn enable_state_snapshot(&mut self) {
-        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
-    }
-
-    pub fn disable_state_snapshot(&mut self) {
-        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Disabled;
-    }
-}
-
-/// Config used to control state snapshot creation. This is used for state sync and resharding.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct StateSnapshotConfig {
-    pub state_snapshot_type: StateSnapshotType,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum StateSnapshotType {
-    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
-    #[default]
-    #[serde(alias = "EveryEpoch")] // TODO: Remove after 2.8 release
-    Enabled,
-    #[serde(alias = "ForReshardingOnly")] // TODO: Remove after 2.8 release
-    Disabled,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -143,7 +116,7 @@ pub enum MigrationSnapshot {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Mode {
     /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
@@ -265,8 +238,6 @@ impl Default for StoreConfig {
 
             migration_snapshot: Default::default(),
 
-            state_snapshot_config: Default::default(),
-
             rocksdb: Default::default(),
         }
     }
@@ -338,12 +309,6 @@ pub struct SplitStorageConfig {
     #[serde(default = "default_enable_split_storage_view_client")]
     pub enable_split_storage_view_client: bool,
 
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
     #[serde(default = "default_cold_store_loop_sleep_duration")]
     #[serde(with = "near_time::serde_duration_as_std")]
     pub cold_store_loop_sleep_duration: Duration,
@@ -356,10 +321,6 @@ impl Default for SplitStorageConfig {
     fn default() -> Self {
         SplitStorageConfig {
             enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
             cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
             num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
@@ -368,14 +329,6 @@ impl Default for SplitStorageConfig {
 
 fn default_enable_split_storage_view_client() -> bool {
     false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
 }
 
 fn default_num_cold_store_read_threads() -> usize {

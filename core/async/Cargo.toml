@@ -16,6 +16,7 @@ crossbeam-channel.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
 rand = { workspace = true, optional = true }
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
@@ -26,6 +27,9 @@ tracing.workspace = true
 near-o11y.workspace = true
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
+
+[target.'cfg(unix)'.dependencies]
+thread-priority.workspace = true
 
 [features]
 actor_instrumentation_testing = ["rand"]

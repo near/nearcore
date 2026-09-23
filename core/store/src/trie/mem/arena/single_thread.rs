@@ -57,6 +57,7 @@ impl STArena {
                 name,
                 active_allocs_bytes,
                 active_allocs_count,
+                0,
             ),
         };
         arena.allocator.update_memory_usage_gauge(&arena.memory);
@@ -90,7 +91,7 @@ impl ArenaMut for STArena {
         &mut self.memory
     }
 
-    fn alloc(&mut self, size: usize) -> ArenaSliceMut<Self::Memory> {
+    fn alloc(&mut self, size: usize) -> ArenaSliceMut<'_, Self::Memory> {
         self.allocator.allocate(&mut self.memory, size)
     }
 }

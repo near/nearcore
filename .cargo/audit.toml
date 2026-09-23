@@ -2,42 +2,12 @@
 ignore = [
     # DO NOT ADD ANYTHING TO THIS LIST WITHOUT CAREFUL CONSIDERATION!
 
-    # dotenv being unmaintained is ignored because it is an indirect dependency of cloud-storage, which would be hard to replace.
-    # In addition, it is most likely not ever going to be on a security-critical path, considering it only parses trusted .env files.
-    # However, we should probably replace cloud-storage with tame-gcs as soon as possible to remove this ignore.
-    "RUSTSEC-2021-0141",
-
-    # mach is unmaintained, but seems to be required by wasmtime at its latest version, which we currently cannot do without.
-    # We should replace it with mach2 in our personal code, but will need to keep it there until wasmtime switches to it.
-    # Anyway, it cannot be a security liability in production, considering it is bindings to the OS X kernel.
-    "RUSTSEC-2020-0168",
-
-    # memmap is unmaintained, but is used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove wasmer0 and this ignore as soon as we get limited replayability.
-    "RUSTSEC-2020-0077",
-
-    # parity-wasm is deprecated, but is used by our runtimes before near-vm, which we need to keep alive for replayability reasons.
-    # We should remove them all, as well as this ignore, as soon as we get limited replayability.
-    "RUSTSEC-2022-0061",
-
-    # borsh is vulnerable, but is used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove it, as well as this ignore, as soon as we get limited replayability.
-    "RUSTSEC-2023-0033",
-
-    # older versions of parking-lot are vulnerable, but used by wasmer0, which we need to keep alive for replayability reasons.
-    # We should remove it, as well as this ignore, as soon as we get limited replayability.
-    "RUSTSEC-2020-0070",
-
-    # proc-macro-error is unmaintained, but hard to replace right now.
-    # Follow https://github.com/Kyuuhachi/syn_derive/issues/4
-    "RUSTSEC-2024-0370",
-
     # The instant package is unmaintained, but hard to replace right now because
-    # parking_lot depends on it.
+    # parking_lot 0.11 depends on it (via reed-solomon-erasure).
     "RUSTSEC-2024-0384",
 
     # The derivative package is unmaintained, but hard to replace right now
-    # because ark-poly depends on it.
+    # because ark-ec depends on it.
     "RUSTSEC-2024-0388",
 
     # burntsushi says the crate is feature complete and needs no maintenance, nagisa also doesn't
@@ -45,17 +15,42 @@ ignore = [
     # of existence naturally.
     "RUSTSEC-2024-0436",
 
-    # rustls-pemfile is unmaintained, but it's indirectly required by object_store and reqwest
-    "RUSTSEC-2025-0134",
+    # libsecp256k1 is unmaintained, but every version of aurora-engine-transactions pulls it in
+    # (via aurora-engine-precompiles in 1.1, or aurora-engine-sdk in 1.2+). In the main workspace
+    # it's only a dev-dependency (test-loop-tests, integration-tests). It is also a transitive
+    # dependency of the wallet contract (separate workspace in runtime/near-wallet-contract/implementation/).
+    "RUSTSEC-2025-0161",
 
-    # time has a DoS vulnerability (stack exhaustion), fixed in 0.3.47+ which requires Rust 1.88
-    # TODO(#15026): Remove this when rust-toolchain.toml is updated to >= 1.88
-    "RUSTSEC-2026-0009",
+    # RUSTSEC-2026-0097: rand unsoundness only triggers when rand's `log` feature is on and a
+    # custom `log::Log` logger calls `rand::rng()` on reseed. Neither applies here: the `log`
+    # feature is not enabled (check with `cargo tree -e features --workspace | grep 'rand feature'`)
+    # and nearcore has no custom `log::Log` impl (logging goes through tracing).
+    # Fixed in rand >= 0.8.6 / >= 0.9.3 / >= 0.10.1; our 0.8.5 is workspace-bumpable, but 0.9.0
+    # is transitive (object_store/opentelemetry) and can't be forced. Non-triggering either way.
+    "RUSTSEC-2026-0097",
 
-    # RUSTSEC-2026-0049 describes a problem in tls certificate validation. It doesn't really affect
-    # nearcore, so it's okay to ignore it. Currently we can't fully fix it because the
-    # `object_store` package depends on a vulnerable version of `reqwest`.
-    # object_store 0.13.1 -> reqwest 0.12.4 -> tokio-rustls 0.25.0 -> rustls 0.22.4 -> rustls-webpki 0.102.8
-    # TODO(#15435): Update object_store once the maintainers release a version with reqwest 0.13+
-    "RUSTSEC-2026-0049",
+    # RUSTSEC-2026-0194 / RUSTSEC-2026-0195: quick-xml DoS (quadratic parsing) fixed in >=0.41.0.
+    # Only reachable transitively via object_store, which has not
+    # released a version that uses quick-xml 0.41 yet. quick-xml here only parses trusted
+    # S3/cloud-storage XML responses, not untrusted input. Remove once the upstream S3 crates upgrade.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+
+    # RUSTSEC-2026-0222: Wasmtime can only be affected when the embedder mixes
+    # objects from one Engine into a Store belonging to another Engine. Nearcore
+    # never mixes Engine-owned objects.
+    "RUSTSEC-2026-0222",
+
+    # RUSTSEC-2026-0269: the sandbox escape is in Wasmtime's WASI filesystem
+    # implementation. Nearcore uses Wasmtime to execute contracts with its own
+    # host functions and does not enable or link Wasmtime's WASI support.
+    "RUSTSEC-2026-0269",
+
+    # RUSTSEC-2026-0253: lru `pop()` leaves dangling list pointers if the key's
+    # `Drop` panics, fixed in >= 0.18.2. The workspace dependency is bumped. The
+    # copy left is lru 0.7.8 under reed-solomon-erasure, which requires `^0.7.8`
+    # in its latest release, 6.0.0 (2022-09-23). Not triggerable there anyway:
+    # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
+    # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
+    "RUSTSEC-2026-0253",
 ]

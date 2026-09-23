@@ -3,9 +3,9 @@
 # gets properly processed (to simplify debugging when the code is completely
 # broken). If one transaction goes through, sends batches of transactions
 # and ensures the balances get to the expected state in a timely manner.
-# Sets epoch length to 10
+# Sets epoch length to 20
 
-import sys, time, base58, random
+import sys, time, base58
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -23,22 +23,24 @@ nodes = start_cluster(
     num_shards=4,
     config=None,
     extra_state_dumper=True,
-    genesis_config_changes=[["min_gas_price", "0"],
-                            ["max_inflation_rate", [0, 1]],
-                            ["epoch_length", 10],
-                            ["block_producer_kickout_threshold", 70]],
+    # Low kickout thresholds because validators miss their first few blocks and
+    # chunks on cluster startup (the boot node starts producing blocks before
+    # the other nodes are up).
+    genesis_config_changes=[
+        ["min_gas_price", "0"],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", 20],
+        ["block_producer_kickout_threshold", 70],
+        ["chunk_producer_kickout_threshold", 70],
+    ],
     client_config_changes={
         0: {
             "consensus": {
-                "state_sync_external_timeout": {
+                "block_request_timeout": {
                     "secs": 2,
                     "nanos": 0
                 },
                 "state_sync_p2p_timeout": {
-                    "secs": 2,
-                    "nanos": 0
-                },
-                "state_sync_external_backoff": {
                     "secs": 2,
                     "nanos": 0
                 },
@@ -46,15 +48,11 @@ nodes = start_cluster(
         },
         1: {
             "consensus": {
-                "state_sync_external_timeout": {
+                "block_request_timeout": {
                     "secs": 2,
                     "nanos": 0
                 },
                 "state_sync_p2p_timeout": {
-                    "secs": 2,
-                    "nanos": 0
-                },
-                "state_sync_external_backoff": {
                     "secs": 2,
                     "nanos": 0
                 },
@@ -62,15 +60,11 @@ nodes = start_cluster(
         },
         2: {
             "consensus": {
-                "state_sync_external_timeout": {
+                "block_request_timeout": {
                     "secs": 2,
                     "nanos": 0
                 },
                 "state_sync_p2p_timeout": {
-                    "secs": 2,
-                    "nanos": 0
-                },
-                "state_sync_external_backoff": {
                     "secs": 2,
                     "nanos": 0
                 },
@@ -78,15 +72,11 @@ nodes = start_cluster(
         },
         3: {
             "consensus": {
-                "state_sync_external_timeout": {
+                "block_request_timeout": {
                     "secs": 2,
                     "nanos": 0
                 },
                 "state_sync_p2p_timeout": {
-                    "secs": 2,
-                    "nanos": 0
-                },
-                "state_sync_external_backoff": {
                     "secs": 2,
                     "nanos": 0
                 },
@@ -94,15 +84,11 @@ nodes = start_cluster(
         },
         4: {
             "consensus": {
-                "state_sync_external_timeout": {
+                "block_request_timeout": {
                     "secs": 2,
                     "nanos": 0
                 },
                 "state_sync_p2p_timeout": {
-                    "secs": 2,
-                    "nanos": 0
-                },
-                "state_sync_external_backoff": {
                     "secs": 2,
                     "nanos": 0
                 },

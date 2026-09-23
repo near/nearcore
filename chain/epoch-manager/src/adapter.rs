@@ -1,10 +1,11 @@
-use crate::EpochManagerHandle;
+use crate::{EpochManagerHandle, SampleEpoch};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_sync::EpochSyncProofLastEpochData;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
@@ -13,16 +14,25 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
-    ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, NonZeroEpochHeight, ShardId,
+    ShardIndex, ValidatorId, ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::utils::get_block_shard_id;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
+use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// Height distance from a chunk's grandparent anchor to the chunk, absent
+/// skipped slots: a chunk anchored at block `A` is nominally at height
+/// `A.height() + CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET`. The chunk-producer
+/// seeder (`EpochManager::seed_chunk_producers`) samples at this offset, and
+/// witness validation uses it as the anchor-implied minimum chunk height.
+pub const CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET: BlockHeight = 2;
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -45,6 +55,9 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
+    /// Fork-order-dependent across same-parent boundary siblings (last `save_epoch_start`
+    /// wins) — do not use on consensus paths; use `get_epoch_start_height` (the `BlockInfo`
+    /// walk) instead.
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
@@ -99,7 +112,42 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Returns true, if the block the `BlockInfo` describes is the last block in its
+    /// epoch. Reads that epoch's first `BlockInfo` and its `EpochInfo` from the store.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError>;
+
+    /// Computes the `epoch_sync_data_hash` for the block built on top of `prev_hash`.
+    /// It is `Some` only for the first block of an epoch. Used by the block producer,
+    /// header validation, and tests.
+    fn compute_epoch_sync_data_hash(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, EpochError> {
+        if !self.is_next_block_epoch_start(prev_hash)? {
+            return Ok(None);
+        }
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let last_block_info = self.get_block_info(prev_hash)?;
+        let prev_epoch_id = *last_block_info.epoch_id();
+        let prev_epoch_first_block_info =
+            self.get_block_info(last_block_info.epoch_first_block())?;
+        let prev_epoch_prev_last_block_info = self.get_block_info(last_block_info.prev_hash())?;
+        let last_epoch = EpochSyncProofLastEpochData {
+            epoch_info: self.get_epoch_info(&prev_epoch_id)?.as_ref().clone(),
+            next_epoch_info: self.get_epoch_info(&epoch_id)?.as_ref().clone(),
+            next_next_epoch_info: self.get_epoch_info(&next_epoch_id)?.as_ref().clone(),
+            first_block_in_epoch: prev_epoch_first_block_info.as_ref().clone(),
+            last_block_in_epoch: last_block_info.as_ref().clone(),
+            second_last_block_in_epoch: prev_epoch_prev_last_block_info.as_ref().clone(),
+        };
+        Ok(Some(last_epoch.compute_epoch_sync_data_hash()))
+    }
 
     /// Returns true if the block after the one being produced will belong to a new epoch.
     ///
@@ -129,11 +177,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_hash` belongs
     /// to the current epoch), based on `min_epochs_between_resharding`.
     ///
-    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
+    /// Returns `true` if no resharding occurred in the last `min_epochs_between_resharding`
+    /// epochs (including the next one). The cooldown is non-zero by type: allowing
+    /// back-to-back reshardings is unsafe (see `DynamicReshardingConfig`).
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
@@ -182,10 +232,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let epoch_config = self.get_epoch_config(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        Ok(ShardConfig::new(epoch_config, shard_layout))
+    /// Get the list of `ShardUId`s for the epoch. Prefer this over `shard_ids`
+    /// when the caller needs the layout-version-qualified identifier (`ShardId`
+    /// is reserved for protocol/RPC serialization and validator-assignment
+    /// queries).
+    fn shard_uids(&self, epoch_id: &EpochId) -> Result<Vec<ShardUId>, EpochError> {
+        Ok(self.get_shard_layout(epoch_id)?.shard_uids().collect())
     }
 
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`
@@ -309,6 +361,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
         let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
         let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(parent_hash)?)?;
+        Ok(shard_layout != prev_shard_layout)
+    }
+
+    /// Whether a resharding took effect at the start of `block_hash`'s epoch:
+    /// that epoch's shard layout differs from the previous epoch's. Accepts any
+    /// block in the epoch.
+    fn is_resharding_epoch(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        let shard_layout = self.get_shard_layout(block_info.epoch_id())?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(block_info.prev_hash())?;
+        let prev_shard_layout = self.get_shard_layout(&prev_epoch_id)?;
         Ok(shard_layout != prev_shard_layout)
     }
 
@@ -489,6 +552,95 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
+    /// Grandparent anchor of a chunk whose parent is `prev_block_hash`:
+    /// `block_info(prev_block_hash).prev_hash()`. Returns `None` when the chunk
+    /// has no real grandparent — the parent is the genesis block, or the chunk
+    /// is a genesis chunk (`prev_block_hash == CryptoHash::default()`) — in
+    /// which case producer resolution falls back to the canonical sampler.
+    fn grandparent_anchor(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<Option<CryptoHash>, EpochError> {
+        if prev_block_hash == &CryptoHash::default() {
+            return Ok(None);
+        }
+        let prev_block_info = self.get_block_info(prev_block_hash)?;
+        if prev_block_info.is_genesis() {
+            return Ok(None);
+        }
+        Ok(Some(*prev_block_info.prev_hash()))
+    }
+
+    /// Anchored chunk producer lookup (cross-epoch-anchor rule).
+    ///
+    /// When EarlyKickout is enabled for the chunk's epoch and `anchor` (the
+    /// chunk's grandparent block) is in the same epoch as the chunk, reads the
+    /// producer from the ChunkProducers DB column keyed by the anchor and
+    /// errors on miss. Otherwise — feature off, no anchor (low height), or the
+    /// anchor belongs to a previous epoch (first <=2 blocks of an epoch, where
+    /// the kickout blacklist is provably empty) — samples canonically from the
+    /// chunk's own epoch at `height_created`.
+    ///
+    /// Errors with `MissingBlock` when the anchor block has not been processed
+    /// (node is two or more blocks behind the chunk).
+    ///
+    /// This cross-epoch-anchor rule is the canonical statement; the kickout
+    /// aggregator (`EpochManager::anchored_chunk_producers_for_aggregator`)
+    /// mirrors it and must stay in lockstep so stats track the producers
+    /// consensus actually resolved.
+    // TODO(early-kickout): once dynamic sampling ships and the DB may
+    // diverge from computation (blacklisted producers excluded), consider adding
+    // a lenient variant with computation fallback for non-critical paths.
+    fn get_chunk_producer_info_anchored(
+        &self,
+        anchor: Option<&CryptoHash>,
+        chunk_epoch_id: &EpochId,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError>;
+
+    /// Anchored chunk producer lookup for the chunk built on `prev_block_hash`:
+    /// derives the chunk's epoch, height and grandparent anchor from the parent
+    /// block, then resolves via [`Self::get_chunk_producer_info_anchored`].
+    ///
+    /// Only safe to call when `prev_block_hash` has been processed (registered
+    /// with the epoch manager via `add_validator_proposals`).
+    fn get_chunk_producer_info_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        let chunk_epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        // Read the parent `BlockInfo` once for both height and anchor (the standalone
+        // `grandparent_anchor` would re-read it); this is a hot signature-verification path.
+        let prev_block_info = self.get_block_info(prev_block_hash)?;
+        let height_created = prev_block_info.height() + 1;
+        // Mirrors `grandparent_anchor`: no real grandparent for a genesis chunk
+        // (`prev == default`) or when the parent is the genesis block.
+        let anchor = if prev_block_hash == &CryptoHash::default() || prev_block_info.is_genesis() {
+            None
+        } else {
+            Some(*prev_block_info.prev_hash())
+        };
+        self.get_chunk_producer_info_anchored(
+            anchor.as_ref(),
+            &chunk_epoch_id,
+            height_created,
+            shard_id,
+        )
+    }
+
+    /// Returns the per-shard set of chunk producers whose cumulative epoch stats are past the
+    /// early-kickout thresholds, computed from the aggregator's stats up to the anchor's
+    /// last-final block. The epoch is the anchor's own (via `get_epoch_id`), mirroring
+    /// `seed_chunk_producers`. Gated by `ProtocolFeature::EarlyKickout`: empty when the
+    /// feature is off, and empty for early-epoch anchors (the aggregator basis still sits in
+    /// the previous epoch, then the start-of-epoch grace applies).
+    fn get_chunk_producer_blacklist(
+        &self,
+        anchor_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError>;
+
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
         &self,
@@ -569,6 +721,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: EpochInfo,
         next_epoch_id: &EpochId,
         next_epoch_info: EpochInfo,
+    ) -> Result<(), EpochError>;
+
+    /// Seed `DBCol::ChunkProducers` for the current epoch's first block after
+    /// epoch sync, which installs that `BlockInfo` outside `record_block_info`.
+    /// Writes into `store_update` so it commits atomically with the block.
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
     ) -> Result<(), EpochError>;
 
     /// Verify validator signature for the given epoch.
@@ -752,60 +913,26 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(vec![])
     }
 
-    // TODO(dynamic_resharding): remove this method when dynamic trie loading is implemented
-    /// Returns the list of ShardUIds in the current shard layout that will be
-    /// resharded in the future within this client. Those shards should be
-    /// loaded into memory on node startup.
+    /// Returns the parent shard UID that will be split in the next epoch, if any.
     ///
-    /// Please note that this method returns all shard uids that will be
-    /// resharded in the future, regardless of whether the client tracks them.
-    ///
-    /// e.g. In the following resharding tree shards 0 and 1 would be returned.
-    ///
-    ///  0      1       2
-    ///  |     / \      |
-    ///  0    3   4     2
-    ///  |\   |   |     |
-    ///  5 6  3   4     2
-    ///  | |  |   |\    |
-    ///  5 6  3   7 8   2
-    ///
-    /// Please note that shard 4 is not returned even though it is split later
-    /// on. That is because it is a child of another parent and it should
-    /// already be loaded into memory after the first resharding.
-    fn get_shard_uids_pending_resharding(
+    /// Compares the shard layout of `epoch_id` with the next epoch's layout (derived from
+    /// `last_block_hash`). If they differ, returns the parent shard being split. Returns `None`
+    /// if no resharding is pending.
+    fn get_resharding_parent_shard_uid(
         &self,
-        head_protocol_version: ProtocolVersion,
-        client_protocol_version: ProtocolVersion,
-    ) -> Result<HashSet<ShardUId>, Error> {
-        let Some(head_shard_layout) =
-            self.get_static_shard_layout_for_protocol_version(head_protocol_version)
-        else {
-            // With dynamic resharding enabled, there is no point in trying to preload shards
-            // pending resharding, as they cannot be known upfront.
-            return Ok(Default::default());
-        };
-        let mut shard_layouts =
-            self.get_shard_layout_history(client_protocol_version, Some(head_protocol_version + 1));
-        // Loop below expects layouts to be ordered oldest-to-newest
-        shard_layouts.reverse();
-
-        let mut result = HashSet::new();
-        for shard_uid in head_shard_layout.shard_uids() {
-            let shard_id = shard_uid.shard_id();
-            for shard_layout in &shard_layouts {
-                let children = shard_layout.get_children_shards_uids(shard_id);
-                let Some(children) = children else {
-                    break;
-                };
-                if children.len() > 1 {
-                    result.insert(shard_uid);
-                    break;
-                }
-            }
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Option<ShardUId>, EpochError> {
+        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        let current_layout = self.get_shard_layout(epoch_id)?;
+        let next_layout = self.get_shard_layout(&next_epoch_id)?;
+        if current_layout == next_layout {
+            return Ok(None);
         }
-
-        Ok(result)
+        let split_parent_shard_uids = next_layout.get_split_parent_shard_uids();
+        // There should be exactly one shard split when layout changes
+        debug_assert!(split_parent_shard_uids.len() == 1);
+        Ok(split_parent_shard_uids.into_iter().next())
     }
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
@@ -875,9 +1002,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_shard_layout(epoch_id)
     }
 
-    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(block_hash)
+        epoch_manager.is_next_block_in_next_epoch(block_info)
     }
 
     fn is_produced_block_last_in_epoch(
@@ -906,7 +1033,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn can_reshard(
         &self,
         block_hash: &CryptoHash,
-        min_epochs_between_resharding: u64,
+        min_epochs_between_resharding: NonZeroEpochHeight,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.can_reshard(block_hash, min_epochs_between_resharding)
@@ -961,6 +1088,80 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
+    }
+
+    fn get_chunk_producer_info_anchored(
+        &self,
+        anchor: Option<&CryptoHash>,
+        chunk_epoch_id: &EpochId,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        // Gate on the CHUNK's epoch. At epoch boundaries where the anchor's
+        // epoch predates EarlyKickout activation, the cross-epoch arm below
+        // routes to the canonical sampler — no DB entry is needed there.
+        // TODO(early-kickout): add a cache layer to avoid hitting the DB on every lookup.
+        // One option is a large RocksDB memtable for this column.
+        let chunk_protocol_version = self.get_epoch_protocol_version(chunk_epoch_id)?;
+        if ProtocolFeature::EarlyKickout.enabled(chunk_protocol_version) {
+            // `CryptoHash::default()` means no grandparent (chunk at genesis
+            // or genesis + 1).
+            if let Some(anchor) = anchor.filter(|hash| *hash != &CryptoHash::default()) {
+                // Errors with MissingBlock when the anchor is unprocessed.
+                let anchor_epoch_id = self.get_epoch_id(anchor)?;
+                if &anchor_epoch_id == chunk_epoch_id {
+                    let epoch_manager = self.read();
+                    let key = get_block_shard_id(anchor, shard_id);
+                    return match epoch_manager
+                        .store
+                        .store_ref()
+                        .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+                    {
+                        Some(validator) => Ok(validator),
+                        None => Err(EpochError::ChunkProducerNotInDB(*anchor, shard_id)),
+                    };
+                }
+                // Anchor in a previous epoch: the chunk is within the first
+                // <=2 blocks of its epoch, where the kickout blacklist is
+                // provably empty — the canonical sampler is exact.
+            }
+        }
+        // Feature off, no anchor, or cross-epoch anchor — canonical sampling
+        // from the chunk's own epoch.
+        let cpk = ChunkProductionKey { epoch_id: *chunk_epoch_id, height_created, shard_id };
+        self.get_chunk_producer_info(&cpk)
+    }
+
+    fn get_chunk_producer_blacklist(
+        &self,
+        anchor_hash: &CryptoHash,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
+        // The anchor's own epoch, matching the seeder's gate and sample epoch.
+        let epoch_id = self.get_epoch_id(anchor_hash)?;
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            return Ok(HashMap::new());
+        }
+        // Same basis as `seed_chunk_producers`, via the shared helper, so this live read
+        // agrees with the stored row. Read-guard methods directly; adapter methods would
+        // re-take `self.read()` and deadlock.
+        let epoch_manager = self.read();
+        let anchor_info = epoch_manager.get_block_info(anchor_hash)?;
+        let final_block_hash = *anchor_info.last_final_block_hash();
+        if final_block_hash == CryptoHash::default() {
+            return Ok(HashMap::new());
+        }
+        let final_block_height = anchor_info.last_finalized_height();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let epoch = SampleEpoch {
+            epoch_id: &epoch_id,
+            epoch_info: epoch_info.as_ref(),
+            shard_layout: &shard_layout,
+        };
+        Ok(epoch_manager
+            .chunk_producer_blacklist_at_anchor(&final_block_hash, final_block_height, &epoch)?
+            .blacklist)
     }
 
     fn get_chunk_validator_assignments(
@@ -1018,6 +1219,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn seed_chunk_producers_after_epoch_sync(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_info: &BlockInfo,
+    ) -> Result<(), EpochError> {
+        self.read().seed_chunk_producers_for_first_block(store_update, block_info)
     }
 
     fn get_shard_layout_history(

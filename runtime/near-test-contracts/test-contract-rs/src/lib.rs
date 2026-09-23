@@ -2,17 +2,49 @@
 
 use std::mem::size_of;
 
+// Raw bindings for host functions that WRITE into caller memory.
+// Kept private so call sites must go through the typed wrappers below.
+mod sys {
+    extern "C" {
+        pub fn read_register(register_id: u64, ptr: u64);
+        pub fn account_balance(balance_ptr: u64);
+        pub fn attached_deposit(balance_ptr: u64);
+        pub fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
+        pub fn validator_total_stake(stake_ptr: u64);
+    }
+}
+
+// Typed wrappers: *mut u8 signals that the host will write into the buffer.
+// Passing a *const pointer here is a compile error, preventing the silent
+// LLVM optimization that treats const-derived memory as unmodified.
+unsafe fn read_register(register_id: u64, ptr: *mut u8) {
+    sys::read_register(register_id, ptr as usize as u64)
+}
+unsafe fn account_balance(balance_ptr: *mut u8) {
+    sys::account_balance(balance_ptr as usize as u64)
+}
+unsafe fn attached_deposit(balance_ptr: *mut u8) {
+    sys::attached_deposit(balance_ptr as usize as u64)
+}
+unsafe fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: *mut u8) {
+    sys::validator_stake(account_id_len, account_id_ptr, stake_ptr as usize as u64)
+}
+unsafe fn validator_total_stake(stake_ptr: *mut u8) {
+    sys::validator_total_stake(stake_ptr as usize as u64)
+}
+
 #[allow(unused)]
 extern "C" {
     // #############
     // # Registers #
     // #############
-    fn read_register(register_id: u64, ptr: u64);
     fn register_len(register_id: u64) -> u64;
     // ###############
     // # Context API #
     // ###############
     fn current_account_id(register_id: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn chain_id(register_id: u64);
     fn signer_account_id(register_id: u64);
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
@@ -24,8 +56,6 @@ extern "C" {
     // #################
     // # Economics API #
     // #################
-    fn account_balance(balance_ptr: u64);
-    fn attached_deposit(balance_ptr: u64);
     fn prepaid_gas() -> u64;
     fn used_gas() -> u64;
     // ############
@@ -75,29 +105,40 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_deploy_global_contract_by_account_id(
         promise_index: u64,
         code_len: u64,
         code_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract(
         promise_index: u64,
         code_hash_len: u64,
         code_hash_ptr: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_use_global_contract_by_account_id(
         promise_index: u64,
         account_id_len: u64,
         account_id_ptr: u64,
+    );
+    fn promise_batch_action_state_init_by_account_id(
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        amount_ptr: u64,
+    ) -> u64;
+    #[cfg(feature = "latest_protocol")]
+    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_universal_state_init(
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64,
     );
     fn promise_batch_action_function_call(
         promise_index: u64,
@@ -164,9 +205,28 @@ extern "C" {
         gas_weight: u64,
         register_id: u64,
     ) -> u64;
+    #[cfg(feature = "latest_protocol")]
+    fn promise_yield_create_with_id(
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64,
+    ) -> u64;
     fn promise_yield_resume(
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u32;
+    #[cfg(feature = "latest_protocol")]
+    fn promise_yield_resume_with_yield_id(
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
     ) -> u32;
@@ -196,21 +256,15 @@ extern "C" {
     // #################
     // # Validator API #
     // #################
-    fn validator_stake(account_id_len: u64, account_id_ptr: u64, stake_ptr: u64);
-    fn validator_total_stake(stake_ptr: u64);
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 
     #[cfg(feature = "test_features")]
@@ -219,8 +273,7 @@ extern "C" {
     #[cfg(feature = "test_features")]
     fn burn_gas(gas: u64);
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_transfer_to_gas_key(
         promise_index: u64,
         public_key_len: u64,
@@ -228,8 +281,7 @@ extern "C" {
         amount_ptr: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_full_access(
         promise_index: u64,
         public_key_len: u64,
@@ -237,8 +289,7 @@ extern "C" {
         num_nonces: u64,
     );
 
-    // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-    #[cfg(feature = "nightly")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_add_gas_key_with_function_call(
         promise_index: u64,
         public_key_len: u64,
@@ -259,8 +310,8 @@ macro_rules! ext_test {
         #[unsafe(no_mangle)]
         pub unsafe fn $export_func() {
             $call_ext(0);
-            let result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
+            let mut result = vec![0u8; register_len(0) as usize];
+            read_register(0, result.as_mut_ptr());
             value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
         }
     };
@@ -281,8 +332,8 @@ macro_rules! ext_test_u128 {
     ($export_func:ident, $call_ext:expr) => {
         #[unsafe(no_mangle)]
         pub unsafe fn $export_func() {
-            let result = &[0u8; size_of::<u128>()];
-            $call_ext(result.as_ptr() as *const u64 as u64);
+            let mut result = [0u8; size_of::<u128>()];
+            $call_ext(result.as_mut_ptr());
             value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
         }
     };
@@ -298,6 +349,8 @@ ext_test!(ext_predecessor_account_id, predecessor_account_id);
 ext_test!(ext_signer_pk, signer_account_pk);
 ext_test!(ext_signer_id, signer_account_id);
 ext_test!(ext_account_id, current_account_id);
+#[cfg(feature = "latest_protocol")]
+ext_test!(ext_chain_id, chain_id);
 
 ext_test_u128!(ext_account_balance, account_balance);
 ext_test_u128!(ext_attached_deposit, attached_deposit);
@@ -307,11 +360,11 @@ ext_test_u128!(ext_validator_total_stake, validator_total_stake);
 #[unsafe(no_mangle)]
 pub unsafe fn ext_sha256() {
     input(0);
-    let bytes = vec![0; register_len(0) as usize];
-    read_register(0, bytes.as_ptr() as *const u64 as u64);
+    let mut bytes = vec![0; register_len(0) as usize];
+    read_register(0, bytes.as_mut_ptr());
     sha256(bytes.len() as u64, bytes.as_ptr() as *const u64 as u64, 0);
-    let result = vec![0; register_len(0) as usize];
-    read_register(0, result.as_ptr() as *const u64 as u64);
+    let mut result = vec![0; register_len(0) as usize];
+    read_register(0, result.as_mut_ptr());
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
@@ -331,16 +384,47 @@ pub unsafe fn ext_used_gas() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
+/// Creates the `0u` universal account described by the raw state init passed as
+/// input, funding it with the attached deposit.
+///
+/// A contract cannot derive a universal account id on its own, so it asks the
+/// host for it and points the promise at what comes back.
+#[cfg(feature = "latest_protocol")]
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init() {
+    input(0);
+    let mut state_init = vec![0u8; register_len(0) as usize];
+    read_register(0, state_init.as_mut_ptr());
+    let state_init_len = state_init.len() as u64;
+    let state_init_ptr = state_init.as_ptr() as *const u64 as u64;
+
+    // Register 1 receives the account id this state init derives to.
+    universal_state_init_to_account_id(state_init_len, state_init_ptr, 1);
+    // `u64::MAX` as the length reads the account id from register 1.
+    let promise_idx = promise_batch_create(u64::MAX, 1);
+
+    let mut amount = [0u8; size_of::<u128>()];
+    attached_deposit(amount.as_mut_ptr());
+    promise_batch_action_universal_state_init(
+        promise_idx,
+        state_init_len,
+        state_init_ptr,
+        amount.as_ptr() as *const u64 as u64,
+    );
+    // Return the promise so the caller's outcome reflects whether the init ran.
+    promise_return(promise_idx);
+}
+
 #[unsafe(no_mangle)]
 pub unsafe fn ext_validator_stake() {
     input(0);
-    let account_id = vec![0; register_len(0) as usize];
-    read_register(0, account_id.as_ptr() as *const u64 as u64);
-    let result = [0u8; size_of::<u128>()];
+    let mut account_id = vec![0; register_len(0) as usize];
+    read_register(0, account_id.as_mut_ptr());
+    let mut result = [0u8; size_of::<u128>()];
     validator_stake(
         account_id.len() as u64,
         account_id.as_ptr() as *const u64 as u64,
-        result.as_ptr() as *const u64 as u64,
+        result.as_mut_ptr(),
     );
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
@@ -353,8 +437,8 @@ pub unsafe fn write_key_value() {
     input(0);
     let data_len = register_len(0) as usize;
     let value_len = size_of::<u64>();
-    let data = vec![0u8; data_len];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = vec![0u8; data_len];
+    read_register(0, data.as_mut_ptr());
 
     let key = &data[0..data_len - value_len];
     let value = &data[data_len - value_len..];
@@ -380,8 +464,8 @@ pub unsafe fn write_block_height() {
 #[unsafe(no_mangle)]
 pub unsafe fn write_random_value() {
     random_seed(0);
-    let data = [0u8; 32];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; 32];
+    read_register(0, data.as_mut_ptr());
     let value = b"hello";
     storage_write(data.len() as _, data.as_ptr() as _, value.len() as _, value.as_ptr() as _, 1);
 }
@@ -395,7 +479,7 @@ pub unsafe fn write_one_megabyte() {
         panic();
     }
     let mut key: u8 = 0;
-    read_register(0, &mut key as *mut u8 as u64);
+    read_register(0, &mut key as *mut u8);
 
     let value = vec![key; 1_000_000];
     storage_write(
@@ -407,6 +491,47 @@ pub unsafe fn write_one_megabyte() {
     );
 }
 
+/// Write a value of the given size under the given key.
+/// Key is of type u8. Value is made up of the key repeated `size` times.
+/// The input is a u8 key followed by the size as a little-endian u32.
+#[unsafe(no_mangle)]
+pub unsafe fn write_value_of_size() {
+    const INPUT_SIZE: usize = size_of::<u8>() + size_of::<u32>();
+    input(0);
+    if register_len(0) != INPUT_SIZE as u64 {
+        panic();
+    }
+    let mut input_data = [0u8; INPUT_SIZE];
+    read_register(0, input_data.as_mut_ptr());
+
+    let mut key = input_data[0];
+    let size = u32::from_le_bytes(input_data[size_of::<u8>()..].try_into().unwrap()) as usize;
+
+    let value = vec![key; size];
+    storage_write(
+        size_of::<u8>() as u64,
+        &mut key as *mut u8 as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+/// Read the values stored under the keys between from..to, whatever their size.
+/// The input is a pair of u8 values `from` and `to`.
+#[unsafe(no_mangle)]
+pub unsafe fn read_values_in_key_range() {
+    input(0);
+    assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
+    let mut input_data = [0u8; 2 * size_of::<u8>()];
+    read_register(0, input_data.as_mut_ptr());
+
+    for key in input_data[0]..input_data[1] {
+        let result = storage_read(size_of::<u8>() as u64, &key as *const u8 as u64, 0);
+        assert_eq!(result, 1);
+    }
+}
+
 /// Read n megabytes of data between from..to
 /// Reads values that were written using `write_one_megabyte`.
 /// The input is a pair of u8 values `from` and `to.
@@ -415,7 +540,7 @@ pub unsafe fn read_n_megabytes() {
     input(0);
     assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
     let mut input_data = [0u8; 2 * size_of::<u8>()];
-    read_register(0, input_data.as_mut_ptr() as *mut u8 as u64);
+    read_register(0, input_data.as_mut_ptr());
 
     let from = input_data[0];
     let to = input_data[1];
@@ -433,12 +558,12 @@ pub unsafe fn read_value() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let key = [0u8; size_of::<u64>()];
-    read_register(0, key.as_ptr() as u64);
+    let mut key = [0u8; size_of::<u64>()];
+    read_register(0, key.as_mut_ptr());
     let result = storage_read(key.len() as u64, key.as_ptr() as u64, 1);
     if result == 1 {
-        let value = [0u8; size_of::<u64>()];
-        read_register(1, value.as_ptr() as u64);
+        let mut value = [0u8; size_of::<u64>()];
+        read_register(1, value.as_mut_ptr());
         value_return(value.len() as u64, &value as *const u8 as u64);
     }
 }
@@ -458,11 +583,11 @@ pub unsafe fn loop_forever() {
 #[unsafe(no_mangle)]
 pub unsafe fn sleep() {
     const U64_SIZE: usize = size_of::<u64>();
-    let data = [0u8; U64_SIZE];
+    let mut data = [0u8; U64_SIZE];
 
     input(0);
     assert!(register_len(0) == U64_SIZE as u64);
-    read_register(0, data.as_ptr() as u64);
+    read_register(0, data.as_mut_ptr());
     let nanos = u64::from_le_bytes(data);
 
     let data = b"sleeping";
@@ -475,11 +600,11 @@ pub unsafe fn sleep() {
 #[unsafe(no_mangle)]
 pub unsafe fn burn_gas_raw() {
     const U64_SIZE: usize = size_of::<u64>();
-    let data = [0u8; U64_SIZE];
+    let mut data = [0u8; U64_SIZE];
 
     input(0);
     assert!(register_len(0) == U64_SIZE as u64);
-    read_register(0, data.as_ptr() as u64);
+    read_register(0, data.as_mut_ptr());
     let amount = u64::from_le_bytes(data);
 
     burn_gas(amount);
@@ -524,8 +649,8 @@ pub unsafe fn sum_with_input() {
     if register_len(0) != 2 * size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; 2 * size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
 
     let mut key = [0u8; size_of::<u64>()];
     let mut value = [0u8; size_of::<u64>()];
@@ -544,8 +669,8 @@ pub unsafe fn benchmark_storage_8b() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let n: u64 = u64::from_le_bytes(data);
 
     let mut sum = 0u64;
@@ -555,8 +680,8 @@ pub unsafe fn benchmark_storage_8b() {
 
         let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
         if result == 1 {
-            let value = [0u8; size_of::<u64>()];
-            read_register(0, value.as_ptr() as u64);
+            let mut value = [0u8; size_of::<u64>()];
+            read_register(0, value.as_mut_ptr());
             sum += u64::from_le_bytes(value);
         }
     }
@@ -578,8 +703,8 @@ pub unsafe fn benchmark_storage_10kib() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let n: u64 = u64::from_le_bytes(data);
 
     let mut el = [0u8; 10 << 10];
@@ -592,8 +717,8 @@ pub unsafe fn benchmark_storage_10kib() {
 
         let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
         if result == 1 {
-            let el = [0u8; 10 << 10];
-            read_register(0, el.as_ptr() as u64);
+            let mut el = [0u8; 10 << 10];
+            read_register(0, el.as_mut_ptr());
             let mut value = [0u8; size_of::<u64>()];
             value.copy_from_slice(&el[0..size_of::<u64>()]);
             sum += u64::from_le_bytes(value);
@@ -610,8 +735,8 @@ pub unsafe fn pass_through() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     value_return(data.len() as u64, data.as_ptr() as u64);
 }
 
@@ -622,8 +747,8 @@ pub unsafe fn sum_n() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let n = u64::from_le_bytes(data);
 
     let mut sum = 0u64;
@@ -639,7 +764,7 @@ pub unsafe fn sum_n() {
 }
 
 /// Calculates Fibonacci numbers in inefficient way.  Used to burn gas for the
-/// sanity/max_gas_burnt_view.py test.  The implementation has exponential
+/// max_gas_burnt_view test-loop test.  The implementation has exponential
 /// complexity (1.62^n to be exact) so even small increase in argument result in
 /// large increase in gas use.
 #[unsafe(no_mangle)]
@@ -649,7 +774,7 @@ pub unsafe fn fibonacci() {
         panic()
     }
     let mut n: u8 = 0;
-    read_register(0, &mut n as *mut u8 as u64);
+    read_register(0, &mut n as *mut u8);
     let data = fib(n).to_le_bytes();
     value_return(data.len() as u64, data.as_ptr() as u64);
 }
@@ -664,8 +789,8 @@ pub unsafe fn insert_strings() {
     if register_len(0) != 2 * size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; 2 * size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
 
     let mut from = [0u8; size_of::<u64>()];
     let mut to = [0u8; size_of::<u64>()];
@@ -694,8 +819,8 @@ pub unsafe fn delete_strings() {
     if register_len(0) != 2 * size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; 2 * size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
 
     let mut from = [0u8; size_of::<u64>()];
     let mut to = [0u8; size_of::<u64>()];
@@ -717,8 +842,8 @@ pub unsafe fn recurse() {
     if register_len(0) != size_of::<u64>() as u64 {
         panic()
     }
-    let data = [0u8; size_of::<u64>()];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_mut_ptr());
     let n = u64::from_le_bytes(data);
     let res = internal_recurse(n);
     let data = res.to_le_bytes();
@@ -768,8 +893,8 @@ pub fn from_base64(s: &str) -> Vec<u8> {
 #[unsafe(no_mangle)]
 pub unsafe fn max_self_recursion_delay() {
     input(0);
-    let bytes = [0u8; 4];
-    read_register(0, bytes.as_ptr() as *const u64 as u64);
+    let mut bytes = [0u8; 4];
+    read_register(0, bytes.as_mut_ptr());
     let recursion = u32::from_be_bytes(bytes);
     let available_gas = prepaid_gas() - used_gas();
     if available_gas < 5_000_000_000_000 {
@@ -799,8 +924,8 @@ pub unsafe fn max_self_recursion_delay() {
 fn call_promise() {
     unsafe {
         input(0);
-        let data = vec![0u8; register_len(0) as usize];
-        read_register(0, data.as_ptr() as u64);
+        let mut data = vec![0u8; register_len(0) as usize];
+        read_register(0, data.as_mut_ptr());
         let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
         for arg in input_args.as_array().unwrap() {
             let actual_id = if let Some(create) = arg.get("create") {
@@ -838,12 +963,9 @@ fn call_promise() {
                     gas,
                 )
             } else if let Some(and) = arg.get("and") {
-                let and = and.as_array().unwrap();
-                let mut curr = and[0].as_i64().unwrap() as u64;
-                for other in &and[1..] {
-                    curr = promise_and(curr, other.as_i64().unwrap() as u64);
-                }
-                curr
+                let promise_indices: Vec<u64> =
+                    and.as_array().unwrap().iter().map(|id| id.as_i64().unwrap() as u64).collect();
+                promise_and(promise_indices.as_ptr() as u64, promise_indices.len() as u64)
             } else if let Some(batch_create) = arg.get("batch_create") {
                 let account_id = batch_create["account_id"].as_str().unwrap().as_bytes();
                 promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64)
@@ -971,6 +1093,17 @@ fn call_promise() {
                     beneficiary_id.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("action_state_init_by_account_id") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let account_id = action["account_id"].as_str().unwrap().as_bytes();
+                let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
+                let _action_index = promise_batch_action_state_init_by_account_id(
+                    promise_index,
+                    account_id.len() as u64,
+                    account_id.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                );
+                promise_index
             } else if let Some(action) = arg.get("action_add_gas_key_with_full_access") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let public_key = from_base64(action["public_key"].as_str().unwrap());
@@ -1001,6 +1134,37 @@ fn call_promise() {
                     method_names.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("yield_create_with_id") {
+                let method_name = action["method_name"].as_str().unwrap().as_bytes();
+                let arguments = from_base64(action["arguments"].as_str().unwrap());
+                let amount: u128 = action
+                    .get("amount")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.parse::<u128>().unwrap())
+                    .unwrap_or(0);
+                let gas = action["gas"].as_i64().unwrap() as u64;
+                let gas_weight = action["gas_weight"].as_i64().unwrap() as u64;
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                promise_yield_create_with_id(
+                    method_name.len() as u64,
+                    method_name.as_ptr() as u64,
+                    arguments.len() as u64,
+                    arguments.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                    gas,
+                    gas_weight,
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                )
+            } else if let Some(action) = arg.get("yield_resume_with_yield_id") {
+                let yield_id = from_base64(action["yield_id"].as_str().unwrap());
+                let payload = from_base64(action["payload"].as_str().unwrap());
+                promise_yield_resume_with_yield_id(
+                    yield_id.len() as u64,
+                    yield_id.as_ptr() as u64,
+                    payload.len() as u64,
+                    payload.as_ptr() as u64,
+                ) as u64
             } else {
                 unimplemented!()
             };
@@ -1023,15 +1187,15 @@ fn call_promise() {
 unsafe fn check_promise_result_return_value() {
     input(0);
     let expected_result_len = register_len(0) as usize;
-    let expected = vec![0u8; expected_result_len];
-    read_register(0, expected.as_ptr() as u64);
+    let mut expected = vec![0u8; expected_result_len];
+    read_register(0, expected.as_mut_ptr());
 
     assert_eq!(promise_results_count(), 1);
 
     let payload_len = match promise_result(0, 0) {
         1 => {
-            let payload = vec![0; register_len(0) as usize];
-            read_register(0, payload.as_ptr() as *const u64 as u64);
+            let mut payload = vec![0; register_len(0) as usize];
+            read_register(0, payload.as_mut_ptr());
             assert_eq!(expected, payload);
 
             payload.len()
@@ -1057,14 +1221,14 @@ unsafe fn check_promise_result_return_value() {
 unsafe fn check_promise_result_write_status() {
     input(0);
     let expected_result_len = register_len(0) as usize;
-    let expected = vec![0u8; expected_result_len];
-    read_register(0, expected.as_ptr() as u64);
+    let mut expected = vec![0u8; expected_result_len];
+    read_register(0, expected.as_mut_ptr());
 
     assert_eq!(promise_results_count(), 1);
     let status = match promise_result(0, 0) {
         1 => {
-            let result = vec![0; register_len(0) as usize];
-            read_register(0, result.as_ptr() as *const u64 as u64);
+            let mut result = vec![0u8; register_len(0) as usize];
+            read_register(0, result.as_mut_ptr());
             assert_eq!(expected, result);
             "Resumed "
         }
@@ -1093,8 +1257,8 @@ unsafe fn check_promise_result_write_status() {
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_promise() {
     input(0);
-    let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    let mut payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_mut_ptr());
 
     // Create a promise yield with callback `check_promise_result`,
     // passing the expected payload as an argument to the function.
@@ -1114,8 +1278,8 @@ pub unsafe fn call_yield_create_return_promise() {
 
     // Write the data id to state for convenience in testing.
     let key = 42u64.to_le_bytes().to_vec();
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    let mut data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_mut_ptr());
     storage_write(
         key.len() as u64,
         key.as_ptr() as u64,
@@ -1133,8 +1297,8 @@ pub unsafe fn call_yield_create_return_promise() {
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_data_id() {
     input(0);
-    let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    let mut payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_mut_ptr());
 
     // Create a promise yield with callback `check_promise_result`,
     // passing the expected payload as an argument to the function.
@@ -1152,8 +1316,8 @@ pub unsafe fn call_yield_create_return_data_id() {
         data_id_register,
     );
 
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    let mut data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_mut_ptr());
 
     value_return(data_id.len() as u64, data_id.as_ptr() as u64);
 }
@@ -1165,8 +1329,8 @@ pub unsafe fn call_yield_create_return_data_id() {
 pub unsafe fn call_yield_resume() {
     input(0);
     let data_len = register_len(0) as usize;
-    let data = vec![0u8; data_len];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = vec![0u8; data_len];
+    read_register(0, data.as_mut_ptr());
 
     let data_id = &data[data_len - 32..];
     let payload = &data[0..data_len - 32];
@@ -1188,13 +1352,13 @@ pub unsafe fn call_yield_resume() {
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_resume_read_data_id_from_storage() {
     input(0);
-    let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    let mut payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_mut_ptr());
 
     let data_id_key = 42u64.to_le_bytes().to_vec();
     storage_read(data_id_key.len() as u64, data_id_key.as_ptr() as u64, 0);
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(0, data_id.as_ptr() as u64);
+    let mut data_id = vec![0u8; register_len(0) as usize];
+    read_register(0, data_id.as_mut_ptr());
 
     let success = promise_yield_resume(
         data_id.len() as u64,
@@ -1211,8 +1375,8 @@ pub unsafe fn call_yield_resume_read_data_id_from_storage() {
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_and_resume() {
     input(0);
-    let payload = vec![0u8; register_len(0) as usize];
-    read_register(0, payload.as_ptr() as u64);
+    let mut payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_mut_ptr());
 
     // Create a promise yield with callback `check_promise_result`,
     // passing the expected payload as an argument to the function.
@@ -1230,8 +1394,8 @@ pub unsafe fn call_yield_create_and_resume() {
         data_id_register,
     );
 
-    let data_id = vec![0u8; register_len(0) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    let mut data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_mut_ptr());
 
     // Resolve the promise yield with the expected payload
     let success = promise_yield_resume(
@@ -1315,7 +1479,6 @@ fn attach_unspent_gas_but_use_all_gas() {
     }
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn do_ripemd() {
     let data = b"tesdsst";
@@ -1343,20 +1506,20 @@ pub unsafe fn sanity_check() {
     // # Registers #
     // #############
     input(0);
-    let input_data = vec![0u8; register_len(0) as usize];
-    read_register(0, input_data.as_ptr() as u64);
+    let mut input_data = vec![0u8; register_len(0) as usize];
+    read_register(0, input_data.as_mut_ptr());
     let input_args: serde_json::Value = serde_json::from_slice(&input_data).unwrap();
 
     // ###############
     // # Context API #
     // ###############
     current_account_id(1);
-    let account_id = vec![0u8; register_len(1) as usize];
-    read_register(1, account_id.as_ptr() as u64);
+    let mut account_id = vec![0u8; register_len(1) as usize];
+    read_register(1, account_id.as_mut_ptr());
 
     signer_account_pk(1);
-    let account_public_key = vec![0u8; register_len(1) as usize];
-    read_register(1, account_public_key.as_ptr() as u64);
+    let mut account_public_key = vec![0u8; register_len(1) as usize];
+    read_register(1, account_public_key.as_mut_ptr());
 
     signer_account_id(1);
     predecessor_account_id(1);
@@ -1370,9 +1533,9 @@ pub unsafe fn sanity_check() {
     // #################
     // # Economics API #
     // #################
-    let balance = [0u8; size_of::<u128>()];
-    account_balance(balance.as_ptr() as u64);
-    attached_deposit(balance.as_ptr() as u64);
+    let mut balance = [0u8; size_of::<u128>()];
+    account_balance(balance.as_mut_ptr());
+    attached_deposit(balance.as_mut_ptr());
     let available_gas = prepaid_gas() - used_gas();
 
     // ############
@@ -1489,13 +1652,11 @@ pub unsafe fn sanity_check() {
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract(
         batch_promise_idx,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_deploy_global_contract_by_account_id(
         batch_promise_idx,
         contract_code.len() as u64,
@@ -1647,15 +1808,14 @@ pub unsafe fn sanity_check() {
     // #################
     // # Validator API #
     // #################
-    let stake = [0u8; size_of::<u128>()];
+    let mut stake = [0u8; size_of::<u128>()];
     let validator_id = input_args["validator_id"].as_str().unwrap().as_bytes();
-    validator_stake(validator_id.len() as u64, validator_id.as_ptr() as u64, stake.as_ptr() as u64);
-    validator_total_stake(stake.as_ptr() as u64);
+    validator_stake(validator_id.len() as u64, validator_id.as_ptr() as u64, stake.as_mut_ptr());
+    validator_total_stake(stake.as_mut_ptr());
 
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer = [65u8; 10];
         ripemd160(buffer.len() as u64, buffer.as_ptr() as u64, 1);
@@ -1664,7 +1824,6 @@ pub unsafe fn sanity_check() {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "latest_protocol")]
     {
         let buffer: [u8; 96] = [
             16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,
@@ -1726,8 +1885,8 @@ pub unsafe fn sanity_check_panic_utf8() {
 #[unsafe(no_mangle)]
 pub unsafe fn generate_large_receipt() {
     input(0);
-    let data = vec![0u8; register_len(0) as usize];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_mut_ptr());
     let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
     let account_id = input_args["account_id"].as_str().unwrap().as_bytes();
     let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
@@ -1763,8 +1922,8 @@ pub unsafe fn generate_large_receipt() {
 #[unsafe(no_mangle)]
 pub unsafe fn do_function_call_with_args_of_size() {
     input(0);
-    let data = vec![0u8; register_len(0) as usize];
-    read_register(0, data.as_ptr() as u64);
+    let mut data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_mut_ptr());
     let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
     let account_id = input_args["account_id"].as_str().unwrap().as_bytes();
     let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
@@ -1792,8 +1951,8 @@ pub unsafe fn do_function_call_with_args_of_size() {
 #[no_mangle]
 pub unsafe fn max_receipt_size_promise_return_method1() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
 
     current_account_id(0);
     let current_account = vec![0u8; register_len(0) as usize];
@@ -1833,8 +1992,8 @@ pub unsafe fn max_receipt_size_promise_return_method1() {
 #[no_mangle]
 pub unsafe fn max_receipt_size_promise_return_method2() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
     let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
     let args_size = input_args_json["args_size"].as_u64().unwrap();
 
@@ -1883,8 +2042,8 @@ pub unsafe fn assert_test_completed() {
         panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
     }
 
-    let value = vec![0u8; register_len(0) as usize];
-    read_register(0, value.as_ptr() as u64);
+    let mut value = vec![0u8; register_len(0) as usize];
+    read_register(0, value.as_mut_ptr());
     if value != b"true" {
         let panic_msg = b"assert_test_completed failed - test_completed value is not true";
         panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
@@ -1896,8 +2055,8 @@ pub unsafe fn assert_test_completed() {
 #[no_mangle]
 pub unsafe fn return_large_value() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
     let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
     let args_size = input_args_json["value_size"].as_u64().unwrap();
 
@@ -1909,8 +2068,8 @@ pub unsafe fn return_large_value() {
 #[no_mangle]
 pub unsafe fn max_receipt_size_value_return_method() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
 
     current_account_id(0);
     let current_account = vec![0u8; register_len(0) as usize];
@@ -1946,8 +2105,8 @@ pub unsafe fn max_receipt_size_value_return_method() {
 #[no_mangle]
 pub unsafe fn yield_with_large_args() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
     let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
     let args_size = input_args_json["args_size"].as_u64().unwrap();
 
@@ -1968,8 +2127,8 @@ pub unsafe fn yield_with_large_args() {
 #[no_mangle]
 pub unsafe fn resume_with_large_payload() {
     input(0);
-    let args = vec![0u8; register_len(0) as usize];
-    read_register(0, args.as_ptr() as u64);
+    let mut args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_mut_ptr());
     let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
     let payload_size = input_args_json["payload_size"].as_u64().unwrap();
 
@@ -1986,8 +2145,8 @@ pub unsafe fn resume_with_large_payload() {
         data_id_register,
     );
 
-    let data_id = vec![0u8; register_len(data_id_register) as usize];
-    read_register(data_id_register, data_id.as_ptr() as u64);
+    let mut data_id = vec![0u8; register_len(data_id_register) as usize];
+    read_register(data_id_register, data_id.as_mut_ptr());
 
     let resolve_data = vec![0u8; payload_size as usize];
     let success = promise_yield_resume(
@@ -1999,8 +2158,7 @@ pub unsafe fn resume_with_large_payload() {
     assert_eq!(success, 1);
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_transfer_to_gas_key(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2009,8 +2167,7 @@ fn promise_batch_action_transfer_to_gas_key(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_full_access(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2019,8 +2176,7 @@ fn promise_batch_action_add_gas_key_with_full_access(
 ) {
 }
 
-// TODO(gas-keys): Remove once stable supports gas keys.
-#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "latest_protocol"))]
 fn promise_batch_action_add_gas_key_with_function_call(
     _promise_index: u64,
     _public_key_len: u64,
@@ -2032,4 +2188,40 @@ fn promise_batch_action_add_gas_key_with_function_call(
     _method_names_len: u64,
     _method_names_ptr: u64,
 ) {
+}
+
+// Stubs for yield_with_id host functions, so `call_promise` compiles when the
+// contract is built without the `latest_protocol` feature (the
+// backwards-compatible build targeting the oldest supported protocol version).
+// The host functions are gated on `ProtocolFeature::YieldWithId` (enabled at
+// protocol version 85), so reaching these on an older protocol means a test is
+// exercising the wrong build. Panic loudly rather than returning a
+// plausible-looking value that would let the test silently succeed.
+#[cfg(not(feature = "latest_protocol"))]
+fn promise_yield_create_with_id(
+    _method_name_len: u64,
+    _method_name_ptr: u64,
+    _arguments_len: u64,
+    _arguments_ptr: u64,
+    _amount_ptr: u64,
+    _gas: u64,
+    _gas_weight: u64,
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+) -> u64 {
+    let msg = b"promise_yield_create_with_id called on a build without latest_protocol";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
+}
+
+#[cfg(not(feature = "latest_protocol"))]
+fn promise_yield_resume_with_yield_id(
+    _yield_id_len: u64,
+    _yield_id_ptr: u64,
+    _payload_len: u64,
+    _payload_ptr: u64,
+) -> u32 {
+    let msg = b"promise_yield_resume_with_yield_id called on a build without latest_protocol";
+    unsafe { panic_utf8(msg.len() as u64, msg.as_ptr() as u64) };
+    unreachable!()
 }

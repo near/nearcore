@@ -312,6 +312,19 @@ impl ShardLayoutV3 {
         &self.boundary_accounts
     }
 
+    /// Resolve any historical shard ID to a current shard by walking the full
+    /// split history in `shards_split_map`. Returns the shard itself if it is
+    /// current, or follows the first child at each generation until a current
+    /// shard is reached. Returns `None` only if the shard ID is absent from
+    /// both the current layout and the split history.
+    pub fn resolve_to_current_shard(&self, shard_id: ShardId) -> Option<ShardId> {
+        if self.shard_ids.contains(&shard_id) {
+            return Some(shard_id);
+        }
+        let children = self.shards_split_map.get(&shard_id)?;
+        self.resolve_to_current_shard(children[0])
+    }
+
     /// Get children shard IDs if the given parent shard was split during the most recent resharding.
     /// Otherwise, return `parent_shard_id` if shard exists in the parent layout, or `None` if it doesn't.
     pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {

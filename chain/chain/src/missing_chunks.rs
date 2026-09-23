@@ -30,7 +30,8 @@ impl<T: BlockLike> PartialEq for HeightOrdered<T> {
 impl<T: BlockLike> Eq for HeightOrdered<T> {}
 impl<T: BlockLike> PartialOrd for HeightOrdered<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.height().cmp(&other.0.height()))
+        // use cmp defined a few lines below
+        Some(HeightOrdered::cmp(&self, other))
     }
 }
 impl<T: BlockLike> Ord for HeightOrdered<T> {
@@ -164,25 +165,25 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
     }
 
     pub fn prune_blocks_below_height(&mut self, height: BlockHeight) {
-        let heights_to_remove: Vec<BlockHeight> =
-            self.height_idx.keys().copied().take_while(|h| *h < height).collect();
-        for h in heights_to_remove {
-            if let Some(block_hashes) = self.height_idx.remove(&h) {
-                for block_hash in block_hashes {
-                    self.blocks_waiting_for_chunks.remove(&block_hash);
-                    if let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) {
-                        for chunk_hash in chunk_hashes {
-                            if let hash_map::Entry::Occupied(mut entry) =
-                                self.missing_chunks.entry(chunk_hash)
-                            {
-                                let blocks_for_chunk = entry.get_mut();
-                                blocks_for_chunk.remove(&block_hash);
-                                if blocks_for_chunk.is_empty() {
-                                    entry.remove_entry();
-                                }
-                            }
-                        }
-                    }
+        let block_hashes = self
+            .height_idx
+            .extract_if(..height, |_, _| true)
+            .flat_map(|(_, block_hashes)| block_hashes);
+        for block_hash in block_hashes {
+            self.blocks_waiting_for_chunks.remove(&block_hash);
+            let Some(chunk_hashes) = self.blocks_missing_chunks.remove(&block_hash) else {
+                continue;
+            };
+
+            for chunk_hash in chunk_hashes {
+                let hash_map::Entry::Occupied(mut entry) = self.missing_chunks.entry(chunk_hash)
+                else {
+                    continue;
+                };
+                let blocks_for_chunk = entry.get_mut();
+                blocks_for_chunk.remove(&block_hash);
+                if blocks_for_chunk.is_empty() {
+                    entry.remove_entry();
                 }
             }
         }
@@ -347,15 +348,7 @@ impl OptimisticBlockChunksPool {
     /// Updates the block height threshold and cleans up old blocks.
     pub fn update_block_height_threshold(&mut self, height: BlockHeight) {
         self.block_height_threshold = std::cmp::max(self.block_height_threshold, height);
-        let hashes_to_remove: Vec<_> = self
-            .blocks
-            .iter()
-            .filter(|(_, h)| h.height() <= self.block_height_threshold)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in hashes_to_remove {
-            self.blocks.remove(&h);
-        }
+        self.blocks.retain(|_, h| h.height() > self.block_height_threshold);
 
         let Some((block, _)) = &self.latest_ready_block else {
             return;
@@ -372,15 +365,7 @@ impl OptimisticBlockChunksPool {
         self.update_block_height_threshold(height);
 
         self.minimal_base_height = std::cmp::max(self.minimal_base_height, height);
-        let hashes_to_remove: Vec<_> = self
-            .chunks
-            .iter()
-            .filter(|(_, h)| h.prev_block_height < self.minimal_base_height)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in hashes_to_remove {
-            self.chunks.remove(&h);
-        }
+        self.chunks.retain(|_, h| h.prev_block_height >= self.minimal_base_height);
     }
 }
 
@@ -499,6 +484,7 @@ mod optimistic_block_chunks_pool_test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_add_block() {
@@ -516,7 +502,8 @@ mod optimistic_block_chunks_pool_test {
         let mut pool = OptimisticBlockChunksPool::new();
         let prev_hash = CryptoHash::default();
         let shard_layout = ShardLayout::single_shard();
-        let chunk_header = ShardChunkHeader::new_dummy(0, ShardId::new(0), prev_hash);
+        let chunk_header =
+            ShardChunkHeader::new_dummy(0, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
 
         pool.add_chunk(&shard_layout, chunk_header);
         assert_eq!(pool.num_chunks(), 1);
@@ -531,14 +518,16 @@ mod optimistic_block_chunks_pool_test {
         let shard_layout = ShardLayout::multi_shard(2, 3);
         let shard_ids = shard_layout.shard_ids().collect_vec();
 
-        let chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash);
+        let chunk_header =
+            ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash, PROTOCOL_VERSION);
         pool.add_block(block);
         pool.add_chunk(&shard_layout, chunk_header);
 
         pool.update_latest_ready_block(&prev_hash);
         assert!(pool.take_latest_ready_block().is_none());
 
-        let new_chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[1], prev_hash);
+        let new_chunk_header =
+            ShardChunkHeader::new_dummy(0, shard_ids[1], prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, new_chunk_header);
 
         assert!(pool.take_latest_ready_block().is_some());
@@ -558,12 +547,12 @@ mod optimistic_block_chunks_pool_test {
 
         let shard_layout = ShardLayout::single_shard();
         let chunk_header_below_threshold =
-            ShardChunkHeader::new_dummy(5, ShardId::new(0), prev_hash);
+            ShardChunkHeader::new_dummy(5, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, chunk_header_below_threshold);
         assert_eq!(pool.num_chunks(), 0, "Chunk strictly below threshold should not be added");
 
         let chunk_header_passing_threshold =
-            ShardChunkHeader::new_dummy(6, ShardId::new(0), prev_hash);
+            ShardChunkHeader::new_dummy(6, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, chunk_header_passing_threshold);
         assert_eq!(pool.num_chunks(), 1);
     }

@@ -5,9 +5,14 @@ use near_jsonrpc_client_internal::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId};
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
+use url::Url;
 
 /// Indicates the origin of a jsonrpc request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +82,15 @@ pub enum RpcNodeHandle {
     LocalNode,
 }
 
+/// A node assignment for scatter-gather: a node handle, its index in the pool,
+/// and the shards it has been assigned to serve.
+pub struct NodeRequestAssignment {
+    pub handle: RpcNodeHandle,
+    /// 0 for the local node, `i + 1` for `pool.nodes[i]`.
+    pub node_idx: usize,
+    pub assigned_shards: Vec<ShardId>,
+}
+
 /// A remote RPC node in the pool, along with the shards it tracks.
 #[derive(Clone)]
 pub struct ShardedRpcNode {
@@ -97,6 +111,8 @@ impl ShardedRpcPool {
     /// Create a new sharded rpc pool.
     /// When config is provided, HTTP clients are created for each configured node.
     /// When config is None, the pool starts with no remote nodes.
+    /// Any configured node whose address resolves to a local IP is detected as
+    /// a self-connection and excluded from the remote pool.
     pub fn new(
         config: Option<ShardedRpcConfig>,
         shard_tracker: ShardTracker,
@@ -107,6 +123,19 @@ impl ShardedRpcPool {
                 let nodes: Vec<_> = config
                     .nodes
                     .iter()
+                    .filter(|node_config| {
+                        if is_local_address(&node_config.address) {
+                            tracing::info!(
+                                target: "jsonrpc",
+                                address = %node_config.address,
+                                tracked_shards = ?node_config.tracked_shards,
+                                "sharded rpc pool: detected self-connection, \
+                                 excluding from remote pool"
+                            );
+                            return false;
+                        }
+                        true
+                    })
                     .map(|node_config| ShardedRpcNode {
                         client: Arc::new(near_jsonrpc_client_internal::new_client(
                             &node_config.address,
@@ -114,6 +143,12 @@ impl ShardedRpcPool {
                         tracked_shards: node_config.tracked_shards.clone(),
                     })
                     .collect();
+                tracing::info!(
+                    target: "jsonrpc",
+                    total_configured = config.nodes.len(),
+                    remote_nodes = nodes.len(),
+                    "sharded rpc pool initialized"
+                );
                 nodes
             }
             None => vec![],
@@ -180,6 +215,35 @@ impl ShardedRpcPool {
                 }
 
                 self.nodes_for_account_in_epochs(possible_epochs, account_id)?
+            }
+            (BlockHint::Hash(block_hash), ShardHint::Id(shard_id)) => {
+                let epoch_id = match self.chain_store.get_block_header(block_hash) {
+                    Ok(header) => *header.epoch_id(),
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()), // Unknown block, try all nodes
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                self.nodes_for_shard_in_epochs(vec![epoch_id], *shard_id)?
+            }
+            (BlockHint::Height(height), ShardHint::Id(shard_id)) => {
+                let epoch_ids: Vec<_> = self
+                    .chain_store
+                    .get_all_block_hashes_by_height(*height)
+                    .keys()
+                    .cloned()
+                    .collect();
+                if epoch_ids.is_empty() {
+                    return Ok(self.all_nodes()); // Unknown block, try all nodes
+                }
+                self.nodes_for_shard_in_epochs(epoch_ids, *shard_id)?
+            }
+            (BlockHint::Recent, ShardHint::Id(shard_id))
+            | (BlockHint::None, ShardHint::Id(shard_id)) => {
+                let head = match self.chain_store.head() {
+                    Ok(tip) => tip,
+                    Err(Error::DBNotFoundErr(_)) => return Ok(self.all_nodes()),
+                    Err(e) => return Err(make_rpc_error(e)),
+                };
+                self.nodes_for_shard_in_epochs(vec![head.epoch_id], *shard_id)?
             }
             _ => self.all_nodes(),
         };
@@ -251,8 +315,200 @@ impl ShardedRpcPool {
 
         Ok(result)
     }
+
+    /// Returns nodes that track the given shard in any of the given epochs.
+    fn nodes_for_shard_in_epochs(
+        &self,
+        epoch_ids: Vec<EpochId>,
+        shard_id: ShardId,
+    ) -> Result<Vec<RpcNodeHandle>, RpcError> {
+        let mut result = Vec::new();
+
+        // Check if the local node tracks this shard in any of the given epochs.
+        for epoch_id in &epoch_ids {
+            match self.shard_tracker.rpc_tracks_shard_at_epoch(shard_id, epoch_id) {
+                Ok(true) => {
+                    result.push(RpcNodeHandle::LocalNode);
+                    break;
+                }
+                Ok(false) => {}
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok(self.all_nodes()), // Unknown epoch, try all nodes
+                Err(e) => return Err(make_rpc_error(e)),
+            }
+        }
+
+        // Check remote nodes. Their `tracked_shards` is a static config and
+        // not epoch-dependent, so a single membership check is enough.
+        for node in &self.nodes {
+            if node.tracked_shards.contains(&shard_id) {
+                result.push(RpcNodeHandle::RemoteNode(node.client.clone()));
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Try to resolve a chunk hash to its (block_height, shard_id) by looking
+    /// up the partial chunk in the store. All nodes persist partial chunks for
+    /// all shards (header-only for untracked shards), so this works regardless
+    /// of which shards the local node tracks.
+    pub fn try_resolve_chunk_block_and_shard(
+        &self,
+        chunk_hash: &ChunkHash,
+    ) -> Option<(BlockHeight, ShardId)> {
+        match self.chain_store.chunk_store().get_partial_chunk(chunk_hash) {
+            Ok(partial_chunk) => Some((partial_chunk.height_included(), partial_chunk.shard_id())),
+            Err(err) => {
+                tracing::debug!(target: "jsonrpc", ?chunk_hash, ?err, "failed to resolve chunk from partial chunk store");
+                None
+            }
+        }
+    }
+
+    /// Assigns groups of target shards to nodes, returning disjoint shard groups.
+    ///
+    /// Each shard in `target_shards` is assigned to exactly one node. Shards
+    /// assigned to the same node are grouped together so only one request is
+    /// needed per node.
+    ///
+    /// Prefers the local node (index 0) when it tracks a shard. Falls back to
+    /// the first non-excluded remote node. Returns Error if target_shards cannot be
+    /// covered by non-excluded nodes.
+    pub fn one_node_per_group_of_shard(
+        &self,
+        epoch_id: &EpochId,
+        target_shards: &HashSet<ShardId>,
+        exclude: &HashSet<usize>,
+    ) -> Result<Vec<NodeRequestAssignment>, RpcError> {
+        let mut node_groups: HashMap<usize, (RpcNodeHandle, Vec<ShardId>)> = HashMap::new();
+
+        for &shard_id in target_shards {
+            let (node_idx, handle) = self.pick_node_for_shard(shard_id, epoch_id, exclude)?;
+            node_groups.entry(node_idx).or_insert_with(|| (handle, Vec::new())).1.push(shard_id);
+        }
+
+        Ok(node_groups
+            .into_iter()
+            .map(|(node_idx, (handle, shards))| NodeRequestAssignment {
+                handle,
+                node_idx,
+                assigned_shards: shards,
+            })
+            .collect())
+    }
+
+    /// Pick the best node for a single shard: local if it tracks it, then
+    /// first non-excluded remote. Returns `Error` if all candidates are excluded.
+    fn pick_node_for_shard(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+        exclude: &HashSet<usize>,
+    ) -> Result<(usize, RpcNodeHandle), RpcError> {
+        // Prefer local node (index 0).
+        if !exclude.contains(&0) {
+            match self.shard_tracker.rpc_tracks_shard_at_epoch(shard_id, epoch_id) {
+                Ok(true) => return Ok((0, RpcNodeHandle::LocalNode)),
+                Ok(false) => {}
+                Err(EpochError::EpochOutOfBounds(_)) => return Ok((0, RpcNodeHandle::LocalNode)),
+                Err(e) => return Err(make_rpc_error(e)),
+            }
+        }
+
+        // Try remote nodes.
+        for (i, node) in self.nodes.iter().enumerate() {
+            let node_index = i + 1;
+            if exclude.contains(&node_index) {
+                continue;
+            }
+            if node.tracked_shards.contains(&shard_id) {
+                return Ok((node_index, RpcNodeHandle::RemoteNode(node.client.clone())));
+            }
+        }
+
+        // No non-excluded node available for this shard.
+        tracing::debug!(target: "jsonrpc", ?shard_id, ?epoch_id, "no available node found for shard");
+        Err(make_rpc_error("No available host for given shard."))
+    }
 }
 
 fn make_rpc_error(err: impl std::fmt::Display) -> RpcError {
     RpcError::new_internal_error(None, format!("get_nodes_for_query internal error: {}", err))
+}
+
+/// Checks whether the given IP address belongs to a local network interface
+/// by attempting to bind a UDP socket to it. The OS only allows binding to
+/// IPs assigned to local interfaces, making this a reliable detection method.
+///
+/// Note: the bind may fail in hardened environments even
+/// for local IPs, causing a false negative. This is not a bit problem: the
+/// node would forward requests to itself over the network.
+fn is_local_ip(ip: IpAddr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() {
+        return true;
+    }
+    UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
+/// Checks if a node URL (e.g. "http://10.128.0.5:3030") points to the local machine.
+/// Resolves the host to IP addresses and returns true if any of them are local.
+fn is_local_address(node_url: &str) -> bool {
+    match try_resolve_is_local(node_url) {
+        Ok(is_local) => is_local,
+        Err(err) => {
+            tracing::warn!(
+                target: "jsonrpc",
+                url = %node_url,
+                %err,
+                "sharded rpc pool: could not determine if address is local, treating as remote"
+            );
+            false
+        }
+    }
+}
+
+/// Called once at pool init time, so synchronous DNS resolution is acceptable.
+fn try_resolve_is_local(node_url: &str) -> Result<bool, String> {
+    let parsed = Url::parse(node_url).map_err(|e| format!("failed to parse URL: {e}"))?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let resolved: Vec<SocketAddr> = parsed
+        .socket_addrs(|| Some(port))
+        .map_err(|e| format!("failed to resolve {node_url}: {e}"))?;
+    // If any resolved address is local, treat the entire entry as self and
+    // drop it from the pool. This avoids the node forwarding requests to
+    // itself over the network, at the cost of also discarding any non-local
+    // addresses that the same hostname may resolve to.
+    Ok(resolved.iter().any(|addr| is_local_ip(addr.ip())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_local_ip() {
+        assert!(is_local_ip("127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("0.0.0.0".parse::<IpAddr>().unwrap()));
+        assert!(!is_local_ip("10.99.99.99".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("::1".parse::<IpAddr>().unwrap()));
+        assert!(is_local_ip("::".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_is_local_address_loopback() {
+        assert!(is_local_address("http://127.0.0.1:3030"));
+        assert!(is_local_address("http://127.0.0.1:4040"));
+        assert!(is_local_address("http://[::1]:3030"));
+    }
+
+    #[test]
+    fn test_is_local_address_external() {
+        assert!(!is_local_address("http://10.99.99.99:3030"));
+    }
+
+    #[test]
+    fn test_is_local_address_invalid_url() {
+        assert!(!is_local_address("not-a-url"));
+        assert!(!is_local_address(""));
+    }
 }

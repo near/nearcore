@@ -4,6 +4,7 @@ use near_crypto::SecretKey;
 use near_crypto::Signature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -146,8 +147,8 @@ pub struct StatePartRequest {
     pub shard_id: ShardId,
     /// Sync block hash
     pub sync_hash: CryptoHash,
-    /// Requested part id
-    pub part_id: u64,
+    /// Requested part idx
+    pub part_idx: StatePartIndex,
     /// Public address of the node making the request
     pub addr: std::net::SocketAddr,
 }

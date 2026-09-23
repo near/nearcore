@@ -8,7 +8,6 @@ use crate::tests::test_vm_config;
 use expect_test::expect;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::version::ProtocolFeature;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -27,6 +26,7 @@ fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     // Just avoid hard-coding super-precise amount of gas burnt.
     assert!(outcome.burnt_gas < Gas::from_gas(gas_limit / 2));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -48,6 +48,7 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
     assert!(Gas::from_gas(gas_limit / 2) < outcome.burnt_gas);
     assert!(outcome.burnt_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -65,6 +66,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -82,6 +84,7 @@ fn test_cant_burn_more_than_prepaid_gas() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -100,6 +103,7 @@ fn test_hit_max_gas_burnt_limit() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert!(outcome.used_gas > Gas::from_gas(gas_limit * 2));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -118,6 +122,7 @@ fn test_hit_prepaid_gas_limit() {
 
     assert_eq!(outcome.burnt_gas, Gas::from_gas(gas_limit));
     assert_eq!(outcome.used_gas, Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -137,6 +142,7 @@ fn function_call_no_weight_refund() {
 
     // Verify that unused gas was not allocated to function call
     assert!(outcome.used_gas < Gas::from_gas(gas_limit));
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage);
 }
 
 #[test]
@@ -267,6 +273,10 @@ fn check_action_gas_exceeds_limit(
         logic.gas_counter().used_gas(),
         "used gas should be no more than burnt gas",
     );
+    // Until action compute costs are actually changed, no difference in gas vs
+    // compute should be observed.
+    let outcome = logic.compute_outcome();
+    assert_eq!(gas_attached, outcome.compute_usage);
 }
 
 /// Check consistent result when exceeding attached gas on a specific action gas
@@ -314,6 +324,11 @@ fn check_action_gas_exceeds_attached(
         logic.gas_counter().used_gas().as_gas()
     );
     expected.assert_eq(&actual);
+
+    // Until action compute costs are actually changed, no difference in gas vs
+    // compute should be observed.
+    let outcome = logic.compute_outcome();
+    assert_eq!(outcome.burnt_gas.as_gas(), outcome.compute_usage,);
 }
 
 // Below are a bunch of `out_of_gas_*` tests. These test that when we run out of
@@ -828,6 +843,44 @@ fn out_of_gas_delete_key() {
 }
 
 /// see longer comment above for how this test works
+///
+/// Only the base and per-byte costs are reachable here: `MockedExternal` cannot
+/// decode a state init, so it reports no entries and no keys.
+#[test]
+fn out_of_gas_universal_state_init() {
+    check_action_gas_exceeds_limit(ActionCosts::universal_state_init_base, 1, universal_state_init);
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::universal_state_init_byte,
+        10,
+        universal_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::universal_state_init_base,
+        1,
+        expect!["122287675859 burnt 10000000000000 used"],
+        universal_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::universal_state_init_byte,
+        10,
+        expect!["622287675949 burnt 10000000000000 used"],
+        universal_state_init,
+    );
+}
+
+/// function to trigger a promise batch universal state init
+fn universal_state_init(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let idx = promise_batch_create(logic, "rick.test")?;
+    // The smallest well-formed `UniversalStateInit::V1`, all borsh zeroes.
+    let state_init = logic.internal_mem_write(&[0u8; 10]);
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    logic.promise_batch_action_universal_state_init(idx, state_init.len, state_init.ptr, amount.ptr)
+}
+
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_deterministic_state_init() {
     check_action_gas_exceeds_limit(
@@ -972,7 +1025,6 @@ fn write_test_pk(logic: &mut TestVMLogic) -> MemSlice {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_aggregate_accounting() {
     test_builder()
         .wat(
@@ -985,15 +1037,9 @@ fn test_memory_copy_aggregate_accounting() {
             )"#,
         )
         .gas(Gas::from_gigagas(10))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 146947416 used gas 146947416
-        "#]]]);
+        "#]]);
 
     test_builder()
         .wat(
@@ -1006,20 +1052,13 @@ fn test_memory_copy_aggregate_accounting() {
             )"#,
         )
         .gas(Gas::from_gigagas(10))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
         // Gas use here should be roughly double that of the test above!
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 167516316 used gas 167516316
-        "#]]]);
+        "#]]);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_full_memory() {
     test_builder()
         .wat(
@@ -1041,19 +1080,12 @@ fn test_memory_copy_full_memory() {
             )"#,
         )
         .gas(Gas::MAX)
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 276071613848301 used gas 276071613848301
-        "#]]]);
+        "#]]);
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_memory_copy_full_memory_out_of_gas() {
     test_builder()
         .wat(
@@ -1078,14 +1110,8 @@ fn test_memory_copy_full_memory_out_of_gas() {
         )
         .gas(Gas::from_teragas(300))
         .max_gas_burnt(Gas::from_teragas(300))
-        .skip_near_vm()
-        .protocol_features(&[ProtocolFeature::Wasmtime])
-        .expects(&[expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Error happened while deserializing the module.
-        "#]],
-        expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 300000000000000 used gas 300000000000000
             Err: Exceeded the maximum amount of gas allowed to burn per contract.
-        "#]]]);
+        "#]]);
 }

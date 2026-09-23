@@ -1,6 +1,6 @@
 use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
-use crate::stateless_validation::spice_chunk_endorsement::SpiceEndorsementCoreStatement;
+use crate::spice::chunk_endorsement::SpiceEndorsementCoreStatement;
 use crate::types::{ChunkExecutionResult, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
@@ -89,6 +89,14 @@ impl SpiceCoreStatements {
 
     pub fn new(statements: Vec<SpiceCoreStatement>) -> Self {
         Self(statements)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, SpiceCoreStatement> {

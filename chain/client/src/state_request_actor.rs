@@ -7,14 +7,12 @@ use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::StatePart;
+use near_primitives::state_part::{StatePart, StatePartIndex};
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
 };
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -35,10 +33,10 @@ pub struct StateRequestActor {
 impl Actor for StateRequestActor {}
 
 /// Result of sync hash validation for request processing
+#[derive(PartialEq)]
 enum SyncHashValidationResult {
-    Valid,      // Proceed with operation
-    Invalid,    // Return None response, continue processing
-    BadRequest, // Don't respond to the node, because the request is malformed.
+    Valid,    // Proceed with operation
+    Rejected, // Don't respond; the sync hash is invalid, from an old epoch, or can't be verified.
 }
 
 impl StateRequestActor {
@@ -104,81 +102,75 @@ impl StateRequestActor {
         Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 
-    // TODO(darioush): Remove the code duplication with Chain.
-    fn check_sync_hash_validity(
-        &self,
-        sync_hash: &near_primitives::hash::CryptoHash,
-    ) -> Result<bool, near_chain::Error> {
-        // It's important to check that Block exists because we will sync with it.
-        // Do not replace with `get_block_header()`.
-        let _sync_block = self.chain_store.get_block(sync_hash)?;
-
-        let good_sync_hash = self.get_sync_hash(sync_hash)?;
-        Ok(good_sync_hash.as_ref() == Some(sync_hash))
-    }
-
-    /// Checks if the sync_hash belongs to an epoch that is too old.
+    /// Checks if the sync_hash belongs to an epoch that we know.
     /// We allow sync_hash from the current epoch and the immediately previous epoch.
-    fn is_sync_hash_from_old_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+    fn is_sync_hash_from_known_recent_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let head = self.chain_store.head()?;
-        let sync_block_header = self.chain_store.get_block_header(sync_hash)?;
-        let sync_epoch_id = sync_block_header.epoch_id();
+        let sync_block = match self.chain_store.get_block(sync_hash) {
+            Ok(block) => block,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // The block may be missing because it was garbage-collected or because
+                // this node hasn't switched to the new epoch yet. Either way, we can't
+                // determine the epoch, so treat it as unknown and drop the request.
+                tracing::debug!(target: "sync", ?sync_hash, "can't get sync_hash block for state request");
+                return Ok(false);
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        let sync_epoch_id = sync_block.header().epoch_id();
 
         if sync_epoch_id == &head.epoch_id {
-            return Ok(false);
+            return Ok(true);
         }
 
         if let Ok(prev_epoch_id) =
             self.epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)
         {
             if sync_epoch_id == &prev_epoch_id {
-                return Ok(false);
+                return Ok(true);
             }
         }
 
-        Ok(true)
+        Ok(false)
     }
 
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
-        if self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false) {
-            tracing::info!(
-                target: "sync",
-                "sync_hash didn't pass validation; belongs to an old epoch"
-            );
-            return SyncHashValidationResult::BadRequest;
-        }
-
-        match self.check_sync_hash_validity(sync_hash) {
-            Ok(true) => SyncHashValidationResult::Valid,
+        match self.is_sync_hash_from_known_recent_epoch(sync_hash) {
+            Ok(true) => {}
             Ok(false) => {
-                tracing::warn!(
+                tracing::info!(
                     target: "sync",
-                    "sync_hash didn't pass validation; possible divergence in sync hash computation"
+                    ?sync_hash,
+                    "sync_hash didn't pass validation; belongs to an unknown epoch"
                 );
-                SyncHashValidationResult::BadRequest
-            }
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
-                // This case may appear in case of latency in epoch switching.
-                // Request sender is ready to sync but we still didn't get the block.
-                tracing::info!(target: "sync", "can't get sync_hash block for state request");
-                SyncHashValidationResult::Invalid
+                return SyncHashValidationResult::Rejected;
             }
             Err(err) => {
-                tracing::error!(target: "sync", ?err, "failed to verify sync_hash validity");
-                SyncHashValidationResult::Invalid
+                tracing::warn!(target: "sync", ?err, "failed to check sync_hash epoch");
+                return SyncHashValidationResult::Rejected;
             }
         }
-    }
 
-    /// Returns the protocol version used in the epoch containing the sync block.
-    /// This is used for synchronization related to the state parts format (see #14013 for details).
-    fn get_protocol_version_from_sync_hash(
-        &self,
-        sync_hash: &CryptoHash,
-    ) -> Result<ProtocolVersion, EpochError> {
-        let epoch_id = self.epoch_manager.get_epoch_id(sync_hash)?;
-        self.epoch_manager.get_epoch_protocol_version(&epoch_id)
+        let good_sync_hash = match self.get_sync_hash(sync_hash) {
+            Ok(sync_hash) => sync_hash,
+            Err(err) => {
+                tracing::debug!(target: "sync", ?err, "failed to get sync_hash for state request");
+                return SyncHashValidationResult::Rejected;
+            }
+        };
+
+        if good_sync_hash.as_ref() == Some(sync_hash) {
+            SyncHashValidationResult::Valid
+        } else {
+            tracing::warn!(
+                target: "sync",
+                "sync_hash didn't pass validation; possible divergence in sync hash computation"
+            );
+            SyncHashValidationResult::Rejected
+        }
     }
 }
 
@@ -186,20 +178,15 @@ fn new_header_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     header: ShardStateSyncResponseHeaderV2,
-    protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(Some(header), protocol_version);
+    let state_response = ShardStateSyncResponse::new_from_header(Some(header));
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_header_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
-) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_header(None, protocol_version);
+fn new_header_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
+    let state_response = ShardStateSyncResponse::new_from_header(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -208,23 +195,18 @@ fn new_header_response_empty(
 fn new_part_response(
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    part_id: u64,
+    part_idx: StatePartIndex,
     part: Option<StatePart>,
-    protocol_version: ProtocolVersion,
 ) -> StatePartOrHeader {
-    let part = part.map(|part| (part_id, part));
-    let state_response = ShardStateSyncResponse::new_from_part(part, protocol_version);
+    let part = part.map(|part| (part_idx, part));
+    let state_response = ShardStateSyncResponse::new_from_part(part);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
 }
 
-fn new_part_response_empty(
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    protocol_version: ProtocolVersion,
-) -> StatePartOrHeader {
-    let state_response = ShardStateSyncResponse::new_from_part(None, protocol_version);
+fn new_part_response_empty(shard_id: ShardId, sync_hash: CryptoHash) -> StatePartOrHeader {
+    let state_response = ShardStateSyncResponse::new_from_part(None);
     let state_response_info = StateResponseInfoV2 { shard_id, sync_hash, state_response };
     let info = StateResponseInfo::V2(Box::new(state_response_info));
     StatePartOrHeader(Box::new(info))
@@ -246,49 +228,42 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
             return None;
         }
 
-        let protocol_version = self
-            .get_protocol_version_from_sync_hash(&sync_hash)
-            .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
-            })
-            .ok()?;
-
-        match self.validate_sync_hash(&sync_hash) {
-            SyncHashValidationResult::Valid => {
-                // The request is valid - proceed.
-            }
-            SyncHashValidationResult::Invalid => {
-                // The request is invalid - could not be validated - return empty response.
-                return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
-            }
-            SyncHashValidationResult::BadRequest => {
-                // The request is malformed - do not respond.
-                return None;
-            }
-        };
+        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                .with_label_values(&["header", "failed"])
+                .inc();
+            return None;
+        }
 
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
-            tracing::error!(target: "sync", "cannot build state sync header");
-            return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
+            tracing::warn!(target: "sync", "cannot build state sync header");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                .with_label_values(&["header", "failed"])
+                .inc();
+            return Some(new_header_response_empty(shard_id, sync_hash));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::error!(target: "sync", "invalid state sync header format");
+            tracing::warn!(target: "sync", "invalid state sync header format");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL
+                .with_label_values(&["header", "failed"])
+                .inc();
             return None;
         };
 
-        let response = new_header_response(shard_id, sync_hash, header, protocol_version);
+        metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["header", "success"]).inc();
+        let response = new_header_response(shard_id, sync_hash, header);
         Some(response)
     }
 }
 
 impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor {
     fn handle(&mut self, msg: StateRequestPart) -> Option<StatePartOrHeader> {
-        let StateRequestPart { shard_id, sync_hash, part_id } = msg;
+        let StateRequestPart { shard_id, sync_hash, part_idx } = msg;
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
         let _span =
-            tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_id)
+            tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_idx)
                 .entered();
 
         tracing::debug!(target: "sync", "handle state request part");
@@ -298,37 +273,22 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
             return None;
         }
 
-        let protocol_version = self
-            .get_protocol_version_from_sync_hash(&sync_hash)
-            .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
-            })
-            .ok()?;
+        if self.validate_sync_hash(&sync_hash) == SyncHashValidationResult::Rejected {
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
+            return None;
+        }
 
         tracing::debug!(target: "sync", "computing state request part");
-        match self.validate_sync_hash(&sync_hash) {
-            SyncHashValidationResult::Valid => {
-                // The request is valid - proceed.
-            }
-            SyncHashValidationResult::BadRequest => {
-                // Do not respond; likely too old.
-                return None;
-            }
-            SyncHashValidationResult::Invalid => {
-                // The request is invalid - could not be validated - return empty response.
-                return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
-            }
-        };
-
-        let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
+        let part = self.state_sync_adapter.get_state_response_part(shard_id, part_idx, sync_hash);
         let Ok(part) = part else {
-            tracing::error!(target: "sync", ?part, "cannot build state part");
-            return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
+            tracing::warn!(target: "sync", ?part, "cannot build state part");
+            metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "failed"]).inc();
+            return Some(new_part_response_empty(shard_id, sync_hash));
         };
         tracing::trace!(target: "sync", "finished computation for state request part");
 
-        let response =
-            new_part_response(shard_id, sync_hash, part_id, Some(part), protocol_version);
+        metrics::STATE_SYNC_REQUESTS_SERVED_TOTAL.with_label_values(&["part", "success"]).inc();
+        let response = new_part_response(shard_id, sync_hash, part_idx, Some(part));
         Some(response)
     }
 }

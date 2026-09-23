@@ -1,23 +1,31 @@
-use super::spice_utils::delay_endorsements_propagation;
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
 };
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
+use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_client::{GetStateChanges, GetValidatorInfo, Query};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, StakeAction};
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, Balance, ShardId};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, EpochReference, ShardId,
+};
+use near_primitives::views::{
+    QueryRequest, QueryResponseKind, StateChangeCauseView, StateChangeValueView,
+    StateChangesRequestView,
+};
 use primitive_types::U256;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use std::collections::HashMap;
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
@@ -59,9 +67,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         .clients(accounts.clone())
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit stake transaction from accounts[1]
@@ -134,9 +140,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Submit reduced stake transactions for nodes 0 and 1
@@ -243,9 +247,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Node1 unstakes, Node2 stakes
@@ -331,9 +333,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
         .track_all_shards()
         .delay_warmup()
         .build();
-    if execution_delay > 0 {
-        delay_endorsements_propagation(&mut env, execution_delay);
-    }
+    env.delay_endorsements_propagation(execution_delay);
     let mut env = env.warmup();
 
     // Verify initial validator set.
@@ -349,7 +349,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             public_key: validator_key.clone(),
         }))],
     );
-    env.node_runner(0).run_tx(stake_tx, Duration::seconds(5));
+    env.node_runner(0).run_tx(stake_tx, Duration::seconds(10));
 
     // Wait for validator2 to join.
     let all_validators: Vec<String> = accounts.iter().map(|a| a.to_string()).collect();
@@ -381,7 +381,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             public_key: validator_key,
         }))],
     );
-    env.node_runner(0).run_tx(unstake_tx, Duration::seconds(5));
+    env.node_runner(0).run_tx(unstake_tx, Duration::seconds(10));
 
     // Wait for validator2 to leave the validator set.
     env.node_runner(0).run_until(
@@ -441,7 +441,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         })
         .delay_warmup()
         .build();
-    delay_endorsements_propagation(&mut env, endorsement_delay);
+    env.delay_endorsements_propagation(endorsement_delay);
     let mut env = env.warmup();
 
     let genesis_height = env.node(unstaker_idx).client().chain.genesis().height();
@@ -507,7 +507,6 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_inflation() {
     init_test_logger();
 
@@ -591,4 +590,74 @@ fn test_inflation() {
             "total supply should match expected inflation in epoch 2"
         );
     }
+}
+
+/// Verifies that `validator_reward_paid_prev_epoch` returned by the
+/// validators RPC matches the per-account reward deltas from the on-chain
+/// `ValidatorAccountsUpdate` state changes at the epoch boundary.
+#[test]
+fn test_validator_reward_in_get_validator_info() {
+    init_test_logger();
+
+    let validators_spec = create_validators_spec(2, 0);
+    let accounts = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .protocol_reward_rate(Rational32::new(1, 10))
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(accounts.clone())
+        .build();
+
+    env.node_runner(0).run_until_new_epoch();
+    let boundary_block = env.node(0).client().chain.get_head_block().unwrap();
+    env.node_runner(0).run_until_new_epoch();
+
+    let mut all_ids = accounts;
+    all_ids.push("near".parse().unwrap()); // protocol treasury
+    let boundary_hash = *boundary_block.hash();
+    let prev_hash = *boundary_block.header().prev_hash();
+
+    let mut node = env.node_mut(0);
+    let view_client = node.view_client_actor();
+
+    // Query pre-reward balances at the block before the epoch boundary.
+    let mut pre_balances: HashMap<AccountId, Balance> = HashMap::new();
+    for id in &all_ids {
+        let query = Query::new(
+            BlockReference::from(BlockId::Hash(prev_hash)),
+            QueryRequest::ViewAccount { account_id: id.clone() },
+        );
+        if let Ok(response) = view_client.handle_query(query) {
+            if let QueryResponseKind::ViewAccount(view) = response.kind {
+                pre_balances.insert(id.clone(), view.locked.checked_add(view.amount).unwrap());
+            }
+        }
+    }
+
+    // Compute expected per-account rewards from ValidatorAccountsUpdate
+    // state changes: reward = post_balance - pre_balance.
+    let state_changes = view_client
+        .handle(GetStateChanges {
+            block_hash: boundary_hash,
+            state_changes_request: StateChangesRequestView::AccountChanges { account_ids: all_ids },
+        })
+        .unwrap();
+    let mut expected: HashMap<AccountId, Balance> = HashMap::new();
+    for change in &state_changes {
+        if matches!(&change.cause, StateChangeCauseView::ValidatorAccountsUpdate) {
+            if let StateChangeValueView::AccountUpdate { account_id, account } = &change.value {
+                let post = account.locked.checked_add(account.amount).unwrap();
+                let pre = pre_balances.get(account_id).copied().unwrap_or(Balance::ZERO);
+                expected.insert(account_id.clone(), post.checked_sub(pre).unwrap());
+            }
+        }
+    }
+    assert!(!expected.is_empty(), "should find ValidatorAccountsUpdate changes");
+
+    let info =
+        view_client.handle(GetValidatorInfo { epoch_reference: EpochReference::Latest }).unwrap();
+    assert_eq!(info.validator_reward_paid_prev_epoch, expected);
 }

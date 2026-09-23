@@ -11,7 +11,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
@@ -50,7 +50,7 @@ pub(crate) enum StatePartsSubCommand {
         /// Choose a single part id.
         /// If None - affects all state parts.
         #[clap(long)]
-        part_id: Option<u64>,
+        part_id: Option<StatePartIndex>,
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
@@ -59,10 +59,10 @@ pub(crate) enum StatePartsSubCommand {
     Dump {
         /// Dump part ids starting from this part.
         #[clap(long)]
-        part_from: Option<u64>,
+        part_from: Option<StatePartIndex>,
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
-        part_to: Option<u64>,
+        part_to: Option<StatePartIndex>,
         /// Dump state sync header.
         #[clap(long, short, action)]
         dump_header: bool,
@@ -318,7 +318,7 @@ async fn load_state_parts(
     action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_id: Option<u64>,
+    part_idx: Option<StatePartIndex>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
     chain: &Chain,
@@ -350,11 +350,10 @@ async fn load_state_parts(
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
 
     let num_parts =
         list_state_parts(external, chain_id, &epoch_id, epoch_height, shard_id).await.unwrap();
-    let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
+    let part_indices = get_part_indices(part_idx, part_idx.map(|x| x + 1), num_parts);
 
     match action {
         LoadAction::Apply => {
@@ -365,10 +364,9 @@ async fn load_state_parts(
                 &epoch_id,
                 epoch_height,
                 sync_hash,
-                protocol_version,
                 shard_id,
                 state_root,
-                part_ids,
+                part_indices,
                 num_parts,
             )
             .await
@@ -376,10 +374,10 @@ async fn load_state_parts(
         }
         _ => {
             let timer = Instant::now();
-            for part_id in part_ids {
+            for part_idx in part_indices {
                 let timer = Instant::now();
-                assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-                let file_type = StateFileType::StatePart { part_id, num_parts };
+                assert!(part_idx < num_parts, "part_idx: {}, num_parts: {}", part_idx, num_parts);
+                let file_type = StateFileType::StatePart { part_idx, num_parts };
                 let location = external_storage_location(
                     chain_id,
                     &epoch_id,
@@ -389,7 +387,7 @@ async fn load_state_parts(
                 );
                 let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
                 let part_length = bytes.len();
-                let part = StatePart::from_bytes(bytes, protocol_version).unwrap();
+                let part = StatePart::from_bytes(bytes).unwrap();
 
                 match action {
                     LoadAction::Validate => {
@@ -397,16 +395,20 @@ async fn load_state_parts(
                             chain.runtime_adapter.validate_state_part(
                                 shard_id,
                                 &state_root,
-                                PartId::new(part_id, num_parts),
+                                StatePartId::new(part_idx, num_parts),
                                 &part
                             ),
                             near_chain::types::StatePartValidationResult::Valid
                         ));
-                        tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
+                        tracing::info!(target: "state-parts", part_idx, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
                     }
                     LoadAction::Print => {
                         let trie_nodes = part.to_partial_state().unwrap();
-                        print_state_part(&state_root, PartId::new(part_id, num_parts), trie_nodes)
+                        print_state_part(
+                            &state_root,
+                            StatePartId::new(part_idx, num_parts),
+                            trie_nodes,
+                        )
                     }
                     LoadAction::Apply => unreachable!(),
                 }
@@ -416,7 +418,7 @@ async fn load_state_parts(
     }
 }
 
-fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
+fn print_state_part(state_root: &StateRoot, _part_id: StatePartId, trie_nodes: PartialState) {
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
     trie.print_recursive(
@@ -433,8 +435,8 @@ fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: Partia
 async fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_from: Option<u64>,
-    part_to: Option<u64>,
+    state_part_index_from: Option<StatePartIndex>,
+    state_part_index_to: Option<StatePartIndex>,
     dump_header: bool,
     chain: &Chain,
     chain_id: &str,
@@ -443,7 +445,6 @@ async fn dump_state_parts(
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let protocol_version = chain.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
@@ -460,7 +461,8 @@ async fn dump_state_parts(
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
-    let part_ids = get_part_ids(part_from, part_to, num_parts);
+    let state_part_indices =
+        get_part_indices(state_part_index_from, state_part_index_to, num_parts);
     let epoch_height = epoch.epoch_height();
 
     tracing::info!(
@@ -470,7 +472,7 @@ async fn dump_state_parts(
         %shard_id,
         num_parts,
         ?sync_hash,
-        ?part_ids,
+        ?state_part_indices,
         ?state_root,
         "dumping state as seen at the beginning of the specified epoch",
     );
@@ -493,20 +495,19 @@ async fn dump_state_parts(
     }
 
     // dump parts
-    for part_id in part_ids {
+    for part_idx in state_part_indices {
         let timer = Instant::now();
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = chain
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
                 sync_prev_prev_hash,
                 &state_root,
-                PartId::new(part_id, num_parts),
+                StatePartId::new(part_idx, num_parts),
             )
             .unwrap();
 
-        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let file_type = StateFileType::StatePart { part_idx, num_parts };
         let location = external_storage_location(
             &chain_id,
             &epoch_id,
@@ -514,7 +515,7 @@ async fn dump_state_parts(
             shard_id,
             &file_type,
         );
-        let bytes = state_part.to_bytes(protocol_version);
+        let bytes = state_part.to_bytes();
         external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
@@ -522,7 +523,7 @@ async fn dump_state_parts(
         let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",
-            part_id,
+            part_idx,
             part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
@@ -571,6 +572,10 @@ fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Cha
     chain.set_state_finalize(shard_id, sync_hash).unwrap()
 }
 
-fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
-    part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
+fn get_part_indices(
+    state_part_index_from: Option<StatePartIndex>,
+    state_part_index_to: Option<StatePartIndex>,
+    num_parts: u64,
+) -> Range<StatePartIndex> {
+    state_part_index_from.unwrap_or(0)..state_part_index_to.unwrap_or(num_parts)
 }

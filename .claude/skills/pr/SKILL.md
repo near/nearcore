@@ -6,6 +6,9 @@ allowed-tools: Bash, Read, Grep, Glob, AskUserQuestion
 
 Create a pull request with automatically generated title and description based on staged changes.
 
+Before starting, read relevant memory files (especially PR-related feedback
+memories). Memory preferences override the defaults below.
+
 **User instructions:** $ARGUMENTS
 
 If user instructions are non-empty, parse them for the following hints (they are free-form text, not structured flags):

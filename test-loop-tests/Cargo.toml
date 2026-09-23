@@ -15,6 +15,7 @@ workspace = true
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
+base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
@@ -22,14 +23,17 @@ ethabi.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
+p256.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+rayon.workspace = true
 rlp.workspace = true
 axum.workspace = true
 serde_json.workspace = true
 sha3.workspace = true
+strum.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tower-service.workspace = true
@@ -37,6 +41,7 @@ tracing.workspace = true
 
 near-async.workspace = true
 near-chain.workspace = true
+near-database-tool.workspace = true
 near-chain-configs.workspace = true
 near-chunks.workspace = true
 near-client.workspace = true
@@ -52,7 +57,9 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
+near-replay.workspace = true
 near-store.workspace = true
+node-runtime.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
 near-wallet-contract.workspace = true
@@ -70,6 +77,7 @@ protocol_feature_spice = [
 ]
 test_features = [
     "nearcore/test_features",
+    "near-epoch-manager/test_features",
     "near-store/test_features",
     "near-vm-runner/test_features",
     "near-test-contracts/test_features",
@@ -79,6 +87,7 @@ nightly = [
     "near-chain/nightly",
     "near-chunks/nightly",
     "near-client/nightly",
+    "near-database-tool/nightly",
     "near-epoch-manager/nightly",
     "near-jsonrpc/nightly",
     "near-network/nightly",

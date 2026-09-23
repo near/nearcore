@@ -60,12 +60,16 @@ impl EpochInfoAggregator {
     /// H or I blocks into the aggregator.  The expected usage is to create
     /// a new aggregator starting from I, add H and G into it (using this
     /// method) and then [merge][`Self::merge`] it into `self`.
+    /// `chunk_producers` carries the per-shard producers resolved via the
+    /// grandparent anchor (EarlyKickout); `None` falls back to the legacy
+    /// height-based sampler.
     pub fn update_tail(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
+        chunk_producers: Option<&HashMap<ShardId, ValidatorId>>,
     ) {
         let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
             .entered();
@@ -101,9 +105,12 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let chunk_producer_id = epoch_info
-                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
-                .unwrap();
+            let chunk_producer_id = match chunk_producers.and_then(|cp| cp.get(&shard_id)) {
+                Some(chunk_producer_id) => *chunk_producer_id,
+                None => epoch_info
+                    .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                    .unwrap(),
+            };
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)

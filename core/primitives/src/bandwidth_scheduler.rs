@@ -186,7 +186,7 @@ pub struct BandwidthRequestBitmap {
 
 pub const BANDWIDTH_REQUEST_BITMAP_SIZE: usize = BANDWIDTH_REQUEST_VALUES_NUM / 8;
 const _: () = assert!(
-    BANDWIDTH_REQUEST_VALUES_NUM % 8 == 0,
+    BANDWIDTH_REQUEST_VALUES_NUM.is_multiple_of(8),
     "Every bit in the bitmap should be used. It's wasteful to have unused bits.
     And having unused bits would require extra validation logic"
 );

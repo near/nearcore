@@ -39,6 +39,10 @@ pub struct Allocator {
     // accurate in case multiple instances of the allocator share the same name.
     active_allocs_bytes: usize,
     active_allocs_count: usize,
+    /// Memory usage of shared (read-only) layers that this allocator's arena
+    /// was created from. Immutable for the allocator's lifetime, used only for
+    /// reporting the total memory usage gauge.
+    shared_memory_usage: usize,
     active_allocs_bytes_gauge: IntGauge,
     active_allocs_count_gauge: IntGauge,
     memory_usage_gauge: IntGauge,
@@ -82,6 +86,7 @@ impl Allocator {
             next_alloc_pos: ArenaPos::invalid(),
             active_allocs_bytes: 0,
             active_allocs_count: 0,
+            shared_memory_usage: 0,
             active_allocs_bytes_gauge: MEMTRIE_ARENA_ACTIVE_ALLOCS_BYTES
                 .with_label_values(&[&name]),
             active_allocs_count_gauge: MEMTRIE_ARENA_ACTIVE_ALLOCS_COUNT
@@ -94,17 +99,20 @@ impl Allocator {
         name: String,
         active_allocs_bytes: usize,
         active_allocs_count: usize,
+        shared_memory_usage: usize,
     ) -> Self {
         let mut allocator = Self::new(name);
         allocator.active_allocs_bytes = active_allocs_bytes;
         allocator.active_allocs_count = active_allocs_count;
+        allocator.shared_memory_usage = shared_memory_usage;
         allocator.active_allocs_bytes_gauge.set(active_allocs_bytes as i64);
         allocator.active_allocs_count_gauge.set(active_allocs_count as i64);
         allocator
     }
 
-    pub fn update_memory_usage_gauge(&self, memory: &STArenaMemory) {
-        self.memory_usage_gauge.set(memory.chunks.len() as i64 * CHUNK_SIZE as i64);
+    pub(super) fn update_memory_usage_gauge(&self, memory: &STArenaMemory) {
+        self.memory_usage_gauge
+            .set(memory.chunks.len() as i64 * CHUNK_SIZE as i64 + self.shared_memory_usage as i64);
     }
 
     /// Adds a new chunk to the arena, and updates the next_alloc_pos to the beginning of
@@ -166,6 +174,14 @@ impl Allocator {
 
     pub(super) fn active_allocs_bytes(&self) -> usize {
         self.active_allocs_bytes
+    }
+}
+
+impl Drop for Allocator {
+    fn drop(&mut self) {
+        self.active_allocs_bytes_gauge.set(0);
+        self.active_allocs_count_gauge.set(0);
+        self.memory_usage_gauge.set(0);
     }
 }
 

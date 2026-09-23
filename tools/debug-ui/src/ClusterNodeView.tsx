@@ -104,9 +104,6 @@ function syncStatusToText(syncStatus: SyncStatusResponse): string {
     if (status === 'NoSync') {
         return '';
     }
-    if (status === 'StateSyncDone') {
-        return 'State sync done';
-    }
     if ('EpochSync' in status) {
         return 'Epoch sync';
     }

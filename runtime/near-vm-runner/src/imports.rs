@@ -47,7 +47,7 @@
 //! make imports retroactively available to old transactions. So
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
-#![cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
+#![cfg(feature = "wasmtime_vm")]
 
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
@@ -75,6 +75,19 @@ macro_rules! imports {
                 if true $(&& ($config).$config_field)? {
                     $crate::imports::call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
+            )*}
+        }
+
+        #[allow(unused_macros)]
+        /// Like `for_each_available_import!` but without runtime config gating,
+        /// so that `$M!` invocations appear at item position (useful for
+        /// generating method definitions). Unlike `for_each_available_import`,
+        /// this calls `$M!` directly (not via `call_with_name`) so that the
+        /// trailing `;` is preserved for item-position expansion.
+        macro_rules! for_each_import_item {
+            ($M:ident) => {$(
+                $(#[cfg(feature = $feature_name)])?
+                $M!($( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
             )*}
         }
     }
@@ -105,6 +118,7 @@ imports! {
     // # Context API #
     // ###############
     current_account_id<[register_id: u64] -> []>,
+    #[chain_id_host_fn] chain_id<[register_id: u64] -> []>,
     signer_account_id<[register_id: u64] -> []>,
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
@@ -128,7 +142,24 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[sha3_host_fns] sha3_256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[sha3_host_fns] sha3_384<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[sha3_host_fns] sha3_512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     ed25519_verify<[sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64
+    ] -> [u64]>,
+    #[p256_verify_host_fn] p256_verify<[sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64
+    ] -> [u64]>,
+    #[ml_dsa_verify_host_fn] ml_dsa_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
@@ -173,21 +204,35 @@ imports! {
     promise_and<[promise_idx_ptr: u64, promise_idx_count: u64] -> [u64]>,
     promise_batch_create<[account_id_len: u64, account_id_ptr: u64] -> [u64]>,
     promise_batch_then<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
-    #[deterministic_account_ids] promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
-    #[deterministic_account_ids] set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
-    #[deterministic_account_ids] current_contract_code<[register_id: u64] -> [u64]>,
-    #[deterministic_account_ids] refund_to_account_id<[register_id: u64] -> []>,
+    promise_set_refund_to<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    promise_batch_action_state_init<[promise_idx: u64, code_len: u64, code_ptr: u64, amount_ptr: u64] -> [u64]>,
+    promise_batch_action_state_init_by_account_id<[promise_idx: u64, account_id_len: u64, code_hash_ptr: u64, amount_ptr: u64] -> [u64]>,
+    set_state_init_data_entry<[promise_idx: u64, action_index: u64, key_len: u64, key_ptr: u64, value_len: u64, value_ptr: u64] -> []>,
+    current_contract_code<[register_id: u64] -> [u64]>,
+    refund_to_account_id<[register_id: u64] -> []>,
+    // ######################
+    // # Universal accounts #
+    // ######################
+    #[universal_accounts] universal_state_init_to_account_id<[
+        state_init_len: u64,
+        state_init_ptr: u64,
+        register_id: u64
+    ] -> []>,
+    #[universal_accounts] promise_batch_action_universal_state_init<[
+        promise_idx: u64,
+        state_init_len: u64,
+        state_init_ptr: u64,
+        amount_ptr: u64
+    ] -> []>,
     // #######################
     // # Promise API actions #
     // #######################
     promise_batch_action_create_account<[promise_index: u64] -> []>,
     promise_batch_action_deploy_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_deploy_global_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_deploy_global_contract_by_account_id<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_use_global_contract<[promise_index: u64, code_hash_len: u64, code_hash_ptr: u64] -> []>,
-    #[global_contract_host_fns] promise_batch_action_use_global_contract_by_account_id<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
+    promise_batch_action_deploy_global_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
+    promise_batch_action_deploy_global_contract_by_account_id<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
+    promise_batch_action_use_global_contract<[promise_index: u64, code_hash_len: u64, code_hash_ptr: u64] -> []>,
+    promise_batch_action_use_global_contract_by_account_id<[promise_index: u64, account_id_len: u64, account_id_ptr: u64] -> []>,
     promise_batch_action_function_call<[
         promise_index: u64,
         method_name_len: u64,
@@ -281,9 +326,26 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
+    #[yield_with_id_host_fns] promise_yield_create_with_id<[
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        yield_id_len: u64,
+        yield_id_ptr: u64
+    ] -> [u64]>,
     promise_yield_resume<[
         data_id_len: u64,
         data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> [u32]>,
+    #[yield_with_id_host_fns] promise_yield_resume_with_yield_id<[
+        yield_id_len: u64,
+        yield_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64
     ] -> [u32]>,
@@ -346,6 +408,8 @@ imports! {
     #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
+#[cfg(test)]
+pub(crate) use for_each_import_item;
 pub(crate) use {call_with_name, for_each_available_import};
 
 pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {

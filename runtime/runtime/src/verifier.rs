@@ -1,31 +1,22 @@
-use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::action_validation::{validate_actions, validate_actions_with_mode};
+use crate::config::TransactionCost;
 use crate::near_primitives::account::Account;
-use crate::{AccessKeyUpdate, TxVerdict, VerificationResult};
+use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
-use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::action::delegate::SignedDelegateAction;
-use near_primitives::action::{
-    AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, UseGlobalContractAction,
-};
+use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::errors::{
-    ActionsValidationError, DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError,
-    ReceiptValidationError,
+    DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
 use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, NonceMode, SignedTransaction, StakeAction,
-    Transaction,
+    Action, NonceMode, SignedTransaction, Transaction, ValidatedTransaction,
 };
-use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce, StorageUsage};
-use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::types::NonceIndex;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
@@ -126,18 +117,6 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
-/// Validates a transaction contains well-formed actions and is valid for the given runtime config.
-///
-/// This function is similar to `validate_transaction` but does NOT verify the signature.
-pub(crate) fn validate_transaction_well_formed<'a>(
-    config: &RuntimeConfig,
-    signed_tx: &SignedTransaction,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), InvalidTxError> {
-    validate_transaction_actions(config, signed_tx, current_protocol_version)?;
-    ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
-}
-
 /// Set new `signer` and `access_key` in `state_update`.
 ///
 /// Note that this does not commit state changes to the `TrieUpdate`.
@@ -145,17 +124,141 @@ pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
     signer: &Account,
-    access_key: &AccessKey,
+    access_key: Option<&AccessKey>,
 ) {
     let tx = validated_tx.to_tx();
-    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    // A self-signed state init has no access key yet: its nonce lives on the
+    // account, and the keys arrive when the state init installs them.
+    if let Some(access_key) = access_key {
+        set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), access_key);
+    }
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-pub fn get_signer_and_access_key(
+/// The way a transaction is authorized.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TxAuthorization {
+    /// Signed by a regular, existing access key.
+    AccessKey(AccessKey),
+    /// Signed by a gas key.
+    GasKey { access_key: AccessKey, nonce_index: NonceIndex },
+    /// Self-signed universal state init (bootstrap). The transaction is signed by
+    /// a key that will be added through this transaction. Secure because universal
+    /// account is committed to a particular set of keys.
+    SelfSignedStateInit,
+}
+
+impl TxAuthorization {
+    pub fn into_access_key(self) -> Option<AccessKey> {
+        match self {
+            TxAuthorization::AccessKey(access_key) => Some(access_key),
+            TxAuthorization::GasKey { access_key, .. } => Some(access_key),
+            TxAuthorization::SelfSignedStateInit => None,
+        }
+    }
+
+    pub fn as_tx_authorization_ref(&self) -> TxAuthorizationRef<'_> {
+        match self {
+            TxAuthorization::AccessKey(access_key) => TxAuthorizationRef::AccessKey(access_key),
+            TxAuthorization::GasKey { access_key, nonce_index } => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index: *nonce_index }
+            }
+            TxAuthorization::SelfSignedStateInit => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// A borrowed view of `TxAuthorization`, for callers that already hold a
+/// reference to the access key (e.g. from a prefetched cache) and would
+/// rather not clone it into an owned `TxAuthorization`.
+#[derive(Debug, Clone, Copy)]
+pub enum TxAuthorizationRef<'a> {
+    AccessKey(&'a AccessKey),
+    GasKey { access_key: &'a AccessKey, nonce_index: NonceIndex },
+    SelfSignedStateInit,
+}
+
+impl<'a> TxAuthorizationRef<'a> {
+    /// Builds the authorization from an already-resolved access key and nonce index.
+    /// A missing access key maps to `SelfSignedStateInit` (not verified here).
+    /// `verify_and_charge_bootstrap_tx_ephemeral` rejects it if the tx is not a bootstrap.
+    pub fn new(access_key: Option<&'a AccessKey>, nonce_index: Option<NonceIndex>) -> Self {
+        match (access_key, nonce_index) {
+            (Some(access_key), Some(nonce_index)) => {
+                TxAuthorizationRef::GasKey { access_key, nonce_index }
+            }
+            (Some(access_key), None) => TxAuthorizationRef::AccessKey(access_key),
+            (None, _) => TxAuthorizationRef::SelfSignedStateInit,
+        }
+    }
+}
+
+/// Dispatches to the `verify_and_charge_*_ephemeral` function matching how the
+/// transaction is authorized. `gas_key_nonce` is only called for the `GasKey` case.
+/// Its error type is generic so a caller whose nonce lookup can't actually fail
+/// (e.g. one backed by an infallible cache) can use `Infallible` and unpack the
+/// result without an `expect`.
+pub fn verify_and_charge_tx_ephemeral<E>(
+    config: &RuntimeConfig,
+    account: &Account,
+    authorization: TxAuthorizationRef<'_>,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+    gas_key_nonce: impl FnOnce(NonceIndex) -> Result<Option<Nonce>, E>,
+) -> Result<TxVerdict, E> {
+    let verdict = match authorization {
+        TxAuthorizationRef::AccessKey(access_key) => verify_and_charge_access_key_tx_ephemeral(
+            config,
+            account,
+            access_key,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+        TxAuthorizationRef::GasKey { access_key, nonce_index } => {
+            let Some(current_nonce) = gas_key_nonce(nonce_index)? else {
+                let num_nonces =
+                    access_key.gas_key_info().map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                let error = InvalidTxError::InvalidNonceIndex {
+                    tx_nonce_index: Some(nonce_index),
+                    num_nonces,
+                };
+                return Ok(TxVerdict::Failed(error));
+            };
+            verify_and_charge_gas_key_tx_ephemeral(
+                config,
+                account,
+                access_key,
+                current_nonce,
+                tx,
+                transaction_cost,
+                block_height,
+                pending,
+            )
+        }
+        TxAuthorizationRef::SelfSignedStateInit => verify_and_charge_bootstrap_tx_ephemeral(
+            config,
+            account,
+            tx,
+            transaction_cost,
+            block_height,
+            pending,
+        ),
+    };
+
+    Ok(verdict)
+}
+
+/// Resolve the signer's account and what authorizes the transaction against it:
+/// an access key, a gas key, or the account id itself for a self-signed state
+/// init.
+pub fn get_signer_and_authorization(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
-) -> Result<(Account, AccessKey), InvalidTxError> {
+) -> Result<(Account, TxAuthorization), InvalidTxError> {
     let signer_id = validated_tx.signer_id();
 
     let signer = match get_account(state_update, signer_id)? {
@@ -165,19 +268,31 @@ pub fn get_signer_and_access_key(
         }
     };
 
-    let access_key = match get_access_key(state_update, signer_id, validated_tx.public_key())? {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: validated_tx.public_key().clone().into(),
-                },
-            )
-            .into());
+    let access_key = get_access_key(state_update, signer_id, validated_tx.public_key())?;
+    let nonce_index = validated_tx.nonce().nonce_index();
+
+    match (access_key, nonce_index) {
+        (Some(access_key), None) => Ok((signer, TxAuthorization::AccessKey(access_key))),
+        (Some(access_key), Some(nonce_index)) => {
+            Ok((signer, TxAuthorization::GasKey { access_key, nonce_index }))
         }
-    };
-    Ok((signer, access_key))
+        (None, _) if is_bootstrap(&signer, validated_tx.to_tx()) => {
+            Ok((signer, TxAuthorization::SelfSignedStateInit))
+        }
+        (None, _) => {
+            Err(InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: signer_id.clone(),
+                public_key: validated_tx.public_key().clone().into(),
+            }))
+        }
+    }
+}
+
+/// Whether this transaction is a self-signed state init that may proceed without
+/// an access key: the stateless half is decided by the transaction's own shape,
+/// the stateful half is that the account is still uninitialized.
+pub fn is_bootstrap(account: &Account, tx: &Transaction) -> bool {
+    !account.is_initialized() && tx.is_state_init_bootstrap()
 }
 
 /// Validates FunctionCall permission constraints:
@@ -286,24 +401,22 @@ fn check_and_compute_new_allowance(
 /// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
-/// Legacy: for pre-`FixAccessKeyAllowanceCharging` protocol versions, the allowance is
-/// mutated on `access_key` before later checks, preserving the historical bug where
-/// failed txs still decrement the allowance. This is the only mutation this function
-/// performs; all other state changes are returned in the `VerificationResult`.
-pub fn verify_and_charge_tx_ephemeral(
+/// This function performs no mutation; all state changes are returned in the
+/// `VerificationResult`.
+pub fn verify_and_charge_access_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &Account,
-    access_key: &mut AccessKey,
+    access_key: &AccessKey,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
-    protocol_version: ProtocolVersion,
+    pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to NOT call this function for transactions with
     // nonce_index (i.e. gas key transactions).
     assert!(
         tx.nonce().nonce_index().is_none(),
-        "verify_and_charge_tx_ephemeral called for gas key transaction"
+        "verify_and_charge_access_key_tx_ephemeral called for gas key transaction"
     );
     // Gas keys must be used via gas key transaction path (with nonce_index)
     if let Some(gas_key_info) = access_key.gas_key_info() {
@@ -314,6 +427,7 @@ pub fn verify_and_charge_tx_ephemeral(
     }
     let TransactionCost {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         total_cost,
@@ -322,18 +436,25 @@ pub fn verify_and_charge_tx_ephemeral(
     } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, access_key.nonce, block_height, tx.nonce_mode()) {
+    let effective_nonce = std::cmp::max(access_key.nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
     }
 
-    let balance = account.amount();
-    let Some(new_amount) = balance.checked_sub(total_cost) else {
+    // saturating_sub is fine here: on the consensus path pending constraints
+    // are always default (zero), so the subtraction is exact. On the RPC /
+    // chunk-production path it is best-effort and does not affect consensus.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < total_cost {
         return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
-            balance,
+            balance: available_balance,
             cost: total_cost,
         });
-    };
+    }
+    // Debit only this tx's cost, not the pending amount (which was already
+    // charged in prior chunks and will be applied at execution time).
+    let new_amount = account.amount().checked_sub(total_cost).unwrap();
 
     let new_allowance = match check_and_compute_new_allowance(
         access_key,
@@ -344,15 +465,6 @@ pub fn verify_and_charge_tx_ephemeral(
         Ok(a) => a,
         Err(e) => return TxVerdict::Failed(e),
     };
-    // Legacy bug: pre-FixAccessKeyAllowanceCharging protocol versions mutate the allowance
-    // before subsequent checks, causing incorrect allowance decrement on failed txs.
-    // TODO: remove this mutation when the legacy behavior is no longer needed.
-    let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
-    if !fix_allowance {
-        if let Some(new) = new_allowance {
-            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
-        }
-    }
 
     match check_storage_stake(account, new_amount, config) {
         Ok(()) => {}
@@ -368,19 +480,131 @@ pub fn verify_and_charge_tx_ephemeral(
     };
 
     // Validate FunctionCall permission constraints if applicable
-    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
-        if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return TxVerdict::Failed(e);
-        }
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
     }
 
     TxVerdict::Success(VerificationResult {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
         new_account_amount: new_amount,
         access_key_update: AccessKeyUpdate::Regular { nonce: tx_nonce, new_allowance },
+    })
+}
+
+/// Verify a self-signed universal-account state init and compute the charge outcome.
+///
+/// This is the one transaction an account can send before it holds any access
+/// key. Authorization is the account id itself: a `0u` id is the hash of its
+/// state init, the state init names the account's keys, so a transaction
+/// addressed to that id and signed by one of those keys is authorized by the id
+/// alone.
+///
+/// That claim is re-checked here rather than assumed from the caller. Three
+/// paths reach this verifier, and the chunk producer's path picks it on nothing
+/// more than a missing access key, which an uninitialized account always has.
+/// Re-checking here is what makes the property hold for all three, and it is
+/// the whole of the authorization: everything below is only what a key would
+/// otherwise have provided, a nonce plus the balance and storage checks. The
+/// nonce lives on the account until the state init installs the keys.
+///
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
+/// Performs no mutation; changes are returned in the `VerificationResult`.
+pub fn verify_and_charge_bootstrap_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &Account,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
+) -> TxVerdict {
+    let account_id = tx.signer_id();
+    // Only an uninitialized account carries this nonce, which is the stateful
+    // half of `is_bootstrap`, so reading it doubles as that check. The feature
+    // check is redundant, since an uninitialized account cannot exist without
+    // it, but it keeps this path gated by something local rather than by an
+    // invariant held somewhere else.
+    let bootstrap_nonce = account.bootstrap_nonce();
+    let current_nonce = match bootstrap_nonce {
+        Some(nonce) if config.wasm_config.universal_accounts && tx.is_state_init_bootstrap() => {
+            nonce
+        }
+        _ => {
+            return TxVerdict::Failed(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: account_id.clone(),
+                    public_key: tx.public_key().clone().into(),
+                },
+            ));
+        }
+    };
+
+    let TransactionCost {
+        gas_burnt,
+        compute_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        total_cost,
+        burnt_amount,
+        ..
+    } = *transaction_cost;
+
+    // Strict regardless of what the transaction asked for, so that exactly one
+    // nonce is ever admissible. Monotonic would let the signer pick any value
+    // above the floor, and the keys the state init installs start at
+    // `initial_nonce_value(execution_height)`, which can sit *below* such a
+    // choice: the same signed bytes would then replay through the ordinary path
+    // once the account is initialized. Forcing Strict also lets a V0
+    // transaction bootstrap, since V0 cannot express a nonce mode at all.
+    let tx_nonce = tx.nonce().nonce();
+    // The bootstrap nonce is the account's, so the floor is too: `max_nonce` is
+    // scoped to the signing key, and the state init commits to several.
+    let effective_nonce = std::cmp::max(current_nonce, pending.max_bootstrap_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, NonceMode::Strict) {
+        return TxVerdict::Failed(e);
+    }
+
+    // saturating_sub for the same reason as the regular path: pending
+    // constraints are zero on the consensus path and best-effort elsewhere.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < total_cost {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
+            signer_id: account_id.clone(),
+            balance: available_balance,
+            cost: total_cost,
+        });
+    }
+    let new_amount = account.amount().checked_sub(total_cost).unwrap();
+
+    // Vacuous today, since an uninitialized account is always under the
+    // zero-balance limit, but it is the same invariant the other paths hold and
+    // the account's storage usage is not fixed by anything here.
+    match check_storage_stake(account, new_amount, config) {
+        Ok(()) => {}
+        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
+        }
+        Err(StorageStakingError::StorageError(err)) => {
+            return TxVerdict::Failed(StorageError::StorageInconsistentState(err).into());
+        }
+    };
+
+    TxVerdict::Success(VerificationResult {
+        gas_burnt,
+        compute_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        new_account_amount: new_amount,
+        access_key_update: AccessKeyUpdate::Bootstrap { nonce: tx_nonce },
     })
 }
 
@@ -399,6 +623,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    pending: &PendingConstraints,
 ) -> TxVerdict {
     // It's the caller's responsibility to ONLY call this function for transactions with
     // nonce_index (i.e. gas key transactions).
@@ -407,6 +632,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     };
     let TransactionCost {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
@@ -435,55 +661,100 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     }
 
     let tx_nonce = tx.nonce().nonce();
-    if let Err(e) = verify_nonce(tx_nonce, current_nonce, block_height, tx.nonce_mode()) {
+    let effective_nonce = std::cmp::max(current_nonce, pending.max_nonce);
+    if let Err(e) = verify_nonce(tx_nonce, effective_nonce, block_height, tx.nonce_mode()) {
         return TxVerdict::Failed(e);
     }
 
-    // Check gas key has enough balance for gas costs
-    let Some(new_gas_key_balance) = gas_key_info.balance.checked_sub(gas_cost) else {
+    // Check gas key has enough balance for gas costs, accounting for
+    // pending gas key costs (prior gas key txs + pending WithdrawFromGasKey).
+    // Unlike account balance, gas key balance only changes through transactions
+    // that PTQ explicitly tracks, so pending should never exceed the balance.
+    let Some(available_gas_key_balance) =
+        gas_key_info.balance.checked_sub(pending.paid_from_gas_key)
+    else {
+        tracing::error!(
+            target: "runtime",
+            balance = %gas_key_info.balance,
+            paid_from_gas_key = %pending.paid_from_gas_key,
+            "pending gas key costs exceed gas key balance"
+        );
+        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
+            signer_id: account_id.clone(),
+            balance: Balance::ZERO,
+            cost: gas_cost,
+        });
+    };
+    if available_gas_key_balance < gas_cost {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
+            signer_id: account_id.clone(),
+            balance: available_gas_key_balance,
+            cost: gas_cost,
+        });
+    }
+    let new_gas_key_balance = gas_key_info.balance.checked_sub(gas_cost).unwrap();
+
+    // Calculate new key balance in case of deposit failure. Charges only for the gas burned on
+    // converting the transaction to a receipt.
+    let Some(new_key_balance_on_deposit_failure) = gas_key_info.balance.checked_sub(burnt_amount)
+    else {
         return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
             signer_id: account_id.clone(),
             balance: gas_key_info.balance,
-            cost: gas_cost,
+            cost: burnt_amount,
         });
     };
 
     // Validate FunctionCall permission constraints if applicable
-    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
-        if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return TxVerdict::Failed(e);
-        }
+    if let Some(function_call_permission) = access_key.permission.function_call_permission()
+        && let Err(e) = verify_function_call_permission(function_call_permission, tx)
+    {
+        return TxVerdict::Failed(e);
     }
-    let gas_key_update =
-        AccessKeyUpdate::GasKey { new_balance: new_gas_key_balance, nonce_index, nonce: tx_nonce };
-    let make_result = move |new_account_amount| VerificationResult {
+    let make_result = move |new_account_amount, new_key_amount| VerificationResult {
         gas_burnt,
+        compute_burnt,
         gas_remaining,
         receipt_gas_price,
         burnt_amount,
         new_account_amount,
-        access_key_update: gas_key_update,
+        access_key_update: AccessKeyUpdate::GasKey {
+            new_balance: new_key_amount,
+            nonce_index,
+            nonce: tx_nonce,
+        },
+    };
+    let make_success_result =
+        move |new_account_amount| make_result(new_account_amount, new_gas_key_balance);
+    let make_deposit_failed_result = move |new_account_amount| {
+        make_result(new_account_amount, new_key_balance_on_deposit_failure)
     };
 
-    // Check account has enough balance for deposits
-    let account_balance = account.amount();
-    let Some(new_account_amount) = account_balance.checked_sub(deposit_cost) else {
+    // Check account has enough balance for deposits, accounting for
+    // pending balance costs from prior txs. saturating_sub is fine: on the
+    // consensus path pending constraints are always default (zero), so the
+    // subtraction is exact. On the RPC / chunk-production path it is
+    // best-effort.
+    let available_balance = account.amount().saturating_sub(pending.paid_from_balance);
+    if available_balance < deposit_cost {
         return TxVerdict::DepositFailed {
-            result: make_result(account_balance),
+            result: make_deposit_failed_result(account.amount()),
             error: InvalidTxError::NotEnoughBalanceForDeposit {
                 signer_id: account_id.clone(),
-                balance: account_balance,
+                balance: available_balance,
                 cost: deposit_cost,
                 reason: DepositCostFailureReason::NotEnoughBalance,
             },
         };
-    };
+    }
+    // Debit only this tx's deposit cost, not the pending amount.
+    let new_account_amount = account.amount().checked_sub(deposit_cost).unwrap();
 
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return TxVerdict::DepositFailed {
-                result: make_result(account_balance),
+                result: make_deposit_failed_result(account.amount()),
                 error: InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: account_id.clone(),
                     balance: new_account_amount,
@@ -497,7 +768,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         }
     };
 
-    TxVerdict::Success(make_result(new_account_amount))
+    TxVerdict::Success(make_success_result(new_account_amount))
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -520,7 +791,7 @@ pub(crate) fn validate_receipt(
 
     // We retain these checks here as to maintain backwards compatibility
     // with AccountId validation since we illegally parse an AccountId
-    // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
+    // in near-vm-runner/src/wasmtime_runner/logic.rs#fn(read_and_parse_account_id)
     AccountId::validate(receipt.predecessor_id().as_ref()).map_err(|_| {
         ReceiptValidationError::InvalidPredecessorId {
             account_id: receipt.predecessor_id().to_string(),
@@ -537,6 +808,7 @@ pub(crate) fn validate_receipt(
             action_receipt,
             receipt.receiver_id(),
             current_protocol_version,
+            mode,
         ),
         VersionedReceiptEnum::Data(data_receipt)
         | VersionedReceiptEnum::PromiseResume(data_receipt) => {
@@ -566,6 +838,7 @@ fn validate_action_receipt(
     receipt: VersionedActionReceipt,
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ReceiptValidationError> {
     if receipt.input_data_ids().len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -580,8 +853,14 @@ fn validate_action_receipt(
         })?;
     }
 
-    validate_actions(limit_config, receipt.actions(), receiver, current_protocol_version)
-        .map_err(ReceiptValidationError::ActionsValidation)
+    validate_actions_with_mode(
+        limit_config,
+        receipt.actions(),
+        receiver,
+        current_protocol_version,
+        mode,
+    )
+    .map_err(ReceiptValidationError::ActionsValidation)
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
@@ -599,369 +878,6 @@ fn validate_data_receipt(
     Ok(())
 }
 
-/// Validates given actions:
-///
-/// - Checks limits if applicable.
-/// - Checks that the total number of actions doesn't exceed the limit.
-/// - Checks that there not other action if Action::Delegate is present.
-/// - Validates each individual action.
-/// - Checks that the total prepaid gas doesn't exceed the limit.
-pub(crate) fn validate_actions(
-    limit_config: &LimitConfig,
-    actions: &[Action],
-    receiver: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if actions.len() as u64 > limit_config.max_actions_per_receipt {
-        return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
-            total_number_of_actions: actions.len() as u64,
-            limit: limit_config.max_actions_per_receipt,
-        });
-    }
-
-    let mut found_delegate_action = false;
-    let mut iter = actions.iter().peekable();
-    while let Some(action) = iter.next() {
-        if let Action::DeleteAccount(_) = action {
-            if iter.peek().is_some() {
-                return Err(ActionsValidationError::DeleteActionMustBeFinal);
-            }
-        } else {
-            if let Action::Delegate(_) = action {
-                if found_delegate_action {
-                    return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
-                }
-                found_delegate_action = true;
-            }
-        }
-        validate_action(limit_config, action, receiver, current_protocol_version)?;
-    }
-
-    let total_prepaid_gas =
-        total_prepaid_gas(actions).map_err(|_| ActionsValidationError::IntegerOverflow)?;
-    if total_prepaid_gas > limit_config.max_total_prepaid_gas {
-        return Err(ActionsValidationError::TotalPrepaidGasExceeded {
-            total_prepaid_gas,
-            limit: limit_config.max_total_prepaid_gas,
-        });
-    }
-
-    Ok(())
-}
-
-/// Validates a single given action. Checks limits if applicable.
-pub fn validate_action(
-    limit_config: &LimitConfig,
-    action: &Action,
-    receiver: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    match action {
-        Action::CreateAccount(_) => Ok(()),
-        Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
-        Action::DeployGlobalContract(a) => validate_deploy_global_contract_action(limit_config, a),
-        Action::UseGlobalContract(a) => validate_use_global_contract_action(a),
-        Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
-        Action::Transfer(_) => Ok(()),
-        Action::Stake(a) => validate_stake_action(a),
-        Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
-        Action::DeleteKey(_) => Ok(()),
-        Action::DeleteAccount(a) => validate_delete_action(a),
-        Action::Delegate(a) => {
-            validate_delegate_action(limit_config, a, receiver, current_protocol_version)
-        }
-        Action::DeterministicStateInit(a) => {
-            validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
-        }
-        Action::TransferToGasKey(_) => {
-            validate_transfer_to_gas_key_action(current_protocol_version)
-        }
-        Action::WithdrawFromGasKey(_) => {
-            validate_withdraw_from_gas_key_action(current_protocol_version)
-        }
-    }
-}
-
-fn validate_delegate_action(
-    limit_config: &LimitConfig,
-    signed_delegate_action: &SignedDelegateAction,
-    receiver: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    let actions = signed_delegate_action.delegate_action.get_actions();
-    validate_actions(limit_config, &actions, receiver, current_protocol_version)?;
-    Ok(())
-}
-
-/// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
-fn validate_deploy_contract_action(
-    limit_config: &LimitConfig,
-    action: &DeployContractAction,
-) -> Result<(), ActionsValidationError> {
-    if action.code.len() as u64 > limit_config.max_contract_size {
-        return Err(ActionsValidationError::ContractSizeExceeded {
-            size: action.code.len() as u64,
-            limit: limit_config.max_contract_size,
-        });
-    }
-
-    Ok(())
-}
-
-/// Validates `DeployGlobalContractAction`. Checks that the given contract size doesn't exceed the limit.
-fn validate_deploy_global_contract_action(
-    limit_config: &LimitConfig,
-    action: &DeployGlobalContractAction,
-) -> Result<(), ActionsValidationError> {
-    if action.code.len() as u64 > limit_config.max_contract_size {
-        return Err(ActionsValidationError::ContractSizeExceeded {
-            size: action.code.len() as u64,
-            limit: limit_config.max_contract_size,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_use_global_contract_action(
-    action: &UseGlobalContractAction,
-) -> Result<(), ActionsValidationError> {
-    validate_global_contract_identifier(&action.contract_identifier)?;
-
-    Ok(())
-}
-
-/// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
-/// the length of the arguments doesn't exceed the limit.
-fn validate_function_call_action(
-    limit_config: &LimitConfig,
-    action: &FunctionCallAction,
-) -> Result<(), ActionsValidationError> {
-    if action.gas == Gas::ZERO {
-        return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
-    }
-
-    if action.method_name.len() as u64 > limit_config.max_length_method_name {
-        return Err(ActionsValidationError::FunctionCallMethodNameLengthExceeded {
-            length: action.method_name.len() as u64,
-            limit: limit_config.max_length_method_name,
-        });
-    }
-
-    if action.args.len() as u64 > limit_config.max_arguments_length {
-        return Err(ActionsValidationError::FunctionCallArgumentsLengthExceeded {
-            length: action.args.len() as u64,
-            limit: limit_config.max_arguments_length,
-        });
-    }
-
-    Ok(())
-}
-
-/// Validates `StakeAction`. Checks that the `public_key` is a valid staking key.
-fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
-    if !is_valid_staking_key(&action.public_key) {
-        return Err(ActionsValidationError::UnsuitableStakingKey {
-            public_key: Box::new(action.public_key.clone()),
-        });
-    }
-
-    Ok(())
-}
-
-/// Validates `AddKeyAction`. Checks validity of the access key permission.
-/// If adding a gas key, validates gas key specific constraints.
-fn validate_add_key_action(
-    limit_config: &LimitConfig,
-    action: &AddKeyAction,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.access_key.permission)?;
-
-    // If this is a gas key, apply additional gas key validation
-    if let Some(gas_key_info) = action.access_key.gas_key_info() {
-        require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-
-        // For gas keys with FunctionCallPermission, allowance must be None
-        if let Some(fc) = action.access_key.permission.function_call_permission() {
-            if fc.allowance.is_some() {
-                return Err(ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed);
-            }
-        }
-
-        if gas_key_info.num_nonces == 0
-            || gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
-        {
-            return Err(ActionsValidationError::GasKeyInvalidNumNonces {
-                requested_nonces: gas_key_info.num_nonces,
-                limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
-            });
-        }
-
-        if gas_key_info.balance != Balance::ZERO {
-            return Err(ActionsValidationError::AddGasKeyWithNonZeroBalance {
-                balance: gas_key_info.balance,
-            });
-        }
-    }
-
-    Ok(())
-}
-
-/// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
-/// total number of bytes of the method names doesn't exceed the limit and
-/// every method name length doesn't exceed the limit.
-fn validate_access_key_permission(
-    limit_config: &LimitConfig,
-    permission: &AccessKeyPermission,
-) -> Result<(), ActionsValidationError> {
-    if let Some(fc) = permission.function_call_permission() {
-        // Check whether `receiver_id` is a valid account_id. Historically, we
-        // allowed arbitrary strings there!
-        match limit_config.account_id_validity_rules_version {
-            near_primitives_core::config::AccountIdValidityRulesVersion::V0 => (),
-            near_primitives_core::config::AccountIdValidityRulesVersion::V1
-            | near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
-                if let Err(_) = fc.receiver_id.parse::<AccountId>() {
-                    return Err(ActionsValidationError::InvalidAccountId {
-                        account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
-                    });
-                }
-            }
-        }
-
-        // Checking method name length limits
-        let mut total_number_of_bytes = 0;
-        for method_name in &fc.method_names {
-            let length = method_name.len() as u64;
-            if length > limit_config.max_length_method_name {
-                return Err(ActionsValidationError::AddKeyMethodNameLengthExceeded {
-                    length,
-                    limit: limit_config.max_length_method_name,
-                });
-            }
-            // Adding terminating character to the total number of bytes
-            total_number_of_bytes += length + 1;
-        }
-        if total_number_of_bytes > limit_config.max_number_bytes_method_names {
-            return Err(ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded {
-                total_number_of_bytes,
-                limit: limit_config.max_number_bytes_method_names,
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    validate_action_account_id(&action.beneficiary_id)?;
-
-    Ok(())
-}
-
-fn validate_transfer_to_gas_key_action(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-
-    Ok(())
-}
-
-fn validate_withdraw_from_gas_key_action(
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-
-    Ok(())
-}
-
-fn require_protocol_feature(
-    feature: ProtocolFeature,
-    feature_name: &str,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if !feature.enabled(current_protocol_version) {
-        return Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: feature_name.to_owned(),
-            version: current_protocol_version,
-        });
-    }
-    Ok(())
-}
-
-fn validate_deterministic_state_init(
-    limit_config: &LimitConfig,
-    action: &DeterministicStateInitAction,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(
-        ProtocolFeature::DeterministicAccountIds,
-        "DeterministicAccountIds",
-        current_protocol_version,
-    )?;
-
-    validate_global_contract_identifier(action.state_init.code())?;
-
-    let derived_id = derive_near_deterministic_account_id(&action.state_init);
-
-    if derived_id != *receiver_id {
-        return Err(ActionsValidationError::InvalidDeterministicStateInitReceiver {
-            derived_id,
-            receiver_id: receiver_id.clone(),
-        });
-    }
-
-    // State init entries must not violate limits of individual state keys and values.
-    for (key, value) in action.state_init.data() {
-        if key.len() as u64 > limit_config.max_length_storage_key {
-            return Err(ActionsValidationError::DeterministicStateInitKeyLengthExceeded {
-                length: key.len() as u64,
-                limit: limit_config.max_length_storage_key,
-            }
-            .into());
-        }
-
-        if value.len() as u64 > limit_config.max_length_storage_value {
-            return Err(ActionsValidationError::DeterministicStateInitValueLengthExceeded {
-                length: value.len() as u64,
-                limit: limit_config.max_length_storage_value,
-            }
-            .into());
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_global_contract_identifier(
-    identifier: &GlobalContractIdentifier,
-) -> Result<(), ActionsValidationError> {
-    if let GlobalContractIdentifier::AccountId(account_id) = &identifier {
-        validate_action_account_id(account_id)?;
-    }
-
-    Ok(())
-}
-
-fn validate_action_account_id(account_id: &AccountId) -> Result<(), ActionsValidationError> {
-    AccountId::validate(account_id.as_str()).map_err(|_| {
-        ActionsValidationError::InvalidAccountId { account_id: account_id.to_string() }
-    })?;
-
-    Ok(())
-}
-
-fn truncate_string(s: &str, limit: usize) -> String {
-    for i in (0..=limit).rev() {
-        if let Some(s) = s.get(..i) {
-            return s.to_string();
-        }
-    }
-    unreachable!()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -970,37 +886,40 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-    use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
-    use near_primitives::action::GlobalContractIdentifier;
-    use near_primitives::action::TransferToGasKeyAction;
-    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
+    use near_primitives::account::{
+        AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
+    };
+    use near_primitives::action::{TransferToGasKeyAction, UniversalStateInitAction};
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
-    use near_primitives::deterministic_account_id::{
-        DeterministicAccountStateInit, DeterministicAccountStateInitV1,
-    };
+    use near_primitives::errors::ActionsValidationError;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction,
+        AddKeyAction, CreateAccountAction, DeployContractAction, FunctionCallAction,
         TransactionNonce, TransferAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockHeight, EpochId, MerkleHash, NonceIndex, StateChangeCause,
+        AccountId, Balance, BlockHeight, EpochId, Gas, MerkleHash, NonceIndex, StateChangeCause,
     };
+    use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+    use near_primitives::utils::derive_universal_account_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
-    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(1);
+    // 10 millinear (was 1). Under AccountCostIncrease the receipt's gas is purchased at
+    // min_gas_purchase_price (1e9 yoctoNEAR/gas), so a 100 Tgas function-call tx costs ~2.4
+    // millinear up-front — 1 millinear is no longer enough to fund the test transaction.
+    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(10);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -1039,7 +958,7 @@ mod tests {
             accounts
         {
             let mut initial_account = account_new(initial_balance, CryptoHash::default());
-            initial_account.set_locked(initial_locked);
+            initial_account.set_locked(initial_locked).unwrap();
             let mut key_count = 0;
             for access_key in access_keys {
                 let public_key = if key_count == 0 {
@@ -1072,7 +991,7 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_contract(AccountContract::Local(code_hash));
+                initial_account.set_contract(AccountContract::Local(code_hash)).unwrap();
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
@@ -1123,6 +1042,7 @@ mod tests {
             random_seed: CryptoHash::default(),
             current_protocol_version: ProtocolFeature::GasKeys.protocol_version(),
             config: Arc::new(RuntimeConfig::test()),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -1218,23 +1138,24 @@ mod tests {
             }
         };
 
-        let (signer, mut access_key) = match get_signer_and_access_key(state_update, &validated_tx)
-        {
-            Ok((signer, access_key)) => (signer, access_key),
-            Err(err) => {
-                assert_eq!(err, expected_err);
-                return;
-            }
-        };
+        let (signer, authorization) =
+            match get_signer_and_authorization(state_update, &validated_tx) {
+                Ok((signer, authorization)) => (signer, authorization),
+                Err(err) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
+        let access_key = authorization.into_access_key().expect("access key expected");
 
-        let TxVerdict::Failed(err) = verify_and_charge_tx_ephemeral(
+        let TxVerdict::Failed(err) = verify_and_charge_access_key_tx_ephemeral(
             config,
             &signer,
-            &mut access_key,
+            &access_key,
             validated_tx.to_tx(),
             &cost,
             None,
-            current_protocol_version,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected Failed verdict");
         };
@@ -1253,41 +1174,32 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, authorization) =
+            get_signer_and_authorization(state_update, &validated_tx)?;
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let tx = validated_tx.to_tx();
 
-        // Check if this is a gas key transaction
-        let verdict = if let Some(nonce_index) = tx.nonce().nonce_index() {
-            let current_nonce =
-                get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .unwrap_or(0);
-            verify_and_charge_gas_key_tx_ephemeral(
-                config,
-                &signer,
-                &access_key,
-                current_nonce,
-                tx,
-                &transaction_cost,
-                block_height,
-            )
-        } else {
-            verify_and_charge_tx_ephemeral(
-                config,
-                &signer,
-                &mut access_key,
-                tx,
-                &transaction_cost,
-                block_height,
-                current_protocol_version,
-            )
+        let gas_key_nonce = |nonce_index| {
+            get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)
+                .map(|nonce| Some(nonce.unwrap_or(0)))
         };
+        let verdict = verify_and_charge_tx_ephemeral(
+            config,
+            &signer,
+            authorization.as_tx_authorization_ref(),
+            tx,
+            &transaction_cost,
+            block_height,
+            &PendingConstraints::default(),
+            gas_key_nonce,
+        )?;
         let result = match verdict {
             TxVerdict::Success(result) => result,
             TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
         };
-        result.apply(&mut signer, &mut access_key);
-        set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
+        let mut access_key = authorization.into_access_key();
+        result.apply(&mut signer, access_key.as_mut())?;
+        set_tx_state_changes(state_update, &validated_tx, &signer, access_key.as_ref());
         Ok(result)
     }
 
@@ -2076,6 +1988,80 @@ mod tests {
         );
     }
 
+    /// Verify that `OneYoctoOnPromise` does NOT relax the rule that
+    /// function-call access keys cannot attach any deposit to a transaction.
+    /// The feature only applies to promise-level function calls inside a
+    /// contract, not to user-signed transactions.
+    #[test]
+    fn test_validate_transaction_deposit_with_function_call_one_yocto() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) = setup_common(
+            TESTING_INIT_BALANCE,
+            Balance::ZERO,
+            Some(AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: bob_account().into(),
+                    method_names: vec![],
+                }),
+            }),
+        );
+
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: Gas::from_gas(100),
+                deposit: Balance::from_yoctonear(1),
+            }))],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::DepositWithFunctionCall,)
+        );
+
+        // The same transaction without any deposit should succeed.
+        let signed_tx = SignedTransaction::from_actions(
+            2,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: Gas::from_gas(100),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect("transaction with zero deposit should succeed");
+    }
+
     #[test]
     fn test_validate_transaction_exceeding_tx_size_limit() {
         let (signer, mut state_update, gas_price) =
@@ -2089,7 +2075,10 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );
-        let transaction_size = signed_tx.get_size();
+        // The size gate uses the full wire size (signature included) once
+        // `PostQuantumSignatures` is enabled, and the body-only size before
+        // that. Mirror that here so the test holds on both stable and nightly.
+        let transaction_size = signed_tx.size_for_limits(PROTOCOL_VERSION);
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -2156,7 +2145,8 @@ mod tests {
                 }
                 .into(),
                 &receiver,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
+                ValidateReceiptMode::NewReceipt,
             )
             .expect_err("expected an error"),
             ReceiptValidationError::NumberInputDataDependenciesExceeded {
@@ -2198,691 +2188,6 @@ mod tests {
             ReceiptValidationError::ReturnedValueLengthExceeded {
                 length: data.len() as u64,
                 limit: limit_config.max_length_returned_data
-            }
-        );
-    }
-
-    // Group of actions
-
-    #[test]
-    fn test_validate_actions_empty() {
-        let limit_config = test_limit_config();
-        let receiver = "alice.near".parse().unwrap();
-        validate_actions(&limit_config, &[], &receiver, PROTOCOL_VERSION).expect("empty actions");
-    }
-
-    #[test]
-    fn test_validate_actions_valid_function_call() {
-        let limit_config = test_limit_config();
-        validate_actions(
-            &limit_config,
-            &[Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            }))],
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid function call action");
-    }
-
-    #[test]
-    fn test_validate_actions_too_much_gas() {
-        let mut limit_config = test_limit_config();
-        limit_config.max_total_prepaid_gas = Gas::from_gas(220);
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(100),
-                        deposit: Balance::ZERO,
-                    })),
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(150),
-                        deposit: Balance::ZERO,
-                    }))
-                ],
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::TotalPrepaidGasExceeded {
-                total_prepaid_gas: Gas::from_gas(250),
-                limit: Gas::from_gas(220)
-            }
-        );
-    }
-
-    #[test]
-    fn test_validate_actions_gas_overflow() {
-        let mut limit_config = test_limit_config();
-        limit_config.max_total_prepaid_gas = Gas::from_gas(220);
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: Balance::ZERO,
-                    })),
-                    Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: Gas::from_gas(u64::max_value() / 2 + 1),
-                        deposit: Balance::ZERO,
-                    }))
-                ],
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("Expected an error"),
-            ActionsValidationError::IntegerOverflow,
-        );
-    }
-
-    #[test]
-    fn test_validate_actions_num_actions() {
-        let mut limit_config = test_limit_config();
-        limit_config.max_actions_per_receipt = 1;
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    Action::CreateAccount(CreateAccountAction {}),
-                    Action::CreateAccount(CreateAccountAction {}),
-                ],
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("Expected an error"),
-            ActionsValidationError::TotalNumberOfActionsExceeded {
-                total_number_of_actions: 2,
-                limit: 1
-            },
-        );
-    }
-
-    #[test]
-    fn test_validate_delete_must_be_final() {
-        let mut limit_config = test_limit_config();
-        limit_config.max_actions_per_receipt = 3;
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse().unwrap()
-                    }),
-                    Action::CreateAccount(CreateAccountAction {}),
-                ],
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("Expected an error"),
-            ActionsValidationError::DeleteActionMustBeFinal,
-        );
-    }
-
-    #[test]
-    fn test_validate_delete_must_work_if_its_final() {
-        let mut limit_config = test_limit_config();
-        limit_config.max_actions_per_receipt = 3;
-        assert_eq!(
-            validate_actions(
-                &limit_config,
-                &[
-                    Action::CreateAccount(CreateAccountAction {}),
-                    Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse().unwrap()
-                    }),
-                ],
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            ),
-            Ok(()),
-        );
-    }
-
-    // Individual actions
-
-    #[test]
-    fn test_validate_action_valid_create_account() {
-        validate_action(
-            &test_limit_config(),
-            &Action::CreateAccount(CreateAccountAction {}),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_valid_function_call() {
-        validate_action(
-            &test_limit_config(),
-            &Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "hello".to_string(),
-                args: b"abc".to_vec(),
-                gas: Gas::from_gas(100),
-                deposit: Balance::ZERO,
-            })),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_invalid_function_call_zero_gas() {
-        assert_eq!(
-            validate_action(
-                &test_limit_config(),
-                &Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "new".to_string(),
-                    args: vec![],
-                    gas: Gas::ZERO,
-                    deposit: Balance::ZERO,
-                })),
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::FunctionCallZeroAttachedGas,
-        );
-    }
-
-    #[test]
-    fn test_validate_action_valid_transfer() {
-        validate_action(
-            &test_limit_config(),
-            &Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) }),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_valid_stake() {
-        validate_action(
-            &test_limit_config(),
-            &Action::Stake(Box::new(StakeAction {
-                stake: Balance::from_yoctonear(100),
-                public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
-            })),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_invalid_staking_key() {
-        assert_eq!(
-            validate_action(
-                &test_limit_config(),
-                &Action::Stake(Box::new(StakeAction {
-                    stake: Balance::from_yoctonear(100),
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                })),
-                &"alice.near".parse().unwrap(),
-                PROTOCOL_VERSION,
-            )
-            .expect_err("Expected an error"),
-            ActionsValidationError::UnsuitableStakingKey {
-                public_key: PublicKey::empty(KeyType::ED25519).into(),
-            },
-        );
-    }
-
-    #[test]
-    fn test_validate_action_valid_add_key_full_permission() {
-        validate_action(
-            &test_limit_config(),
-            &Action::AddKey(Box::new(AddKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-                access_key: AccessKey::full_access(),
-            })),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_valid_add_key_function_call() {
-        validate_action(
-            &test_limit_config(),
-            &Action::AddKey(Box::new(AddKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-                access_key: AccessKey {
-                    nonce: 0,
-                    permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                        allowance: Some(Balance::from_yoctonear(1000)),
-                        receiver_id: alice_account().into(),
-                        method_names: vec!["hello".to_string(), "world".to_string()],
-                    }),
-                },
-            })),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_invalid_add_key_gas_key_before_protocol_feature() {
-        let num_nonces = 10; // Arbitrary number of nonces for testing
-        let gas_key = AccessKey::gas_key_full_access(num_nonces);
-        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
-        assert_eq!(
-            validate_action(
-                &test_limit_config(),
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: gas_key,
-                })),
-                &"alice.near".parse().unwrap(),
-                protocol_version,
-            ),
-            Err(ActionsValidationError::UnsupportedProtocolFeature {
-                protocol_feature: "GasKeys".to_owned(),
-                version: protocol_version,
-            })
-        );
-    }
-
-    #[test]
-    fn test_validate_action_valid_delete_key() {
-        validate_action(
-            &test_limit_config(),
-            &Action::DeleteKey(Box::new(DeleteKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-            })),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_action_valid_delete_account() {
-        validate_action(
-            &test_limit_config(),
-            &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
-            &"alice.near".parse().unwrap(),
-            PROTOCOL_VERSION,
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_delegate_action_must_be_only_one() {
-        let receiver = "alice.near".parse().unwrap();
-        let signed_delegate_action = SignedDelegateAction {
-            delegate_action: DelegateAction {
-                sender_id: "bob.test.near".parse().unwrap(),
-                receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![
-                    NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
-                        .unwrap(),
-                ],
-                nonce: 19000001,
-                max_block_height: 57,
-                public_key: PublicKey::empty(KeyType::ED25519),
-            },
-            signature: Signature::default(),
-        };
-        assert_eq!(
-            validate_actions(
-                &test_limit_config(),
-                &[
-                    Action::Delegate(Box::new(signed_delegate_action.clone())),
-                    Action::Delegate(Box::new(signed_delegate_action.clone())),
-                ],
-                &receiver,
-                PROTOCOL_VERSION,
-            ),
-            Err(ActionsValidationError::DelegateActionMustBeOnlyOne),
-        );
-        assert_eq!(
-            validate_actions(
-                &&test_limit_config(),
-                &[Action::Delegate(Box::new(signed_delegate_action.clone())),],
-                &receiver,
-                PROTOCOL_VERSION,
-            ),
-            Ok(()),
-        );
-        assert_eq!(
-            validate_actions(
-                &test_limit_config(),
-                &[
-                    Action::CreateAccount(CreateAccountAction {}),
-                    Action::Delegate(Box::new(signed_delegate_action)),
-                ],
-                &receiver,
-                PROTOCOL_VERSION,
-            ),
-            Ok(()),
-        );
-    }
-
-    #[test]
-    fn test_validate_deterministic_state_init_receiver() {
-        use expect_test::{Expect, expect};
-        fn check_validate_state_init(
-            receiver: &str,
-            protocol_version: ProtocolVersion,
-            want: Expect,
-        ) {
-            let validation_result = validate_actions(
-                &test_limit_config(),
-                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                    state_init: DeterministicAccountStateInit::V1(
-                        DeterministicAccountStateInitV1 {
-                            code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
-                            data: Default::default(),
-                        },
-                    ),
-                    deposit: Balance::ZERO,
-                }))],
-                &receiver.parse().unwrap(),
-                protocol_version,
-            );
-
-            want.assert_debug_eq(&validation_result);
-        }
-
-        // correct receiver
-        check_validate_state_init(
-            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Ok(
-                    (),
-                )
-            "#]],
-        );
-
-        // deterministic id but incorrect receiver
-        check_validate_state_init(
-            "0s1234567890123456789012345678901234567890",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Err(
-                    InvalidDeterministicStateInitReceiver {
-                        receiver_id: AccountId(
-                            "0s1234567890123456789012345678901234567890",
-                        ),
-                        derived_id: AccountId(
-                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-                        ),
-                    },
-                )
-            "#]],
-        );
-
-        // named receiver (invalid)
-        check_validate_state_init(
-            "alice.near",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Err(
-                    InvalidDeterministicStateInitReceiver {
-                        receiver_id: AccountId(
-                            "alice.near",
-                        ),
-                        derived_id: AccountId(
-                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-                        ),
-                    },
-                )
-            "#]],
-        );
-        // NEAR implicit receiver (invalid)
-        check_validate_state_init(
-            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Err(
-                    InvalidDeterministicStateInitReceiver {
-                        receiver_id: AccountId(
-                            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
-                        ),
-                        derived_id: AccountId(
-                            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-                        ),
-                    },
-                )
-            "#]],
-        );
-
-        // Without protocol features enabled, again with all receiver variations
-        for receiver in [
-            "alice.near",
-            "0s69284a5453e7be5632b28b6a01baecf6c12c156d",
-            "0s1234567890123456789012345678901234567890",
-            "eab5a5da5a83e1ffb05ed0905a104e09b7e13159fd4daf82e43d047887ce4e47",
-        ] {
-            check_validate_state_init(
-                receiver,
-                ProtocolFeature::DeterministicAccountIds.protocol_version() - 1,
-                expect![[r#"
-                Err(
-                    UnsupportedProtocolFeature {
-                        protocol_feature: "DeterministicAccountIds",
-                        version: 81,
-                    },
-                )
-            "#]],
-            );
-        }
-    }
-
-    #[test]
-    fn test_validate_deterministic_state_init_data() {
-        use expect_test::{Expect, expect};
-        fn check_validate_state_init(
-            data: BTreeMap<Vec<u8>, Vec<u8>>,
-            protocol_version: ProtocolVersion,
-            want: Expect,
-        ) {
-            let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-                code: GlobalContractIdentifier::AccountId("ft.near".parse().unwrap()),
-                data,
-            });
-            let receiver = derive_near_deterministic_account_id(&state_init);
-            let validation_result = validate_actions(
-                &test_limit_config(),
-                &[Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
-                    state_init,
-                    deposit: Balance::ZERO,
-                }))],
-                &receiver,
-                protocol_version,
-            );
-
-            want.assert_debug_eq(&validation_result);
-        }
-
-        fn make_payload(key_size: usize, value_size: usize) -> BTreeMap<Vec<u8>, Vec<u8>> {
-            let key = vec![1u8; key_size];
-            let value = vec![2u8; value_size];
-            BTreeMap::from_iter([(key, value)])
-        }
-
-        // small payload
-        check_validate_state_init(
-            make_payload(10, 20),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Ok(
-                    (),
-                )
-            "#]],
-        );
-
-        // key and value exactly at limit
-        check_validate_state_init(
-            make_payload(2_048, 4_194_304),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Ok(
-                    (),
-                )
-            "#]],
-        );
-
-        // key above limit
-        check_validate_state_init(
-            make_payload(2_049, 4_194_304),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Err(
-                    DeterministicStateInitKeyLengthExceeded {
-                        length: 2049,
-                        limit: 2048,
-                    },
-                )
-            "#]],
-        );
-
-        // value above limit
-        check_validate_state_init(
-            make_payload(2_048, 4_194_305),
-            ProtocolFeature::DeterministicAccountIds.protocol_version(),
-            expect![[r#"
-                Err(
-                    DeterministicStateInitValueLengthExceeded {
-                        length: 4194305,
-                        limit: 4194304,
-                    },
-                )
-            "#]],
-        );
-    }
-
-    #[test]
-    fn test_truncate_string() {
-        fn check(input: &str, limit: usize, want: &str) {
-            let got = truncate_string(input, limit);
-            assert_eq!(got, want)
-        }
-        check("", 10, "");
-        check("hello", 0, "");
-        check("hello", 2, "he");
-        check("hello", 4, "hell");
-        check("hello", 5, "hello");
-        check("hello", 6, "hello");
-        check("hello", 10, "hello");
-        // cspell:ignore привет
-        check("привет", 3, "п");
-    }
-
-    #[test]
-    fn test_validate_add_gas_key_valid() {
-        let limit_config = test_limit_config();
-        let num_nonces = 10; // Arbitrary number of nonces for testing
-        validate_action(
-            &limit_config,
-            &Action::AddKey(Box::new(AddKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-                access_key: AccessKey::gas_key_full_access(num_nonces),
-            })),
-            &"alice.near".parse().unwrap(),
-            ProtocolFeature::GasKeys.protocol_version(),
-        )
-        .expect("valid action");
-    }
-
-    #[test]
-    fn test_validate_add_gas_key_invalid_num_nonces() {
-        let limit_config = test_limit_config();
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        let version = ProtocolFeature::GasKeys.protocol_version();
-        // Valid number of nonces is between 1 and MAX_NONCES_FOR_GAS_KEY inclusive.
-        // Test 0 nonces and num_nonces greater than the maximum allowed results in an error.
-        for num_nonces in [0, AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1] {
-            assert_eq!(
-                validate_action(
-                    &limit_config,
-                    &Action::AddKey(Box::new(AddKeyAction {
-                        public_key: PublicKey::empty(KeyType::ED25519),
-                        access_key: AccessKey::gas_key_full_access(num_nonces),
-                    })),
-                    &account_id,
-                    version,
-                )
-                .unwrap_err(),
-                ActionsValidationError::GasKeyInvalidNumNonces {
-                    requested_nonces: num_nonces,
-                    limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
-                },
-            );
-        }
-    }
-
-    #[test]
-    fn test_validate_add_gas_key_allowance_set() {
-        let limit_config = test_limit_config();
-        let num_nonces = 10; // Arbitrary number of nonces for testing
-        let gas_key = AccessKey::gas_key_function_call(
-            num_nonces,
-            FunctionCallPermission {
-                allowance: Some(Balance::from_yoctonear(1000)),
-                receiver_id: "bob.near".parse().unwrap(),
-                method_names: vec![],
-            },
-        );
-        assert_eq!(
-            validate_action(
-                &limit_config,
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: gas_key,
-                })),
-                &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed
-        );
-    }
-
-    #[test]
-    fn test_validate_add_gas_key_method_name_too_long() {
-        let limit_config = test_limit_config();
-        let num_nonces = 10; // Arbitrary number of nonces for testing
-        let limit_length = limit_config.max_length_method_name;
-        let permission = FunctionCallPermission {
-            allowance: None,
-            receiver_id: "bob.near".parse().unwrap(),
-            method_names: vec!["A".repeat(limit_length as usize + 1)],
-        };
-        assert_eq!(
-            validate_action(
-                &limit_config,
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: AccessKey::gas_key_function_call(num_nonces, permission),
-                })),
-                &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::AddKeyMethodNameLengthExceeded {
-                length: limit_length + 1,
-                limit: limit_length
             }
         );
     }
@@ -3079,7 +2384,7 @@ mod tests {
         )
         .expect_err("should fail without nonce_index for gas key");
 
-        // verify_and_charge_tx_ephemeral rejects gas keys used without nonce_index
+        // verify_and_charge_access_key_tx_ephemeral rejects gas keys used without nonce_index
         assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
     }
 
@@ -3295,6 +2600,257 @@ mod tests {
         );
     }
 
+    /// The floor a bootstrap is held to is the account's, not the signing key's.
+    /// Both are pending values, and the queue records a bootstrap under both
+    /// scopes, so for an uninitialized account the account scope is never behind
+    /// the key's: ignoring `max_nonce` here loses nothing. Reading it *instead*
+    /// would, since the state init commits to several keys and a second init
+    /// signed by a sibling one would find that key's scope empty.
+    #[test]
+    fn test_bootstrap_nonce_floor_is_account_scoped() {
+        let config = RuntimeConfig::test();
+        let gas_price = Balance::from_yoctonear(5000);
+        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // to the transaction nonce matters, since no block height is passed.
+        const BOOTSTRAP_NONCE: Nonce = 1_000;
+
+        // The account id is the hash of the state init, so the key comes first,
+        // under a placeholder that the seeded key does not depend on.
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: Default::default(),
+            access_keys: BTreeSet::from([PublicKeyHandle::from(signer.public_key())]),
+        });
+        let raw_state_init = state_init.to_raw();
+        let account_id = derive_universal_account_id(&raw_state_init);
+        let account = Account::new_uninitialized(TESTING_INIT_BALANCE, 100, BOOTSTRAP_NONCE);
+        let signed_tx = SignedTransaction::from_actions(
+            BOOTSTRAP_NONCE + 1,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                state_init: raw_state_init,
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let tx = &signed_tx.transaction;
+        let cost = tx_cost(&config, tx, gas_price).unwrap();
+        let verify = |pending| {
+            verify_and_charge_bootstrap_tx_ephemeral(&config, &account, tx, &cost, None, &pending)
+        };
+
+        // A pending bootstrap at the same nonce, whoever signed it, is the floor.
+        let account_floor = PendingConstraints {
+            max_bootstrap_nonce: BOOTSTRAP_NONCE + 1,
+            ..PendingConstraints::default()
+        };
+        let TxVerdict::Failed(err) = verify(account_floor) else {
+            panic!("a pending bootstrap at the same nonce must be the floor")
+        };
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce {
+                tx_nonce: BOOTSTRAP_NONCE + 1,
+                ak_nonce: BOOTSTRAP_NONCE + 1,
+            }
+        );
+
+        // The key-scoped floor belongs to a nonce this transaction does not carry.
+        let key_floor =
+            PendingConstraints { max_nonce: BOOTSTRAP_NONCE + 1, ..PendingConstraints::default() };
+        assert!(matches!(verify(key_floor), TxVerdict::Success(_)));
+    }
+
+    fn universal_state_init(num_keys: u64, value_len: usize) -> UniversalStateInit {
+        let access_keys = (0..num_keys)
+            .map(|i| SecretKey::from_seed(KeyType::ED25519, &format!("uaid-cap-{i}")))
+            .map(|key| PublicKeyHandle::from(key.public_key()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(access_keys.len() as u64, num_keys, "seeds must give distinct keys");
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"pad".to_vec(), vec![0u8; value_len])]),
+            access_keys,
+        })
+    }
+
+    /// A self-signed state-init transaction committing to `num_keys` access keys
+    /// and carrying one data entry of `value_len` bytes. Padding the entry grows
+    /// the transaction by exactly `value_len`, which is how the size-limit case
+    /// below hits the limit on the nose.
+    fn bootstrap_state_init_tx(
+        num_keys: u64,
+        value_len: usize,
+        copies: usize,
+    ) -> SignedTransaction {
+        let placeholder: AccountId = "unused.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(placeholder, KeyType::ED25519, "committed");
+        let raw_state_init = universal_state_init(num_keys, value_len).to_raw();
+        let account_id = derive_universal_account_id(&raw_state_init);
+        let actions = (0..copies)
+            .map(|_| {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init: raw_state_init.clone(),
+                    deposit: Balance::ZERO,
+                }))
+            })
+            .collect();
+        SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id,
+            &signer,
+            actions,
+            CryptoHash::default(),
+        )
+    }
+
+    /// A state init committing to more keys than allowed never gets as far as
+    /// conversion: `validate_transaction` is stateless, and both RPC ingest and
+    /// `prepare_transactions` run it before a transaction is charged for
+    /// anything. That matters because the per-key fee is a *send* fee, burnt
+    /// when the transaction becomes a receipt, and nothing meters conversion
+    /// against the chunk's gas limit.
+    #[test]
+    fn test_validate_transaction_rejects_over_cap_universal_state_init() {
+        let config = RuntimeConfig::test();
+        let max_keys = config.wasm_config.limit_config.max_universal_state_init_keys;
+        let bootstrap_tx = |num_keys| bootstrap_state_init_tx(num_keys, 0, 1);
+
+        let (err, _) = validate_transaction(&config, bootstrap_tx(max_keys + 1), PROTOCOL_VERSION)
+            .expect_err("a state init over the key cap must be rejected");
+        assert_eq!(
+            err,
+            InvalidTxError::ActionsValidation(
+                ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
+                    number_of_keys: max_keys + 1,
+                    limit: max_keys,
+                }
+            )
+        );
+
+        // The cap itself is fine, so the only thing rejected is going past it.
+        assert!(validate_transaction(&config, bootstrap_tx(max_keys), PROTOCOL_VERSION).is_ok());
+    }
+
+    /// The most expensive state-init transaction the validator will accept, on
+    /// the real parameters, still converts for less gas than a chunk gives
+    /// transactions.
+    ///
+    /// The worst case is *searched for*, over every split of the action budget,
+    /// rather than assumed. An earlier version of this test built one action and
+    /// called it the worst case, which is how a per-action key cap passed review:
+    /// 94 copies of a 506-key payload commit 47,564 keys and burn 10x the budget,
+    /// and this test did not see it.
+    ///
+    /// Note the conversion burn *is* metered against the chunk, contrary to what
+    /// this test once claimed: `process_transactions` folds it into the same
+    /// counter `process_receipts` gates on, so an over-budget transaction stops
+    /// the shard executing receipts that chunk.
+    #[test]
+    fn test_worst_accepted_universal_state_init_converts_within_the_tx_gas_budget() {
+        let store = near_parameters::RuntimeConfigStore::new(None);
+        let config = store.get_config(PROTOCOL_VERSION);
+        let limits = &config.wasm_config.limit_config;
+        let max_size = limits.max_transaction_size;
+        let budget = config.congestion_control_config.max_tx_gas;
+
+        // Pad each copy so the whole transaction sits at the size limit, since
+        // the per-byte send fee is part of the burn.
+        let padded_tx = |keys: u64, copies: usize| {
+            let bare = bootstrap_state_init_tx(keys, 0, copies).size_for_limits(PROTOCOL_VERSION);
+            if bare > max_size {
+                return None;
+            }
+            let padding = usize::try_from(max_size - bare).unwrap() / copies;
+            let tx = bootstrap_state_init_tx(keys, padding, copies);
+            (tx.size_for_limits(PROTOCOL_VERSION) <= max_size).then_some(tx)
+        };
+
+        // Only equal splits are reachable, which is what makes this search
+        // exhaustive over the shapes that exist rather than merely over the ones
+        // it happens to build. Every action in a receipt shares its receiver, and
+        // a state init must derive to that receiver, so the copies have to be
+        // byte identical: keys cannot be spread unevenly across them and the
+        // padding cannot differ between them. The leftover
+        // `max_universal_state_init_keys % copies` keys, and the up to
+        // `copies - 1` padding bytes integer division drops, are therefore
+        // genuinely unusable rather than untested.
+        let first = universal_state_init(600, 0);
+        let second = universal_state_init(424, 0);
+        let uneven = SignedTransaction::from_actions(
+            1,
+            "unused.near".parse().unwrap(),
+            derive_universal_account_id(&first.to_raw()),
+            &InMemorySigner::from_seed(
+                "unused.near".parse().unwrap(),
+                KeyType::ED25519,
+                "committed",
+            ),
+            [first, second]
+                .into_iter()
+                .map(|state_init| {
+                    Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                        state_init: state_init.to_raw(),
+                        deposit: Balance::ZERO,
+                    }))
+                })
+                .collect(),
+            CryptoHash::default(),
+        );
+        assert!(
+            matches!(
+                validate_transaction(config, uneven, PROTOCOL_VERSION).map_err(|(err, _)| err),
+                Err(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+                ))
+            ),
+            "an uneven split must stay unreachable, or this search is no longer exhaustive",
+        );
+
+        // Every candidate has to be a real, admissible shape. Skipping one
+        // quietly would let a parameter change shrink the search to nothing while
+        // the test still passed, so anything that does not fit or does not
+        // validate fails here instead.
+        let mut worst: Option<(usize, u64, Gas)> = None;
+        for copies in 1..=usize::try_from(limits.max_actions_per_receipt).unwrap() {
+            // The most keys per action the per-receipt cap leaves room for. With
+            // the current parameters this is at least 10.
+            let keys = limits.max_universal_state_init_keys / copies as u64;
+            assert!(keys > 0, "{copies} actions must leave room for at least one key each");
+            let tx = padded_tx(keys, copies).unwrap_or_else(|| {
+                panic!("{copies} actions x {keys} keys must fit in {max_size} B")
+            });
+            let burnt =
+                tx_cost(config, &tx.transaction, Balance::from_yoctonear(1)).unwrap().gas_burnt;
+            if let Err((err, _)) = validate_transaction(config, tx, PROTOCOL_VERSION) {
+                panic!(
+                    "{copies} actions x {keys} keys must be a shape the validator accepts: {err}"
+                );
+            }
+            if worst.is_none_or(|(_, _, seen)| burnt > seen) {
+                worst = Some((copies, keys, burnt));
+            }
+        }
+
+        let (copies, keys, burnt) = worst.expect("the loop runs at least once");
+        println!(
+            "[worst accepted] {copies} actions x {keys} keys = {} total, burning {burnt} at \
+             conversion, {:.1}% of the {budget} budget",
+            copies as u64 * keys,
+            100.0 * burnt.as_gas() as f64 / budget.as_gas() as f64,
+        );
+        assert!(
+            burnt < budget,
+            "the worst shape the validator accepts, {copies} actions of {keys} keys, burns \
+             {burnt} at conversion against a per-chunk transaction budget of {budget}"
+        );
+    }
+
     #[test]
     fn test_gas_key_tx_deposit_failed_for_account_balance() {
         let config = RuntimeConfig::test();
@@ -3316,8 +2872,10 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, access_key) =
-            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
@@ -3329,6 +2887,7 @@ mod tests {
             tx,
             &cost,
             None,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected DepositFailed");
         };
@@ -3346,7 +2905,7 @@ mod tests {
         assert_eq!(
             result.access_key_update,
             AccessKeyUpdate::GasKey {
-                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.gas_cost).unwrap(),
+                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.burnt_amount).unwrap(),
                 nonce_index: 0,
                 nonce: initial_nonce + 1,
             }
@@ -3379,8 +2938,10 @@ mod tests {
                 .unwrap();
         let tx = validated_tx.to_tx();
         let cost = tx_cost(&config, &tx, gas_price).unwrap();
-        let (signer_account, access_key) =
-            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let (signer_account, authorization) =
+            get_signer_and_authorization(&state_update, &validated_tx).unwrap();
+        let access_key =
+            authorization.into_access_key().expect("gas key test expects an access key");
         let current_nonce =
             get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
 
@@ -3392,6 +2953,7 @@ mod tests {
             tx,
             &cost,
             None,
+            &PendingConstraints::default(),
         ) else {
             panic!("expected DepositFailed");
         };
@@ -3412,7 +2974,7 @@ mod tests {
     mod strict_nonce_tests {
         use super::*;
 
-        /// The nightly protocol version where StrictNonce is enabled.
+        /// The protocol version where StrictNonce is enabled.
         const STRICT_NONCE_PROTOCOL_VERSION: ProtocolVersion =
             ProtocolFeature::StrictNonce.protocol_version();
 
@@ -3560,7 +3122,7 @@ mod tests {
         }
 
         #[test]
-        fn test_strict_nonce_rejected_when_feature_disabled() {
+        fn test_strict_nonce_v1_rejected_before_feature() {
             let config = RuntimeConfig::test();
             let (signer, _state_update, _gas_price) =
                 setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
@@ -3574,16 +3136,9 @@ mod tests {
                 CryptoHash::default(),
             );
 
-            // Use a protocol version where StrictNonce is NOT enabled.
-            // GasKeys must be enabled for V1 to be accepted at all.
-            let protocol_version = ProtocolFeature::GasKeys.protocol_version();
-            assert!(
-                !ProtocolFeature::StrictNonce.enabled(protocol_version),
-                "StrictNonce should not be enabled at GasKeys protocol version"
-            );
-
+            let protocol_version = STRICT_NONCE_PROTOCOL_VERSION - 1;
             let err = validate_transaction(&config, signed_tx, protocol_version)
-                .expect_err("strict nonce should be rejected when feature disabled");
+                .expect_err("strict nonce V1 tx should be rejected before the feature");
             assert_eq!(err.0, InvalidTxError::InvalidTransactionVersion);
         }
 

@@ -1,0 +1,43 @@
+one_yocto_on_promise: { old: false, new: true }
+p256_verify_host_fn: { old: false, new: true }
+gas_key_host_fns: { old: false, new: true }
+chain_id_host_fn: { old: false, new: true }
+yield_with_id_host_fns: { old: false, new: true }
+# yield_create_with_id charges this base instead of wasm_yield_create_base.
+# Accounts for the two extra trie writes (YieldIdToDataId / DataIdToYieldId
+# mapping) compared to plain yield_create. Value derived from wasm_yield_create_base
+# (153B) plus the cost of two wasm_storage_write_base operations (~64B each).
+wasm_yield_create_with_id_base: { old: 300_000_000_000_000, new: 290_000_000_000 }
+# PostQuantumSignatures: the newly introduced ML-DSA-65 signature scheme is more
+# expensive to verify than the existing schemes. The verification cost is added
+# to the transaction conversion cost to cover the difference.
+# 100 Ggas
+ml_dsa_65_verification_cost: { old: 0, new: 100_000_000_000 }
+action_create_account: {
+  old: {
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 3_850_000_000_000
+  },
+  new: {
+    send_sir: 500_000_000_000,
+    send_not_sir: 500_000_000_000,
+    execution: 7_200_000_000_000,
+  }
+}
+action_deterministic_state_init: {
+  old: {
+    send_sir: 3_850_000_000_000,
+    send_not_sir: 3_850_000_000_000,
+    execution: 4_080_000_000_000
+  },
+  new: {
+    send_sir: 500_000_000_000,
+    send_not_sir: 500_000_000_000,
+    execution: 7_430_000_000_000
+  }
+}
+# Minimum price at which gas attached to a receipt is purchased.
+min_gas_purchase_price: { old: 0, new: 1_000_000_000 }
+# How much creating a new account should cost.
+account_creation_charge: { old: 0, new: 0.007 N }

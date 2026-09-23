@@ -1,14 +1,34 @@
+use super::metrics;
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::block_data::build_block_data;
+use crate::archive::cloud_storage::batch::{BatchRange, compute_batch_id};
+use crate::archive::cloud_storage::blocks::build_block_batch;
 use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::epoch_data::build_epoch_data;
-use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::file_id::{CloudStorageFileID, ListableCloudDir};
 use crate::archive::cloud_storage::retrieve::CloudRetrievalError;
-use crate::archive::cloud_storage::shard_data::build_shard_data;
+use crate::archive::cloud_storage::shards::build_shard_batch;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, ShardUId, ShardVersion};
+use near_primitives::types::{BlockHeight, ShardId};
+
+/// The block head or a shard head, as stored in the archive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub(crate) enum CloudHead {
+    V1(BlockHeight) = 0,
+}
+
+impl CloudHead {
+    pub fn height(&self) -> BlockHeight {
+        match self {
+            Self::V1(height) => *height,
+        }
+    }
+}
 
 /// Error surfaced while archiving data or performing sanity checks.
 #[derive(thiserror::Error, Debug)]
@@ -25,6 +45,10 @@ pub enum CloudArchivingError {
     RetrievalError { error: CloudRetrievalError },
     #[error("Bucket config mismatch: local {local:?} != remote {remote:?}")]
     ConfigMismatch { local: BucketConfig, remote: BucketConfig },
+    #[error(
+        "resharding changed the shard layout version from {old} to {new}; cloud archival's carried-over shard handling must be reviewed for the new version"
+    )]
+    ReshardingLayoutVersionChanged { old: ShardVersion, new: ShardVersion },
 }
 
 impl From<std::io::Error> for CloudArchivingError {
@@ -59,71 +83,84 @@ impl CloudStorage {
     // Will be replaced with ifGenerationMatch:0 atomic uploads.
     pub async fn ensure_bucket_config(&self) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::Config;
-        let existing: Option<BucketConfig> =
-            self.retrieve_if_exists(&file_id).await.map_err(CloudArchivingError::from)?;
-        let local_config = BucketConfig::local();
+        let (_, filename) = self.location_dir_and_file(&file_id);
+        let exists = self
+            .dir_contains(&ListableCloudDir::Metadata, &filename)
+            .await
+            .map_err(CloudArchivingError::from)?;
+        let existing: Option<BucketConfig> = if exists {
+            Some(self.retrieve(&file_id).await.map_err(CloudArchivingError::from)?)
+        } else {
+            None
+        };
+        let expected_config = &self.bucket_config;
         match existing {
             None => {
-                tracing::info!(target: "cloud_archival", ?local_config, "Writing bucket config");
-                let blob = borsh::to_vec(&local_config).unwrap();
+                tracing::info!(target: "cloud_archival", ?expected_config, "Writing bucket config");
+                let blob = borsh::to_vec(expected_config).unwrap();
                 self.upload(file_id, blob).await
             }
             Some(remote_config) => {
-                if remote_config != local_config {
+                if &remote_config != expected_config {
                     return Err(CloudArchivingError::ConfigMismatch {
-                        local: local_config,
+                        local: expected_config.clone(),
                         remote: remote_config,
                     });
                 }
-                tracing::info!(target: "cloud_archival", ?local_config, "Bucket config validated");
+                tracing::info!(target: "cloud_archival", ?expected_config, "Bucket config validated");
                 Ok(())
             }
         }
     }
 
-    /// Saves the archival data associated with the given epoch ID.
+    /// Saves the archival data of the epoch that starts after `prev_epoch_end`.
     pub async fn archive_epoch_data(
         &self,
         hot_store: &Store,
         shard_layout: &ShardLayout,
-        epoch_id: EpochId,
+        prev_epoch_end: &CryptoHash,
     ) -> Result<(), CloudArchivingError> {
-        let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), epoch_id)?;
-        let file_id = CloudStorageFileID::Epoch(epoch_id);
+        let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), prev_epoch_end)?;
+        let file_id = CloudStorageFileID::Epoch(*epoch_data.epoch_id());
         let blob = borsh::to_vec(&epoch_data).unwrap();
         self.upload_compressed(file_id, blob).await
     }
 
-    /// Saves the archival data associated with the block at the given height.
-    pub async fn archive_block_data(
+    /// Builds and uploads a block batch covering `range`.
+    pub async fn archive_block_batch(
         &self,
         hot_store: &Store,
-        block_height: BlockHeight,
+        range: &BatchRange,
     ) -> Result<(), CloudArchivingError> {
-        let block_data = build_block_data(hot_store, block_height)?;
-        let file_id = CloudStorageFileID::Block(block_height);
-        let blob = borsh::to_vec(&block_data).unwrap();
+        let block_batch = build_block_batch(hot_store, range)?;
+        let batch_id = compute_batch_id(range.start(), self.batch_size());
+        let file_id = CloudStorageFileID::BlockBatch(batch_id);
+        let blob = borsh::to_vec(&block_batch).unwrap();
         self.upload_compressed(file_id, blob).await
     }
 
-    /// Saves the archival data associated with the given block height and shard ID.
-    pub async fn archive_shard_data(
+    /// Builds and uploads a shard batch covering `range`. The caller must
+    /// ensure that all heights in the batch share the same `shard_layout`.
+    /// `inverse_ceiling`: when `Some(h)`, attaches inverse state changes
+    /// for present blocks with height `<= h`.
+    pub async fn archive_shard_batch(
         &self,
         hot_store: &Store,
-        genesis_height: BlockHeight,
         shard_layout: &ShardLayout,
-        block_height: BlockHeight,
+        range: &BatchRange,
         shard_uid: ShardUId,
+        inverse_ceiling: Option<BlockHeight>,
     ) -> Result<(), CloudArchivingError> {
-        let shard_data =
-            build_shard_data(hot_store, genesis_height, shard_layout, block_height, shard_uid)?;
-        let file_id = CloudStorageFileID::Shard(block_height, shard_uid.shard_id());
-        let blob = borsh::to_vec(&shard_data).unwrap();
+        let shard_batch =
+            build_shard_batch(hot_store, shard_layout, range, shard_uid, inverse_ceiling)?;
+        let batch_id = compute_batch_id(range.start(), self.batch_size());
+        let file_id = CloudStorageFileID::ShardBatch(shard_uid.shard_id(), batch_id);
+        let blob = borsh::to_vec(&shard_batch).unwrap();
         self.upload_compressed(file_id, blob).await
     }
 
     /// Compresses and uploads data to cloud storage.
-    /// Used for block, shard, and epoch data blobs — NOT for metadata.
+    /// Used for block, shard, and epoch data blobs - NOT for metadata.
     // TODO(cloud_archival): Benchmark compression: optimal level, spawn_blocking,
     // multithreaded compression for large shard blobs.
     pub(super) async fn upload_compressed(
@@ -132,7 +169,7 @@ impl CloudStorage {
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
         let compressed =
-            zstd::encode_all(value.as_slice(), BucketConfig::local().compression_level())?;
+            zstd::encode_all(value.as_slice(), self.bucket_config.compression_level())?;
         self.upload(file_id, compressed).await
     }
 
@@ -142,7 +179,7 @@ impl CloudStorage {
         head: BlockHeight,
     ) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::BlockHead;
-        let blob = borsh::to_vec(&head).unwrap();
+        let blob = borsh::to_vec(&CloudHead::V1(head)).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -153,7 +190,7 @@ impl CloudStorage {
         head: BlockHeight,
     ) -> Result<(), CloudArchivingError> {
         let file_id = CloudStorageFileID::ShardHead(shard_id);
-        let blob = borsh::to_vec(&head).unwrap();
+        let blob = borsh::to_vec(&CloudHead::V1(head)).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -165,9 +202,35 @@ impl CloudStorage {
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
         let path = self.file_path(&file_id);
-        self.external
-            .put(&path, &value)
-            .await
-            .map_err(|error| CloudArchivingError::PutError { file_id, error })
+        let object_type = file_id.object_type();
+        // Record only on a successful put, so failed attempts don't inflate the histograms.
+        let timer = metrics::CLOUD_ARCHIVAL_UPLOAD_DURATION_SECONDS
+            .with_label_values(&[object_type])
+            .start_timer();
+        if let Err(error) = self.external.put(&path, &value).await {
+            timer.stop_and_discard();
+            return Err(CloudArchivingError::PutError { file_id, error });
+        }
+        metrics::CLOUD_ARCHIVAL_UPLOAD_SIZE_BYTES
+            .with_label_values(&[object_type])
+            .observe(value.len() as f64);
+        timer.observe_duration();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloudHead;
+    use near_primitives::types::BlockHeight;
+
+    /// The head a writer uploads leads with its version tag.
+    #[test]
+    fn cloud_head_carries_its_version() {
+        let height: BlockHeight = 4242;
+        let blob = borsh::to_vec(&CloudHead::V1(height)).unwrap();
+        assert_eq!(blob.first(), Some(&0), "the V1 tag leads the head object");
+        assert_eq!(blob.len(), 1 + size_of::<BlockHeight>());
+        assert_eq!(borsh::from_slice::<CloudHead>(&blob).unwrap().height(), height);
     }
 }

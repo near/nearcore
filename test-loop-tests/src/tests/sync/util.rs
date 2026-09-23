@@ -1,3 +1,4 @@
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::{NodeExecutionData, SharedState};
 use crate::utils::node::TestLoopNode;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -5,11 +6,11 @@ use near_async::messaging::CanSendAsync;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_client::QueryError;
+use near_client::{Client, QueryError};
 use near_network::client::{BlockHeadersRequest, BlockHeadersResponse};
-use near_network::types::NetworkRequests;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, EpochId};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,6 +23,27 @@ pub const TEST_EPOCH_SYNC_HORIZON: u64 = 2;
 /// Nodes at genesis need to be this far behind to trigger far-horizon sync.
 pub fn far_horizon_height(epoch_length: u64) -> u64 {
     (TEST_EPOCH_SYNC_HORIZON + 3) * epoch_length
+}
+
+/// Distinct epoch ids along `client`'s canonical chain, in chain order, excluding
+/// genesis.
+///
+/// Walks the height index, so it sees only the block region: header-only heights below
+/// the tail have no index entry.
+pub fn collect_distinct_epoch_ids(client: &Client) -> Vec<EpochId> {
+    let chain = &client.chain;
+    let head = chain.head().unwrap();
+    let genesis_height = chain.genesis().height();
+
+    let mut epoch_ids = Vec::new();
+    for height in (genesis_height + 1)..=head.height {
+        let Ok(hash) = chain.get_block_hash_by_height(height) else { continue };
+        let epoch_id = client.epoch_manager.get_epoch_id(&hash).unwrap();
+        if epoch_ids.last() != Some(&epoch_id) {
+            epoch_ids.push(epoch_id);
+        }
+    }
+    epoch_ids
 }
 
 /// Set up sync status tracking for a node. Returns the history vector.
@@ -191,29 +213,27 @@ pub fn throttle_header_sync(
 
     node_data.register_override_handler(
         &mut test_loop.data,
-        Box::new(move |request| {
-            match request {
-                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
-                    let responder = network_shared_state
-                        .senders_for_peer(&peer_id, &my_peer_id)
-                        .client_sender
-                        .clone();
-                    let future = network_shared_state
-                        .senders_for_peer(&my_peer_id, &peer_id)
-                        .view_client_sender
-                        .send_async(BlockHeadersRequest(hashes));
-                    future_spawner.spawn("throttled header response", async move {
-                        let response = future.await.unwrap().unwrap();
-                        let truncated = response.into_iter().take(max_headers).collect();
-                        let future = responder
-                            .send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
-                        drop(future);
-                    });
-                    None // handled — don't pass to default handler
-                }
-                other => Some(other),
+        Box::new(move |request| match request {
+            NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                let my_peer_id = network_shared_state.account_to_peer_id(&account_id);
+                let responder = network_shared_state
+                    .senders_for_peer(&peer_id, &my_peer_id)
+                    .client_sender
+                    .clone();
+                let future = network_shared_state
+                    .senders_for_peer(&my_peer_id, &peer_id)
+                    .view_client_sender
+                    .send_async(BlockHeadersRequest(hashes));
+                future_spawner.spawn("throttled header response", async move {
+                    let response = future.await.unwrap().unwrap();
+                    let truncated = response.into_iter().take(max_headers).collect();
+                    let future =
+                        responder.send_async(BlockHeadersResponse(truncated, peer_id).span_wrap());
+                    drop(future);
+                });
+                HandlerResult::Handled(NetworkResponses::NoResponse)
             }
+            other => HandlerResult::Unhandled(other),
         }),
     );
 }

@@ -4,6 +4,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -63,6 +64,11 @@ impl From<FlatStorageError> for StorageError {
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
+// suppressed warning:
+// large size difference between variants:
+// the second-largest variant contains at least 72 bytes (FlatStorageReadyStatus)
+// the largest variant contains at least 296 bytes (FlatStorageReshardingStatus)
+#[allow(clippy::large_enum_variant)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled = 0,
@@ -152,6 +158,7 @@ pub enum FlatStorageCreationStatus {
 /// background and could take significant time.
 /// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
 /// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
+#[allow(clippy::large_enum_variant)]
 #[derive(
     BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
 )]
@@ -184,8 +191,8 @@ pub enum FlatStorageReshardingStatus {
 pub struct FetchingStateStatus {
     /// Hash of block on top of which we create flat storage.
     pub block_hash: CryptoHash,
-    /// Number of the first state part to be fetched in this step.
-    pub part_id: u64,
+    /// Index of the first state part to be fetched in this step.
+    pub part_idx: StatePartIndex,
     /// Number of parts fetched in one step.
     pub num_parts_in_step: u64,
     /// Total number of state parts.

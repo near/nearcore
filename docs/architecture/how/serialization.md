@@ -11,13 +11,7 @@ All structs which need to be persisted or sent over the network must derive the
 ProtocolSchema trait:
 
 ```rust
-// First, the schema checksums (hashes) are calculated at compile time and
-// require `TypeId` for cross-navigation. However, it is a nightly feature,
-// so we enable it manually by putting this in lib.rs:
-
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
-// Then, import schema calculation functionality by putting in Cargo.toml:
+// Import schema calculation functionality by putting in Cargo.toml:
 // near-schema-checker-lib.workspace = true
 
 [features]

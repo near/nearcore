@@ -1,14 +1,17 @@
 use crate::blacklist;
 use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
-use crate::network_protocol::T2MessageBody;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Ping, Pong, RoutingTableUpdate};
+use crate::network_protocol::{
+    PeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody,
+    TieredMessageBody,
+};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
 };
 use crate::peer_manager;
+use crate::peer_manager::network_state::RoutedAction;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::private_messages::RegisterPeerError;
@@ -17,7 +20,14 @@ use crate::testonly::{Rng, abort_on_panic, make_rng};
 use crate::types::{Edge, PeerMessage};
 use crate::types::{PeerInfo, ReasonForBan};
 use near_async::{ActorSystem, time};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::{Balance, Gas};
+use near_primitives::views::{
+    ExecutionMetadataView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, SignedTransactionView,
+};
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::Rng as _;
@@ -1204,8 +1214,7 @@ async fn archival_node() {
 
     for _step in 0..10 {
         tracing::info!(target:"test", %_step, "select a node which node 0 is not connected to");
-        let pm0_connections: HashSet<PeerId> =
-            pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
+        let pm0_connections: HashSet<PeerId> = pm0.tcp.tier2.load().ready.keys().cloned().collect();
 
         let pms = [&pm2, &pm3, &pm4];
         let chosen = pms
@@ -1291,44 +1300,287 @@ async fn connect_to_unbanned_peer() {
     drop(pm1);
 }
 
-/// Awaits a DistanceVector message from a given `peer_id`
-#[cfg(feature = "distance_vector_routing")]
-async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
-    events
-        .recv_until(|ev| match ev {
-            Event::MessageProcessed(_, msg) => match msg {
-                PeerMessage::DistanceVector(dv) if dv.root == peer_id => Some(()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .await
-}
-
-/// Check that connecting to a peer triggers exchange of DistanceVectors
+/// Oversized SyncRoutingTable messages should have their edges dropped,
+/// but the connection should stay alive and subsequent valid updates should work.
 #[tokio::test]
-#[cfg(feature = "distance_vector_routing")]
-async fn peer_connect_send_distance_vector() {
+async fn oversized_sync_routing_table_drops_edges_but_keeps_connection() {
     abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes");
-    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    // Set a small ingress cap for testing.
+    let mut cfg0 = chain.make_config(rng);
+    cfg0.routing_graph_max_edges_per_message = 10;
+    let mut pm = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
+    peer.complete_handshake().await;
 
-    let id0 = pm0.cfg.node_id();
-    let id1 = pm1.cfg.node_id();
+    let peer_id = peer.cfg.id();
+    pm.wait_for_routing_table(&[(peer_id.clone(), vec![peer_id.clone()])]).await;
 
-    // capture event streams before connecting
-    let mut pm0_ev = pm0.events.from_now();
-    let mut pm1_ev = pm1.events.from_now();
+    // Send an oversized SyncRoutingTable (> 10 edges).
+    let fake_edges: Vec<Edge> = (0..20)
+        .map(|_| {
+            let k1 = data::make_secret_key(rng);
+            let k2 = data::make_secret_key(rng);
+            data::make_edge(&k1, &k2, 1)
+        })
+        .collect();
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: fake_edges.clone(),
+        accounts: vec![],
+    }))
+    .await;
 
-    tracing::info!(target:"test", "connect the nodes");
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    // Send a valid small update afterwards.
+    let valid_key = data::make_secret_key(rng);
+    let valid_edge = data::make_edge(
+        &peer.cfg.network.node_key,
+        &valid_key,
+        Edge::create_fresh_nonce(&clock.clock()),
+    );
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: vec![valid_edge.clone()],
+        accounts: vec![],
+    }))
+    .await;
 
-    wait_for_distance_vector(&mut pm0_ev, id1).await;
-    wait_for_distance_vector(&mut pm1_ev, id0).await;
+    // Wait for the valid edge to be added. This proves:
+    // 1. The oversized message didn't ban/disconnect the peer.
+    // 2. Subsequent valid messages are still processed.
+    pm.events
+        .recv_until(|ev| match ev {
+            Event::EdgesAdded(edges) if edges.contains(&valid_edge) => Some(()),
+            _ => None,
+        })
+        .await;
+
+    // Verify oversized fake edges were NOT added.
+    let fake_keys: Vec<_> = fake_edges.iter().map(|e| e.key().clone()).collect();
+    let has_fake = pm
+        .with_state(move |s| async move {
+            let snapshot = s.graph.load();
+            fake_keys.iter().any(|k| snapshot.edges.contains_key(k))
+        })
+        .await;
+    assert!(!has_fake, "oversized edges should not have been added");
+}
+
+/// Oversized SyncRoutingTable should drop edges but still process accounts
+/// in the same message.
+#[tokio::test]
+async fn oversized_sync_routing_table_still_processes_accounts() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // Set a small ingress cap for testing.
+    let mut cfg0 = chain.make_config(rng);
+    cfg0.routing_graph_max_edges_per_message = 5;
+    let mut pm = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain: chain.clone() };
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+        .await
+        .unwrap();
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), cfg, stream);
+    peer.complete_handshake().await;
+
+    let peer_id = peer.cfg.id();
+    pm.wait_for_routing_table(&[(peer_id.clone(), vec![peer_id.clone()])]).await;
+
+    // Send an oversized SyncRoutingTable that also contains an account announcement.
+    let fake_edges: Vec<Edge> = (0..10)
+        .map(|_| {
+            let k1 = data::make_secret_key(rng);
+            let k2 = data::make_secret_key(rng);
+            data::make_edge(&k1, &k2, 1)
+        })
+        .collect();
+    let account = data::make_announce_account(rng);
+    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+        edges: fake_edges,
+        accounts: vec![account.clone()],
+    }))
+    .await;
+
+    // The account should still be processed even though edges were dropped.
+    pm.events
+        .recv_until(|ev| match ev {
+            Event::AccountsAdded(accounts) if accounts.contains(&account) => Some(()),
+            _ => None,
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn unsolicited_tx_status_response_is_dropped() {
+    abort_on_panic();
+    let mut rng = make_rng(2913584);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 1));
+
+    // `responder` is the peer we ask, so the requests below can be routed to it and recorded
+    // by the real send path rather than by hand.
+    let pm = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let responder =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let our_peer_id = pm.cfg.node_id();
+    let responder_peer_id = responder.cfg.node_id();
+    pm.connect_to(&responder.peer_info(), tcp::Tier::T2).await;
+    pm.wait_for_routing_table(&[(responder_peer_id.clone(), vec![responder_peer_id.clone()])])
+        .await;
+
+    let other_key = data::make_secret_key(rng);
+    let other_peer_id = PeerId::new(other_key.public_key());
+    let body: TieredMessageBody =
+        T2MessageBody::TxStatusResponse(Box::new(make_forged_tx_status_outcome(rng))).into();
+
+    let addressed_to_us = Box::new(
+        RawRoutedMessage { target: PeerIdOrHash::PeerId(our_peer_id.clone()), body: body.clone() }
+            .sign(&other_key, 100, None),
+    );
+    let clock_for_state = clock.clock();
+    let from = other_peer_id.clone();
+    let action = pm
+        .with_state(move |state| async move {
+            state.process_incoming_routed(&clock_for_state, &from, tcp::Tier::T2, addressed_to_us)
+        })
+        .await;
+    assert!(matches!(action, RoutedAction::Dropped), "expected Dropped, got {action:?}");
+
+    // A route back hash we never recorded is not ours to answer, so it takes the forward
+    // path rather than reaching the client.
+    let unknown_hash = CryptoHash::hash_bytes(b"route back hash we never recorded");
+    let on_unknown_hash = Box::new(
+        RawRoutedMessage { target: PeerIdOrHash::Hash(unknown_hash), body: body.clone() }
+            .sign(&other_key, 100, None),
+    );
+    let clock_for_state = clock.clock();
+    let from = other_peer_id.clone();
+    let action = pm
+        .with_state(move |state| async move {
+            state.process_incoming_routed(&clock_for_state, &from, tcp::Tier::T2, on_unknown_hash)
+        })
+        .await;
+    assert!(matches!(action, RoutedAction::Forward(_)), "expected Forward, got {action:?}");
+
+    // A hash the node did record, but for a request of another kind. One hash serves every
+    // request kind, so only the recorded kind separates them.
+    let ping_hash = send_own_request(
+        &pm,
+        &clock,
+        T2MessageBody::Ping(Ping { nonce: 1, source: our_peer_id.clone() }).into(),
+        &responder_peer_id,
+    )
+    .await;
+    let action = deliver_reply(&pm, &clock, ping_hash, &responder.cfg.node_key, body.clone()).await;
+    assert!(matches!(action, RoutedAction::Dropped), "expected Dropped, got {action:?}");
+
+    // A hash recorded for a matching request, answered by a peer other than the one asked.
+    let request_hash = send_own_request(
+        &pm,
+        &clock,
+        T2MessageBody::TxStatusRequest(data::make_account_id(rng), CryptoHash::default()).into(),
+        &responder_peer_id,
+    )
+    .await;
+    let action = deliver_reply(&pm, &clock, request_hash, &other_key, body.clone()).await;
+    assert!(matches!(action, RoutedAction::Dropped), "expected Dropped, got {action:?}");
+
+    // The same body on that hash, from the peer the request was sent to, is still accepted,
+    // so the answer path for a request we did send keeps working.
+    let action = deliver_reply(&pm, &clock, request_hash, &responder.cfg.node_key, body).await;
+    assert!(matches!(action, RoutedAction::ForMe(_)), "expected ForMe, got {action:?}");
+}
+
+/// Sends `body` to `responder` through the real send path, so the route back entry is recorded
+/// the way production records it. Returns the hash a reply has to target.
+async fn send_own_request(
+    pm: &peer_manager::testonly::ActorHandler,
+    clock: &time::FakeClock,
+    body: TieredMessageBody,
+    responder: &PeerId,
+) -> CryptoHash {
+    let request =
+        Box::new(RawRoutedMessage { target: PeerIdOrHash::PeerId(responder.clone()), body }.sign(
+            &pm.cfg.node_key,
+            100,
+            None,
+        ));
+    assert!(request.expect_response());
+    let request_hash = request.hash();
+    let clock_for_state = clock.clock();
+    let sent = pm
+        .with_state_and_transport(move |state, transport| async move {
+            state.send_message_to_peer(&clock_for_state, tcp::Tier::T2, request, transport.as_ref())
+        })
+        .await;
+    assert!(sent, "the request should route to the connected peer");
+    request_hash
+}
+
+async fn deliver_reply(
+    pm: &peer_manager::testonly::ActorHandler,
+    clock: &time::FakeClock,
+    route_back_hash: CryptoHash,
+    replier_key: &SecretKey,
+    body: TieredMessageBody,
+) -> RoutedAction {
+    let reply =
+        Box::new(RawRoutedMessage { target: PeerIdOrHash::Hash(route_back_hash), body }.sign(
+            replier_key,
+            100,
+            None,
+        ));
+    let replier_peer_id = PeerId::new(replier_key.public_key());
+    let clock_for_state = clock.clock();
+    pm.with_state(move |state| async move {
+        state.process_incoming_routed(&clock_for_state, &replier_peer_id, tcp::Tier::T2, reply)
+    })
+    .await
+}
+
+fn make_forged_tx_status_outcome(rng: &mut Rng) -> FinalExecutionOutcomeView {
+    let account_id = data::make_account_id(rng);
+    FinalExecutionOutcomeView {
+        status: FinalExecutionStatus::SuccessValue(b"forged".to_vec()),
+        transaction: SignedTransactionView {
+            signer_id: account_id.clone(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            nonce: 1,
+            receiver_id: account_id.clone(),
+            actions: vec![],
+            _priority_fee: 0,
+            signature: Signature::default(),
+            hash: CryptoHash::default(),
+            nonce_index: None,
+            nonce_mode: None,
+        },
+        transaction_outcome: ExecutionOutcomeWithIdView {
+            proof: vec![],
+            block_hash: CryptoHash::default(),
+            id: CryptoHash::default(),
+            outcome: ExecutionOutcomeView {
+                logs: vec![],
+                receipt_ids: vec![],
+                gas_burnt: Gas::from_gas(0),
+                tokens_burnt: Balance::ZERO,
+                executor_id: account_id,
+                status: ExecutionStatusView::SuccessValue(b"forged".to_vec()),
+                metadata: ExecutionMetadataView::default(),
+            },
+        },
+        receipts_outcome: vec![],
+    }
 }

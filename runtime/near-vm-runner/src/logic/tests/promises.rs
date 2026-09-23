@@ -1,17 +1,17 @@
+use crate::logic::HostError;
 use crate::logic::mocks::mock_external::MockAction;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, PromiseResult};
 use crate::map;
 use near_crypto::PublicKey;
-use near_parameters::{ActionCosts, ExtCosts};
+use near_parameters::{ActionCosts, ExtCosts, Fee};
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, Gas, GasWeight};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 fn test_public_key() -> PublicKey {
     "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse().unwrap()
@@ -78,18 +78,10 @@ fn test_promise_result_per_byte_gas_fee() {
 
     logic.promise_result(0, 0).expect("promise_result should succeed");
 
-    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-        });
-    } else {
-        assert_costs(map! {
-          ExtCosts::base: 1,
-          ExtCosts::write_register_base: 1,
-          ExtCosts::write_register_byte: RESULT_SIZE as u64,
-        });
-    }
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::write_register_base: 1,
+    });
 }
 
 #[test]
@@ -467,11 +459,186 @@ fn test_promise_batch_then() {
     assert_eq!(actions, &[expected_receipt.clone(), expected_receipt]);
 }
 
+/// The smallest well-formed `UniversalStateInit::V1`: version tag, `code: None`,
+/// an empty data map and an empty access-key set, all borsh zeroes.
+const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
+
+#[test]
+fn test_promise_batch_action_universal_state_init() {
+    let mut logic_builder = VMLogicBuilder::default();
+    // The mock cannot decode the payload, so the entry and key counts are dialled
+    // in here. Without them the per-entry and per-key terms are pinned nowhere.
+    logic_builder.ext.universal_state_init_entries = 2;
+    logic_builder.ext.universal_state_init_keys = 1;
+    let mut logic = logic_builder.build();
+
+    // The receiver is not the account this state init identifies. The VM does not
+    // check that; validating the receipt it creates does.
+    let receiver = "rick.test";
+    let index = promise_batch_create(&mut logic, &receiver).expect("should create a promise");
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_universal_state_init(123, state_init.len, state_init.ptr, amount.ptr)
+        .expect_err("shouldn't accept a non-existent promise index");
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_universal_state_init(
+            non_receipt,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect_err("shouldn't accept a joint promise index");
+
+    reset_costs_counter();
+
+    logic
+        .promise_batch_action_universal_state_init(
+            index,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect("should append a universal state init action");
+
+    assert_costs(map! {
+      ExtCosts::base: 1,
+      ExtCosts::read_memory_base: 2,
+      ExtCosts::read_memory_byte: state_init.len + amount.len,
+    });
+
+    let profile = logic.gas_counter().profile_data();
+    // action_universal_state_init
+    //    send 0.50 Tgas
+    //    exec 7.43 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_base].as_gigagas(),
+        500,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_universal_state_init_per_byte, over the payload's own length
+    //    send 0.000_072 per byte
+    //    exec 0.000_070 per byte
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_byte].as_gas(),
+        72_000_000 * EMPTY_STATE_INIT.len() as u64,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_add_full_access_key, one per installed key
+    //    send 0.101_765_125 Tgas
+    //    exec 0.101_765_125 Tgas
+    assert_eq!(
+        profile.actions_profile[ActionCosts::add_full_access_key].as_gas(),
+        101_765_125_000,
+        "unexpected action gas usage {profile:?}"
+    );
+    // action_universal_state_init_per_entry has no send fee, so it contributes
+    // nothing to the burnt profile however many entries there are; its 0.2 Tgas
+    // exec half shows up in `used_gas` below.
+    assert_eq!(
+        profile.actions_profile[ActionCosts::universal_state_init_entry].as_gas(),
+        0,
+        "unexpected action gas usage {profile:?}"
+    );
+    // Pins the exec halves too, including the two per-entry terms the burnt
+    // profile cannot show. The action terms account for
+    //   base  7.930 Tgas + byte 1.42 Ggas + entry 400 Ggas + key 203.53 Ggas
+    //   = 8_534_950_250_000
+    // and the remaining ~246 Ggas is the ext costs of getting here.
+    assert_eq!(logic.used_gas().unwrap(), 8_781_142_525_081, "{profile:?}");
+
+    assert_eq!(
+        logic_builder.ext.action_log,
+        &[
+            MockAction::CreateReceipt {
+                receipt_indices: vec![],
+                receiver_id: "rick.test".parse().unwrap(),
+            },
+            MockAction::UniversalStateInit {
+                receipt_index: 0,
+                state_init: EMPTY_STATE_INIT.to_vec(),
+                amount: Balance::from_yoctonear(110),
+            },
+        ]
+    );
+}
+
+/// The payload's own length is paid for before the host is handed the payload, so
+/// a call that cannot afford the per-byte fee never reaches the decode. Charging
+/// the other way round would leave the decode bounded only by the much cheaper
+/// cost of reading the bytes in.
+#[test]
+fn test_promise_batch_action_universal_state_init_pays_before_decoding() {
+    let gas_limit = 10u64.pow(13);
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.max_gas_burnt = Gas::from_gas(gas_limit);
+    logic_builder.context.prepaid_gas = Gas::from_gas(gas_limit);
+    // Priced so that the payload's ten bytes alone exhaust the whole limit.
+    let per_byte = gas_limit / EMPTY_STATE_INIT.len() as u64 + 1;
+    logic_builder.fees_config.action_fees[ActionCosts::universal_state_init_byte] =
+        Fee::new(per_byte, per_byte, 1);
+    let mut logic = logic_builder.build();
+
+    let index = promise_batch_create(&mut logic, &"rick.test").expect("should create a promise");
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+
+    logic
+        .promise_batch_action_universal_state_init(
+            index,
+            state_init.len,
+            state_init.ptr,
+            amount.ptr,
+        )
+        .expect_err("the per-byte fee should exhaust the gas");
+
+    assert_eq!(
+        logic_builder.ext.action_log,
+        &[MockAction::CreateReceipt {
+            receipt_indices: vec![],
+            receiver_id: "rick.test".parse().unwrap(),
+        }],
+        "the state init must not reach the host before its bytes are paid for"
+    );
+    assert_eq!(
+        logic_builder.ext.state_init_counts_calls.get(),
+        0,
+        "the host must not be asked to decode before the bytes are paid for"
+    );
+}
+
+#[test]
+fn test_promise_batch_action_universal_state_init_prohibited_in_view() {
+    let mut logic_builder = VMLogicBuilder::view();
+    let mut logic = logic_builder.build();
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    let amount = logic.internal_mem_write(&0u128.to_le_bytes());
+
+    assert_eq!(
+        logic
+            .promise_batch_action_universal_state_init(
+                0,
+                state_init.len,
+                state_init.ptr,
+                amount.ptr
+            )
+            .unwrap_err(),
+        HostError::ProhibitedInView {
+            method_name: "promise_batch_action_universal_state_init".to_string()
+        }
+        .into()
+    );
+}
+
 #[test]
 fn test_promise_batch_action_state_init() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.deterministic_account_ids = true;
-
     let mut logic = logic_builder.build();
 
     // Note: Sending to an invalid receiver here, "rick.test" is not a
@@ -696,4 +863,85 @@ fn test_promise_batch_action_add_gas_key_with_function_call() {
             method_names: vec![b"foo".to_vec(), b"bar".to_vec()],
         }]
     );
+}
+
+#[test]
+fn test_one_yocto_on_promise_enabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = true;
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should succeed even with zero balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("1 yoctoNEAR should succeed with feature enabled");
+
+    // 2 yoctoNEAR should still fail
+    promise_batch_action_function_call_weight(&mut logic, index, 2, Gas::ZERO, 0)
+        .expect_err("2 yoctoNEAR should fail with zero balance");
+
+    // Transfer with 1 yoctoNEAR should still fail (feature only applies to function calls)
+    let num_1u128 = logic.internal_mem_write(&1u128.to_le_bytes());
+    logic
+        .promise_batch_action_transfer(index, num_1u128.ptr)
+        .expect_err("transfer should still fail with zero balance");
+
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::from_yoctonear(1),
+        "subsidized_amount should track the skipped deduction"
+    );
+}
+
+/// When the contract has non-zero balance, 1 yoctoNEAR is deducted normally.
+#[test]
+fn test_one_yocto_on_promise_deducts_with_nonzero_balance() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = true;
+    logic_builder.context.account_balance = Balance::from_yoctonear(1);
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // Deducts the 1 yoctoNEAR from balance
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed with sufficient balance");
+    assert!(
+        logic.result_state().current_account_balance.is_zero(),
+        "balance should be zero after deduction"
+    );
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::ZERO,
+        "the first call should not be subsidized"
+    );
+
+    // Balance is now zero, so the skip kicks in
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect("should succeed via zero-balance exemption");
+
+    assert_eq!(
+        logic.result_state().subsidized_amount,
+        Balance::from_yoctonear(1),
+        "subsidized balance should be tracked correctly"
+    );
+}
+
+#[test]
+fn test_one_yocto_on_promise_disabled() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.one_yocto_on_promise = false;
+    logic_builder.context.account_balance = Balance::ZERO;
+    logic_builder.context.attached_deposit = Balance::ZERO;
+    let mut logic = logic_builder.build();
+
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    // 1 yoctoNEAR should fail when feature is disabled and balance is zero
+    promise_batch_action_function_call_weight(&mut logic, index, 1, Gas::ZERO, 0)
+        .expect_err("1 yoctoNEAR should fail with feature disabled and zero balance");
 }

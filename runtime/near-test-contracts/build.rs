@@ -6,6 +6,7 @@
 /// build logs.
 // cspell:ignore Ctarget, Dwarnings, Zbuild
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -23,7 +24,7 @@ fn main() {
 fn try_main() -> Result<(), Error> {
     let mut test_contract_features = vec![];
 
-    let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
+    let is_nightly = std::env::var_os("CARGO_FEATURE_NIGHTLY").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
     println!("cargo:rerun-if-env-changed={TEST_FEATURES_ENV}");
     println!("debug: test_features = {test_features:?}");
@@ -39,11 +40,7 @@ fn try_main() -> Result<(), Error> {
 
     test_contract_features.push("latest_protocol");
     build_contract("./test-contract-rs", &test_contract_features, "test_contract_rs")?;
-    build_contract(
-        "./congestion-control-test-contract",
-        &test_contract_features,
-        "congestion_control_test_contract",
-    )?;
+    build_contract("./compact-test-contract", &test_contract_features, "compact_test_contract")?;
 
     test_contract_features.push("nightly");
     build_contract("./test-contract-rs", &test_contract_features, "nightly_test_contract_rs")?;
@@ -103,16 +100,28 @@ fn cargo_build_cmd(target_dir: &Path) -> Command {
     res.env_remove("CARGO_BUILD_RUSTFLAGS");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
     res.env_remove("RUSTC_WORKSPACE_WRAPPER");
+    // Prevent the nightly toolchain from leaking into this sub-build when
+    // invoked via `cargo +nightly udeps`. Cargo sets both RUSTUP_TOOLCHAIN
+    // and RUSTC for build scripts, so we must remove both: RUSTUP_TOOLCHAIN
+    // controls rustup's toolchain selection, while RUSTC points directly at
+    // the nightly rustc binary and would bypass toolchain discovery entirely.
+    // Without these, the sub-build uses the pinned toolchain from
+    // rust-toolchain.toml as intended.
+    res.env_remove("RUSTUP_TOOLCHAIN");
+    res.env_remove("RUSTC");
 
     res.env("RUSTC_BOOTSTRAP", "1"); // FIXME: remove once `-Zbuild-std` is no longer necessary
     res.env("RUSTFLAGS", "-Dwarnings -Ctarget-cpu=mvp");
-    res.env("CARGO_TARGET_DIR", target_dir);
 
     res.args([
-        "build",
-        "-Zbuild-std=panic_abort,std",
-        "--target=wasm32-unknown-unknown",
-        "--release",
+        OsStr::new("build"),
+        OsStr::new("-Zbuild-std=panic_abort,std"),
+        OsStr::new("--target=wasm32-unknown-unknown"),
+        OsStr::new("--release"),
+        // Set the output dir via `--target-dir`, which wins over `CARGO_TARGET_DIR`, so
+        // a `cargo` PATH shim re-exporting that env var can't redirect the sub-build.
+        OsStr::new("--target-dir"),
+        target_dir.as_os_str(),
     ]);
 
     res

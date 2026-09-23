@@ -526,6 +526,11 @@ pub(crate) fn canonical_prev_block_validity(
             prev_hash
         );
         let prev_height = prev_header.height();
+        // The previous block may be below the epoch sync boundary even if the
+        // current block is not. Skip the check in that case.
+        if sv.inner.is_height_below_epoch_sync_boundary(&prev_height) {
+            return Ok(());
+        }
         let same_prev_hash = unwrap_or_err_db!(
             sv.store.get_ser::<CryptoHash>(DBCol::BlockHeight, &index_to_bytes(prev_height)),
             "Can't get prev Block Hash from DBCol::BlockHeight by Height, {:?}, {:?}",
@@ -895,7 +900,7 @@ pub(crate) fn state_part_header_exists(
     key: &StatePartKey,
     _part: &[u8],
 ) -> Result<(), StoreValidatorError> {
-    let StatePartKey(block_hash, shard_id, part_id) = *key;
+    let StatePartKey(block_hash, shard_id, part_idx) = *key;
     let state_header_key = unwrap_or_err!(
         borsh::to_vec(&StateHeaderKey(shard_id, block_hash)),
         "Can't serialize StateHeaderKey"
@@ -905,8 +910,8 @@ pub(crate) fn state_part_header_exists(
         "Can't get StateHeaderKey from DB"
     );
     let num_parts = header.num_state_parts();
-    if part_id >= num_parts {
-        err!("Invalid part_id {:?}, num_parts {:?}", part_id, num_parts)
+    if part_idx >= num_parts {
+        err!("Invalid part_idx {:?}, num_parts {:?}", part_idx, num_parts)
     }
     Ok(())
 }

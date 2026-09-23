@@ -2,6 +2,9 @@ use super::event_type::ReshardingSplitShardParams;
 use super::flat_storage_resharder::FlatStorageResharder;
 use super::trie_state_resharder::TrieStateResharder;
 use super::types::ScheduleResharding;
+use crate::metrics::{
+    RESHARDING_START_TIMESTAMP, RESHARDING_TOTAL_DURATION, ReshardingStatus, set_resharding_status,
+};
 use crate::resharding::trie_state_resharder::ResumeAllowed;
 use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
@@ -15,6 +18,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use time::Duration;
 
 /// Dedicated actor for resharding V3.
@@ -32,6 +36,9 @@ pub struct ReshardingActor {
     flat_storage_resharder: FlatStorageResharder,
     /// Takes care of performing resharding on the trie state.
     trie_state_resharder: TrieStateResharder,
+    /// Used to detect whether an in-progress resharding was cancelled, so the
+    /// terminal `Done` status is not written over a cancellation.
+    resharding_handle: ReshardingHandle,
     /// TEST ONLY. If non zero, the start of scheduled tasks (such as split parent)
     /// will be postponed by the specified number of blocks.
     #[cfg(feature = "test_features")]
@@ -80,7 +87,7 @@ impl ReshardingActor {
         );
         let trie_state_resharder = TrieStateResharder::new(
             runtime_adapter,
-            resharding_handle,
+            resharding_handle.clone(),
             resharding_config,
             ResumeAllowed::No,
         );
@@ -90,6 +97,7 @@ impl ReshardingActor {
             resharding_started: HashSet::new(),
             flat_storage_resharder,
             trie_state_resharder,
+            resharding_handle,
             #[cfg(feature = "test_features")]
             adv_task_delay_by_blocks: 0,
             #[cfg(feature = "test_features")]
@@ -122,6 +130,7 @@ impl ReshardingActor {
         }
 
         events.push(split_shard_event);
+        set_resharding_status(&parent_shard, ReshardingStatus::Scheduled);
 
         // Schedule the resharding task and wait for the resharding block to become final.
         self.schedule_resharding(parent_shard, ctx);
@@ -242,23 +251,49 @@ impl ReshardingActor {
     ) {
         self.resharding_started.insert(parent_shard_uid);
 
+        let start_time = Instant::now();
+        let unix_timestamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        RESHARDING_START_TIMESTAMP
+            .with_label_values(&[&parent_shard_uid.to_string()])
+            .set(unix_timestamp as i64);
+
         if let Err(err) =
             self.trie_state_resharder.initialize_trie_state_resharding_status(&resharding_event)
         {
             tracing::error!(target: "resharding", ?err, "failed to initialize trie state resharding status");
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Failed);
             return;
         }
 
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "failed to start flat storage resharding");
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Failed);
+            return;
+        }
+
+        // The resharders return `Ok` on cancellation (e.g. on shutdown). Record the cancellation
+        // and stop here rather than proceeding to the next stage / reporting `Done`.
+        if self.resharding_handle.0.is_cancelled() {
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Cancelled);
             return;
         }
 
         tracing::info!(target: "resharding", "trie state resharder starting");
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "failed to start trie state resharding");
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Failed);
             return;
         }
+
+        if self.resharding_handle.0.is_cancelled() {
+            set_resharding_status(&parent_shard_uid, ReshardingStatus::Cancelled);
+            return;
+        }
+        set_resharding_status(&parent_shard_uid, ReshardingStatus::Done);
+        RESHARDING_TOTAL_DURATION
+            .with_label_values(&[&parent_shard_uid.to_string()])
+            .set(start_time.elapsed().as_secs() as i64);
     }
 }

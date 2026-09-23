@@ -8,8 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::{Gas, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -389,7 +388,7 @@ impl Receipt {
         &receipt.receipt
     }
 
-    pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
+    pub fn versioned_receipt(&self) -> VersionedReceiptEnum<'_> {
         let Receipt::V0(receipt) = self;
         VersionedReceiptEnum::from(&receipt.receipt)
     }
@@ -450,15 +449,16 @@ impl Receipt {
                 if shard_layout.shard_ids().contains(&target_shard) {
                     target_shard
                 } else {
-                    let Some(children_shards) = shard_layout.get_children_shards_ids(target_shard)
+                    // The target shard may be from an arbitrarily old layout (the receipt could
+                    // have been delayed across multiple resharding events). resolve_to_current_shard
+                    // will find a shard descendant in the current layout.
+                    let Some(current_shard) = shard_layout.resolve_to_current_shard(target_shard)
                     else {
                         return Err(EpochError::ShardingError(format!(
-                            "Shard {target_shard} does not exist in the parent shard layout",
+                            "Shard {target_shard} does not exist in the shard layout or its split history",
                         )));
                     };
-                    // It is enough to send the receipt to the first child shard, it will be forwarded
-                    // to the rest of the children as part the receipt processing logic
-                    children_shards[0]
+                    current_shard
                 }
             }
         };
@@ -470,19 +470,18 @@ impl Receipt {
     /// The expectation is that applying an instant receipt is a quick operation (e.g. setting a few values in the state).
     /// Instant receipts generally shouldn't emit new instant receipts, as it could lead to
     /// infinitely many receipts being executed in a single chunk.
-    pub fn is_instant_receipt(&self, protocol_version: ProtocolVersion) -> bool {
+    pub fn is_instant_receipt(&self) -> bool {
         match self.versioned_receipt() {
             VersionedReceiptEnum::PromiseYield(_) => {
                 // PromiseYield receipts are instant receipts.
                 // Applying a PromiseYield receipt is one trie write, it's okay to make it an instant receipt.
-                ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
+                true
             }
             VersionedReceiptEnum::Action(action_receipt) => {
                 // Action receipts containing a single DeleteAccount action and no input
                 // promises are instant receipts.
                 // Deleting an account is a quick trie operation, it's okay to make it instant.
-                ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
-                    && matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+                matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
                     && action_receipt.input_data_ids().is_empty()
             }
             VersionedReceiptEnum::Data(_)
@@ -885,13 +884,8 @@ impl GlobalContractDistributionReceipt {
         already_delivered_shards: Vec<ShardId>,
         code: Arc<[u8]>,
         nonce: u64,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-            Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
-        } else {
-            Self::new_v1(id, target_shard, already_delivered_shards, code)
-        }
+        Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
     }
 
     pub fn new_v1(
@@ -1341,6 +1335,17 @@ pub enum ReceiptSource {
     /// receipts, PromiseResume, cross-shard receipts on a source-only node,
     /// GlobalContractDistribution receipts).
     ReceiptToTxGc = 3,
+}
+
+impl ReceiptSource {
+    /// Whether an entry tagged with this source records a receipt the chunk processed,
+    /// rather than an index entry to garbage-collect.
+    pub fn has_receipt_body(&self) -> bool {
+        match self {
+            ReceiptSource::Local | ReceiptSource::Delayed | ReceiptSource::Instant => true,
+            ReceiptSource::ReceiptToTxGc => false,
+        }
+    }
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.

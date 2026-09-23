@@ -1,8 +1,9 @@
-use crate::ReshardingConfig;
+use crate::{ClientConfig, ReshardingConfig};
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
 use near_time::Clock;
+use num_rational::Rational32;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
@@ -42,7 +43,7 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
 }
 
 #[cfg(feature = "schemars")]
-impl<T: schemars::JsonSchema> schemars::JsonSchema for MutableConfigValue<T> {
+impl<T> schemars::JsonSchema for MutableConfigValue<T> {
     fn schema_name() -> std::borrow::Cow<'static, str> {
         "MutableConfigValue".to_string().into()
     }
@@ -106,19 +107,52 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     fn set_metric_value(&self, _value: T, _metric_value: i64) {}
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
-/// A subset of Config that can be updated white the node is running.
+#[derive(Clone, Serialize, Deserialize)]
+/// A subset of Config that can be updated while the node is running.
 pub struct UpdatableClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: Option<BlockHeight>,
-
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
-
     /// Time limit for adding transactions in produce_chunk()
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// Duration to check for producing / skipping block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub block_production_tracking_delay: Duration,
+    /// Minimum duration before producing block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub min_block_production_delay: Duration,
+    /// Maximum wait for approvals before producing block.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub max_block_production_delay: Duration,
+    /// Maximum duration before skipping given height.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    pub chunk_wait_mult: Rational32,
+    /// Time between running doomslug timer.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub doomslug_step_period: Duration,
+}
+
+impl From<&ClientConfig> for UpdatableClientConfig {
+    fn from(config: &ClientConfig) -> Self {
+        Self {
+            expected_shutdown: config.expected_shutdown.get(),
+            resharding_config: config.resharding_config.get(),
+            produce_chunk_add_transactions_time_limit: config
+                .produce_chunk_add_transactions_time_limit
+                .get(),
+            block_production_tracking_delay: config.block_production_tracking_delay.get(),
+            min_block_production_delay: config.min_block_production_delay.get(),
+            max_block_production_delay: config.max_block_production_delay.get(),
+            max_block_wait_delay: config.max_block_wait_delay.get(),
+            chunk_wait_mult: config.chunk_wait_mult.get(),
+            doomslug_step_period: config.doomslug_step_period.get(),
+        }
+    }
 }
 
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

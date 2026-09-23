@@ -204,10 +204,10 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
         (row.foundation_pks.clone(), FOUNDATION_METHOD_NAMES),
     ] {
         for pk in pks {
-            res.push(StateRecord::AccessKey {
-                account_id: row.account_id.clone(),
-                public_key: pk,
-                access_key: AccessKey {
+            res.push(StateRecord::access_key(
+                row.account_id.clone(),
+                pk,
+                AccessKey {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: None,
@@ -215,17 +215,13 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                         method_names: method_names.iter().map(|x| (*x).to_string()).collect(),
                     }),
                 },
-            })
+            ))
         }
     }
 
     // Add full access keys.
     for pk in row.full_pks.clone() {
-        res.push(StateRecord::AccessKey {
-            account_id: row.account_id.clone(),
-            public_key: pk,
-            access_key: AccessKey::full_access(),
-        })
+        res.push(StateRecord::access_key(row.account_id.clone(), pk, AccessKey::full_access()))
     }
 
     // Add smart contract code if was specified.

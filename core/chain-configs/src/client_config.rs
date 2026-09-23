@@ -1,8 +1,6 @@
 //! Chain Client Configuration
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
-#[cfg(feature = "schemars")]
-use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -26,19 +24,16 @@ pub enum LogSummaryStyle {
     Colored,
 }
 
+/// How far above the head a block can be and still be of interest. The client applies this
+/// bound when deciding whether to accept an incoming block while syncing, and the blocks delay
+/// tracker applies it when deciding whether to record one.
+pub const BLOCK_HORIZON: BlockHeightDelta = 500;
+
 /// Minimum number of epochs for which we keep store data
 pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
 /// Default number of epochs for which we keep store data
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
-
-/// Default number of concurrent requests to external storage to fetch state parts.
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u8 = 25;
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u8 = 5;
-
-/// The default number of attempts to obtain a state part from peers in the network
-/// before giving up and downloading it from external storage.
-pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
 /// We haven't observed meaningful gains from higher compression levels. Even `-5` produced a result close to
 /// levels 1–3. Therefore we keep 1 as the default.
@@ -172,37 +167,6 @@ impl GCConfig {
     }
 }
 
-fn default_num_concurrent_requests() -> u8 {
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
-}
-
-fn default_num_concurrent_requests_during_catchup() -> u8 {
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
-}
-
-fn default_external_storage_fallback_threshold() -> u64 {
-    DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ExternalStorageConfig {
-    /// Location of state parts.
-    pub location: ExternalStorageLocation,
-    /// When fetching state parts from external storage, throttle fetch requests
-    /// to this many concurrent requests.
-    #[serde(default = "default_num_concurrent_requests")]
-    pub num_concurrent_requests: u8,
-    /// During catchup, the node will use a different number of concurrent requests
-    /// to reduce the performance impact of state sync.
-    #[serde(default = "default_num_concurrent_requests_during_catchup")]
-    pub num_concurrent_requests_during_catchup: u8,
-    /// The number of attempts the node will make to obtain a part from peers in
-    /// the network before it fetches from external storage.
-    #[serde(default = "default_external_storage_fallback_threshold")]
-    pub external_storage_fallback_threshold: u64,
-}
-
 /// Supported external storage backends and their minimal config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -224,13 +188,47 @@ fn default_state_parts_compression_level() -> i32 {
 }
 
 pub fn default_archival_writer_polling_interval() -> Duration {
-    Duration::seconds(1)
+    Duration::seconds(5)
+}
+
+/// The reader is allowed to lag the chain, and it polls only while it has nothing to
+/// pull.
+pub fn default_archival_reader_polling_interval() -> Duration {
+    Duration::seconds(5)
+}
+
+pub fn default_archival_writer_catch_up_throttle() -> Duration {
+    // GCS allows about one mutation per second on a single object, and the writer
+    // rewrites the cloud heads once per batch.
+    // TODO(cloud_archival): consider a faster catch-up, rewriting the heads less
+    // often, or waiting per head object against its own last write.
+    Duration::milliseconds(1100)
+}
+
+pub fn default_snapshot_every_n_epochs() -> u64 {
+    10
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalReaderConfig {
+    /// Interval at which the reader checks the bucket for data past its own head.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_reader_polling_interval")]
+    pub polling_interval: Duration,
+}
+
+impl Default for CloudArchivalReaderConfig {
+    fn default() -> Self {
+        Self { polling_interval: default_archival_reader_polling_interval() }
+    }
 }
 
 /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
 /// writes chunk-related data based on the tracked shards. This config also controls additional archival
 /// behavior such as block data and polling interval.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
     /// Determines whether block-related data should be written to cloud storage.
@@ -242,6 +240,18 @@ pub struct CloudArchivalWriterConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     #[serde(default = "default_archival_writer_polling_interval")]
     pub polling_interval: Duration,
+
+    /// Delay between consecutive batches while the writer is catching up, pacing
+    /// how fast it uploads to the storage backend.
+    #[serde(with = "near_time::serde_duration_as_std")]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
+    #[serde(default = "default_archival_writer_catch_up_throttle")]
+    pub catch_up_throttle: Duration,
+
+    /// Cadence of state snapshots, in epochs. Higher values reduce bucket cost at
+    /// the expense of potentially longer delta replay during reader bootstrap.
+    #[serde(default = "default_snapshot_every_n_epochs")]
+    pub snapshot_every_n_epochs: u64,
 }
 
 impl Default for CloudArchivalWriterConfig {
@@ -249,6 +259,8 @@ impl Default for CloudArchivalWriterConfig {
         Self {
             archive_block_data: false,
             polling_interval: default_archival_writer_polling_interval(),
+            catch_up_throttle: default_archival_writer_catch_up_throttle(),
+            snapshot_every_n_epochs: default_snapshot_every_n_epochs(),
         }
     }
 }
@@ -312,19 +324,11 @@ pub struct DumpConfig {
 /// Configures how to fetch state parts during state sync.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Default)]
 pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
+    #[default]
     Peers,
-    /// Expects parts to be available in external storage.
-    ///
-    /// Usually as a fallback after some number of attempts to use peers.
-    ExternalStorage(ExternalStorageConfig),
-}
-
-impl Default for SyncConfig {
-    fn default() -> Self {
-        Self::Peers
-    }
 }
 
 impl SyncConfig {
@@ -390,21 +394,6 @@ pub struct StateSyncConfig {
     /// Zstd compression level for state parts.
     #[serde(default = "default_state_parts_compression_level")]
     pub parts_compression_lvl: i32,
-}
-
-impl StateSyncConfig {
-    pub fn gcs_with_bucket(bucket: String) -> Self {
-        Self {
-            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: ExternalStorageLocation::GCS { bucket },
-                num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-                num_concurrent_requests_during_catchup:
-                    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
-                external_storage_fallback_threshold: DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD,
-            }),
-            ..Default::default()
-        }
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -531,7 +520,7 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_external_timeout() -> Duration {
+pub fn default_block_request_timeout() -> Duration {
     Duration::seconds(60)
 }
 
@@ -543,12 +532,8 @@ pub fn default_state_sync_retry_backoff() -> Duration {
     Duration::seconds(1)
 }
 
-pub fn default_state_sync_external_backoff() -> Duration {
-    Duration::seconds(60)
-}
-
 pub fn default_chunk_wait_mult() -> Rational32 {
-    Rational32::new(1, 6)
+    Rational32::new(1, 3)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {
@@ -573,10 +558,6 @@ pub fn default_sync_height_threshold() -> u64 {
 
 pub fn default_epoch_sync() -> Option<EpochSyncConfig> {
     Some(EpochSyncConfig::default())
-}
-
-pub fn default_state_sync_enabled() -> bool {
-    true
 }
 
 pub fn default_view_client_threads() -> usize {
@@ -605,6 +586,11 @@ pub fn default_state_request_server_threads() -> usize {
 
 pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
+}
+
+// Kept in sync with `node_runtime`'s `DEFAULT_VIEW_ACCESS_KEYS_LIMIT`.
+pub fn default_view_access_keys_limit() -> u32 {
+    100
 }
 
 pub fn default_transaction_pool_size_limit() -> Option<u64> {
@@ -650,7 +636,7 @@ pub fn default_enable_early_prepare_transactions() -> bool {
 /// Returns the default value for `chunks_cache_height_horizon`.
 /// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
 pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
-    128
+    2
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -696,20 +682,15 @@ pub struct ClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub block_production_tracking_delay: Duration,
+    pub block_production_tracking_delay: MutableConfigValue<Duration>,
     /// Minimum duration before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub min_block_production_delay: Duration,
+    pub min_block_production_delay: MutableConfigValue<Duration>,
     /// Maximum wait for approvals before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub max_block_production_delay: Duration,
+    pub max_block_production_delay: MutableConfigValue<Duration>,
     /// Maximum duration before skipping given height.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub max_block_wait_delay: Duration,
+    pub max_block_wait_delay: MutableConfigValue<Duration>,
     /// Multiplier for the wait time for all chunks to be received.
-    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
-    pub chunk_wait_mult: Rational32,
+    pub chunk_wait_mult: MutableConfigValue<Rational32>,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
@@ -733,18 +714,15 @@ pub struct ClientConfig {
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
-    /// How long to wait for a response from centralized state sync
+    /// How long to wait for a state sync block request response
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_timeout: Duration,
+    pub block_request_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,
     /// How long to wait after a failed state sync request
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_retry_backoff: Duration,
-    /// Additional waiting period after a failed request to external storage
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub state_sync_external_backoff: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -761,8 +739,6 @@ pub struct ClientConfig {
     /// Time to persist Accounts Id in the router without removing them.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub ttl_account_id_router: Duration,
-    /// Horizon at which instead of fetching block, fetch full state.
-    pub block_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub catchup_step_period: Duration,
@@ -770,8 +746,7 @@ pub struct ClientConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub chunk_request_retry_period: Duration,
     /// Time between running doomslug timer.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub doomslug_step_period: Duration,
+    pub doomslug_step_period: MutableConfigValue<Duration>,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
@@ -791,6 +766,32 @@ pub struct ClientConfig {
     pub save_tx_outcomes: bool,
     /// Whether to persist receipt-to-tx origin mappings to disk or not.
     pub save_receipt_to_tx: bool,
+    /// Max `±window` accepted on `EXPERIMENTAL_receipt_to_tx` requests.
+    /// Caps caller's `window`. Applies to pre-first-scan `CenterOut`
+    /// against caller's literal hint; ancestor scans use
+    /// `receipt_to_tx_max_hop_distance` instead. Operators raising this
+    /// should also raise `receipt_to_tx_max_hop_distance` so backward reach
+    /// matches caller's wider hint scope. Requests with `window` over this
+    /// rejected with `WindowTooLarge`.
+    pub receipt_to_tx_max_hint_window: BlockHeightDelta,
+    /// Max block-distance ancestor scan walks per hop once any scan in
+    /// walk refreshed `current_height`. Subsequent column-miss scans visit
+    /// `h, h-1, ..., h-max_hop_distance` from most-recent scan-refreshed
+    /// anchor, regardless of column hits between. Anchor included —
+    /// same-shard local receipts execute in same block as producing
+    /// outcome. Raise if cold archival traffic shows ancestor misses —
+    /// gap = scan-refreshed anchor to producer-outcome height of receipt
+    /// with missing column row (column hits don't reset anchor). Default
+    /// 20 (matches `receipt_to_tx_max_hint_window`).
+    pub receipt_to_tx_max_hop_distance: BlockHeightDelta,
+    /// Per-request ceiling on outcome rows the `EXPERIMENTAL_receipt_to_tx`
+    /// hint-fallback scanner reads across hops + shards. Caps cold-RocksDB
+    /// worst case on unauthenticated public endpoint. Default 20_000.
+    /// Operators serving cold archival traffic with deep walks or sparse
+    /// outcomes may raise; benchmark first (see TODO in
+    /// `view_client_actor.rs`). Mid-scan exhaustion fails with
+    /// `BudgetExceeded { scanned, limit }`.
+    pub receipt_to_tx_max_outcomes_per_request: u64,
     /// Whether to persist state changes on disk or not.
     pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
@@ -811,6 +812,9 @@ pub struct ClientConfig {
     pub state_request_server_threads: usize,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// Upper bound on the number of access keys returned by a `view_access_key_list`
+    /// query.
+    pub view_access_keys_limit: u32,
     /// Max burnt gas per view method.  If present, overrides value stored in
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
@@ -819,9 +823,6 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
-    /// Whether to use the State Sync mechanism.
-    /// If disabled, the node will do Block Sync instead of State Sync.
-    pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
     /// Options for epoch sync.
@@ -882,8 +883,31 @@ pub struct ClientConfig {
     pub enable_early_prepare_transactions: bool,
     /// Height horizon for the chunk cache. A chunk is removed from the cache
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
-    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: BlockHeightDelta,
+    /// If true, SPICE nodes track uncertified transactions in a pending
+    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
+    /// during chunk production and RPC validation. Disabled by default; only
+    /// meaningful when SPICE is active.
+    #[cfg(feature = "protocol_feature_spice")]
+    pub spice_pending_transaction_queue_enabled: bool,
+}
+
+impl ClientConfig {
+    pub fn spice_pending_transaction_queue_enabled(&self) -> bool {
+        #[cfg(feature = "protocol_feature_spice")]
+        return self.spice_pending_transaction_queue_enabled;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        false
+    }
+
+    #[cfg(feature = "protocol_feature_spice")]
+    pub fn set_spice_pending_transaction_queue_enabled(&mut self, value: bool) {
+        self.spice_pending_transaction_queue_enabled = value;
+    }
+
+    #[cfg(not(feature = "protocol_feature_spice"))]
+    pub fn set_spice_pending_transaction_queue_enabled(&mut self, _value: bool) {}
 }
 
 #[cfg(feature = "schemars")]

@@ -9,7 +9,7 @@ use crate::types::StateRoot;
 use crate::validator_signer::EmptyValidatorSigner;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, Gas, ProtocolVersion, ShardId};
-use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -42,6 +42,7 @@ pub fn genesis_chunks(
 
         let mut chunk = genesis_chunk(
             &rs,
+            genesis_protocol_version,
             genesis_height,
             initial_gas_limit,
             shard_id,
@@ -59,6 +60,7 @@ pub fn genesis_chunks(
 // fields set to defaults. The remaining fields are set to the provided values.
 fn genesis_chunk(
     rs: &ShardChunkReedSolomon,
+    genesis_protocol_version: ProtocolVersion,
     genesis_height: u64,
     initial_gas_limit: Gas,
     shard_id: ShardId,
@@ -85,7 +87,7 @@ fn genesis_chunk(
         None,
         &EmptyValidatorSigner::default().into(),
         rs,
-        PROTOCOL_VERSION,
+        genesis_protocol_version,
     );
     let encoded_chunk = chunk.into_parts().1;
     encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk")

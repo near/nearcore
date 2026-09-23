@@ -10,6 +10,7 @@ use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -45,8 +46,6 @@ fn check_tx_processing(
 
 /// Test that duplicate transactions are properly rejected.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -196,8 +195,6 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
@@ -261,8 +258,6 @@ fn test_chunk_transaction_validity() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -329,8 +324,6 @@ fn test_request_chunks_for_orphan() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -469,8 +462,6 @@ fn test_processing_chunks_sanity() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -562,12 +553,6 @@ impl ChunkForwardingOptimizationTestData {
             config.epoch_length = epoch_length;
             config.transaction_validity_period = epoch_length * 2;
             config.shard_layout = ShardLayout::multi_shard(4, 3);
-            config.num_block_producer_seats_per_shard = vec![
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-            ];
             config.num_block_producer_seats = num_block_producers as u64;
         }
         let env = TestEnv::builder(&genesis.config)
@@ -646,6 +631,7 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                         partial_encoded_chunk.into(),
+                        RecvMessagePermit::none(),
                     ),
                 );
                 None
@@ -668,7 +654,10 @@ impl ChunkForwardingOptimizationTestData {
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
                 self.env.shards_manager(&account_id).send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                        forward,
+                        RecvMessagePermit::none(),
+                    ),
                 );
                 None
             }
@@ -784,8 +773,6 @@ fn test_processing_blocks_async() {
     genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)

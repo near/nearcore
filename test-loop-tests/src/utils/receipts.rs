@@ -11,14 +11,12 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices,
-    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
+    ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
-use near_primitives::version::ProtocolFeature;
 use near_store::{ShardUId, get};
-use near_vm_runner::logic::ProtocolVersion;
 
 pub enum ReceiptKind {
     Delayed,
@@ -168,9 +166,8 @@ fn check_promise_yield_receipts_exist_in_memtrie(
     assert_ne!(indices.len(), 0);
 }
 
-/// Takes an action receipt of any version and converts it the version that
-/// matches `protocol_version`.
-pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVersion) -> Receipt {
+/// Takes an action receipt of any version and converts it to the latest version.
+pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
     let versioned = match input.receipt() {
         near_primitives::receipt::ReceiptEnum::Action(action_receipt) => {
             VersionedActionReceipt::from(action_receipt)
@@ -181,26 +178,15 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
         _ => panic!("must be action receipt"),
     };
 
-    let action_receipt = if ProtocolFeature::DeterministicAccountIds.enabled(protocol_version) {
-        ReceiptEnum::ActionV2(ActionReceiptV2 {
-            signer_id: versioned.signer_id().clone(),
-            refund_to: versioned.refund_to().clone(),
-            signer_public_key: versioned.signer_public_key().clone(),
-            gas_price: versioned.gas_price(),
-            output_data_receivers: versioned.output_data_receivers().to_vec(),
-            input_data_ids: versioned.input_data_ids().to_vec(),
-            actions: versioned.actions().to_vec(),
-        })
-    } else {
-        ReceiptEnum::Action(ActionReceipt {
-            signer_id: versioned.signer_id().clone(),
-            signer_public_key: versioned.signer_public_key().clone(),
-            gas_price: versioned.gas_price(),
-            output_data_receivers: versioned.output_data_receivers().to_vec(),
-            input_data_ids: versioned.input_data_ids().to_vec(),
-            actions: versioned.actions().to_vec(),
-        })
-    };
+    let action_receipt = ReceiptEnum::ActionV2(ActionReceiptV2 {
+        signer_id: versioned.signer_id().clone(),
+        refund_to: versioned.refund_to().clone(),
+        signer_public_key: versioned.signer_public_key().clone(),
+        gas_price: versioned.gas_price(),
+        output_data_receivers: versioned.output_data_receivers().to_vec(),
+        input_data_ids: versioned.input_data_ids().to_vec(),
+        actions: versioned.actions().to_vec(),
+    });
 
     Receipt::V0(ReceiptV0 {
         predecessor_id: input.predecessor_id().clone(),

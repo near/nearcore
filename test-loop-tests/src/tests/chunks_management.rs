@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use near_async::messaging::Handler as _;
 use near_async::time::Duration;
@@ -8,6 +9,7 @@ use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::GetBlock;
+use near_network::types::NetworkResponses;
 use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -63,7 +65,7 @@ impl Test {
         let genesis = TestLoopBuilder::new_genesis_builder()
             .epoch_length(epoch_length)
             .validators_spec(runner.genesis_validators_spec(seats, seats, seats))
-            .add_user_accounts_simple(&accounts, stake)
+            .add_user_accounts_simple(&accounts, stake.checked_add(Balance::from_near(1)).unwrap())
             .shard_layout(ShardLayout::multi_shard(4, 3))
             .genesis_height(0)
             .build();
@@ -75,9 +77,9 @@ impl Test {
             .clients(accounts)
             .epoch_config_store(epoch_config_store)
             .config_modifier(move |config, _| {
-                config.min_block_production_delay = self.block_timeout;
-                config.max_block_production_delay = 3 * self.block_timeout;
-                config.max_block_wait_delay = 3 * self.block_timeout;
+                config.min_block_production_delay.update(self.block_timeout);
+                config.max_block_production_delay.update(3 * self.block_timeout);
+                config.max_block_wait_delay.update(3 * self.block_timeout);
                 config.chunk_distribution_network = chunk_distribution_config.clone();
             })
             .build();
@@ -86,7 +88,7 @@ impl Test {
             let from_whom = node_datas.account_id.clone();
             let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
             let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-            peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+            peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
                 match request {
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: ref to_whom,
@@ -98,13 +100,13 @@ impl Test {
                             println!(
                                 "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
                             );
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                     NetworkRequests::PartialEncodedChunkForward { account_id: ref to_whom, .. } => {
                         if self.drop_all_chunk_forward_msgs {
                             println!("Dropping Partial Encoded Chunk Forward Message");
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                         if self.test4_config.drop_messages_from.contains(&from_whom.as_str())
                             && to_whom == "test4"
@@ -112,7 +114,7 @@ impl Test {
                             println!(
                                 "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
                             );
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                     }
                     NetworkRequests::PartialEncodedChunkRequest {
@@ -123,7 +125,7 @@ impl Test {
                             && from_whom == "test4"
                         {
                             tracing::info!(%to_whom, "dropping partial encoded chunk request from test4");
-                            return None;
+                            return HandlerResult::Handled(NetworkResponses::NoResponse);
                         }
                         if !self.test4_config.drop_messages_from.is_empty()
                              && from_whom == "test4"
@@ -134,7 +136,7 @@ impl Test {
                     }
                     _ => {}
                 };
-                return Some(request);
+                return HandlerResult::Unhandled(request);
             }));
         }
 

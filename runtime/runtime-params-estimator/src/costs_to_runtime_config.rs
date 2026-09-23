@@ -1,6 +1,7 @@
 use crate::cost::Cost;
 use crate::cost_table::CostTable;
 use anyhow::Context;
+use near_parameters::parameter_table::FeeComponent;
 use near_parameters::vm::Config as VMConfig;
 use near_parameters::{
     AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
@@ -41,7 +42,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
-        use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
+        min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
+        account_creation_charge: latest_runtime_config.account_creation_charge,
     };
     Ok(res)
 }
@@ -52,9 +54,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             cost_table.get(cost).with_context(|| format!("undefined cost: {}", cost))?;
         // Split the total cost evenly between send and execution fee.
         Ok(Fee {
-            send_sir: total_gas.checked_div(2).unwrap(),
-            send_not_sir: total_gas.checked_div(2).unwrap(),
-            execution: total_gas.checked_div(2).unwrap(),
+            send_sir: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
+            send_not_sir: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
+            execution: FeeComponent::Gas(total_gas.checked_div(2).unwrap()),
         })
     };
 
@@ -89,6 +91,10 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::gas_key_transfer_base => actual_fees_config.fee(ActionCosts::gas_key_transfer_base).clone(),
             ActionCosts::gas_key_byte => actual_fees_config.fee(ActionCosts::gas_key_byte).clone(),
             ActionCosts::gas_key_nonce_write_base => actual_fees_config.fee(ActionCosts::gas_key_nonce_write_base).clone(),
+            // No estimator for universal state init costs yet; use values from the config store.
+            ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
+            ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
+            ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
@@ -140,11 +146,27 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::keccak256_byte => Cost::Keccak256Byte,
         ExtCosts::keccak512_base => Cost::Keccak512Base,
         ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::universal_state_init_to_account_id_base => {
+            Cost::UniversalStateInitToAccountIdBase
+        }
+        ExtCosts::universal_state_init_to_account_id_byte => {
+            Cost::UniversalStateInitToAccountIdByte
+        }
+        ExtCosts::sha3_256_base => Cost::Sha3256Base,
+        ExtCosts::sha3_256_byte => Cost::Sha3256Byte,
+        ExtCosts::sha3_384_base => Cost::Sha3384Base,
+        ExtCosts::sha3_384_byte => Cost::Sha3384Byte,
+        ExtCosts::sha3_512_base => Cost::Sha3512Base,
+        ExtCosts::sha3_512_byte => Cost::Sha3512Byte,
         ExtCosts::ripemd160_base => Cost::Ripemd160Base,
         ExtCosts::ripemd160_block => Cost::Ripemd160Block,
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,
         ExtCosts::ed25519_verify_base => Cost::Ed25519VerifyBase,
         ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
+        ExtCosts::p256_verify_base => Cost::P256VerifyBase,
+        ExtCosts::p256_verify_byte => Cost::P256VerifyByte,
+        ExtCosts::ml_dsa_verify_base => Cost::MlDsaVerifyBase,
+        ExtCosts::ml_dsa_verify_byte => Cost::MlDsaVerifyByte,
         ExtCosts::log_base => Cost::LogBase,
         ExtCosts::log_byte => Cost::LogByte,
         ExtCosts::storage_write_base => Cost::StorageWriteBase,
@@ -172,6 +194,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
         ExtCosts::yield_create_base => Cost::YieldCreateBase,
         ExtCosts::yield_create_byte => Cost::YieldCreateByte,
+        ExtCosts::yield_create_with_id_base => Cost::YieldCreateWithIdBase,
         ExtCosts::bls12381_p1_sum_base => Cost::Bls12381P1SumBase,
         ExtCosts::bls12381_p1_sum_element => Cost::Bls12381P1SumElement,
         ExtCosts::bls12381_p2_sum_base => Cost::Bls12381P2SumBase,

@@ -21,5 +21,4 @@ panic = "abort"
 members = []
 
 [features]
-nightly = [
-]
+nightly = []

@@ -26,18 +26,6 @@ fn inc_counter_vec_with_label_values_itoa(bench: &mut Bencher) {
     });
 }
 
-// cspell:words smartstring
-fn inc_counter_vec_with_label_values_smartstring(bench: &mut Bencher) {
-    use std::fmt::Write;
-    bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            let mut label = smartstring::alias::String::new();
-            write!(label, "{shard_id}").unwrap();
-            COUNTERS.with_label_values(&[&label]).inc();
-        }
-    });
-}
-
 fn inc_counter_vec_with_label_values_stack(bench: &mut Bencher) {
     use std::io::Write;
     bench.iter(|| {
@@ -98,7 +86,6 @@ benchmark_group!(
     benches,
     inc_counter_vec_with_label_values,
     inc_counter_vec_with_label_values_itoa,
-    inc_counter_vec_with_label_values_smartstring,
     inc_counter_vec_with_label_values_stack,
     inc_counter_vec_with_label_values_stack_no_format,
     inc_counter_vec_cached_str,

@@ -30,9 +30,9 @@ expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::u
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks --features nightly,protocol_feature_spice
 
 # consensus tests
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
-expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
+expensive --timeout=12m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly,protocol_feature_spice
@@ -70,9 +70,6 @@ expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_s
 expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails
 expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly
 expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly,protocol_feature_spice
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly

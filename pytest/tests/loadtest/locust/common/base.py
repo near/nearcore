@@ -425,9 +425,9 @@ class NearNodeProxy:
             "tx_hash": tx.transaction_id,
             "sender_account_id": tx.sender_account().key.account_id
         }
-        # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
+        # poll for tx result, using "tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
-        result_response = self.post_json("EXPERIMENTAL_tx_status", params)
+        result_response = self.post_json("tx_status", params)
         # very verbose, but very useful to see what's happening when things are stuck
         logger.debug(
             f"polling, got: {result_response.status_code} {json.loads(result_response.text)}"

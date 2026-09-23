@@ -11,7 +11,7 @@ mod util;
 use self::time::*;
 use account_key::*;
 use crypto::*;
-use handshake::*;
+pub(crate) use handshake::*;
 use net::*;
 pub(crate) use peer_message::*;
 use util::*;

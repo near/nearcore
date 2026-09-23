@@ -137,7 +137,7 @@ fn run_model(
     // grafana. Each round is 1 virtual second so half an hour is good for
     // looking at a maximum of 1800 rounds, beyond that you'll need to customize
     // the grafana time range.
-    let start_time = Utc::now() - Duration::from_secs(1 * 60 * 60);
+    let start_time = Utc::now() - Duration::from_hours(1);
     let mut warmup_gas_usage = model.gas_throughput();
 
     model.write_stats_header(&mut stats_writer);

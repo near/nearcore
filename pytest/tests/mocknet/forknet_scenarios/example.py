@@ -18,7 +18,7 @@ class Example(TestSetup):
         self.args.start_height = self.start_height
         self.node_hardware_config = NodeHardware.SameConfig(
             num_chunk_producer_seats=19, num_chunk_validator_seats=24)
-        self.epoch_len = 5000  # roughly 2h 30m @ 2bps
+        self.epoch_len = 5000  # roughly 40m @ 2bps
         self.has_state_dumper = True
         self.genesis_protocol_version = 79
         self.has_archival = True

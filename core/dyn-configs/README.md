@@ -34,6 +34,12 @@ Makes changes to `config.json` and send `SIGHUP` signal to the `neard` process.
 #### Fields of config that can be changed while the node is running:
 
 - `expected_shutdown`: the specified block height neard will gracefully shutdown at.
+- `block_production_tracking_delay`: how often the node checks whether it is time to produce or skip a block.
+- `min_block_production_delay`: the shortest time the node waits before producing a block.
+- `max_block_production_delay`: how long the node waits for block approvals before producing a block anyway.
+- `max_block_wait_delay`: how long the node waits before giving up on a height and skipping it.
+- `chunk_wait_mult`: multiplier on how long the node waits for all chunks to arrive before producing a block.
+- `doomslug_step_period`: how often the doomslug timer fires.
 
 #### Changing other fields of `config.json`
 

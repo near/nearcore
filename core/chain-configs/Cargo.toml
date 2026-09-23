@@ -41,6 +41,7 @@ nightly = [
 ]
 test_genesis = ["near-primitives/rand", "near-primitives/test_utils"]
 test_utils = ["near-primitives/rand"]
+protocol_feature_spice = []
 default = []
 metrics = ["near-o11y", "near-time/clock"]
 schemars = ["dep:schemars", "near-primitives/schemars", "near-parameters/schemars", "near-time/schemars", "near-crypto/schemars"]

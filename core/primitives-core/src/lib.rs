@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use borsh;
 pub use num_rational;
 
@@ -16,6 +14,8 @@ pub mod hash;
 pub mod serialize;
 pub mod trie_key;
 pub mod types;
+pub mod universal_account_id;
+pub mod universal_state_init;
 pub mod version;
 
 pub use enum_map;

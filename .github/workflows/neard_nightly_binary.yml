@@ -31,6 +31,7 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
           persist-credentials: false
 
+      - uses: ./.github/actions/install-clang
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh nightly-release
 

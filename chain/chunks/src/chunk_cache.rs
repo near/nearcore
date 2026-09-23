@@ -25,10 +25,6 @@ use time::ext::InstantExt;
 //    will only include chunks in the block for which it has received the part it owns.
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
-/// Default height horizon for chunk cache. A chunk is out of rear horizon if its
-/// height + DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON < largest_seen_height.
-pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
-
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
@@ -58,6 +54,9 @@ pub struct EncodedChunksCacheEntry {
     pub received_all_receipts: bool,
     /// Used to check whether a metric was recorded for the time taken to make a chunk able to be reconstructed
     pub could_reconstruct: bool,
+    /// Whether decoding this chunk failed (malicious chunk producer). Poisoned
+    /// entries reject late-arriving parts and stay in cache until GC'd.
+    pub decode_failed: bool,
 }
 
 pub struct EncodedChunksCache {
@@ -94,6 +93,7 @@ impl EncodedChunksCacheEntry {
             received_all_parts: false,
             received_all_receipts: false,
             could_reconstruct: false,
+            decode_failed: false,
         }
     }
 
@@ -135,6 +135,16 @@ impl EncodedChunksCache {
 
     pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&EncodedChunksCacheEntry> {
         self.encoded_chunks.get(chunk_hash)
+    }
+
+    /// Mark an entry as failed, which means a malicious chunk producer signed enough bad parts to
+    /// reconstruct an invalid chunk. Further parts for this chunk are not accepted.
+    pub fn mark_decode_failed(&mut self, chunk_hash: &ChunkHash) {
+        if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
+            entry.decode_failed = true;
+            let previous_block_hash = *entry.header.prev_block_hash();
+            self.remove_chunk_from_incomplete_chunks(&previous_block_hash, chunk_hash);
+        }
     }
 
     /// Mark an entry as complete, which means it has all parts and receipts needed
@@ -207,11 +217,32 @@ impl EncodedChunksCache {
     }
 
     pub fn remove(&mut self, chunk_hash: &ChunkHash) -> Option<EncodedChunksCacheEntry> {
-        if let Some(entry) = self.encoded_chunks.remove(chunk_hash) {
-            self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
-            Some(entry)
-        } else {
-            None
+        let entry = self.encoded_chunks.remove(chunk_hash)?;
+        self.remove_chunk_from_incomplete_chunks(entry.header.prev_block_hash(), chunk_hash);
+        self.remove_chunk_from_height_to_shard_to_chunk(
+            entry.header.height_created(),
+            entry.header.shard_id(),
+            chunk_hash,
+        );
+        Some(entry)
+    }
+
+    fn remove_chunk_from_height_to_shard_to_chunk(
+        &mut self,
+        height: BlockHeight,
+        shard_id: ShardId,
+        chunk_hash: &ChunkHash,
+    ) {
+        let Occupied(mut height_entry) = self.height_to_shard_to_chunk.entry(height) else {
+            return;
+        };
+        let shard_to_chunk = height_entry.get_mut();
+        if shard_to_chunk.get(&shard_id) != Some(chunk_hash) {
+            return;
+        }
+        shard_to_chunk.remove(&shard_id);
+        if shard_to_chunk.is_empty() {
+            height_entry.remove();
         }
     }
 
@@ -334,9 +365,10 @@ impl EncodedChunksCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON, MAX_HEIGHTS_AHEAD};
+    use super::MAX_HEIGHTS_AHEAD;
     use crate::chunk_cache::EncodedChunksCache;
     use crate::shards_manager_actor::ChunkRequestInfo;
+    use near_chain_configs::default_chunks_cache_height_horizon;
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
@@ -368,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_incomplete_chunks() {
-        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
+        let mut cache = EncodedChunksCache::new(default_chunks_cache_height_horizon());
         let header0 = create_chunk_header(1, ShardId::new(0));
         let header1 = create_chunk_header(1, ShardId::new(1));
         cache.get_or_insert_from_header(&header0);
@@ -392,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_height_within_horizon_no_overflow() {
-        let horizon = DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
+        let horizon = default_chunks_cache_height_horizon();
         let mut cache = EncodedChunksCache::new(horizon);
 
         // Normal range: largest_seen_height well above the rear horizon.
@@ -425,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_cache_removal() {
-        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
+        let mut cache = EncodedChunksCache::new(default_chunks_cache_height_horizon());
         let header = create_chunk_header(1, ShardId::new(0));
         cache.merge_in_partial_encoded_chunk(
             &header,

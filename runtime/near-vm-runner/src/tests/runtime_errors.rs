@@ -1,7 +1,96 @@
 use super::test_builder::test_builder;
+use crate::logic::errors::{FunctionCallError, VMRunnerError};
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::runner::VMKindExt;
 use expect_test::expect;
+use near_parameters::ExtCosts;
+use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::Gas;
 use std::fmt::Write;
+use std::sync::Arc;
+
+/// Compile and load a contract with 200k globals.
+///
+/// Each defined global occupies 16 bytes of a core instance's `VMContext`, so
+/// globals alone add ~3.2 MB, breaching the limit of 2 MiB.
+///
+/// Pre-`FixContractLoadingError` this surfaces as `VMRunnerError::LoadingError`,
+/// which the runtime maps to a zero-gas nop — the contract-loading work is left
+/// uncharged. Post-feature the same failure finalizes as a gas-bearing abort
+/// that charges the contract-loading fee. Either way it must not panic / crash
+/// the node.
+#[test]
+fn test_max_core_instance_size_breached() {
+    let num_globals = 200_000;
+    let wasm = near_test_contracts::contract_with_num_globals(num_globals);
+
+    super::with_vm_variants(|vm_kind| {
+        let run = |config: near_parameters::vm::Config| {
+            let code = ContractCode::new(wasm.clone(), None);
+            let config = Arc::new(config);
+            let fees = Arc::new(RuntimeFeesConfig::test());
+            let mut ext = MockedExternal::with_code(code.clone_for_tests());
+            let context = super::create_context(vec![]);
+            let gas_counter = context.make_gas_counter(&config);
+            vm_kind
+                .runtime(config)
+                .unwrap()
+                .prepare(&ext, None, gas_counter, "main")
+                .run(&mut ext, &context, fees)
+        };
+
+        // `max_globals_per_contract` will reject a contract at preparation
+        // time before we can breach the core instance size limit.
+        // Here we increase the limit so we can still test the case where we
+        // somehow don't catch it during preparation.
+        let mut base_config = super::test_vm_config(Some(vm_kind));
+        base_config.limit_config.max_globals_per_contract = Some(num_globals as u64);
+
+        match vm_kind {
+            VMKind::Wasmtime => {
+                // Pre-fix: zero-gas nop, loading work uncharged.
+                let before = near_parameters::vm::Config {
+                    fix_contract_loading_error: false,
+                    ..base_config.clone()
+                };
+                let result = run(before);
+                assert!(
+                    matches!(result, Err(VMRunnerError::LoadingError(_))),
+                    "pre-fix: expected LoadingError for oversized instance, got: {result:?}",
+                );
+
+                // Post-fix: gas-bearing abort that charges the loading fee.
+                let after =
+                    near_parameters::vm::Config { fix_contract_loading_error: true, ..base_config };
+                let loading_base = after.ext_costs.gas_cost(ExtCosts::contract_loading_base);
+                let loading_byte = after.ext_costs.gas_cost(ExtCosts::contract_loading_bytes);
+                let expected_gas = loading_base
+                    .checked_add(loading_byte.checked_mul(wasm.len() as u64).unwrap())
+                    .unwrap();
+                let outcome = run(after).expect("post-fix run should finalize as an Ok abort");
+                assert!(
+                    matches!(outcome.aborted, Some(FunctionCallError::LoadingError { .. })),
+                    "post-fix: expected LoadingError abort, got: {:?}",
+                    outcome.aborted,
+                );
+                assert_eq!(
+                    outcome.used_gas, expected_gas,
+                    "post-fix: contract-loading fee should be charged",
+                );
+                assert!(expected_gas.as_gas() > 0, "loading fee should be non-zero");
+            }
+            _ => {
+                let result = run(base_config);
+                assert!(
+                    result.as_ref().is_ok_and(|outcome| outcome.aborted.is_none()),
+                    "{vm_kind:?}: expected clean success for many-globals contract, got: {result:?}",
+                );
+            }
+        }
+    });
+}
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
 
@@ -310,6 +399,40 @@ fn test_guest_panic() {
 }
 
 #[test]
+fn test_trampoline_only_start_section() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (start $panic)
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 364482479 used gas 364482479
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
+fn test_trampoline_only_remaining_gas_global() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (global $g i32 (i32.const 0))
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 376464724 used gas 376464724
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
 fn test_panic_re_export() {
     test_builder()
         .wat(
@@ -405,6 +528,79 @@ fn test_memory_grow() {
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
+        "#]]);
+}
+
+/// memory.grow and table.grow gas costs should scale linearly with the operand size.
+#[test]
+fn test_memory_grow_1_page_gas() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (memory 1 128)
+  (func (export "main")
+    (drop (memory.grow (i32.const 1)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 120932041 used gas 120932041
+        "#]]);
+}
+
+#[test]
+fn test_memory_grow_10_pages_gas() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (memory 1 128)
+  (func (export "main")
+    (drop (memory.grow (i32.const 10)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 128336845 used gas 128336845
+        "#]]);
+}
+
+#[test]
+fn test_table_grow_1_element_gas() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (table 1 128 funcref)
+  (func (export "main")
+    (drop (table.grow (ref.null func) (i32.const 1)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 126111977 used gas 126111977
+        "#]]);
+}
+
+#[test]
+fn test_table_grow_10_elements_gas() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (table 1 128 funcref)
+  (func (export "main")
+    (drop (table.grow (ref.null func) (i32.const 10)))
+  )
+)"#,
+        )
+        .gas(Gas::from_gigagas(10))
+        .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 133516781 used gas 133516781
         "#]]);
 }
 

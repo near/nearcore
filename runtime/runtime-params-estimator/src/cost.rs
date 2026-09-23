@@ -426,6 +426,30 @@ pub enum Cost {
     /// Estimates `keccak512_byte`, the cost charged per input byte in calls to the
     /// keccak512-hash host function.
     Keccak512Byte,
+    /// Estimates `universal_state_init_to_account_id_base`, the cost charged once per
+    /// call to the universal-account-id derivation host function.
+    UniversalStateInitToAccountIdBase,
+    /// Estimates `universal_state_init_to_account_id_byte`, the cost charged per state
+    /// init byte in calls to the universal-account-id derivation host function.
+    UniversalStateInitToAccountIdByte,
+    /// Estimates `sha3_256_base`, the cost charged once per call to the
+    /// sha3-256-hash host function.
+    Sha3256Base,
+    /// Estimates `sha3_256_byte`, the cost charged per input byte in calls to the
+    /// sha3-256-hash host function.
+    Sha3256Byte,
+    /// Estimates `sha3_384_base`, the cost charged once per call to the
+    /// sha3-384-hash host function.
+    Sha3384Base,
+    /// Estimates `sha3_384_byte`, the cost charged per input byte in calls to the
+    /// sha3-384-hash host function.
+    Sha3384Byte,
+    /// Estimates `sha3_512_base`, the cost charged once per call to the
+    /// sha3-512-hash host function.
+    Sha3512Base,
+    /// Estimates `sha3_512_byte`, the cost charged per input byte in calls to the
+    /// sha3-512-hash host function.
+    Sha3512Byte,
     /// Estimates `ripemd160_base`, the cost charged once per call to the
     /// ripemd160-hash host function.
     Ripemd160Base,
@@ -471,6 +495,32 @@ pub enum Cost {
     /// In the end, the cost should be low enough, compared to the base cost,
     /// that it does not matter all that much if we overestimate it a bit.
     Ed25519VerifyByte,
+    /// Estimates `p256_verify_base`, which covers the base cost of the host
+    /// function `p256_verify` to verify a P-256 ECDSA signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`.
+    P256VerifyBase,
+    /// Estimates `p256_verify_byte`, the cost charged per input byte in calls to the
+    /// p256_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes of the message.
+    P256VerifyByte,
+    /// Estimates `ml_dsa_verify_base`, which covers the base cost of the host
+    /// function `ml_dsa_verify` to verify an ML-DSA-65 (FIPS 204) signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`.
+    MlDsaVerifyBase,
+    /// Estimates `ml_dsa_verify_byte`, the cost charged per input byte in calls
+    /// to the ml_dsa_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes of the message.
+    MlDsaVerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value
@@ -693,6 +743,23 @@ pub enum Cost {
     /// produces the steepest line.
     ContractCompileBaseV2,
     ContractCompileBytesV2,
+    /// Compile a contract at the maximum block limit (10 functions with 4999 blocks).
+    AdversarialCompileMaxBlocks,
+    /// Invocation cost with 100k zero-initialized globals.
+    /// Exposes unbounded per-call Wasmtime global re-initialization not covered by gas.
+    AdversarialLoadManyGlobals,
+    /// Invocation cost with 50k active data segments.
+    /// Exposes unbounded per-call data-segment initialization not covered by gas.
+    AdversarialLoadManyDataSegments,
+    /// Invocation cost with 10k active element segments.
+    /// Exposes unbounded per-call table-initialization work not covered by gas.
+    AdversarialLoadManyElementSegments,
+    /// Wasm instruction cost for float ops, including NaN Canonicalization cost.
+    OpFloat,
+    /// Wasm instruction cost for integer ops.
+    OpInt,
+    /// Wasm instruction cost for wide division cost.
+    OpWideArithmetic,
     /// The cost of contract deployment per byte, without the compilation cost.
     ///
     /// Estimation: Measure the deployment costs of two data-only contracts,
@@ -769,6 +836,15 @@ pub enum Cost {
     /// with additional method bytes, and another time with some significant number of bytes in
     /// arguments.
     YieldCreateByte,
+
+    /// Estimates `yield_create_with_id_base`, the base cost of the host function
+    /// `promise_yield_create_with_id`. Compared to `promise_yield_create`, this variant performs
+    /// two extra trie writes (the bidirectional yield_id <-> data_id mapping) per call.
+    ///
+    /// Estimation: We run a tight loop of 1000 calls with a distinct user-provided yield_id each
+    /// iteration (to avoid duplicate-detection short-circuiting). Other known costs are
+    /// subtracted from the measurement.
+    YieldCreateWithIdBase,
 
     /// Estimates `yield_resume_base`, which covers the base cost of the host function
     /// `promise_yield_resume`.

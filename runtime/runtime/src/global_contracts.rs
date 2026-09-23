@@ -1,3 +1,5 @@
+use crate::actions::OrInconsistentState;
+use crate::cache_warming::precompile_contract_with_warming;
 use crate::congestion_control::ReceiptSink;
 use crate::{ActionResult, ApplyState, clear_account_contract_storage_usage};
 use near_primitives::account::{Account, AccountContract};
@@ -12,12 +14,11 @@ use near_primitives::receipt::{
     ReceiptToTxInfo, ReceiptToTxInfoV1,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::types::{AccountId, Compute, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieAccess as _, TrieUpdate};
-use near_vm_runner::logic::ProtocolVersion;
-use near_vm_runner::{ContractCode, precompile_contract};
+use near_vm_runner::ContractCode;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -45,12 +46,8 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return Ok(());
     };
-    if ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-        .enabled(apply_state.current_protocol_version)
-    {
-        result.tokens_burnt =
-            result.tokens_burnt.checked_add(storage_cost).ok_or(IntegerOverflowError)?;
-    }
+    result.tokens_burnt =
+        result.tokens_burnt.checked_add(storage_cost).ok_or(IntegerOverflowError)?;
     account.set_amount(updated_balance);
 
     initiate_distribution(
@@ -59,7 +56,6 @@ pub(crate) fn action_deploy_global_contract(
         deploy_contract.code.clone(),
         &deploy_contract.deploy_mode,
         apply_state.shard_id,
-        apply_state.current_protocol_version,
         result,
     )?;
 
@@ -71,18 +67,10 @@ pub(crate) fn action_use_global_contract(
     account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
-    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    use_global_contract(
-        state_update,
-        account_id,
-        account,
-        &action.contract_identifier,
-        current_protocol_version,
-        result,
-    )
+    use_global_contract(state_update, account_id, account, &action.contract_identifier, result)
 }
 
 pub(crate) fn use_global_contract(
@@ -90,7 +78,6 @@ pub(crate) fn use_global_contract(
     account_id: &AccountId,
     account: &mut Account,
     contract_identifier: &GlobalContractIdentifier,
-    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let key = TrieKey::GlobalContractCode { identifier: contract_identifier.clone().into() };
@@ -101,12 +88,7 @@ pub(crate) fn use_global_contract(
         .into());
         return Ok(());
     }
-    clear_account_contract_storage_usage(
-        state_update,
-        account_id,
-        account,
-        current_protocol_version,
-    )?;
+    clear_account_contract_storage_usage(state_update, account_id, account)?;
     if account.contract().is_local() {
         state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     }
@@ -122,7 +104,7 @@ pub(crate) fn use_global_contract(
             ))
         })?,
     );
-    account.set_contract(contract);
+    account.set_contract(contract).or_inconsistent_state(account_id)?;
     Ok(())
 }
 
@@ -133,7 +115,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
     receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
-) -> Result<(), RuntimeError> {
+) -> Result<Compute, RuntimeError> {
     let _span = tracing::debug_span!(
         target: "runtime",
         "apply_global_contract_distribution_receipt",
@@ -143,7 +125,8 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")
     };
-    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
+    let compute =
+        apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -154,7 +137,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
         receipt_to_tx,
     )?;
 
-    Ok(())
+    Ok(compute)
 }
 
 fn initiate_distribution(
@@ -163,7 +146,6 @@ fn initiate_distribution(
     contract_code: Arc<[u8]>,
     deploy_mode: &GlobalContractDeployMode,
     current_shard_id: ShardId,
-    protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let id = match deploy_mode {
@@ -178,15 +160,9 @@ fn initiate_distribution(
     // distributions with the same nonce from being initiated. This requires
     // allowing the same nonce in the freshness check when applying the
     // distribution receipt.
-    let nonce = increment_nonce(protocol_version, state_update, &id)?;
-    let distribution_receipt = GlobalContractDistributionReceipt::new(
-        id,
-        current_shard_id,
-        vec![],
-        contract_code,
-        nonce,
-        protocol_version,
-    );
+    let nonce = increment_nonce(state_update, &id)?;
+    let distribution_receipt =
+        GlobalContractDistributionReceipt::new(id, current_shard_id, vec![], contract_code, nonce);
     let distribution_receipts =
         Receipt::new_global_contract_distribution(account_id, distribution_receipt);
     // No need to set receipt_id here, it will be generated as part of apply_action_receipt
@@ -197,22 +173,16 @@ fn initiate_distribution(
 /// Increments the nonce for the given global contract identifier and writes
 /// it to state immediately.
 fn increment_nonce(
-    protocol_version: u32,
     state_update: &mut TrieUpdate,
     id: &GlobalContractIdentifier,
 ) -> Result<u64, RuntimeError> {
-    if !ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-        // If the feature is not enabled yet the nonce will be ignored anyway.
-        return Ok(0);
-    }
-
     let identifier: GlobalContractCodeIdentifier = id.clone().into();
 
     let nonce_key = TrieKey::GlobalContractNonce { identifier };
     let stored_nonce = get_nonce(state_update, &nonce_key)?;
 
     let new_nonce = stored_nonce.checked_add(1).ok_or_else(|| {
-        RuntimeError::UnexpectedIntegerOverflow("GlobalContractDistributionNonce".into())
+        RuntimeError::UnexpectedIntegerOverflow("increment_global_contract_nonce".into())
     })?;
     set_nonce(state_update, nonce_key, new_nonce);
     Ok(new_nonce)
@@ -223,7 +193,7 @@ fn apply_distribution_current_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
-) -> Result<(), RuntimeError> {
+) -> Result<Compute, RuntimeError> {
     let identifier = match &global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => GlobalContractCodeIdentifier::CodeHash(*hash),
         GlobalContractIdentifier::AccountId(account_id) => {
@@ -231,26 +201,48 @@ fn apply_distribution_current_shard(
         }
     };
 
-    let is_nonce_fresh =
-        check_and_update_nonce(global_contract_data, &identifier, apply_state, state_update)?;
+    let is_nonce_fresh = check_and_update_nonce(global_contract_data, &identifier, state_update)?;
     if !is_nonce_fresh {
-        return Ok(());
+        return Ok(0);
     }
 
     let config = apply_state.config.wasm_config.clone();
     let trie_key = TrieKey::GlobalContractCode { identifier };
+    let code_len = global_contract_data.code().len() as u64;
     state_update.set(trie_key, global_contract_data.code().to_vec());
-    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+
+    // Record the deploy so a same-chunk call can find the code without a warm cache.
     let code_hash = match global_contract_data.id() {
         GlobalContractIdentifier::CodeHash(hash) => Some(*hash),
         GlobalContractIdentifier::AccountId(_) => None,
     };
-    let _ = precompile_contract(
+    if ProtocolFeature::GlobalContractSameChunkCallFix.enabled(apply_state.current_protocol_version)
+    {
+        state_update.record_global_contract_deploy(ContractCode::new(
+            global_contract_data.code().to_vec(),
+            code_hash,
+        ));
+    }
+
+    state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+
+    precompile_contract_with_warming(
         &ContractCode::new(global_contract_data.code().to_vec(), code_hash),
         config,
+        apply_state.next_wasm_config.clone(),
         apply_state.cache.as_deref(),
     );
-    Ok(())
+    near_vm_runner::report_metrics(apply_state.shard_id, "global_contract");
+    let fees = &apply_state.config.fees;
+    let per_byte_total = fees
+        .deploy_global_contract_execution_per_byte
+        .checked_mul(code_len)
+        .ok_or(IntegerOverflowError)?;
+    let compute = fees
+        .deploy_global_contract_execution_base
+        .checked_add(per_byte_total)
+        .ok_or(IntegerOverflowError)?;
+    Ok(compute)
 }
 
 // Checks if the incoming nonce is fresh and updates the stored nonce. Returns
@@ -259,15 +251,8 @@ fn apply_distribution_current_shard(
 fn check_and_update_nonce(
     global_contract_data: &GlobalContractDistributionReceipt,
     identifier: &GlobalContractCodeIdentifier,
-    apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
 ) -> Result<bool, RuntimeError> {
-    if !ProtocolFeature::GlobalContractDistributionNonce
-        .enabled(apply_state.current_protocol_version)
-    {
-        return Ok(true);
-    }
-
     let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
     let stored_nonce = get_nonce(state_update, &nonce_key)?;
     let incoming_nonce = global_contract_data.nonce();

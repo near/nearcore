@@ -2,8 +2,8 @@ use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
-use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee};
-use near_primitives_core::types::Gas;
+use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
+use near_primitives_core::types::{Compute, Gas};
 use std::collections::HashMap;
 
 #[inline]
@@ -36,7 +36,7 @@ pub(crate) struct FastGasCounter {
     pub burnt_gas: u64,
     /// Hard gas limit for execution
     pub gas_limit: u64,
-    /// Cost for one opcode. Used only by VMs preceding near_vm.
+    /// Cost for one opcode (legacy fast-counter field).
     pub opcode_cost: u64,
 }
 
@@ -77,6 +77,8 @@ pub struct GasCounter {
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileDataV3,
+    /// Compute costs for the send step of outgoing receipts.
+    pub(crate) send_action_compute_usage: Compute,
 }
 
 impl GasCounter {
@@ -88,8 +90,15 @@ impl GasCounter {
         is_view: bool,
     ) -> Self {
         use std::cmp::min;
-        // Ignore prepaid gas limit when in view.
-        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
+        // In view mode there is no real prepaid gas; the per-call budget is
+        // `max_gas_burnt` (i.e. `max_gas_burnt_view`). Bound `prepaid_gas` by it
+        // rather than widening it to `Gas::MAX`: `remaining_gas()` seeds the
+        // in-Wasm gas global on the Wasmtime backend, and seeding it from
+        // `Gas::MAX` let a pure-Wasm loop with no host imports run until it
+        // drained ~u64::MAX of guest gas before the cap was ever checked.
+        // Promises are prohibited in view mode, so `used_gas` never exceeds
+        // `burnt_gas` and this does not change any view-call result.
+        let prepaid_gas = if is_view { max_gas_burnt } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {
@@ -102,6 +111,7 @@ impl GasCounter {
             prepaid_gas,
             is_view,
             profile: Default::default(),
+            send_action_compute_usage: 0,
         }
     }
 
@@ -203,14 +213,6 @@ impl GasCounter {
         }
     }
 
-    /// Very special function to get the gas counter pointer for generated machine code.
-    ///
-    /// Please do not use, unless fully understand Rust aliasing and other consequences.
-    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    pub(crate) fn fast_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
-        &raw mut self.fast_counter
-    }
-
     /// Add a cost for loading the contract code in the VM.
     ///
     /// This cost does not consider the structure of the contract code, only the
@@ -218,7 +220,7 @@ impl GasCounter {
     /// structure into consideration could be added. But since that would have
     /// to happen after loading, we cannot pre-charge it. This is the main
     /// motivation to (only) have this simple fee.
-    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
+    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
         self.pay_base(ExtCosts::contract_loading_base)
@@ -226,10 +228,10 @@ impl GasCounter {
 
     /// VM independent setup before loading the executable.
     ///
-    /// Does VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// Does VM independent checks that happen after the host state has been set
+    /// up but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
+    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn before_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,
@@ -253,7 +255,7 @@ impl GasCounter {
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
+    #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn after_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,
@@ -314,21 +316,39 @@ impl GasCounter {
 
     /// A helper function to pay base cost gas fee for batching an action.
     /// # Args:
-    /// * `burn_gas`: amount of gas to burn;
+    /// * `burn_cost`: amount of gas + compute to burn;
     /// * `use_gas`: amount of gas to reserve;
     /// * `action`: what kind of action is charged for;
     pub(crate) fn pay_action_accumulated(
         &mut self,
-        burn_gas: Gas,
+        burn_cost: ParameterCost,
         use_gas: Gas,
         action: ActionCosts,
     ) -> Result<()> {
         let old_burnt_gas = self.fast_counter.burnt_gas;
-        let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
-        self.update_profile_action(
-            action,
-            Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas)),
-        );
+        let deduct_gas_result = self.deduct_gas(burn_cost.gas, use_gas);
+        // accurate accounting of burnt gas in profiles, even when running into limits
+        let burnt_gas = Gas::from_gas(self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        self.update_profile_action(action, burnt_gas);
+        if deduct_gas_result.is_ok() {
+            // normal case: burn real compute cost
+            self.send_action_compute_usage = self
+                .send_action_compute_usage
+                .checked_add(burn_cost.compute)
+                .ok_or(HostError::IntegerOverflow)?;
+        } else {
+            // Special case: we ran out of gas (`HostError::GasLimitExceeded` or
+            // `HostError::GasExceeded`).
+            // To preserve backwards-compatibility, burn compute costs exactly
+            // equal to the gas cost for this last step. Even if it should be an
+            // increased compute cost. This could be a problem if the last step
+            // has a high compute cost.
+            // Changing this behaviour would be a protocol change.
+            self.send_action_compute_usage = self
+                .send_action_compute_usage
+                .checked_add(burnt_gas.as_gas())
+                .ok_or(HostError::IntegerOverflow)?;
+        }
         deduct_gas_result
     }
 
@@ -337,17 +357,18 @@ impl GasCounter {
     /// - `gas_key_byte`: send fee for serialized GasKeyInfo + exec fee for nonce key/value bytes
     pub(crate) fn pay_gas_key_add_key_fees(
         &mut self,
-        send_fee: Gas,
+        send_fee: ParameterCost,
         exec_fee: &GasKeyAddFee,
     ) -> Result<()> {
         self.pay_action_accumulated(
-            Gas::ZERO,
-            exec_fee.base,
+            ParameterCost::ZERO,
+            exec_fee.base.gas,
             ActionCosts::gas_key_nonce_write_base,
         )?;
-        let burn_gas = send_fee;
-        let use_gas = burn_gas.checked_add(exec_fee.per_byte).ok_or(HostError::IntegerOverflow)?;
-        self.pay_action_accumulated(burn_gas, use_gas, ActionCosts::gas_key_byte)?;
+        let burn_cost = send_fee;
+        let use_gas =
+            burn_cost.gas.checked_add(exec_fee.per_byte.gas).ok_or(HostError::IntegerOverflow)?;
+        self.pay_action_accumulated(burn_cost, use_gas, ActionCosts::gas_key_byte)?;
         Ok(())
     }
 
@@ -395,7 +416,7 @@ impl StorageAccessTracker for GasCounter {
 #[cfg(test)]
 mod tests {
     use super::{ExtCostsConfig, HostError};
-    use near_parameters::{ActionCosts, ExtCosts};
+    use near_parameters::{ActionCosts, ExtCosts, ParameterCost};
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
@@ -474,7 +495,7 @@ mod tests {
         counter.pay_per(ExtCosts::storage_write_value_byte, 10).unwrap();
         counter
             .pay_action_accumulated(
-                Gas::from_gas(100),
+                ParameterCost::new(Gas::from_gas(100), 100),
                 Gas::from_gas(100),
                 ActionCosts::new_data_receipt_byte,
             )
@@ -484,7 +505,7 @@ mod tests {
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
         assert_eq!(
-            profile.total_compute_usage(&ExtCostsConfig::test()),
+            profile.total_compute_usage(&ExtCostsConfig::test(), counter.send_action_compute_usage),
             counter.burnt_gas().as_gas()
         );
     }
@@ -501,7 +522,7 @@ mod tests {
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(
-                profile.total_compute_usage(&ExtCostsConfig::test()),
+                profile.total_compute_usage(&ExtCostsConfig::test(), 0),
                 counter.burnt_gas().as_gas()
             );
         }
@@ -515,10 +536,11 @@ mod tests {
     fn test_profile_compute_cost_action_over_limit() {
         fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, false);
+            let above_limit = Gas::from_gigagas(10);
             assert_eq!(
                 counter.pay_action_accumulated(
-                    Gas::from_gigagas(10),
-                    Gas::from_gigagas(10),
+                    ParameterCost::new(above_limit, above_limit.as_gas()),
+                    above_limit,
                     ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
@@ -527,7 +549,10 @@ mod tests {
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(
-                profile.total_compute_usage(&ExtCostsConfig::test()),
+                profile.total_compute_usage(
+                    &ExtCostsConfig::test(),
+                    counter.send_action_compute_usage
+                ),
                 counter.burnt_gas().as_gas()
             );
         }

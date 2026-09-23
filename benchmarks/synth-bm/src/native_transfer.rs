@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
@@ -10,7 +7,10 @@ use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::TxExecutionStatus;
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time;
 
@@ -50,8 +50,8 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
     let timer = Instant::now();
 
-    let between = Uniform::from(0..accounts.len());
-    let mut rng = rand::thread_rng();
+    let between = Uniform::try_from(0..accounts.len()).unwrap();
+    let mut rng = rand::rng();
 
     let client = JsonRpcClient::connect(&args.rpc_url);
 

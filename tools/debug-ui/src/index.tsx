@@ -6,12 +6,19 @@ import '@patternfly/react-core/dist/styles/base.css';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
+import { isClientError } from './api';
 import { LogVisualizer } from './log_visualizer/LogVisualizer';
 import { LandingPage } from './LandingPage';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: (failureCount, error) => !isClientError(error) && failureCount < 3,
+        },
+    },
+});
 
 const router = createBrowserRouter([
     {
@@ -27,7 +34,7 @@ const router = createBrowserRouter([
         children: [
             {
                 index: true,
-                element: <Navigate to="cluster" />,
+                element: <Navigate to="epoch_info" />,
             },
             {
                 path: '*',

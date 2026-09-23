@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcViewStateRequest {
@@ -8,6 +10,12 @@ pub struct RpcViewStateRequest {
     pub prefix: near_primitives::types::StoreKey,
     #[serde(default)]
     pub include_proof: bool,
+    /// Resume listing after this key (exclusive); must start with `prefix`.
+    #[serde(default, rename = "after_key_base64")]
+    pub after_key: Option<near_primitives::types::StoreKey>,
+    /// Maximum number of entries to return in this page.
+    #[serde(default)]
+    pub limit: Option<NonZeroU32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

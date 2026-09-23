@@ -1,5 +1,5 @@
 use crate::apply_block_cost;
-use crate::estimator_context::EstimatorContext;
+use crate::estimator_context::{BlockLatency, EstimatorContext};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_parameters::ExtCosts;
@@ -8,6 +8,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{Balance, Gas};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
@@ -35,7 +36,9 @@ pub(crate) fn transaction_cost(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
+    let block_latency = extra_refund_block_latency();
+    let (gas_cost, _ext_costs) =
+        transaction_cost_ext(ctx, block_size, make_transaction, block_latency);
     gas_cost
 }
 
@@ -64,7 +67,7 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks, block_latency);
+    let measurements = testbed.measure_blocks(blocks, BlockLatency::Uniform(block_latency));
     if verbose {
         // prints individual block measurements (without division by number of
         // inner items) which helps understanding issue with high variance
@@ -95,6 +98,12 @@ pub(crate) fn overhead_per_measured_block(
     measurement_overhead
 }
 
+/// Extra block of latency added by the `AccountCostIncrease` feature: every measured receipt
+/// also produces a price_surplus gas-refund receipt that lands one block later.
+pub(crate) fn extra_refund_block_latency() -> usize {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+}
+
 #[track_caller]
 pub(crate) fn fn_cost(
     ctx: &mut EstimatorContext,
@@ -102,9 +111,7 @@ pub(crate) fn fn_cost(
     ext_cost: ExtCosts,
     count: u64,
 ) -> GasCost {
-    // Most functions finish execution in a single block. Other measurements
-    // should use `fn_cost_count`.
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(
         measured_count, count,
@@ -169,10 +176,19 @@ pub(crate) fn fn_cost_with_setup(
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
-    block_latency: usize,
+    block_latency: BlockLatency,
 ) -> GasCost {
+    // Under `AccountCostIncrease` every block's receipts also produce price_surplus gas-refund
+    // receipts that land one block later, delaying both the setup and the measured blocks.
+    let extra = extra_refund_block_latency();
+    let block_latency = match block_latency {
+        BlockLatency::Uniform(latency) => BlockLatency::Uniform(latency + extra),
+        BlockLatency::SetupAndMeasured { setup, measured } => {
+            BlockLatency::SetupAndMeasured { setup: setup + extra, measured: measured + extra }
+        }
+    };
     let (total_cost, measured_count) = {
-        let overhead = overhead_per_measured_block(ctx, block_latency);
+        let overhead = overhead_per_measured_block(ctx, block_latency.measured());
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
@@ -267,7 +283,7 @@ pub(crate) fn fn_cost_in_contract(
         let setup = vec![Action::DeployContract(DeployContractAction { code: code.to_vec() })];
         let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
 
-        testbed.process_block(vec![setup_tx], 0);
+        testbed.process_block(vec![setup_tx], extra_refund_block_latency());
     }
 
     let mut blocks = Vec::with_capacity(n_blocks);
@@ -292,7 +308,8 @@ pub(crate) fn fn_cost_in_contract(
     );
     blocks.insert(n_warmup_blocks, vec![base_tx]);
 
-    let mut measurements = testbed.measure_blocks(blocks, 0);
+    let mut measurements =
+        testbed.measure_blocks(blocks, BlockLatency::Uniform(extra_refund_block_latency()));
     measurements.drain(0..n_warmup_blocks);
 
     let (base_gas_cost, _base_ext_costs) = measurements.remove(0);
@@ -436,7 +453,7 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
     );
     let wasm = wat::parse_str(wat_code).unwrap();
     // Validate generated code is valid.
-    near_vm_runner::prepare::prepare_contract(&wasm, config, VMKind::NearVm).unwrap();
+    near_vm_runner::prepare::prepare_contract(&wasm, config, VMKind::Wasmtime).unwrap();
     wasm
 }
 

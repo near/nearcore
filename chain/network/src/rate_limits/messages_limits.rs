@@ -103,7 +103,7 @@ impl Config {
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
     pub fn standard_preset() -> Self {
-        // TODO(trisfald): make presets for other message types
+        use RateLimitedPeerMessageKey::*;
         let mut config = Self::default();
         // EpochSyncRequest is a very simple amplification attack vector, as it requires no arguments
         // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
@@ -118,6 +118,85 @@ impl Config {
             RateLimitedPeerMessageKey::EpochSyncResponse,
             SingleMessageConfig::new(1, 1.0 / 30.0, None),
         );
+        // SyncRoutingTable carries forged-edge OOM potential. The sender side already throttles
+        // via routing_table_update_rate_limit (qps=1, burst=1) per peer, so 1 msg/s sustained
+        // with burst 10 accommodates legitimate sync (including reconnection bursts) while
+        // blocking sustained floods.
+        config.rate_limits.insert(
+            RateLimitedPeerMessageKey::SyncRoutingTable,
+            SingleMessageConfig::new(10, 1.0, None),
+        );
+
+        let basic_config = |messages_per_second: u32| -> SingleMessageConfig {
+            SingleMessageConfig::new(messages_per_second, messages_per_second as f32, None)
+        };
+
+        // 30k TPS
+        let txs_config = basic_config(30_000);
+        config.rate_limits.insert(Transaction, txs_config.clone());
+        config.rate_limits.insert(ForwardTx, txs_config.clone());
+        config.rate_limits.insert(TxStatusRequest, txs_config.clone());
+        config.rate_limits.insert(TxStatusResponse, txs_config);
+
+        let state_sync_config = basic_config(100);
+        config.rate_limits.insert(StatePartRequest, state_sync_config.clone());
+        config.rate_limits.insert(StateHeaderRequest, state_sync_config.clone());
+        config.rate_limits.insert(StateRequestAck, state_sync_config.clone());
+        config.rate_limits.insert(VersionedStateResponse, state_sync_config.clone());
+
+        // Older versions of state sync messages, not really used anymore.
+        config.rate_limits.insert(StateRequestHeader, state_sync_config.clone());
+        config.rate_limits.insert(StateRequestPart, state_sync_config.clone());
+        config.rate_limits.insert(StateResponse, state_sync_config);
+
+        config.rate_limits.insert(BlockApproval, basic_config(2_000));
+
+        let chunk_endorsement_config = basic_config(20_000);
+        config.rate_limits.insert(ChunkEndorsement, chunk_endorsement_config.clone());
+        config.rate_limits.insert(SpiceChunkEndorsement, chunk_endorsement_config);
+
+        let partial_chunk_config = basic_config(5_000);
+        config.rate_limits.insert(PartialEncodedChunkRequest, partial_chunk_config.clone());
+        config.rate_limits.insert(PartialEncodedChunkResponse, partial_chunk_config.clone());
+        config.rate_limits.insert(VersionedPartialEncodedChunk, partial_chunk_config);
+
+        config.rate_limits.insert(PartialEncodedChunkForward, basic_config(1_000));
+
+        let block_config = basic_config(10);
+        config.rate_limits.insert(Block, block_config.clone());
+        config.rate_limits.insert(OptimisticBlock, block_config.clone());
+        config.rate_limits.insert(BlockRequest, block_config);
+
+        let header_sync_config = basic_config(100);
+        config.rate_limits.insert(BlockHeaders, header_sync_config.clone());
+        config.rate_limits.insert(BlockHeadersRequest, header_sync_config);
+
+        let witness_config = basic_config(1_000);
+        config.rate_limits.insert(ChunkStateWitnessAck, witness_config.clone());
+        config.rate_limits.insert(PartialEncodedStateWitness, witness_config.clone());
+        config.rate_limits.insert(PartialEncodedStateWitnessForward, witness_config);
+
+        let contract_deploys_config = basic_config(1_000);
+        config.rate_limits.insert(ChunkContractAccesses, contract_deploys_config.clone());
+        config.rate_limits.insert(ContractCodeRequest, contract_deploys_config.clone());
+        config.rate_limits.insert(ContractCodeResponse, contract_deploys_config.clone());
+        config.rate_limits.insert(PartialEncodedContractDeploys, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceChunkContractAccesses, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceContractCodeRequest, contract_deploys_config.clone());
+        config.rate_limits.insert(SpiceContractCodeResponse, contract_deploys_config);
+
+        let spice_partial_data_config = basic_config(1_000);
+        config.rate_limits.insert(SpicePartialData, spice_partial_data_config.clone());
+        config.rate_limits.insert(SpiceDataRequest, spice_partial_data_config);
+
+        let net_config = basic_config(10);
+        config.rate_limits.insert(PeersRequest, net_config.clone());
+        config.rate_limits.insert(PeersResponse, net_config.clone());
+        config.rate_limits.insert(SyncAccountsData, net_config.clone());
+        config.rate_limits.insert(SyncSnapshotHosts, net_config);
+
+        config.rate_limits.insert(RequestUpdateNonce, basic_config(100));
+
         config
     }
 
@@ -150,7 +229,6 @@ impl Config {
 #[allow(clippy::large_enum_variant)]
 pub enum RateLimitedPeerMessageKey {
     SyncRoutingTable,
-    DistanceVector,
     RequestUpdateNonce,
     SyncAccountsData,
     PeersRequest,
@@ -186,10 +264,13 @@ pub enum RateLimitedPeerMessageKey {
     OptimisticBlock,
     SpicePartialData,
     SpiceChunkEndorsement,
-    SpicePartialDataRequest,
+    SpiceDataRequest,
     SpiceChunkContractAccesses,
     SpiceContractCodeRequest,
     SpiceContractCodeResponse,
+    StatePartRequest,
+    StateHeaderRequest,
+    StateRequestAck,
 }
 
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
@@ -202,7 +283,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
     use RateLimitedPeerMessageKey::*;
     match message {
         PeerMessage::SyncRoutingTable(_) => Some((SyncRoutingTable, 1)),
-        PeerMessage::DistanceVector(_) => Some((DistanceVector, 1)),
         PeerMessage::RequestUpdateNonce(_) => Some((RequestUpdateNonce, 1)),
         PeerMessage::SyncAccountsData(_) => Some((SyncAccountsData, 1)),
         PeerMessage::PeersRequest(_) => Some((PeersRequest, 1)),
@@ -234,12 +314,20 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T1MessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
                 T1MessageBody::SpicePartialData(_) => Some((SpicePartialData, 1)),
                 T1MessageBody::SpiceChunkEndorsement(_) => Some((SpiceChunkEndorsement, 1)),
-                T1MessageBody::SpicePartialDataRequest(_) => Some((SpicePartialDataRequest, 1)),
+                T1MessageBody::SpiceDataRequest(request) => {
+                    Some((SpiceDataRequest, request.token_cost()))
+                }
                 T1MessageBody::SpiceChunkContractAccesses(_) => {
                     Some((SpiceChunkContractAccesses, 1))
                 }
                 T1MessageBody::SpiceContractCodeRequest(_) => Some((SpiceContractCodeRequest, 1)),
                 T1MessageBody::SpiceContractCodeResponse(_) => Some((SpiceContractCodeResponse, 1)),
+                T1MessageBody::VersionedPartialEncodedStateWitness(_) => {
+                    Some((PartialEncodedStateWitness, 1))
+                }
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(_) => {
+                    Some((PartialEncodedStateWitnessForward, 1))
+                }
             },
             TieredMessageBody::T2(msg) => match msg.as_ref() {
                 T2MessageBody::ForwardTx(_) => Some((ForwardTx, 1)),
@@ -255,9 +343,9 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T2MessageBody::PartialEncodedContractDeploys(_) => {
                     Some((PartialEncodedContractDeploys, 1))
                 }
-                T2MessageBody::StatePartRequest(_) => None, // TODO
-                T2MessageBody::StateHeaderRequest(_) => None, // TODO
-                T2MessageBody::StateRequestAck(_) => None,  // TODO
+                T2MessageBody::StatePartRequest(_) => Some((StatePartRequest, 1)),
+                T2MessageBody::StateHeaderRequest(_) => Some((StateHeaderRequest, 1)),
+                T2MessageBody::StateRequestAck(_) => Some((StateRequestAck, 1)),
                 T2MessageBody::Ping(_) | T2MessageBody::Pong(_) => None,
             },
         },
@@ -280,7 +368,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network_protocol::{Disconnect, PeerMessage};
+    use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate};
     use near_async::time::{Duration, FakeClock};
     use near_primitives::hash::CryptoHash;
 
@@ -506,5 +594,96 @@ mod tests {
         assert!(!rate_limits.is_allowed(&msg, clock.now()));
         clock.advance(Duration::seconds(30));
         assert!(rate_limits.is_allowed(&msg, clock.now()));
+    }
+
+    /// V1 legacy and V2 versioned wire variants must share the same rate-limit
+    /// bucket so that rolling from V1 to V2 doesn't double a peer's budget.
+    /// Mirrors the invariant for `*Forward` bodies too.
+    #[test]
+    fn test_versioned_witness_rate_limit_bucket_matches_v1() {
+        use crate::network_protocol::testonly as data;
+        use crate::testonly::make_rng;
+        use near_primitives::stateless_validation::partial_witness::{
+            PartialEncodedStateWitness, PartialEncodedStateWitnessV2,
+            VersionedPartialEncodedStateWitness,
+        };
+        use near_primitives::test_utils::{create_test_signer, test_chunk_header};
+        use near_primitives::types::EpochId;
+
+        let signer = create_test_signer("test_account");
+        let prev_block_hash = CryptoHash::hash_bytes(b"prev_block");
+        let header = test_chunk_header(prev_block_hash, &signer, 0);
+        let epoch_id = EpochId(CryptoHash::default());
+
+        let v1 = PartialEncodedStateWitness::new(
+            epoch_id,
+            header.clone(),
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        );
+        let v2 = PartialEncodedStateWitnessV2::new(
+            epoch_id,
+            header,
+            CryptoHash::hash_bytes(b"prev_prev_block"),
+            0,
+            b"data".to_vec(),
+            4,
+            &signer,
+        );
+        let versioned = VersionedPartialEncodedStateWitness::V2(v2);
+
+        let mut rng = make_rng(0xbeef_1234);
+        // Legacy wire (V1) and versioned wire (V2) for the initial emit.
+        let legacy_emit = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitness(v1.clone()))),
+        )));
+        let versioned_emit = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::VersionedPartialEncodedStateWitness(
+                versioned.clone(),
+            ))),
+        )));
+        assert_eq!(
+            get_key_and_token_cost(&legacy_emit),
+            get_key_and_token_cost(&versioned_emit),
+            "initial-emit legacy/versioned wire must share the same rate-limit bucket",
+        );
+
+        // Forward wire — same invariant for the amplification path.
+        let legacy_forward = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(T1MessageBody::PartialEncodedStateWitnessForward(v1))),
+        )));
+        let versioned_forward = PeerMessage::Routed(Box::new(data::make_routed_message(
+            &mut rng,
+            TieredMessageBody::T1(Box::new(
+                T1MessageBody::VersionedPartialEncodedStateWitnessForward(versioned),
+            )),
+        )));
+        assert_eq!(
+            get_key_and_token_cost(&legacy_forward),
+            get_key_and_token_cost(&versioned_forward),
+            "forward legacy/versioned wire must share the same rate-limit bucket",
+        );
+    }
+
+    #[test]
+    fn test_sync_routing_table_rate_limit() {
+        let config = Config::standard_preset();
+        let clock = FakeClock::default();
+        let mut rate_limits = RateLimits::from_config(&config, clock.now());
+        let msg = PeerMessage::SyncRoutingTable(RoutingTableUpdate::default());
+        // Burst of 10 allowed, then refusal until next refill.
+        for _ in 0..10 {
+            assert!(rate_limits.is_allowed(&msg, clock.now()));
+        }
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
+        // After 1 second one token is refilled.
+        clock.advance(Duration::seconds(1));
+        assert!(rate_limits.is_allowed(&msg, clock.now()));
+        assert!(!rate_limits.is_allowed(&msg, clock.now()));
     }
 }

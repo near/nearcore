@@ -2,7 +2,7 @@ use crate::config::safe_add_balance;
 use crate::global_contracts::use_global_contract;
 use crate::verifier::{StorageStakingError, check_storage_stake};
 use crate::{ActionResult, ApplyState};
-use near_parameters::StorageUsageConfig;
+use near_parameters::{RuntimeConfig, StorageUsageConfig};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::DeterministicStateInitAction;
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
@@ -11,7 +11,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::{StorageError, TrieUpdate};
-use near_vm_runner::logic::ProtocolVersion;
 
 pub(crate) fn action_deterministic_state_init(
     state_update: &mut TrieUpdate,
@@ -37,7 +36,11 @@ pub(crate) fn action_deterministic_state_init(
         }
     };
     if account.contract().is_none() {
-        // `uninit` -> `active` account state transition
+        // `uninit` -> `active` account state transition. "uninit" here is the
+        // NEP-616 sense, a deterministic account with no contract yet, not
+        // `Account::Uninitialized`: a `0u` id can never reach this, because
+        // `validate_deterministic_state_init` pins the receiver to the derived
+        // `0s` id.
         deploy_deterministic_account(
             state_update,
             account,
@@ -45,29 +48,49 @@ pub(crate) fn action_deterministic_state_init(
             &action.state_init,
             result,
             storage_usage_config,
-            apply_state.current_protocol_version,
         )?;
     }
     if result.result.is_err() {
         return Ok(());
     }
 
+    settle_state_init_deposit(
+        account,
+        action.deposit,
+        account_id,
+        receipt,
+        &apply_state.config,
+        result,
+    )
+}
+
+/// Settle a state-init action's attached deposit against the created account's
+/// storage-staking requirement: top up exactly what is missing and refund the
+/// rest, or fail with `LackBalanceForState` if the deposit can't cover it.
+/// Shared by the deterministic and universal state-init handlers.
+///
+/// See <https://github.com/near/NEPs/blob/master/neps/nep-0616.md#stateinit-action>.
+pub(crate) fn settle_state_init_deposit(
+    account: &mut Account,
+    deposit: Balance,
+    account_id: &AccountId,
+    receipt: &Receipt,
+    config: &RuntimeConfig,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
     // Use attached deposit to satisfy storage staking requirements and refund
     // the rest.
-    let deposit_refund = match check_storage_stake(account, account.amount(), &apply_state.config) {
+    let deposit_refund = match check_storage_stake(account, account.amount(), config) {
         Ok(_) => {
             // no additional storage needed, refunding all
-            action.deposit
+            deposit
         }
         Err(StorageStakingError::LackBalanceForStorageStaking(missing_amount)) => {
-            if missing_amount <= action.deposit {
+            if missing_amount <= deposit {
                 // use exactly as much as needed and refund the rest
                 let new_balance = safe_add_balance(account.amount(), missing_amount)?;
                 account.set_amount(new_balance);
-                action
-                    .deposit
-                    .checked_sub(missing_amount)
-                    .expect("just checked missing_amount <= action.deposit")
+                deposit.checked_sub(missing_amount).expect("just checked missing_amount <= deposit")
             } else {
                 result.result = Err(ActionErrorKind::LackBalanceForState {
                     account_id: account_id.clone(),
@@ -123,17 +146,9 @@ fn deploy_deterministic_account(
     state_init: &DeterministicAccountStateInit,
     result: &mut ActionResult,
     storage_usage_config: &StorageUsageConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     // Step 1: set contract code (includes storage usage accounting)
-    use_global_contract(
-        state_update,
-        account_id,
-        account,
-        state_init.code(),
-        current_protocol_version,
-        result,
-    )?;
+    use_global_contract(state_update, account_id, account, state_init.code(), result)?;
     if result.result.is_err() {
         return Ok(());
     }

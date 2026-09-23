@@ -1,0 +1,85 @@
+# Dependabot configuration for nearcore.
+#
+# We do NOT run Dependabot *version* updates — only *security* updates (driven
+# by published advisories). Every `updates` entry below sets
+# `open-pull-requests-limit: 0`, which disables version-update PRs while leaving
+# security updates active (security updates have a separate internal cap of 10
+# open PRs that this limit does not affect).
+#
+# Goal: cut the noise from per-dependency security PRs in the side modules by
+# grouping them into a single PR per module set, WITHOUT touching the root
+# workspace. See each entry for details.
+#
+# Note: `schedule.interval` is a required field but only governs version
+# updates (which are off here). It does NOT delay security updates — those are
+# triggered by advisory publication and open ~immediately regardless of the
+# interval. The root workspace is listed (rather than omitted) so it is
+# unambiguously covered and its policy is explicit.
+version: 2
+updates:
+  # --- npm: debug-ui (debugging tool, does not ship in neard) ---
+  # Highest-volume source of Dependabot PRs. Consolidate every security bump
+  # into one PR.
+  - package-ecosystem: "npm"
+    directory: "/tools/debug-ui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    groups:
+      debug-ui-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # --- cargo: side modules (separate manifests, none ship in neard) ---
+  # Each of these has its own Cargo.toml / Cargo.lock outside the root
+  # workspace (benchmarks and tracing are explicitly `exclude`d in the root
+  # Cargo.toml): benchmarks, test/wallet contracts, the standalone tracing
+  # crate, etc. Their advisories carry near-zero real exposure, so consolidate
+  # them into a single grouped PR rather than one-per-dependency.
+  - package-ecosystem: "cargo"
+    directories:
+      - "/benchmarks/synth-bm"
+      - "/benchmarks/continuous/db/tool"
+      - "/runtime/near-wallet-contract/implementation"
+      - "/runtime/near-test-contracts/sharded-contract"
+      - "/pytest/tools/mirror/contract"
+      - "/tracing"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    groups:
+      cargo-side-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # --- pip: standalone python tooling (does not ship in neard) ---
+  # debug_scripts and pytest are standalone python tooling, both handled by the
+  # `pip` ecosystem. Consolidate into one grouped PR.
+  - package-ecosystem: "pip"
+    directories:
+      - "/debug_scripts"
+      - "/pytest"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    groups:
+      pip-side-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # --- cargo: root workspace (neard) — INTENTIONALLY NOT GROUPED ---
+  # These dependencies ship in the node, and some cannot be bumped casually:
+  # e.g. wasmtime is tied to runtime execution and an upgrade can force a
+  # protocol-version change, so even a "security" bump needs deliberate review.
+  # Runtime dependency updates in general are subtle and must be evaluated one
+  # at a time. We therefore leave the root workspace UNGROUPED so each advisory
+  # arrives as its own PR that can be reviewed (and accepted/deferred)
+  # individually — never bundled all-or-nothing with unrelated bumps.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0

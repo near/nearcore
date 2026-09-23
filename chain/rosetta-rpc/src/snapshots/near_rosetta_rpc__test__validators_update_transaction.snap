@@ -71,5 +71,6 @@ Transaction {
     related_transactions: [],
     metadata: TransactionMetadata {
         type_: Transaction,
+        execution_status: None,
     },
 }

@@ -3,19 +3,22 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain::Error;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::SYNC_V2_ENABLED;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -87,8 +90,6 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
             // Make header sync horizon small enough to trigger it.
             config.block_header_fetch_horizon = 8;
-            // Make block sync horizon small enough to trigger it.
-            config.block_fetch_horizon = 3;
         })
         .build();
     env.add_node(&identifier, node_state);
@@ -150,31 +151,11 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(30),
     );
-    let expected: Vec<String> = if SYNC_V2_ENABLED {
-        vec![
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "BlockSync",
-            "NoSync",
-        ]
-    } else {
-        vec![
-            "AwaitingPeers",
-            "NoSync",
-            "EpochSync",
-            "HeaderSync",
-            "StateSync",
-            "StateSyncDone",
-            "BlockSync",
-            "NoSync",
-        ]
-    }
-    .into_iter()
-    .map(|s| s.to_string())
-    .collect();
+    let expected: Vec<String> =
+        ["AwaitingPeers", "NoSync", "EpochSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
     assert_eq!(sync_status_history.borrow().as_slice(), expected);
 
     env
@@ -303,10 +284,8 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
-    // Requesting the proof should not have persisted the proof on disk. This is intentional;
-    // it is to reduce the stateful-ness of the system so that we may modify the way the proof
-    // is presented in the future (for e.g. bug fixes) without a DB migration.
-    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
+    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
 }
 
 #[test]
@@ -331,8 +310,9 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);
 
-    // On the original node we should have no proof but all headers.
-    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+    // On the original node, proof exists on disk only when ContinuousEpochSync is enabled.
+    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
+    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
     env.assert_header_existence(0, env.shared_state.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.
@@ -361,4 +341,101 @@ fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     let final_head_height = env.chain_final_head_height(0);
     // The proof should still be for the previous epoch, for state sync purposes.
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id() {
+    init_test_logger();
+    let env = setup_initial_blockchain(20);
+
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let epoch_sync = &client.sync_handler.epoch_sync;
+    let epoch_manager = client.epoch_manager.as_ref();
+
+    let proof = env.derive_epoch_sync_proof(0).into_v1();
+    epoch_sync.verify_proof(&proof, epoch_manager).unwrap();
+
+    // A last final block header taken from a different epoch must be rejected.
+    let mut tampered = proof;
+    assert!(tampered.all_epochs.len() >= 2);
+    tampered.all_epochs[0].last_final_block_header =
+        tampered.all_epochs[1].last_final_block_header.clone();
+
+    let err = epoch_sync.verify_proof(&tampered, epoch_manager).unwrap_err();
+    match &err {
+        Error::InvalidEpochSyncProof(msg) => {
+            assert!(msg.contains("epoch_id mismatch"), "unexpected message: {msg}");
+        }
+        _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
+    }
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_epoch_sync_proof_rejects_wrong_epoch_id_middle_epoch() {
+    init_test_logger();
+    let env = setup_initial_blockchain(20);
+
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let epoch_sync = &client.sync_handler.epoch_sync;
+    let epoch_manager = client.epoch_manager.as_ref();
+
+    let proof = env.derive_epoch_sync_proof(0).into_v1();
+    epoch_sync.verify_proof(&proof, epoch_manager).unwrap();
+
+    // The same must hold for an epoch in the middle of the chain, not just the first.
+    let mut tampered = proof;
+    assert!(tampered.all_epochs.len() >= 3);
+    tampered.all_epochs[1].last_final_block_header =
+        tampered.all_epochs[2].last_final_block_header.clone();
+
+    let err = epoch_sync.verify_proof(&tampered, epoch_manager).unwrap_err();
+    match &err {
+        Error::InvalidEpochSyncProof(msg) => {
+            assert!(msg.contains("epoch_id mismatch"), "unexpected message: {msg}");
+        }
+        _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
+    }
+}
+
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_epoch_sync_proof_rejects_max_size_partial_merkle_tree() {
+    init_test_logger();
+    let env = setup_initial_blockchain(20);
+
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&client_handle).client;
+    let epoch_sync = &client.sync_handler.epoch_sync;
+    let epoch_manager = client.epoch_manager.as_ref();
+
+    let proof = env.derive_epoch_sync_proof(0).into_v1();
+    epoch_sync.verify_proof(&proof, epoch_manager).unwrap();
+
+    // Regression test: a partial merkle tree whose size is u64::MAX must be rejected gracefully,
+    // not crash the node via an arithmetic overflow on `size() + 1` during verification.
+    let mut tampered = proof;
+    let path = tampered.current_epoch.partial_merkle_tree_for_first_block.get_path().to_vec();
+    // `PartialMerkleTree` is borsh-encoded as `(path, size)` and the `size` field has no public
+    // setter, so rebuild it via a borsh round-trip with `size` set to u64::MAX.
+    let bytes = borsh::to_vec(&(path, u64::MAX)).unwrap();
+    tampered.current_epoch.partial_merkle_tree_for_first_block =
+        PartialMerkleTree::try_from_slice(&bytes).unwrap();
+
+    let err = epoch_sync.verify_proof(&tampered, epoch_manager).unwrap_err();
+    match &err {
+        Error::InvalidEpochSyncProof(msg) => {
+            assert!(
+                msg.contains("invalid size in partial_merkle_tree_for_first_block"),
+                "unexpected message: {msg}"
+            );
+        }
+        _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
+    }
 }

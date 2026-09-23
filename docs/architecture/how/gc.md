@@ -10,7 +10,7 @@ We run a single ‘round’ of GC after a new block is accepted to the chain - a
 in order not to delay the chain too much, we make sure that each round removes
 at most 2 blocks from the chain.
 
-For more details look at function `clear_data()` in file `chain/chain/src/chain.rs`
+For more details look at function `clear_data()` in file `chain/chain/src/garbage_collection.rs`
 
 ## How it works
 
@@ -69,3 +69,19 @@ Same as before, we’d remove up to 2 blocks in each run:
 ![](https://user-images.githubusercontent.com/1711539/195650127-b30865e1-d9c1-4950-8607-67d82a185b76.png)
 
 Until we catch up to the `gc_stop`.
+
+## Block header garbage collection
+
+Before epoch sync existed, nodes needed all block headers to sync to the latest
+chain, so headers were kept forever. Now that epoch sync provides a lightweight
+proof-based bootstrap mechanism, old block headers are no longer needed and are
+garbage collected alongside their corresponding blocks.
+
+When GC processes a block (in `clear_block_data()`), it also deletes the block
+header from `DBCol::BlockHeader`. Sufficient headers are always kept for
+transaction validation: `transaction_validity_period` requires headers for
+approximately the last two epochs, and GC retains at least
+`MIN_GC_NUM_EPOCHS_TO_KEEP = 3` epochs of data.
+
+On archival nodes with split storage, block headers are copied to cold storage
+before being removed from the hot store.

@@ -3,7 +3,7 @@ name = "near-synth-bm"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.95.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -14,7 +14,7 @@ near-crypto = "0.27"
 near-jsonrpc-client = "0.14.0"
 near-jsonrpc-primitives = "0.27"
 near-primitives = "0.27"
-rand = "0.8.4"
+rand = "0.10.1"
 reqwest = "0.13"
 tokio = { version = "1.43.1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

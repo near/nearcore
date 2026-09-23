@@ -2,22 +2,24 @@ use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, metrics};
+use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0,
-    VersionedActionReceipt,
+    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
+use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives::version::ProtocolFeature;
+use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_promise_yield_indices,
-    set_promise_yield_indices,
+    KeyLookupMode, MissingTrieValue, MissingTrieValueContext, StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_promise_yield_indices, set_promise_yield_indices,
 };
 use near_vm_runner::PreparedContract;
 use near_vm_runner::logic::errors::{
@@ -43,6 +45,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
+    storage_proof_size_before_receipt: Option<usize>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -51,16 +54,7 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    // Use the hash as stored in the account's code_hash field. For legacy ETH
-    // wallet contracts this is the magic bytes hash, not the actual contract
-    // code hash.
-    let code_hash = contract_id.stored_hash();
-    state_update.record_contract_call(
-        account_id.clone(),
-        code_hash,
-        account.contract().as_ref(),
-        apply_state.apply_reason.clone(),
-    )?;
+    record_contract_call(state_update, contract_id, &apply_state.apply_reason)?;
 
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
@@ -76,11 +70,12 @@ pub(crate) fn action_function_call(
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
-        config.wasm_config.storage_get_mode,
         Arc::clone(&apply_state.trie_access_tracker_state),
+        storage_proof_size_before_receipt,
     );
     let outcome = execute_function_call(
         contract,
+        contract_id,
         apply_state,
         &mut runtime_ext,
         receipt.predecessor_id(),
@@ -98,7 +93,7 @@ pub(crate) fn action_function_call(
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
         Some(err) => {
-            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values::<&str>(&[err.into()]).inc();
         }
     }
 
@@ -106,28 +101,33 @@ pub(crate) fn action_function_call(
     if let Some(err) = outcome.aborted {
         // collect metrics for failed function calls
         metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-            .with_label_values(&[(&err).into()])
+            .with_label_values::<&str>(&[(&err).into()])
             .inc();
         match &err {
             FunctionCallError::CompilationError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
-            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::LinkError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LINK_ERRORS.inc();
+            }
+            FunctionCallError::LoadingError { .. } => {
+                metrics::FUNCTION_CALL_PROCESSED_LOADING_ERRORS.inc();
+            }
             FunctionCallError::MethodResolveError(err) => {
                 metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                    .with_label_values(&[err.into()])
+                    .with_label_values::<&str>(&[err.into()])
                     .inc();
             }
             FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
             FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                    .with_label_values(&[inner_err.into()])
+                    .with_label_values::<&str>(&[inner_err.into()])
                     .inc();
             }
         }
@@ -150,7 +150,7 @@ pub(crate) fn action_function_call(
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
         let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
@@ -169,37 +169,19 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_receipt = if ProtocolFeature::DeterministicAccountIds
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    let new_action_receipt = ActionReceiptV2 {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        refund_to: receipt.refund_to,
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV2(new_action_receipt)
-                    }
+                let new_action_receipt = ActionReceiptV2 {
+                    signer_id: action_receipt.signer_id().clone(),
+                    signer_public_key: action_receipt.signer_public_key().clone(),
+                    refund_to: receipt.refund_to,
+                    gas_price: action_receipt.gas_price(),
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                };
+                let new_receipt = if receipt.is_promise_yield {
+                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
                 } else {
-                    let new_action_receipt = ActionReceipt {
-                        signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.signer_public_key().clone(),
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYield(new_action_receipt)
-                    } else {
-                        ReceiptEnum::Action(new_action_receipt)
-                    }
+                    ReceiptEnum::ActionV2(new_action_receipt)
                 };
 
                 Receipt::V0(ReceiptV0 {
@@ -238,6 +220,8 @@ pub(crate) fn action_function_call(
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
+        result.subsidized_amount =
+            safe_add_balance(result.subsidized_amount, outcome.subsidized_amount)?;
         result.result = Ok(outcome.return_data);
         result.new_receipts.extend(new_receipts);
     }
@@ -248,6 +232,7 @@ pub(crate) fn action_function_call(
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     contract: Box<dyn near_vm_runner::PreparedContract>,
+    contract_id: &RuntimeContractIdentifier,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
@@ -294,10 +279,7 @@ pub(crate) fn execute_function_call(
 
     near_vm_runner::reset_metrics();
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
-    near_vm_runner::report_metrics(
-        &apply_state.shard_id.to_string(),
-        &apply_state.apply_reason.to_string(),
-    );
+    near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass
@@ -310,6 +292,35 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
             });
+            if ProtocolFeature::FailCallToMissingGlobalContract
+                .enabled(apply_state.current_protocol_version)
+                && global_contract_is_missing(runtime_ext.trie_update, contract_id)?
+            {
+                // The account points at a global contract that was never deployed
+                // on this chain. ETH implicit accounts get their wallet contract
+                // hash hardcoded at creation without an existence check, so this
+                // is a legitimate state rather than an inconsistency. The lookup
+                // above is recorded in the state witness, so chunk validators see
+                // the same proof of absence and reach the same outcome.
+                return Ok(VMOutcome::nop_outcome(error));
+            }
+            if runtime_ext.account().contract().is_some() {
+                debug_assert!(
+                    apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
+                    "inconsistent state: contract code is missing from the trie, but the account has a non-empty contract"
+                );
+
+                // A missing body for an account that commits to a code hash is
+                // witness incompleteness, not an execution result. Fail like any
+                // other missing witness value rather than treating it as no-op.
+                if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
+                    return Err(StorageError::MissingTrieValue(MissingTrieValue {
+                        context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                        hash: contract_id.hash(),
+                    })
+                    .into());
+                }
+            }
             return Ok(VMOutcome::nop_outcome(error));
         }
         Err(VMRunnerError::ExternalError(any_err)) => {
@@ -324,11 +335,13 @@ pub(crate) fn execute_function_call(
             err @ InconsistentStateError::IntegerOverflow,
         )) => return Err(StorageError::StorageInconsistentState(err.to_string()).into()),
         Err(VMRunnerError::CacheError(err)) => {
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS
+                .with_label_values::<&str>(&[(&err).into()])
+                .inc();
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contract: {msg}")
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::LoadingError { msg }));
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
@@ -346,6 +359,66 @@ pub(crate) fn execute_function_call(
     }
 
     Ok(outcome)
+}
+
+/// Records an access to the contract code due to a function call.
+///
+/// For local and global contracts, verifies the contract exists in the trie
+/// and records its code hash for distribution to validators. Built-in wallet
+/// contracts and absent contracts are skipped.
+fn record_contract_call(
+    state_update: &TrieUpdate,
+    contract_id: &RuntimeContractIdentifier,
+    apply_reason: &ApplyChunkReason,
+) -> Result<(), StorageError> {
+    // Recording is only needed for distributing contracts to validators when
+    // updating the tracked shard.
+    if *apply_reason != ApplyChunkReason::UpdateTrackedShard {
+        return Ok(());
+    }
+
+    let (code_hash, trie_key) = match contract_id {
+        RuntimeContractIdentifier::None => {
+            return Ok(());
+        }
+        RuntimeContractIdentifier::AccountLocal { code_hash, account_id } => {
+            (*code_hash, TrieKey::ContractCode { account_id: account_id.clone() })
+        }
+        RuntimeContractIdentifier::Global { code_hash, identifier } => {
+            (*code_hash, TrieKey::GlobalContractCode { identifier: identifier.clone().into() })
+        }
+    };
+
+    // Only record the call if the trie contains the contract (with the given hash).
+    // This avoids recording contracts that do not exist or are newly-deployed.
+    // The lookup has no side effects (not charging gas or recording trie nodes).
+    let mut key = SmallKeyVec::new_const();
+    trie_key.append_into(&mut key);
+    let contract_ref = state_update
+        .trie
+        .get_optimized_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::NO_SIDE_EFFECTS)
+        .or_else(|err| {
+            if matches!(err, StorageError::MissingTrieValue(_)) { Ok(None) } else { Err(err) }
+        })?;
+    if contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash) {
+        state_update.contract_storage().record_call(code_hash);
+    }
+    Ok(())
+}
+
+/// Returns true if `contract_id` refers to a global contract that is not in the
+/// trie, i.e. it was never deployed on this chain. The lookup is a regular
+/// state access, so its trie nodes are recorded in the state witness and
+/// validators can verify the absence.
+fn global_contract_is_missing(
+    state_update: &TrieUpdate,
+    contract_id: &RuntimeContractIdentifier,
+) -> Result<bool, StorageError> {
+    let RuntimeContractIdentifier::Global { identifier, .. } = contract_id else {
+        return Ok(false);
+    };
+    let key = TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
+    Ok(!state_update.contains_key(&key, AccessOptions::DEFAULT)?)
 }
 
 /// See #11703 for more details

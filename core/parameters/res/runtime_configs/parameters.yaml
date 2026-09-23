@@ -7,30 +7,33 @@ burnt_gas_reward: {
   numerator: 3,
   denominator: 10,
 }
+# No pessimistic gas price inflation since NEP-536 (https://github.com/near/NEPs/pull/536).
 pessimistic_gas_price_inflation: {
-  numerator: 103,
-  denominator: 100,
+  numerator: 1,
+  denominator: 1,
 }
 gas_refund_penalty: {
   numerator: 0,
   denominator: 100,
 }
 min_gas_refund_penalty: 0
+min_gas_purchase_price: 0
+account_creation_charge: 0
 
 # Stateless validation config
-main_storage_proof_size_soft_limit: 4_294_967_295
-per_receipt_storage_proof_size_limit: 4_294_967_295
-combined_transactions_size_limit: 4_294_967_295
-new_transactions_validation_state_size_soft_limit: 4_294_967_295
-outgoing_receipts_usual_size_limit: 4_294_967_295
-outgoing_receipts_big_size_limit: 4_294_967_295
+main_storage_proof_size_soft_limit: 4_000_000
+per_receipt_storage_proof_size_limit: 4_000_000
+combined_transactions_size_limit: 4_194_304
+new_transactions_validation_state_size_soft_limit: 572_864
+outgoing_receipts_usual_size_limit: 102_400 # 100 kiB
+outgoing_receipts_big_size_limit: 4_718_592 # 4.5 MiB
 
 # Account creation config
-min_allowed_top_level_account_length: 32
+min_allowed_top_level_account_length: 65
 registrar_account_id: "registrar"
 
 # Storage usage config
-storage_amount_per_byte: 0.0001 N
+storage_amount_per_byte: 10000000000000000000 yN
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 
@@ -38,25 +41,27 @@ storage_num_extra_bytes_record: 40
 # send_sir / send_not_sir is burned when creating a receipt on the signer shard
 # (SIR = signer is receiver, which guarantees the receipt is local)
 # execution is burned when applying receipt on receiver shard
+# Sending a receipt to another shard costs 50 TGas / MiB, hence the per-byte
+# send_not_sir fees of 47_683_715.
 action_receipt_creation: {
   send_sir: 108_059_500_000,
   send_not_sir: 108_059_500_000,
   execution: 108_059_500_000,
 }
 data_receipt_creation_base: {
-  send_sir: 4_697_339_419_375,
-  send_not_sir: 4_697_339_419_375,
-  execution: 4_697_339_419_375,
+  send_sir: 36_486_732_312,
+  send_not_sir: 36_486_732_312,
+  execution: 36_486_732_312,
 }
 data_receipt_creation_per_byte: {
-  send_sir: 59_357_464,
-  send_not_sir: 59_357_464,
-  execution: 59_357_464,
+  send_sir: 17_212_011,
+  send_not_sir: 47_683_715,
+  execution: 17_212_011,
 }
 action_create_account: {
-  send_sir: 99_607_375_000,
-  send_not_sir: 99_607_375_000,
-  execution: 99_607_375_000,
+  send_sir: 3_850_000_000_000,
+  send_not_sir: 3_850_000_000_000,
+  execution: 3_850_000_000_000,
 }
 action_delete_account: {
   send_sir: 147_489_000_000,
@@ -66,21 +71,23 @@ action_delete_account: {
 action_deploy_contract: {
   send_sir: 184_765_750_000,
   send_not_sir: 184_765_750_000,
-  execution: 184_765_750_000,
+  # ~100x compute cost, sets the limit to at most 50 deployments per chunk
+  execution: { gas: 184_765_750_000, compute: 20_000_000_000_000 },
 }
 action_deploy_contract_per_byte: {
   send_sir: 6_812_999,
-  send_not_sir: 6_812_999,
-  execution: 6_812_999,
+  send_not_sir: 47_683_715,
+  # ~4x compute cost, sets the limit such that a 4MiB contract fills a chunk
+  execution: { gas: 64_572_944, compute: 250_000_000 },
 }
 action_function_call: {
-  send_sir: 2_319_861_500_000,
-  send_not_sir: 2_319_861_500_000,
-  execution: 2_319_861_500_000,
+  send_sir: 200_000_000_000,
+  send_not_sir: 200_000_000_000,
+  execution: 780_000_000_000,
 }
 action_function_call_per_byte: {
   send_sir: 2_235_934,
-  send_not_sir: 2_235_934,
+  send_not_sir: 47_683_715,
   execution: 2_235_934,
 }
 action_transfer: {
@@ -105,7 +112,7 @@ action_add_function_call_key: {
 }
 action_add_function_call_key_per_byte: {
   send_sir: 1_925_331,
-  send_not_sir: 1_925_331,
+  send_not_sir: 47_683_715,
   execution: 1_925_331,
 }
 action_delete_key: {
@@ -133,6 +140,26 @@ action_deterministic_state_init_per_byte: {
   send_not_sir: 72_000_000,
   execution: 70_000_000,
 }
+# Same as action_deterministic_state_init: the work is the same, and the cost is
+# dominated by account creation rather than compute (derived in #14160, rebalanced
+# for NEP-642 in #15907). Access keys cost extra, charged per key at
+# action_add_full_access_key. Keep `execution` high enough to cover
+# account_creation_charge.
+action_universal_state_init: {
+  send_sir: 500_000_000_000,
+  send_not_sir: 500_000_000_000,
+  execution: 7_430_000_000_000,
+}
+action_universal_state_init_per_entry: {
+  send_sir: 0,
+  send_not_sir: 0,
+  execution: 200_000_000_000,
+}
+action_universal_state_init_per_byte: {
+  send_sir: 72_000_000,
+  send_not_sir: 72_000_000,
+  execution: 70_000_000,
+}
 action_gas_key_transfer: {
   send_sir: 115_123_062_500,
   send_not_sir: 115_123_062_500,
@@ -150,13 +177,13 @@ action_gas_key_nonce_write_base: {
 }
 
 # Smart contract dynamic gas costs
-wasm_regular_op_cost: 3_856_371
-wasm_linear_op_base_cost: 300_000_000_000_000
-wasm_linear_op_unit_cost: 300_000_000_000_000
+wasm_regular_op_cost: 822_756
+wasm_linear_op_base_cost: 26_328_192
+wasm_linear_op_unit_cost: 822_756
 wasm_grow_mem_cost: 1
 wasm_base: 264_768_111
 wasm_contract_loading_base: 35_445_963
-wasm_contract_loading_bytes: 216_750
+wasm_contract_loading_bytes: 1_089_295
 wasm_read_memory_base: 2_609_863_200
 wasm_read_memory_byte: 3_801_333
 wasm_write_memory_base: 2_803_794_861
@@ -175,27 +202,54 @@ wasm_keccak256_base: 5_879_491_275
 wasm_keccak256_byte: 21_471_105
 wasm_keccak512_base: 5_811_388_236
 wasm_keccak512_byte: 36_649_701
+# SHA3-256 shares the keccak-f permutation, so it reuses the keccak256 costs.
+wasm_sha3_256_base: 5_879_491_275
+wasm_sha3_256_byte: 21_471_105
+# SHA3-384/512 share the keccak-f permutation; they reuse the keccak512 costs, which are
+# conservative for sha3_384 (higher rate) and exact for sha3_512.
+wasm_sha3_384_base: 5_811_388_236
+wasm_sha3_384_byte: 36_649_701
+wasm_sha3_512_base: 5_811_388_236
+wasm_sha3_512_byte: 36_649_701
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
-wasm_ecrecover_base: 3_365_369_625_000
+wasm_ecrecover_base: 278_821_988_457
 wasm_ed25519_verify_base: 210_000_000_000
 wasm_ed25519_verify_byte: 9_000_000
+wasm_p256_verify_base: 1_300_000_000_000
+wasm_p256_verify_byte: 13_000_000
+# ML-DSA-65 (FIPS 204) verification, cost derived from measurements relative to ed25519
+wasm_ml_dsa_verify_base: 540_000_000_000
+wasm_ml_dsa_verify_byte: 11_000_000
+# `universal_state_init_to_account_id` is SHA3-256 over the bytes it is given plus a
+# base32 encoding of the 32-byte digest. Calibrated by icount against sha3_256 measured
+# in the same run: per byte it is the same hash over the same bytes (33.96 vs 33.97
+# instructions/byte), so it reuses that cost. Its base is 1.45x sha3_256's (11_784 vs
+# 8_141 instructions) for the encoding, the account id parse and the allocation, so the
+# base is scaled by that ratio to inherit sha3_256's safety margin:
+# 5_879_491_275 * 11_784.07 / 8_140.94 = 8_510_606_483.9, rounded up.
+wasm_universal_state_init_to_account_id_base: 8_520_000_000
+wasm_universal_state_init_to_account_id_byte: 21_471_105
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
-wasm_storage_write_base: 64_196_736_000
+wasm_storage_write_base: { gas: 64_196_736_000, compute: 200_000_000_000 }
 wasm_storage_write_key_byte: 70_482_867
 wasm_storage_write_value_byte: 31_018_539
 wasm_storage_write_evicted_byte: 32_117_307
-wasm_storage_read_base: 56_356_845_750
-wasm_storage_read_key_byte: 30_952_533
-wasm_storage_read_value_byte: 5_611_005
-wasm_storage_large_read_overhead_base: 0
-wasm_storage_large_read_overhead_byte: 0
-wasm_storage_remove_base: 53_473_030_500
+# See https://github.com/near/nearcore/pull/12044 for how the storage read compute costs were
+# derived. `gas` is 1 for the large read overhead variants because the code needs a non-zero
+# value there; to keep that transparent for contracts, `read_base` and `read_value_byte` are
+# 1 lower than their measured values.
+wasm_storage_read_base: { gas: 56_356_845_749, compute: 159_000_000_000 }
+wasm_storage_read_key_byte: { gas: 30_952_533, compute: 10_000_000 }
+wasm_storage_read_value_byte: { gas: 5_611_004, compute: 2_500_000 }
+wasm_storage_large_read_overhead_base: { gas: 1, compute: 41_000_000_000 }
+wasm_storage_large_read_overhead_byte: { gas: 1, compute: 3_111_005 }
+wasm_storage_remove_base: { gas: 53_473_030_500, compute: 200_000_000_000 }
 wasm_storage_remove_key_byte: 38_220_384
 wasm_storage_remove_ret_value_byte: 11_531_556
-wasm_storage_has_key_base: 54_039_896_625
-wasm_storage_has_key_byte: 30_790_845
+wasm_storage_has_key_base: { gas: 54_039_896_625, compute: 158_000_000_000 }
+wasm_storage_has_key_byte: { gas: 30_790_845, compute: 10_000_000 }
 wasm_storage_iter_create_prefix_base: 0
 wasm_storage_iter_create_prefix_byte: 0
 wasm_storage_iter_create_range_base: 0
@@ -204,8 +258,10 @@ wasm_storage_iter_create_to_byte: 0
 wasm_storage_iter_next_base: 0
 wasm_storage_iter_next_key_byte: 0
 wasm_storage_iter_next_value_byte: 0
-wasm_touching_trie_node: 16_101_955_926
-wasm_read_cached_trie_node: 2_280_000_000
+# Reading a trie node costs the same for the first and for subsequent accesses, which
+# keeps trie access accounting simple.
+wasm_touching_trie_node: { gas: 2_280_000_000, compute: 4_000_000_000 }
+wasm_read_cached_trie_node: { gas: 2_280_000_000, compute: 4_000_000_000 }
 wasm_promise_and_base: 1_465_013_400
 wasm_promise_and_per_promise: 5_452_176
 wasm_promise_return: 560_152_386
@@ -217,34 +273,35 @@ wasm_alt_bn128_pairing_check_base: 9_686_000_000_000
 wasm_alt_bn128_pairing_check_element: 5_102_000_000_000
 wasm_alt_bn128_g1_sum_base: 3_000_000_000
 wasm_alt_bn128_g1_sum_element: 5_000_000_000
-wasm_bls12381_p1_sum_base: 300_000_000_000_000
-wasm_bls12381_p1_sum_element: 300_000_000_000_000
-wasm_bls12381_p2_sum_base: 300_000_000_000_000
-wasm_bls12381_p2_sum_element: 300_000_000_000_000
-wasm_bls12381_g1_multiexp_base: 300_000_000_000_000
-wasm_bls12381_g1_multiexp_element: 300_000_000_000_000
-wasm_bls12381_g2_multiexp_base: 300_000_000_000_000
-wasm_bls12381_g2_multiexp_element: 300_000_000_000_000
-wasm_bls12381_map_fp_to_g1_base: 300_000_000_000_000
-wasm_bls12381_map_fp_to_g1_element: 300_000_000_000_000
-wasm_bls12381_map_fp2_to_g2_base: 300_000_000_000_000
-wasm_bls12381_map_fp2_to_g2_element: 300_000_000_000_000
-wasm_bls12381_pairing_base: 300_000_000_000_000
-wasm_bls12381_pairing_element: 300_000_000_000_000
-wasm_bls12381_p1_decompress_base: 300_000_000_000_000
-wasm_bls12381_p1_decompress_element: 300_000_000_000_000
-wasm_bls12381_p2_decompress_base: 300_000_000_000_000
-wasm_bls12381_p2_decompress_element: 300_000_000_000_000
+wasm_bls12381_p1_sum_base: 16_500_000_000
+wasm_bls12381_p1_sum_element: 6_000_000_000
+wasm_bls12381_p2_sum_base: 18_600_000_000
+wasm_bls12381_p2_sum_element: 15_000_000_000
+wasm_bls12381_g1_multiexp_base: 16_500_000_000
+wasm_bls12381_g1_multiexp_element: 930_000_000_000
+wasm_bls12381_g2_multiexp_base: 18_600_000_000
+wasm_bls12381_g2_multiexp_element: 1_995_000_000_000
+wasm_bls12381_map_fp_to_g1_base: 1_500_000_000
+wasm_bls12381_map_fp_to_g1_element: 252_000_000_000
+wasm_bls12381_map_fp2_to_g2_base: 1_500_000_000
+wasm_bls12381_map_fp2_to_g2_element: 900_000_000_000
+wasm_bls12381_pairing_base: 2_130_000_000_000
+wasm_bls12381_pairing_element: 2_130_000_000_000
+wasm_bls12381_p1_decompress_base: 15_000_000_000
+wasm_bls12381_p1_decompress_element: 81_000_000_000
+wasm_bls12381_p2_decompress_base: 15_000_000_000
+wasm_bls12381_p2_decompress_element: 165_000_000_000
 
-wasm_yield_create_base: 300_000_000_000_000
-wasm_yield_create_byte: 300_000_000_000_000
-wasm_yield_resume_base: 300_000_000_000_000
-wasm_yield_resume_byte: 300_000_000_000_000
+wasm_yield_create_base: 153_411_779_276
+wasm_yield_create_byte: 15_643_988
+wasm_yield_create_with_id_base: 300_000_000_000_000
+wasm_yield_resume_base: 1_195_627_285_210
+wasm_yield_resume_byte: 47_683_715
 
 # Smart contract limits
-max_gas_burnt: 200_000_000_000_000
-max_gas_burnt_view: 200_000_000_000_000
-max_stack_height: 16_384
+max_gas_burnt: 1_000_000_000_000_000
+max_gas_burnt_view: 1_000_000_000_000_000
+max_stack_height: 262_144
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
 registers_memory_limit: 1_073_741_824
@@ -252,86 +309,112 @@ max_register_size: 104_857_600
 max_number_registers: 100
 max_number_logs: 100
 max_total_log_length: 16_384
-max_total_prepaid_gas: 300_000_000_000_000
+max_total_prepaid_gas: 1_000_000_000_000_000
 max_actions_per_receipt: 100
+max_deploy_actions_per_receipt: 10
 max_number_bytes_method_names: 2_000
 max_length_method_name: 256
 max_arguments_length: 4_194_304
 max_length_returned_data: 4_194_304
 max_contract_size: 4_194_304
-max_transaction_size: 4_194_304
-max_receipt_size: 4_294_967_295
-max_length_storage_key: 4_194_304
+max_transaction_size: 1_572_864
+max_receipt_size: 4_194_304
+max_length_storage_key: 2_048
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
-account_id_validity_rules_version: 0
+max_receipt_total_input_size: 4_294_967_295
+max_universal_state_init_keys: 1_024
+max_state_init_entries: 4_294_967_295
+max_functions_number_per_contract: 10_000
+max_locals_per_contract: 1_000_000
+max_tables_per_contract: 1
+max_elements_per_contract_table: 10_000
+max_function_body_size: 196_608
+max_instrumented_code_size: 16_777_216
+max_blocks_per_function: 5_000
+max_blocks_per_contract: 50_000
+max_types_per_contract: 1_024
+max_params_per_function: 64
+max_params_per_contract: 50_000
+max_operand_stack_bytes_per_function: 8_192
+account_id_validity_rules_version: 2
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
 # Contract runtime configuration
-flat_storage_reads: false
 fix_contract_loading_cost: false
-vm_kind: Wasmer0
-eth_implicit_accounts: false
-eth_implicit_global_contract: false
-discard_custom_sections: false
-global_contract_host_fns: false
-reftypes_bulk_memory: false
-deterministic_account_ids: false
+fix_contract_loading_error: false
+vm_kind: Wasmtime
+universal_accounts: false
 gas_key_host_fns: false
+fix_ml_dsa_cost_charging: false
+one_yocto_on_promise: false
+p256_verify_host_fn: false
+ml_dsa_verify_host_fn: false
+sha3_host_fns: false
+yield_with_id_host_fns: false
+chain_id_host_fn: false
+bls12381_not_in_group_fix: false
 
 
 # Congestion Control configuration
 
-# The configs are u64 but yaml only supports i64.
-# i64::MAX == 9_223_372_036_854_775_807i64
+# The default values were defined in NEP-539
+# (https://github.com/near/NEPs/pull/539) after extensive fine-tuning.
 
-max_congestion_incoming_gas: 9_223_372_036_854_775_807
-max_congestion_outgoing_gas: 9_223_372_036_854_775_807
-max_congestion_memory_consumption: 9_223_372_036_854_775_807
-max_congestion_missed_chunks: 9_223_372_036_854_775_807
+max_congestion_incoming_gas: 400_000_000_000_000_000 # 400 PGas
+max_congestion_outgoing_gas: 10_000_000_000_000_000 # 10 PGas
+max_congestion_memory_consumption: 1_000_000_000 # 1000 MB
+# At 125 missed chunks a shard is fully congested. At 100 it is 80% congested and
+# transactions targeting it are rejected, see reject_tx_congestion_threshold.
+max_congestion_missed_chunks: 125
 
-max_outgoing_gas: 9_223_372_036_854_775_807
-min_outgoing_gas: 9_223_372_036_854_775_807
-allowed_shard_outgoing_gas: 9_223_372_036_854_775_807
-max_tx_gas: 9_223_372_036_854_775_807
-min_tx_gas: 9_223_372_036_854_775_807
+max_outgoing_gas: 300_000_000_000_000_000 # 300 PGas
+min_outgoing_gas: 1_000_000_000_000_000 # 1 PGas
+allowed_shard_outgoing_gas: 1_000_000_000_000_000 # 1 PGas
+max_tx_gas: 500_000_000_000_000 # 500 TGas
+min_tx_gas: 20_000_000_000_000 # 20 TGas
 
 reject_tx_congestion_threshold: {
-  numerator: 1,
-  denominator: 1,
+  numerator: 80,
+  denominator: 100,
 }
-
-use_state_stored_receipt: false
 
 # Bandwidth scheduler
 
-max_shard_bandwidth: 999_999_999_999_999
-max_single_grant: 999_999_999_999_999
-max_allowance: 999_999_999_999_999
-max_base_bandwidth: 999_999_999_999_999
+max_shard_bandwidth: 4_500_000
+max_single_grant: 4_194_304
+max_allowance: 4_500_000
+max_base_bandwidth: 100_000
 
 # Global contracts
 action_deploy_global_contract: {
-  send_sir: 999_999_999_999_999,
-  send_not_sir: 999_999_999_999_999,
-  execution: 999_999_999_999_999,
+  send_sir: 184_765_750_000,
+  send_not_sir: 184_765_750_000,
+  execution: 184_765_750_000,
 }
 action_deploy_global_contract_per_byte: {
-  send_sir: 999_999_999_999_999,
-  send_not_sir: 999_999_999_999_999,
-  execution: 999_999_999_999_999,
+  send_sir: 6_812_999,
+  send_not_sir: 47_683_715,
+  execution: 70_000_000,
 }
-global_contract_storage_amount_per_byte: 999999999999999999999999999 yN
+global_contract_storage_amount_per_byte: 0.0001 N
+
+deploy_global_contract_execution_base: 20_000_000_000_000
+deploy_global_contract_execution_per_byte: 250_000_000
+
+# Gas charged at tx conversion per ML-DSA-65 signature verification the tx
+# triggers. 0 until PostQuantumSignatures activates (see 85.yaml).
+ml_dsa_65_verification_cost: 0
 
 action_use_global_contract: {
-  send_sir: 999_999_999_999_999,
-  send_not_sir: 999_999_999_999_999,
-  execution: 999_999_999_999_999,
+  send_sir: 184_765_750_000,
+  send_not_sir: 184_765_750_000,
+  execution: 184_765_750_000,
 }
 action_use_global_contract_per_identifier_byte: {
-  send_sir: 999_999_999_999_999,
-  send_not_sir: 999_999_999_999_999,
-  execution: 999_999_999_999_999,
+  send_sir: 6_812_999,
+  send_not_sir: 47_683_715,
+  execution: 64_572_944,
 }

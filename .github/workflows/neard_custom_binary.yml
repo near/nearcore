@@ -1,4 +1,4 @@
-name: Neard custom binary release
+name: Build and publish custom neard binary
 
 on:
   workflow_dispatch:
@@ -18,12 +18,16 @@ on:
           - assertions-release
           - test-features-release
         required: true
+      with-debug-info:
+        default: false
+        description: "Build and upload split DWARF debug symbols (.debug sibling file)"
+        type: boolean
+        required: false
 
 jobs:
   binary-release:
     name: "Build and publish neard binary"
     runs-on: warp-ubuntu-2404-x64-16x
-    environment: deploy
     permissions:
       contents: read
       id-token: write # required to use OIDC authentication
@@ -35,6 +39,13 @@ jobs:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
 
+      - name: Checkout workflow repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/install-clang
+
       - name: Checkout ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
@@ -43,4 +54,6 @@ jobs:
           persist-credentials: false
 
       - name: Neard binary build and upload to S3
+        env:
+          WITH_DEBUG_INFO: ${{ inputs.with-debug-info && '1' || '' }}
         run: ./scripts/binary_release.sh ${{ github.event.inputs.release-type }}

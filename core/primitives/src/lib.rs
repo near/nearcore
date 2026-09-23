@@ -1,5 +1,3 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
-
 pub use near_primitives_core::account;
 pub use near_primitives_core::apply;
 pub use near_primitives_core::borsh;
@@ -10,6 +8,7 @@ pub use near_primitives_core::global_contract;
 pub use near_primitives_core::hash;
 pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;
+pub use near_primitives_core::universal_account_id;
 
 pub mod action;
 pub mod bandwidth_scheduler;
@@ -38,7 +37,7 @@ pub mod sandbox;
 pub mod shard_layout;
 pub mod sharding;
 pub mod signable_message;
-pub mod spice_partial_data;
+pub mod spice;
 pub mod state;
 pub mod state_part;
 pub mod state_record;
@@ -51,6 +50,9 @@ pub mod transaction;
 pub mod trie_key;
 pub mod trie_split;
 pub mod types;
+pub mod universal_state_init;
+#[cfg(feature = "test_utils")]
+pub mod universal_state_init_vectors;
 pub mod upgrade_schedule;
 pub mod utils;
 pub mod validator_mandates;

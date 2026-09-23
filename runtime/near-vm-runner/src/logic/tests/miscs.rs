@@ -101,6 +101,172 @@ fn test_keccak512() {
 }
 
 #[test]
+fn test_sha3_256() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_256(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            174, 42, 184, 134, 113, 104, 230, 180, 244, 77, 240, 72, 199, 42, 110, 178, 6, 168,
+            121, 77, 27, 183, 153, 108, 197, 171, 78, 61, 186, 133, 193, 182,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::sha3_256_base: 1,
+        ExtCosts::sha3_256_byte: data.len,
+    });
+}
+
+/// The smallest well-formed `UniversalStateInit::V1`: version tag, `code: None`,
+/// an empty data map and an empty access-key set, all borsh zeroes.
+const EMPTY_STATE_INIT: [u8; 10] = [0; 10];
+
+/// Known-answer ids, hardcoded so the expectation does not come from the same
+/// primitives the host function uses. `derive_universal_account_id` is the
+/// authority for these; it lives in `near-primitives`, out of this crate's reach,
+/// so the cross-check against it is a test-loop test.
+const EMPTY_STATE_INIT_ACCOUNT_ID: &str = "0u1kajgpx8a97y8ap8y03pvt8kbm2p2cn9k5h17bgw1wa21j88865g"; // cspell:disable-line
+const GARBAGE_ACCOUNT_ID: &str = "0ux21v0ayd887nt762sfhvgfbv9q46vcgsw2s5x5mapcdx6b1x89sg"; // cspell:disable-line
+
+#[test]
+fn test_universal_state_init_to_account_id() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let state_init = logic.internal_mem_write(&EMPTY_STATE_INIT);
+    logic.universal_state_init_to_account_id(state_init.len, state_init.ptr, 0).unwrap();
+
+    let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
+    logic.assert_read_register(expected.as_bytes(), 0);
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: state_init.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: expected.len() as u64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: expected.len() as u64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: expected.len() as u64,
+        ExtCosts::universal_state_init_to_account_id_base: 1,
+        ExtCosts::universal_state_init_to_account_id_byte: state_init.len,
+    });
+}
+
+#[test]
+fn test_universal_state_init_to_account_id_from_register() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    logic.wrapped_internal_write_register(1, &EMPTY_STATE_INIT).unwrap();
+    reset_costs_counter();
+
+    logic.universal_state_init_to_account_id(u64::MAX, 1, 0).unwrap();
+
+    let expected = EMPTY_STATE_INIT_ACCOUNT_ID;
+    logic.assert_read_register(expected.as_bytes(), 0);
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_register_base: 2,
+        ExtCosts::read_register_byte: EMPTY_STATE_INIT.len() as u64 + expected.len() as u64,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: expected.len() as u64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: expected.len() as u64,
+        ExtCosts::universal_state_init_to_account_id_base: 1,
+        ExtCosts::universal_state_init_to_account_id_byte: EMPTY_STATE_INIT.len() as u64,
+    });
+}
+
+/// The derivation commits to the bytes as given and looks at nothing else, so a
+/// string that is not a state init still maps to an account id. That account is
+/// unusable, which the state-init receipt's own validation catches.
+#[test]
+fn test_universal_state_init_to_account_id_accepts_any_bytes() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let garbage = logic.internal_mem_write(&[7u8, 7, 7]);
+    logic.universal_state_init_to_account_id(garbage.len, garbage.ptr, 0).unwrap();
+    logic.assert_read_register(GARBAGE_ACCOUNT_ID.as_bytes(), 0);
+}
+
+#[test]
+fn test_sha3_384() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_384(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            242, 215, 24, 150, 206, 244, 244, 177, 75, 196, 68, 64, 5, 105, 127, 232, 139, 44, 133,
+            160, 31, 91, 128, 219, 135, 94, 231, 130, 110, 62, 189, 78, 118, 95, 71, 178, 71, 245,
+            65, 212, 153, 8, 196, 116, 67, 54, 83, 240,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 48,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 48,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 48,
+        ExtCosts::sha3_384_base: 1,
+        ExtCosts::sha3_384_byte: data.len,
+    });
+}
+
+#[test]
+fn test_sha3_512() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+
+    let data = logic.internal_mem_write(b"tesdsst");
+    logic.sha3_512(data.len, data.ptr, 0).unwrap();
+    logic.assert_read_register(
+        &[
+            133, 196, 48, 30, 203, 238, 194, 158, 186, 246, 118, 238, 42, 158, 212, 27, 178, 72,
+            90, 229, 98, 108, 195, 221, 222, 161, 96, 219, 252, 99, 2, 48, 224, 15, 95, 220, 35,
+            209, 27, 250, 43, 168, 250, 10, 21, 25, 97, 135, 235, 61, 5, 142, 182, 85, 36, 179, 23,
+            126, 161, 14, 21, 118, 180, 231,
+        ],
+        0,
+    );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::sha3_512_base: 1,
+        ExtCosts::sha3_512_byte: data.len,
+    });
+}
+
+#[test]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
@@ -146,7 +312,7 @@ where
 {
     serde::Deserialize::deserialize(deserializer)
         .map(|v: Option<&str>| v.map(FromHex::from_hex).transpose().map_err(Error::custom))
-        .and_then(|v| v)
+        .flatten()
 }
 
 #[test]

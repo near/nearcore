@@ -3,27 +3,34 @@ use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::create_account_id;
 use assert_matches::assert_matches;
+use futures::future::join;
 use itertools::Itertools;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
-use near_crypto::Signer;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_indexer::{
     AwaitForNodeSyncedEnum, IndexerConfig, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
     SyncModeEnum, start,
 };
+use near_jsonrpc::RpcConfig;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, Finality, Nonce, NumBlocks};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Finality, NumBlocks};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView};
-use near_store::StoreConfig;
+use near_primitives::views::{
+    AccountContractView, ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
+    StateChangeCauseView, StateChangeValueView,
+};
+use near_store::{DBCol, StoreConfig};
+use serde_json::{from_value, to_value};
+use std::collections::HashSet;
 use std::iter::repeat_with;
-use std::sync::atomic::AtomicU64;
 use tokio::sync::mpsc;
 
 #[test]
@@ -54,7 +61,11 @@ fn test_indexer_local_receipt() {
     let ExecutionStatusView::SuccessReceiptId(receipt_id) = tx_outcome_status else {
         panic!("failed to convert transaction to receipt {tx_outcome_status:?}");
     };
-    assert_eq!(outcome.receipts_outcome.len(), 1);
+    // Under AccountCostIncrease the function-call receipt also produces a price_surplus
+    // gas-refund receipt addressed to the signer, which shows up as an extra outcome.
+    let extra_refund_outcomes =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    assert_eq!(outcome.receipts_outcome.len(), 1 + extra_refund_outcomes);
     let receipt_outcome = &outcome.receipts_outcome[0];
 
     let tx_included_height = submit_tx_height + 3;
@@ -97,16 +108,13 @@ fn test_indexer_instant_receipt() {
 
     // Step 1: Call yield_create — produces a PromiseYield instant receipt that
     // gets stored/postponed as a PromiseYield receipt (awaiting data) and persisted in DBCol::Receipts.
-    let yield_create_tx = SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "call_yield_create_return_promise".to_owned(),
+    let yield_create_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "call_yield_create_return_promise",
         vec![42u8; 16],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        tx_block_hash(&env),
     );
     env.rpc_node().submit_tx(yield_create_tx.clone());
     let tx_outcome = env
@@ -120,22 +128,28 @@ fn test_indexer_instant_receipt() {
     // Wait for local receipt to execute (this also processes the instant receipt).
     let local_outcome =
         env.rpc_runner().run_until_outcome_available(local_receipt_id, Duration::seconds(5));
-    let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
-        panic!("expected single child receipt (the PromiseYield instant receipt)")
+    // Under AccountCostIncrease the function-call receipt also emits a price_surplus gas
+    // refund receipt; the yield receipt itself is still the first child.
+    let yield_receipt_id = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+        let receipt_ids = &local_outcome.outcome_with_id.outcome.receipt_ids;
+        assert_eq!(receipt_ids.len(), 2, "expected PromiseYield + gas refund");
+        receipt_ids[0]
+    } else {
+        let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+            panic!("expected single child receipt (the PromiseYield instant receipt)")
+        };
+        yield_receipt_id
     };
 
     // Step 2: Call yield_resume — provides data for the PromiseYield, causing
     // the callback to execute in a subsequent block.
-    let resume_tx = SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "call_yield_resume_read_data_id_from_storage".to_owned(),
+    let resume_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "call_yield_resume_read_data_id_from_storage",
         vec![42u8; 16],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        tx_block_hash(&env),
     );
     env.rpc_runner().run_tx(resume_tx, Duration::seconds(5));
 
@@ -143,11 +157,27 @@ fn test_indexer_instant_receipt() {
     let yield_outcome =
         env.rpc_runner().run_until_outcome_available(yield_receipt_id, Duration::seconds(5));
 
-    // Step 3: Start the indexer at the block where the callback executed.
+    // Step 3: Start the indexer at the block where the instant receipt was created
+    // and stream through to the callback block.
+    let yield_create_block_hash = local_outcome.block_hash;
+    let yield_create_height = env.rpc_node().block(yield_create_block_hash).header().height();
     let callback_block_hash = yield_outcome.block_hash;
-    let callback_height =
-        env.rpc_node().client().chain.get_block(&callback_block_hash).unwrap().header().height();
-    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(callback_height));
+    let callback_height = env.rpc_node().block(callback_block_hash).header().height();
+
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(yield_create_height));
+
+    // Verify instant_receipts at the block where the instant receipt was created.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, yield_create_height);
+    let indexer_shard = &msg.shards[0];
+    let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
+    assert_eq!(indexer_chunk.instant_receipts.len(), 1);
+    assert_eq!(indexer_chunk.instant_receipts[0].receipt_id, yield_receipt_id);
+    // Skip intermediate blocks to reach the callback block.
+    let num_blocks_to_skip = callback_height - yield_create_height - 1;
+    for _ in 0..num_blocks_to_skip {
+        receive_indexer_message(&mut env, &mut indexer_receiver);
+    }
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     assert_eq!(msg.block.header.height, callback_height);
     let indexer_shard = &msg.shards[0];
@@ -204,8 +234,18 @@ fn test_indexer_delayed_local_receipt() {
         start_indexer(&env, SyncModeEnum::BlockHeight(last_tx_receipt_executed_height));
     let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
     let shard_outcomes = &msg.shards[0].receipt_execution_outcomes;
-    assert_eq!(shard_outcomes.len(), 1);
-    let delayed_receipt_outcome = &shard_outcomes[0];
+    // Under AccountCostIncrease each prior action receipt also produces a price_surplus
+    // gas-refund receipt; those refunds end up processed in the same chunk as the last
+    // delayed receipt, so we filter them out before asserting on the delayed one.
+    let action_outcomes: Vec<_> = shard_outcomes
+        .iter()
+        .filter(|o| {
+            !o.receipt.predecessor_id.is_system()
+                || !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION)
+        })
+        .collect();
+    assert_eq!(action_outcomes.len(), 1);
+    let delayed_receipt_outcome = action_outcomes[0];
     assert_eq!(delayed_receipt_outcome.execution_outcome, last_tx_receipt_outcome.into());
     assert_eq!(delayed_receipt_outcome.receipt.receipt_id, last_tx_receipt_id);
 }
@@ -215,9 +255,6 @@ fn test_indexer_delayed_local_receipt() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
-    if !ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let mut env = setup();
     env.validator_runner().send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
@@ -255,7 +292,12 @@ fn test_indexer_deploy_contract_local_tx() {
     init_test_logger();
     let mut env = setup();
     deploy_test_contract(&mut env);
-    let deploy_contract_height = env.validator().head().height;
+    // Under AccountCostIncrease the deploy_contract receipt also produces a price_surplus
+    // refund receipt processed one block later, so `head` ends up one block past the block
+    // that actually contains the tx; back off by that amount to land on the tx block.
+    let extra_refund_block =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    let deploy_contract_height = env.validator().head().height - extra_refund_block;
 
     let mut indexer_receiver =
         start_indexer(&env, SyncModeEnum::BlockHeight(deploy_contract_height));
@@ -275,6 +317,77 @@ fn test_indexer_deploy_contract_local_tx() {
         panic!("expected single deploy contract action")
     };
     assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
+}
+
+/// Deploys a global contract, points the user account at it, then calls a
+/// function on that account. The function-call receipt's `ExecutionMetadata`
+/// view (V4+) must carry the resolved `GlobalHash` contract — the case the
+/// new metadata variant exists to surface, since the receiver account is
+/// `user_account` but the actually-executed code lives at the global hash.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_global_contract_function_call_metadata() {
+    init_test_logger();
+
+    let mut env = setup();
+    let code = near_test_contracts::rs_contract();
+    let code_hash = CryptoHash::hash_bytes(code);
+
+    // Deploy the global contract under a CodeHash identifier.
+    let deploy_tx = env.rpc_node().tx_deploy_global_contract(
+        &user_account(),
+        code.to_vec(),
+        GlobalContractDeployMode::CodeHash,
+    );
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(5));
+
+    // Point the user account at the just-deployed global contract.
+    let use_tx = env
+        .rpc_node()
+        .tx_use_global_contract(&user_account(), GlobalContractIdentifier::CodeHash(code_hash));
+    env.rpc_runner().run_tx(use_tx, Duration::seconds(5));
+
+    // Invoke a function on the user account; the call executes through the
+    // global contract.
+    let call_tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "log_something",
+        vec![],
+        Balance::ZERO,
+        Gas::from_teragas(100),
+    );
+    let call_tx_hash = call_tx.get_hash();
+    env.rpc_node().submit_tx(call_tx);
+    let tx_outcome =
+        env.rpc_runner().run_until_outcome_available(call_tx_hash, Duration::seconds(5));
+    let ExecutionStatus::SuccessReceiptId(call_receipt_id) =
+        tx_outcome.outcome_with_id.outcome.status
+    else {
+        panic!("function-call tx should convert to a receipt");
+    };
+    let call_outcome =
+        env.rpc_runner().run_until_outcome_available(call_receipt_id, Duration::seconds(5));
+    let call_height = env.rpc_node().block(call_outcome.block_hash).header().height();
+
+    // Read the function-call receipt out of the indexer stream and check the
+    // V4 metadata.
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(call_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, call_height);
+    let indexer_outcome_with_receipt = msg.shards[0]
+        .receipt_execution_outcomes
+        .iter()
+        .find(|o| o.execution_outcome.id == call_receipt_id)
+        .expect("function-call receipt should appear in receipt_execution_outcomes");
+
+    let metadata = &indexer_outcome_with_receipt.execution_outcome.outcome.metadata;
+    assert_eq!(metadata.version, 4);
+    assert_eq!(
+        metadata.contracts.as_deref(),
+        Some(&[Some(AccountContractView::GlobalHash(code_hash))][..]),
+    );
 }
 
 /// Test that `receipt_execution_outcomes` preserves execution order (not hash-sorted order).
@@ -331,6 +444,160 @@ fn test_indexer_receipt_execution_outcomes_order() {
     );
 }
 
+/// A block whose receipt is gone from the store cannot be turned into a
+/// `StreamerMessage`, and no amount of retrying brings the receipt back. With
+/// `skip_broken_blocks` the streamer must give up on that height and carry on
+/// with the next one instead of terminating the node.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_skip_broken_block() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_height = drop_receipt_of_local_tx(&mut env);
+
+    let mut indexer_receiver =
+        start_indexer_skipping_broken_blocks(&env, SyncModeEnum::BlockHeight(broken_height - 1));
+    // The height before the broken one still streams normally.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, broken_height - 1);
+    // The broken height is dropped and streaming resumes at the next one.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, broken_height + 1);
+}
+
+/// Two consecutive broken blocks are correctly skipped when `skip_broken_blocks` is enabled.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_skip_adjacent_broken_blocks() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_heights = drop_receipts_of_consecutive_delayed_local_txs(&mut env);
+    let first_broken = *broken_heights.iter().min().unwrap();
+    let last_broken = *broken_heights.iter().max().unwrap();
+    assert_eq!(first_broken + 1, last_broken);
+
+    let mut indexer_receiver =
+        start_indexer_skipping_broken_blocks(&env, SyncModeEnum::BlockHeight(first_broken - 1));
+    // The height before the broken ones still streams normally.
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, first_broken - 1);
+
+    // Streaming must get past every broken height instead of looping on them.
+    let height = receive_indexer_message(&mut env, &mut indexer_receiver).block.header.height;
+    assert!(!broken_heights.contains(&height), "height {height} should have been skipped");
+    assert_eq!(height, first_broken + 2);
+}
+
+/// The very same block must instead terminate a regular indexer: silently
+/// dropping it would leave an unnoticed gap in the stream.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[should_panic(expected = "failed to build streamer message at height")]
+fn test_indexer_broken_block_terminates_streamer() {
+    init_test_logger();
+
+    let mut env = setup();
+    let broken_height = drop_receipt_of_local_tx(&mut env);
+
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(broken_height));
+    receive_indexer_message(&mut env, &mut indexer_receiver);
+}
+
+/// Runs a local transaction to completion and then drops the receipt it was
+/// converted into from the store, which is what the indexer pairs with the
+/// receipt's execution outcome. Returns the height of the block that executed
+/// the receipt, i.e. the block that can no longer be built.
+fn drop_receipt_of_local_tx(env: &mut TestLoopEnv) -> BlockHeight {
+    let tx = create_local_tx(env);
+    let tx_hash = tx.get_hash();
+    env.validator().submit_tx(tx);
+    let tx_outcome =
+        env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(5));
+    let ExecutionStatus::SuccessReceiptId(receipt_id) = tx_outcome.outcome_with_id.outcome.status
+    else {
+        panic!("failed to convert transaction to receipt");
+    };
+    let receipt_outcome =
+        env.validator_runner().run_until_outcome_available(receipt_id, Duration::seconds(5));
+    let broken_height = env.validator().block(receipt_outcome.block_hash).header().height();
+    // Get the broken height off the chain head, so that the streamer has a later
+    // height to resume at once it gives up on it.
+    env.validator_runner().run_for_number_of_blocks(3);
+
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    store_update.decrement_refcount(DBCol::Receipts, receipt_id.as_ref());
+    store_update.commit();
+    assert!(
+        !store.exists(DBCol::Receipts, receipt_id.as_ref()),
+        "receipt should be gone from the store"
+    );
+
+    broken_height
+}
+
+/// Runs local transactions whose receipts spill over into consecutive blocks and
+/// drops all of those receipts from the store, leaving a run of adjacent heights
+/// that can no longer be built. Returns those heights.
+fn drop_receipts_of_consecutive_delayed_local_txs(env: &mut TestLoopEnv) -> HashSet<BlockHeight> {
+    deploy_test_contract(env);
+    // Each local receipt burns more than half the chunk gas limit, so only two of
+    // them fit in a chunk and the third one is delayed into the next block.
+    let gas_to_burn = GAS_LIMIT.checked_div(2).unwrap().checked_add(Gas::from_gas(1)).unwrap();
+    let txs = repeat_with(|| create_burn_gas_tx(env, gas_to_burn)).take(3).collect_vec();
+    for tx in &txs {
+        env.validator().submit_tx(tx.clone());
+    }
+
+    let receipt_ids = txs
+        .iter()
+        .map(|tx| {
+            let tx_outcome = env
+                .validator_runner()
+                .run_until_outcome_available(tx.get_hash(), Duration::seconds(5));
+            let ExecutionStatus::SuccessReceiptId(receipt_id) =
+                tx_outcome.outcome_with_id.outcome.status
+            else {
+                panic!("failed to convert transaction to receipt");
+            };
+            receipt_id
+        })
+        .collect_vec();
+    let broken_heights = receipt_ids
+        .iter()
+        .map(|receipt_id| {
+            let outcome = env
+                .validator_runner()
+                .run_until_outcome_available(*receipt_id, Duration::seconds(5));
+            env.validator().block(outcome.block_hash).header().height()
+        })
+        .collect::<HashSet<_>>();
+
+    // Get the broken heights off the chain head, so that the streamer has a later
+    // height to resume at once it gives up on them.
+    env.validator_runner().run_for_number_of_blocks(3);
+
+    let store = env.validator().store();
+    let mut store_update = store.store_update();
+    for receipt_id in &receipt_ids {
+        store_update.decrement_refcount(DBCol::Receipts, receipt_id.as_ref());
+    }
+    store_update.commit();
+    for receipt_id in &receipt_ids {
+        assert!(
+            !store.exists(DBCol::Receipts, receipt_id.as_ref()),
+            "receipt should be gone from the store"
+        );
+    }
+
+    broken_heights
+}
+
 fn user_account() -> AccountId {
     create_account_id("user")
 }
@@ -341,6 +608,7 @@ const GAS_LIMIT: Gas = Gas::from_teragas(300);
 fn setup() -> TestLoopEnv {
     TestLoopBuilder::new()
         .enable_rpc()
+        .rpc_config(RpcConfig { enable_indexer_rpc: true, ..RpcConfig::default() })
         .gas_limit(GAS_LIMIT)
         .add_user_account(&user_account(), Balance::from_near(1000))
         .transaction_validity_period(TX_VALIDITY_PERIOD)
@@ -348,6 +616,24 @@ fn setup() -> TestLoopEnv {
 }
 
 fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<StreamerMessage> {
+    let shard_tracker = env.validator().client().shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker, false)
+}
+
+fn start_indexer_skipping_broken_blocks(
+    env: &TestLoopEnv,
+    sync_mode: SyncModeEnum,
+) -> mpsc::Receiver<StreamerMessage> {
+    let shard_tracker = env.validator().client().shard_tracker.clone();
+    start_indexer_with_shard_tracker(env, sync_mode, shard_tracker, true)
+}
+
+fn start_indexer_with_shard_tracker(
+    env: &TestLoopEnv,
+    sync_mode: SyncModeEnum,
+    shard_tracker: ShardTracker,
+    skip_broken_blocks: bool,
+) -> mpsc::Receiver<StreamerMessage> {
     let node_data = &env.node_datas[0];
     let indexer_config = IndexerConfig {
         home_dir: NodeExecutionData::homedir(&env.shared_state.tempdir, &node_data.identifier),
@@ -355,10 +641,9 @@ fn start_indexer(env: &TestLoopEnv, sync_mode: SyncModeEnum) -> mpsc::Receiver<S
         await_for_node_synced: AwaitForNodeSyncedEnum::StreamWhileSyncing,
         finality: Finality::None,
         validate_genesis: false,
+        skip_broken_blocks,
     };
 
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    let shard_tracker = client.shard_tracker.clone();
     let store_config =
         StoreConfig { path: Some(indexer_config.home_dir.clone()), ..Default::default() };
     let (sender, receiver) = tokio::sync::mpsc::channel(100);
@@ -391,60 +676,244 @@ fn receive_indexer_message(
         },
         Duration::seconds(20),
     );
-    ret.unwrap()
-}
-
-fn next_nonce() -> Nonce {
-    static NEXT_VALUE: AtomicU64 = AtomicU64::new(1);
-    NEXT_VALUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-}
-
-fn tx_block_hash(env: &TestLoopEnv) -> CryptoHash {
-    let idx = env.rpc_data_idx();
-    let node_data = &env.node_datas[idx];
-    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
-    client.chain.head().unwrap().last_block_hash
-}
-
-fn user_signer() -> Signer {
-    create_user_test_signer(&user_account())
+    let message = ret.unwrap();
+    let response = env.node_runner(0).run_with_jsonrpc_client(
+        |client| client.experimental_indexer_block(message.block.header.hash),
+        Duration::seconds(5),
+    );
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        assert_eq!(response.unwrap_err().data.as_ref().unwrap()["name"], "UNSUPPORTED");
+        return message;
+    }
+    let response = response.unwrap();
+    let direct: StreamerMessage = from_value(to_value(&response).unwrap()).unwrap();
+    assert_eq!(to_value(&direct).unwrap(), to_value(&message).unwrap());
+    assert_eq!(
+        response.tracked_shards,
+        message.shards.iter().map(|shard| shard.shard_id).collect::<Vec<_>>()
+    );
+    message
 }
 
 fn create_local_tx(env: &TestLoopEnv) -> SignedTransaction {
-    SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "does_not_matter".to_owned(),
+    env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "does_not_matter",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(100),
-        tx_block_hash(env),
     )
 }
 
 fn create_burn_gas_tx(env: &TestLoopEnv, gas_to_burn: Gas) -> SignedTransaction {
-    SignedTransaction::call(
-        next_nonce(),
-        user_account(),
-        user_account(),
-        &user_signer(),
-        Balance::ZERO,
-        "burn_gas_raw".to_owned(),
+    env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "burn_gas_raw",
         gas_to_burn.as_gas().to_le_bytes().to_vec(),
+        Balance::ZERO,
         GAS_LIMIT,
-        tx_block_hash(env),
     )
 }
 
 fn deploy_test_contract(env: &mut TestLoopEnv) {
-    let tx = SignedTransaction::deploy_contract(
-        next_nonce(),
-        &user_account(),
-        near_test_contracts::rs_contract().to_vec(),
-        &user_signer(),
-        tx_block_hash(env),
-    );
+    let tx = env.rpc_node().tx_deploy_test_contract(&user_account());
     env.rpc_runner().run_tx(tx, Duration::seconds(3));
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_rpc_state_changes_and_retained_history() {
+    let mut env = setup();
+    deploy_test_contract(&mut env);
+    let key = b"indexer-key";
+    let value = 42u64.to_le_bytes();
+    let args = [key.as_slice(), value.as_slice()].concat();
+    let tx = env.rpc_node().tx_call(
+        &user_account(),
+        &user_account(),
+        "write_key_value",
+        args,
+        Balance::ZERO,
+        Gas::from_teragas(100),
+    );
+    let result = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
+    let ExecutionStatusView::SuccessReceiptId(receipt_hash) =
+        result.transaction_outcome.outcome.status
+    else {
+        panic!("expected a local receipt");
+    };
+    let executed =
+        result.receipts_outcome.iter().find(|outcome| outcome.id == receipt_hash).unwrap();
+    let block_hash = executed.block_hash;
+    let height = env.validator().block(block_hash).header().height();
+    env.validator_runner().run_for_number_of_blocks(10);
+    let mut receiver = start_indexer(&env, SyncModeEnum::BlockHeight(height));
+    let message = receive_indexer_message(&mut env, &mut receiver);
+    assert_eq!(message.block.header.hash, block_hash);
+    let changes = &message.shards[0].state_changes;
+    assert!(changes.iter().any(|change| {
+        matches!(&change.value, StateChangeValueView::DataUpdate { account_id, key: actual_key, value: actual_value }
+            if account_id == &user_account() && actual_key.as_slice() == key && actual_value.as_slice() == value)
+            && matches!(&change.cause, StateChangeCauseView::ReceiptProcessing { receipt_hash: cause } if cause == &receipt_hash)
+    }), "expected exact key, value and receipt cause in historical HTTP message");
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_rpc_rejects_missing_execution_indexes() {
+    for column in [DBCol::OutcomeIds, DBCol::ProcessedReceiptIds] {
+        let mut env = setup();
+        let block_hash = env.validator().head().last_block_hash;
+        let key = get_block_shard_id(&block_hash, 0.into());
+        let store = env.validator().store();
+        assert!(store.exists(column, &key));
+        let mut update = store.store_update();
+        update.delete(column, &key);
+        update.commit();
+        let error = env
+            .node_runner(0)
+            .run_with_jsonrpc_client(
+                |client| client.experimental_indexer_block(block_hash),
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        assert_eq!(error.data.as_ref().unwrap()["name"], "DATA_UNAVAILABLE");
+    }
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_rpc_rejects_missing_outcome_or_receipt() {
+    for drop_outcome in [true, false] {
+        let mut env = setup();
+        let tx = create_local_tx(&env);
+        let tx_hash = tx.get_hash();
+        let result = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
+        let ExecutionStatusView::SuccessReceiptId(receipt_id) =
+            result.transaction_outcome.outcome.status
+        else {
+            panic!("expected local receipt");
+        };
+        let block_hash = result.transaction_outcome.block_hash;
+        let store = env.validator().store();
+        let mut update = store.store_update();
+        if drop_outcome {
+            let key = get_outcome_id_block_hash(&tx_hash, &block_hash);
+            assert!(store.exists(DBCol::TransactionResultForBlock, &key));
+            update.delete(DBCol::TransactionResultForBlock, &key);
+        } else {
+            update.decrement_refcount(DBCol::Receipts, receipt_id.as_ref());
+        }
+        update.commit();
+        if !drop_outcome {
+            assert!(!store.exists(DBCol::Receipts, receipt_id.as_ref()));
+        }
+        let error = env
+            .node_runner(0)
+            .run_with_jsonrpc_client(
+                |client| client.experimental_indexer_block(block_hash),
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        let expected = if drop_outcome { "INCOMPLETE_DATA" } else { "DATA_UNAVAILABLE" };
+        assert_eq!(error.data.as_ref().unwrap()["name"], expected);
+    }
+}
+
+#[test]
+fn test_indexer_rpc_rejects_unknown_block() {
+    let mut env = setup();
+    let error = env
+        .node_runner(0)
+        .run_with_jsonrpc_client(
+            |client| client.experimental_indexer_block(CryptoHash::default()),
+            Duration::seconds(5),
+        )
+        .unwrap_err();
+    assert_eq!(error.data.as_ref().unwrap()["name"], "DATA_UNAVAILABLE");
+}
+
+#[test]
+fn test_indexer_rpc_requires_execution_data() {
+    for disable_outcomes in [true, false] {
+        let mut env = TestLoopBuilder::new()
+            .enable_rpc()
+            .rpc_config(RpcConfig { enable_indexer_rpc: true, ..RpcConfig::default() })
+            .config_modifier(move |config, _| {
+                if disable_outcomes {
+                    config.save_tx_outcomes = false;
+                } else {
+                    config.save_state_changes = false;
+                }
+            })
+            .build();
+        let block_hash = env.validator().head().last_block_hash;
+        let error = env
+            .node_runner(0)
+            .run_with_jsonrpc_client(
+                |client| client.experimental_indexer_block(block_hash),
+                Duration::seconds(5),
+            )
+            .unwrap_err();
+        assert_eq!(error.data.as_ref().unwrap()["name"], "UNSUPPORTED");
+    }
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_rpc_rejects_concurrent_assembly() {
+    let mut env = setup();
+    let block_hash = env.validator().head().last_block_hash;
+    let (first, second) = env
+        .node_runner(0)
+        .run_with_jsonrpc_client(
+            |client| {
+                let first = client.experimental_indexer_block(block_hash);
+                let second = client.experimental_indexer_block(block_hash);
+                Box::pin(async move { Ok(join(first, second).await) })
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    let results = [first, second];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    let error = results.into_iter().find_map(Result::err).unwrap();
+    assert_eq!(error.data.as_ref().unwrap()["name"], "BUSY");
+    env.node_runner(0)
+        .run_with_jsonrpc_client(
+            |client| client.experimental_indexer_block(block_hash),
+            Duration::seconds(5),
+        )
+        .unwrap();
+}
+
+#[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_rpc_tracks_multiple_shards() {
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .rpc_config(RpcConfig { enable_indexer_rpc: true, ..RpcConfig::default() })
+        .num_shards(2)
+        .track_all_shards()
+        .build();
+    let height = env.validator().head().height;
+    let mut receiver = start_indexer(&env, SyncModeEnum::BlockHeight(height));
+    let message = receive_indexer_message(&mut env, &mut receiver);
+    assert_eq!(message.shards.len(), 2);
+    assert!(message.shards.iter().all(|shard| shard.chunk.is_some()));
+}
+
+#[test]
+fn test_indexer_rpc_disabled_by_default() {
+    let mut env = TestLoopBuilder::new().enable_rpc().build();
+    let error = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.experimental_indexer_block(CryptoHash::default()),
+            Duration::seconds(5),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, -32601);
 }

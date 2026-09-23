@@ -69,12 +69,8 @@ pub fn state_dump(
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
     genesis_config.protocol_version = last_block_header.latest_protocol_version();
-    let shard_config = epoch_manager.get_shard_config(last_block_header.epoch_id()).unwrap();
-    genesis_config.shard_layout = shard_config.shard_layout;
-    genesis_config.num_block_producer_seats_per_shard =
-        shard_config.num_block_producer_seats_per_shard;
-    genesis_config.avg_hidden_validator_seats_per_shard =
-        shard_config.avg_hidden_validator_seats_per_shard;
+    let shard_layout = epoch_manager.get_shard_layout(last_block_header.epoch_id()).unwrap();
+    genesis_config.shard_layout = shard_layout;
     // Record only the filename of the records file.
     // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
     match records_path {
@@ -304,7 +300,9 @@ fn iterate_over_records(
                                         .unwrap(),
                                 );
                             }
-                            account.set_locked(stake);
+                            account
+                                .set_locked(stake)
+                                .expect("account with locked balance must be initialized");
                         }
                         total_supply = total_supply
                             .checked_add(account.amount())

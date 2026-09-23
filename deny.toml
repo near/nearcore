@@ -36,21 +36,13 @@ deny = [
 skip = [
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
-    { name = "memoffset", version = "=0.8.0" },
-    { name = "rustix", version = "^0.38" },
-    { name = "linux-raw-sys", version = "^0.4" },
-    { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.78.2" },
-    { name = "wasmparser", version = "=0.99.0" },
-    { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
-    { name = "wasm-encoder", version = "=0.27.0" },
+    { name = "wasmparser", version = "=0.236.1" },
+    { name = "wasm-encoder", version = "=0.236.0" },
     { name = "wasmprinter", version = "=0.2.57" },
-
-    # wasmer 0.17.x
-    { name = "target-lexicon", version = "^0.12.0" },
+    { name = "wasmprinter", version = "=0.236.1" },
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
@@ -68,14 +60,15 @@ skip = [
     { name = "rand_chacha", version = "<0.9" },
     { name = "getrandom", version = "^0.2" },
 
-    # criterion, rocksdb depend on this older version of the crate.
-    { name = "rustc-hash", version = "<2" },
+    # bindgen (build-dep of librocksdb-sys) pulls an older itertools.
+    { name = "itertools", version = "<0.14" },
 
     # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "hashbrown", version = "0.14.5" },
     { name = "hashbrown", version = "0.15.2" },
+    { name = "hashbrown", version = "0.16.1" },
     { name = "zerocopy", version = "^0.7" },
 
     # foldhash
@@ -86,8 +79,6 @@ skip = [
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
 
-    # Various packages haven’t upgraded to 0.base64 21 yet.
-    { name = "base64", version = "=0.13.0" },
     { name = "ahash", version = "=0.7.8" },
 
     # Everything depends on this...
@@ -96,7 +87,7 @@ skip = [
     # reed-solomon-erasure latest version
     { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.8.6" },
-    { name = "spin", version = "=0.9.8" },
+    { name = "spin", version = "=0.9.9" },
 
     # ecosystem migration to 2.0 is in early phases at the time of writing.
     { name = "thiserror", version = "<2.0" },
@@ -107,46 +98,33 @@ skip = [
     { name = "console", version = "^0.15" },
     { name = "unicode-width", version = "<0.2" },
     { name = "windows-link", version = "^0.1" },
-    { name = "windows-sys", version = "^0.60" },
 
     # http ecosystem split.
-    { name = "reqwest", version = "^0.11" },
-    { name = "winreg", version = "^0.50" },
-    { name = "socket2", version = "^0.5" },
-    { name = "rustls-pemfile", version = "^1" },
     { name = "nix", version = "^0.24" },
     { name = "mio", version = "^0.8" },
-    { name = "hyper-tls", version = "^0.5" },
-    { name = "hyper", version = "^0.14" },
-    { name = "http-body", version = "^0.4" },
-    { name = "http", version = "^0.2" },
-    { name = "h2", version = "^0.3" },
     { name = "base64", version = "^0.21" },
 
-    # object_store still uses reqwest 0.12 internally, which pulls in older
-    # versions of the rustls stack alongside our reqwest 0.13 versions.
+    # object_store and rust-s3 still use reqwest 0.12 internally
     { name = "reqwest", version = "^0.12" },
-    { name = "hyper-rustls", version = "^0.26" },
-    { name = "rustls", version = "^0.22" },
-    { name = "rustls-native-certs", version = "^0.7" },
-    { name = "rustls-webpki", version = "^0.102" },
-    { name = "tokio-rustls", version = "^0.25" },
     { name = "core-foundation", version = "^0.9" },
     { name = "openssl-probe", version = "=0.1.5" },
     { name = "security-framework", version = "^2" },
-    { name = "system-configuration", version = "^0.5" },
-    { name = "system-configuration-sys", version = "^0.5" },
     { name = "windows-result", version = "^0.1" },
+
+    # rust-s3 brings in older versions of these via minidom/rxml/attohttpc
+    { name = "quick-xml", version = "^0.32" },
+    { name = "quick-xml", version = "^0.36" },
+
+    # ring and rustls pull in untrusted 0.7; aws-lc-rs (and other newer crates)
+    # pull in untrusted 0.9. Both are tiny and serve the same purpose; the
+    # ecosystem hasn't fully migrated yet.
+    { name = "untrusted", version = "=0.7.1" },
+    { name = "untrusted", version = "=0.9.0" },
 
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
 
-    # Bolero depends on outdated versions of these
-    { name = "gimli", version = "=0.31.1" },
-    { name = "object", version = "=0.36.5" },
-
-    { name = "sync_wrapper", version = "=0.1.2" },
     { name = "bytesize", version = "=1.1.0" },
     { name = "num-bigint", version = "=0.3.3" },
     { name = "num-rational", version = "=0.3.2" },

@@ -25,14 +25,30 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance};
 use std::collections::BTreeMap;
 
+mod sys {
+    #[allow(unused)]
+    extern "C" {
+        pub fn read_register(register_id: u64, ptr: u64);
+        pub fn account_balance(balance_ptr: u64);
+        pub fn attached_deposit(balance_ptr: u64);
+    }
+}
+
+unsafe fn read_register(register_id: u64, ptr: *mut u8) {
+    sys::read_register(register_id, ptr as usize as u64)
+}
+unsafe fn account_balance(balance_ptr: *mut u8) {
+    sys::account_balance(balance_ptr as usize as u64)
+}
+unsafe fn attached_deposit(balance_ptr: *mut u8) {
+    sys::attached_deposit(balance_ptr as usize as u64)
+}
+
 #[allow(unused)]
 extern "C" {
-    fn read_register(register_id: u64, ptr: u64);
     fn register_len(register_id: u64) -> u64;
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
-    fn account_balance(balance_ptr: u64);
-    fn attached_deposit(balance_ptr: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn panic_utf8(len: u64, ptr: u64) -> !;
     fn log_utf8(len: u64, ptr: u64);
@@ -141,7 +157,7 @@ pub unsafe fn spread() {
     // If the predecessor has sent balance, pass it on to fund the new account.
     let attached = {
         let mut buf = [0u8; 16];
-        attached_deposit(buf.as_mut_ptr() as u64);
+        attached_deposit(buf.as_mut_ptr());
         u128::from_le_bytes(buf)
     };
     let send_balance = if attached > 0 {
@@ -292,7 +308,7 @@ unsafe fn new_account_storage_cost(state_init: &DeterministicAccountStateInit) -
 
 unsafe fn free_balance() -> u128 {
     let mut buf = [0u8; 16];
-    account_balance(buf.as_mut_ptr() as u64);
+    account_balance(buf.as_mut_ptr());
     let total_balance = u128::from_le_bytes(buf);
 
     // keep 1 Near for us
@@ -313,7 +329,7 @@ unsafe fn log(msg: &str) {
 
 unsafe fn register_to_memory(register: u64) -> Vec<u8> {
     let mut buf = vec![0; register_len(register) as usize];
-    read_register(register, buf.as_mut_ptr() as u64);
+    read_register(register, buf.as_mut_ptr());
     buf
 }
 

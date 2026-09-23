@@ -50,7 +50,6 @@ fn run_chunk_validation_test(
     let num_validators = 8;
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
@@ -76,10 +75,6 @@ fn run_chunk_validation_test(
         num_block_producer_seats: num_validators as NumSeats,
         // Each shard has 2 chunk producers, so 4 shards, 8 chunk producers total.
         minimum_validators_per_shard: 2,
-        // Even though not used for the most recent protocol version,
-        // this must still have the same length as the number of shards,
-        // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: Gas::from_teragas(1000),
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
@@ -111,11 +106,11 @@ fn run_chunk_validation_test(
             account_id: account.clone(),
             account: Account::new(initial_balance, staked, AccountContract::None, 0),
         });
-        records.push(StateRecord::AccessKey {
-            account_id: account.clone(),
-            public_key: create_test_signer(account.as_str()).public_key(),
-            access_key: AccessKey::full_access(),
-        });
+        records.push(StateRecord::access_key(
+            account.clone(),
+            &create_test_signer(account.as_str()).public_key(),
+            AccessKey::full_access(),
+        ));
         // The total supply must be correct to pass validation.
         genesis_config.total_supply = genesis_config
             .total_supply
@@ -280,7 +275,6 @@ fn test_protocol_upgrade_81() {
 
     let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
 
-    let num_shards = shard_layout.shard_ids().count();
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         chain_id: "mocknet".to_string(),
@@ -298,7 +292,6 @@ fn test_protocol_upgrade_81() {
         protocol_treasury_account: accounts[num_validators].clone(),
         num_block_producer_seats: num_validators as NumSeats,
         minimum_validators_per_shard: num_validators as NumSeats,
-        num_block_producer_seats_per_shard: vec![8; num_shards],
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 90,
         ..Default::default()
@@ -359,7 +352,12 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Create a dummy ChunkStateWitness with an invalid shard_id
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = ShardId::new(1000000000);
-    let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
+    let witness = ChunkStateWitness::new_dummy(
+        upper_height,
+        invalid_shard_id,
+        previous_block,
+        PROTOCOL_VERSION,
+    );
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID
@@ -401,29 +399,22 @@ fn test_eth_implicit_accounts() {
     let chain_id = &genesis.config.chain_id;
     let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
 
-    // Deploy global contract if the feature is enabled.
-    let uses_global_contract =
-        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+    // Deploy the wallet contract as a global contract for ETH implicit accounts.
     let mut next_nonce = 1;
-    if uses_global_contract {
-        let magic_bytes = wallet_contract_magic_bytes(chain_id);
-        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
-        let deploy_tx = SignedTransaction::deploy_global_contract(
-            next_nonce,
-            signer.get_account_id(),
-            wallet_code.code().to_vec(),
-            &signer.clone().into(),
-            *genesis_block.hash(),
-            GlobalContractDeployMode::CodeHash,
-        );
-        next_nonce += 1;
-        assert_eq!(
-            env.rpc_handlers[0].process_tx(deploy_tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
-        for _ in 0..5 {
-            produce_block(&mut env);
-        }
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
+    let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+    let deploy_tx = SignedTransaction::deploy_global_contract(
+        next_nonce,
+        signer.get_account_id(),
+        wallet_code.code().to_vec(),
+        &signer.clone().into(),
+        *genesis_block.hash(),
+        GlobalContractDeployMode::CodeHash,
+    );
+    next_nonce += 1;
+    assert_eq!(env.rpc_handlers[0].process_tx(deploy_tx, false, false), ProcessTxResponse::ValidTx);
+    for _ in 0..5 {
+        produce_block(&mut env);
     }
 
     // 1. Create two eth-implicit accounts

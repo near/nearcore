@@ -58,7 +58,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     let mut arr_len = arr.len();
     let mut paths: Vec<MerklePath> = (0..arr_len)
         .map(|i| {
-            if i % 2 == 0 {
+            if i.is_multiple_of(2) {
                 if i + 1 < arr_len {
                     vec![MerklePathItem {
                         hash: hashes[(i + 1) as usize],
@@ -87,7 +87,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             };
             hashes[i] = hash;
             if len > 1 {
-                if i % 2 == 0 {
+                if i.is_multiple_of(2) {
                     for j in 0..counter {
                         let index = ((i + 1) * counter + j) as usize;
                         if index < arr.len() {

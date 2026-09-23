@@ -20,7 +20,10 @@ fn access_key_storage_usage(
     access_key: &AccessKey,
 ) -> StorageUsage {
     let storage_usage_config = &fee_config.storage_usage_config;
-    borsh::object_length(public_key).unwrap() as u64
+    // Use the on-trie identifier length, not the borsh-serialized pubkey
+    // length: ML-DSA-65 access keys live in the trie as a SHA3-256 hash
+    // (33 bytes incl. type tag), not as a 1953-byte full pubkey.
+    public_key.trie_id_len() as u64
         + borsh::object_length(access_key).unwrap() as u64
         + storage_usage_config.num_extra_bytes_record
 }
@@ -33,8 +36,7 @@ fn gas_key_storage_cost(
 ) -> StorageUsage {
     let storage_config = &fee_config.storage_usage_config;
     let per_nonce_value_size = borsh::object_length(&(0 as Nonce)).unwrap() as u64;
-    let per_nonce_key_size = borsh::object_length(public_key).unwrap() as u64 +  // Public key is part of the key
-        size_of::<NonceIndex>() as u64; // Nonce index is part of the key        
+    let per_nonce_key_size = public_key.trie_id_len() as u64 + size_of::<NonceIndex>() as u64;
 
     num_nonces as u64
         * (per_nonce_key_size + per_nonce_value_size + storage_config.num_extra_bytes_record)
@@ -113,7 +115,7 @@ fn delete_gas_key(
     for i in 0..gas_key_info.num_nonces {
         remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i);
     }
-    let nonce_key_len = gas_key_nonce_key_len(account_id, public_key);
+    let nonce_key_len = gas_key_nonce_key_len(account_id, &public_key.into());
     let nonce_remove_compute = storage_removes_compute(
         &config.wasm_config.ext_costs,
         num_nonces,
@@ -337,12 +339,15 @@ mod tests {
     use super::*;
     use crate::ActionResult;
     use crate::ApplyState;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{setup_account, setup_account_with_tries, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
-    use near_crypto::{InMemorySigner, KeyType};
-    use near_parameters::RuntimeConfig;
-    use near_primitives::account::{AccessKey, AccessKeyPermission, Account, GasKeyInfo};
+    use crate::state_viewer::errors::ViewAccessKeyError;
+    use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle};
+    use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+    use near_primitives::account::{
+        AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+    };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
@@ -353,8 +358,13 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockHeight, EpochId, NonceIndex, StateChangeCause,
     };
-    use near_store::{ShardUId, TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+    use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::{
+        ShardTries, ShardUId, Trie, TrieUpdate, get_access_key, get_account, get_gas_key_nonce,
+        set_access_key, set_account,
+    };
     use std::collections::HashSet;
+    use std::num::NonZeroU32;
     use std::sync::Arc;
 
     const TEST_NUM_NONCES: NonceIndex = 2;
@@ -366,7 +376,7 @@ mod tests {
         num_nonces: usize,
     ) -> u64 {
         let config = RuntimeConfig::test();
-        let nonce_key_len = gas_key_nonce_key_len(account_id, public_key);
+        let nonce_key_len = gas_key_nonce_key_len(account_id, &public_key.into());
         storage_removes_compute(
             &config.wasm_config.ext_costs,
             num_nonces,
@@ -389,6 +399,7 @@ mod tests {
             random_seed: CryptoHash::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -677,8 +688,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         state_update.commit(StateChangeCause::InitialState);
 
@@ -719,8 +735,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
 
         // Verify total burned balance equals sum of all gas key balances
@@ -762,10 +783,14 @@ mod tests {
         assert_eq!(view_nonces, expected_nonces);
     }
 
+    /// Gas keys store their nonces as extra rows under the `ACCESS_KEY` column
+    /// (the access-key key plus a `NonceIndex` suffix). Those rows must be
+    /// filtered out, so each gas key appears in the listing exactly once.
     #[test]
     fn test_view_access_keys_returns_gas_keys() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         let gas_key_public_key1 =
@@ -777,15 +802,183 @@ mod tests {
                 .public_key();
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key2);
 
-        let viewer = TrieViewer::default();
-        let access_keys = viewer
-            .view_access_keys(&state_update, &account_id)
+        let trie = commit_to_view_trie(&tries, state_update);
+        let (access_keys, last_key) = TrieViewer::default()
+            .view_access_keys(&trie, &account_id, None, None)
             .expect("expected to find access keys");
-        let public_keys = access_keys.into_iter().map(|(pk, _)| pk).collect::<HashSet<PublicKey>>();
-        let expected_public_keys = vec![public_key, gas_key_public_key1, gas_key_public_key2]
-            .into_iter()
-            .collect::<HashSet<PublicKey>>();
-        assert_eq!(public_keys, expected_public_keys);
+        assert_eq!(last_key, None, "unpaginated listing should not return a cursor");
+
+        let expected: HashSet<PublicKeyHandle> =
+            [public_key, gas_key_public_key1, gas_key_public_key2]
+                .into_iter()
+                .map(PublicKeyHandle::from)
+                .collect();
+        // Length check before de-duplicating: each gas key also has
+        // `TEST_NUM_NONCES` nonce rows, so a broken nonce filter would return its
+        // handle more than once — which the set comparison alone would hide.
+        assert_eq!(access_keys.len(), expected.len(), "gas-key nonce rows were not filtered out");
+        let returned: HashSet<PublicKeyHandle> =
+            access_keys.into_iter().map(|(pk, _)| pk).collect();
+        assert_eq!(returned, expected);
+    }
+
+    /// A listing must be bounded to the requested account and never leak another
+    /// account's keys. The second account's id has the first's id as a byte
+    /// prefix.
+    #[test]
+    fn test_view_access_keys_excludes_other_accounts() {
+        let account_a: AccountId = "alice.near".parse().unwrap();
+        let account_b: AccountId = "alice.nearby".parse().unwrap();
+
+        let setup_pk = PublicKey::from_seed(KeyType::ED25519, "a_setup");
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_a, &setup_pk, &AccessKey::full_access());
+
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(setup_pk));
+        expected.extend(seed_extra_keys(&mut state_update, &account_a, 3));
+
+        // A second account sharing a leading substring, with its own key.
+        let account_b_obj =
+            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
+        set_account(&mut state_update, account_b.clone(), &account_b_obj);
+        let b_only = PublicKey::from_seed(KeyType::ED25519, "b_only_key");
+        set_access_key(&mut state_update, account_b, b_only.clone(), &AccessKey::full_access());
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let (access_keys, last_key) = TrieViewer::default()
+            .view_access_keys(&trie, &account_a, None, None)
+            .expect("listing account_a should succeed");
+        assert_eq!(last_key, None);
+        let returned: HashSet<PublicKeyHandle> =
+            access_keys.into_iter().map(|(pk, _)| pk).collect();
+        assert!(
+            !returned.contains(&PublicKeyHandle::from(b_only)),
+            "another account's key leaked into the listing"
+        );
+        assert_eq!(returned, expected, "listing must return exactly account_a's keys");
+    }
+
+    fn viewer_with_limit(limit: u32) -> TrieViewer {
+        TrieViewer::new(RuntimeConfigStore::new(None), None, limit, None)
+    }
+
+    /// Commits `state_update`'s overlay writes to its backing store and returns a
+    /// read-only view `Trie` at the resulting state root, mirroring the
+    /// production view path (which iterates a committed trie with no overlay).
+    fn commit_to_view_trie(tries: &ShardTries, mut state_update: TrieUpdate) -> Trie {
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+        tries.get_view_trie_for_shard(ShardUId::single_shard(), root)
+    }
+
+    /// Seeds `count` extra plain full-access keys on top of the account's setup
+    /// key, returning their handles.
+    fn seed_extra_keys(
+        state_update: &mut TrieUpdate,
+        account_id: &AccountId,
+        count: usize,
+    ) -> Vec<PublicKeyHandle> {
+        let access_key = AccessKey::full_access();
+        (0..count)
+            .map(|i| {
+                let pk = PublicKey::from_seed(KeyType::ED25519, &format!("extra_key_{i}"));
+                set_access_key(state_update, account_id.clone(), pk.clone(), &access_key);
+                PublicKeyHandle::from(pk)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_view_access_keys_unpaginated_over_limit_errors() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
+        // Setup provides 1 key; add 6 more -> 7 total, over the limit of 5.
+        seed_extra_keys(&mut state_update, &account_id, 6);
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let err = viewer_with_limit(5)
+            .view_access_keys(&trie, &account_id, None, None)
+            .expect_err("unpaginated listing over the limit should error");
+        assert!(
+            matches!(err, ViewAccessKeyError::TooManyAccessKeys { limit: 5, .. }),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_view_access_keys_unpaginated_at_limit_ok() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
+        // Setup provides 1 key; add 4 more -> exactly 5, at the limit.
+        seed_extra_keys(&mut state_update, &account_id, 4);
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let (keys, last_key) = viewer_with_limit(5)
+            .view_access_keys(&trie, &account_id, None, None)
+            .expect("exactly-at-limit unpaginated listing should succeed");
+        assert_eq!(keys.len(), 5);
+        assert_eq!(last_key, None, "a complete listing should not return a cursor");
+    }
+
+    #[test]
+    fn test_view_access_keys_paginated_request_over_limit_clamps() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
+        seed_extra_keys(&mut state_update, &account_id, 6);
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let (keys, last_key) = viewer_with_limit(5)
+            .view_access_keys(&trie, &account_id, None, NonZeroU32::new(6))
+            .expect("a page larger than the max should be clamped, not rejected");
+        assert_eq!(keys.len(), 5, "page should be clamped to the configured max");
+        assert!(last_key.is_some(), "a truncated listing should return a resume cursor");
+    }
+
+    /// Walks the whole list page by page against a configured limit: the first
+    /// page passes an explicit `limit`; resumed pages default their page size to
+    /// the config max. Checks full coverage with no duplicates or omissions, and
+    /// that gas-key-nonce rows are filtered across page boundaries.
+    #[test]
+    fn test_view_access_keys_paginated_walk() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let mut expected: HashSet<PublicKeyHandle> = HashSet::new();
+        expected.insert(PublicKeyHandle::from(public_key));
+        expected.extend(seed_extra_keys(&mut state_update, &account_id, 20));
+        for i in 0..3 {
+            let pk = PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}"));
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &pk);
+            expected.insert(PublicKeyHandle::from(pk));
+        }
+
+        let trie = commit_to_view_trie(&tries, state_update);
+        let viewer = viewer_with_limit(5);
+        let mut collected: HashSet<PublicKeyHandle> = HashSet::new();
+        // First page uses an explicit limit; resumes default to the config max.
+        let (mut page, mut cursor) = viewer
+            .view_access_keys(&trie, &account_id, None, NonZeroU32::new(5))
+            .expect("first page should succeed");
+        loop {
+            assert!(page.len() <= 5, "no page may exceed the config limit");
+            for (pk, _) in page {
+                assert!(collected.insert(pk), "a key was returned on more than one page");
+            }
+            let Some(after) = cursor else { break };
+            (page, cursor) = viewer
+                .view_access_keys(&trie, &account_id, Some(&after), None)
+                .expect("resume should succeed");
+        }
+        assert_eq!(collected, expected, "paged walk did not cover the full key set exactly");
     }
 
     fn transfer_to_gas_key(
@@ -1117,8 +1310,13 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         let expected_total =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(
@@ -1156,11 +1354,61 @@ mod tests {
         }
         state_update.commit(StateChangeCause::InitialState);
 
-        let action_result =
-            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let action_result = test_delete_account(
+            &account_id,
+            AccountContract::from_local_code_hash(CryptoHash::default()),
+            100,
+            PROTOCOL_VERSION,
+            &mut state_update,
+        );
         assert!(action_result.result.is_ok());
         let expected_burnt =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(action_result.tokens_burnt, expected_burnt);
+    }
+
+    /// `access_key_storage_usage` uses `public_key.trie_id_len()`, which for
+    /// ML-DSA-65 is the SHA3-256 hash form (1 tag + 32 bytes = 33 bytes),
+    /// not the 1953-byte borsh-encoded full pubkey. The 32-byte digest is the
+    /// same size as an ed25519 key, so the storage usage of an ML-DSA-65
+    /// access key matches an ed25519 one exactly - rather than the
+    /// ~1920-byte-larger figure a raw pubkey would produce.
+    #[test]
+    fn test_ml_dsa_65_access_key_storage_scales() {
+        let config = RuntimeConfig::test();
+        let access_key = AccessKey::full_access();
+
+        let ed_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "alice-ed")
+                .public_key();
+        let pq_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::MLDSA65, "alice-pq")
+                .public_key();
+
+        let ed_usage = access_key_storage_usage(&config.fees, &ed_pk, &access_key);
+        let pq_usage = access_key_storage_usage(&config.fees, &pq_pk, &access_key);
+
+        // The trie-id encoded lengths are identical:
+        // ML-DSA-65: [tag=3] + 32-byte SHA3-256 hash = 33 bytes.
+        // ED25519:   [tag=0] + 32-byte raw pubkey    = 33 bytes.
+        // So storage usage matches exactly. Stored raw, the ML-DSA-65 pubkey
+        // would be 1953 bytes and the usage would be ~1920 bytes larger.
+        assert_eq!(
+            pq_usage, ed_usage,
+            "ML-DSA-65 storage usage ({pq_usage}) must match ed25519 ({ed_usage}); \
+             both are 33-byte trie ids"
+        );
+    }
+
+    /// Pre-hash sanity: the borsh-serialized full pubkey for ML-DSA-65 is
+    /// 1953 bytes, but we explicitly do NOT use that length for storage -
+    /// `trie_id_len()` is what counts.
+    #[test]
+    fn test_ml_dsa_65_trie_id_len_is_hash_size() {
+        let pq_pk: PublicKey =
+            near_crypto::SecretKey::from_seed(near_crypto::KeyType::MLDSA65, "trie-id-len")
+                .public_key();
+        assert_eq!(pq_pk.trie_id_len(), 1 + 32);
+        assert_eq!(pq_pk.len(), 1 + 1952); // borsh form still reports full
     }
 }

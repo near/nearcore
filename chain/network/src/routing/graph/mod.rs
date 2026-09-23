@@ -5,19 +5,30 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use ::time::ext::InstantExt as _;
 use arc_swap::ArcSwap;
-use near_async::messaging::{Actor, CanSendAsync, Handler};
-use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::time;
 use near_async::time::Clock;
-use near_async::{new_owned_multithread_actor, time};
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
+
+/// Clock-skew tolerance for accepting edges with nonces in the future. Edges with nonces
+/// further ahead than this are rejected to prevent attackers from setting far-future
+/// timestamps to bypass the past-only `PRUNE_EDGES_AFTER` window.
+///
+/// This is distinct from, and stricter than, `EDGE_NONCE_MAX_TIME_DELTA` (20 min): that
+/// constant guards the nonce of the *local* node's own partial edges during handshake
+/// (`routing::edge::verify_nonce`) and is a symmetric past/future bound. This one applies
+/// to *all* propagated edges in the graph, where the past direction is already covered by
+/// the `PRUNE_EDGES_AFTER` window, so only the future direction needs bounding — and we
+/// keep that bound tight, just enough to absorb realistic clock skew between peers.
+const EDGE_NONCE_FUTURE_TOLERANCE: time::Duration = time::Duration::minutes(5);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 pub type DistanceTable = HashMap<PeerId, u32>;
 
@@ -26,11 +37,14 @@ pub struct GraphConfig {
     pub node_id: PeerId,
     pub prune_unreachable_peers_after: time::Duration,
     pub prune_edges_after: Option<time::Duration>,
+    pub max_edges_per_source: usize,
+    pub max_total_edges: usize,
+    pub max_graph_peers: usize,
 }
 
 #[derive(Default)]
 pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey, Edge>,
+    pub edges: imbl::HashMap<EdgeKey, Edge>,
     pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
     pub distances: Arc<DistanceTable>,
@@ -44,27 +58,64 @@ struct Inner {
     /// Nodes are Peers and edges are active connections.
     graph: bfs::Graph,
 
-    edges: im::HashMap<EdgeKey, Edge>,
+    edges: imbl::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
+    /// Maps each edge key to the remote peer that first introduced it.
+    edge_source: HashMap<EdgeKey, PeerId>,
+    /// Count of new edge keys introduced by each remote peer.
+    source_edge_count: HashMap<PeerId, usize>,
 }
 
-fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
-    set.get(&edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
+fn has(set: &imbl::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
+    set.get(edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
 }
 
 impl Inner {
     /// Adds an edge without validating the signatures. O(1).
     /// Returns true, iff <edge> was newer than an already known version of this edge.
-    fn update_edge(&mut self, edge: Edge) -> bool {
+    /// `source` is the remote peer that sent this edge, or None for local edges.
+    /// Enforces global edge/peer caps and per-source caps.
+    fn update_edge(&mut self, edge: Edge, source: Option<&PeerId>) -> bool {
         if has(&self.edges, &edge) {
             return false;
         }
         let key = edge.key();
-        // Add the edge.
+        let is_new_key = !self.edges.contains_key(key);
+        if is_new_key {
+            // Global edge cap (applies to local AND remote).
+            if self.edges.len() >= self.config.max_total_edges {
+                metrics::EDGE_DROPPED.inc();
+                return false;
+            }
+            // Per-source cap (remote only).
+            if let Some(source) = source {
+                let count = self.source_edge_count.get(source).copied().unwrap_or(0);
+                if count >= self.config.max_edges_per_source {
+                    metrics::EDGE_DROPPED.inc();
+                    return false;
+                }
+            }
+        }
         match edge.edge_type() {
-            EdgeState::Active => self.graph.add_edge(&key.0, &key.1),
+            EdgeState::Active => {
+                if !self.graph.add_edge(&key.0, &key.1) {
+                    // BFS peer cap exceeded.
+                    metrics::EDGE_DROPPED.inc();
+                    return false;
+                }
+            }
             EdgeState::Removed => self.graph.remove_edge(&key.0, &key.1),
+        }
+        // Pin edges to their original introducing source. We intentionally
+        // don't reassign attribution on nonce updates so that an attacker cannot recycle
+        // budget across multiple colluding peers by replaying edges with bumped
+        // nonces from a fresh source.
+        if is_new_key {
+            if let Some(source) = source {
+                self.edge_source.insert(key.clone(), source.clone());
+                *self.source_edge_count.entry(source.clone()).or_insert(0) += 1;
+            }
         }
         self.edges.insert(key.clone(), edge);
         true
@@ -74,6 +125,14 @@ impl Inner {
     fn remove_edge(&mut self, key: &EdgeKey) {
         if self.edges.remove(key).is_some() {
             self.graph.remove_edge(&key.0, &key.1);
+            if let Some(source) = self.edge_source.remove(key) {
+                if let Some(count) = self.source_edge_count.get_mut(&source) {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.source_edge_count.remove(&source);
+                    }
+                }
+            }
         }
     }
 
@@ -101,16 +160,12 @@ impl Inner {
     /// Prunes peers unreachable since <unreachable_since> (and their adjacent edges)
     /// from the in-mem graph.
     fn prune_unreachable_peers(&mut self, unreachable_since: time::Instant) {
-        // Select peers to prune.
+        self.peer_reachable_at.retain(|_, reachable_at| *reachable_at >= unreachable_since);
+
         let mut peers = HashSet::new();
         for k in self.edges.keys() {
             for peer_id in [&k.0, &k.1] {
-                if self
-                    .peer_reachable_at
-                    .get(peer_id)
-                    .map(|t| t < &unreachable_since)
-                    .unwrap_or(true)
-                {
+                if !self.peer_reachable_at.contains_key(peer_id) {
                     peers.insert(peer_id.clone());
                 }
             }
@@ -119,18 +174,14 @@ impl Inner {
             return;
         }
 
-        // Prune peers from peer_reachable_at.
-        for peer_id in &peers {
-            self.peer_reachable_at.remove(&peer_id);
-        }
-
         // Prune edges from graph.
         self.remove_adjacent_edges(&peers);
     }
 
     /// Verifies edges, then adds them to the graph.
     /// Returns a list of newly added edges (not known so far), which should be broadcasted.
-    /// Returns true iff all the edges provided were valid.
+    /// Returns true iff all the edges provided were valid (signatures + no self-loops from remote).
+    /// Limit-triggered drops are non-punitive and do NOT affect the `ok` return value.
     ///
     /// This method implements a security measure against an adversary sending invalid edges:
     /// * it deduplicates edges and drops known edges before verification, because verification is expensive.
@@ -143,9 +194,9 @@ impl Inner {
         clock: &time::Clock,
         edges_and_source: EdgesWithSource,
     ) -> (Vec<Edge>, bool) {
-        let (mut edges, self_loop_allowed) = match edges_and_source {
-            EdgesWithSource::Local(edges) => (edges, true),
-            EdgesWithSource::Remote(edges) => (edges, false),
+        let (mut edges, self_loop_allowed, source) = match edges_and_source {
+            EdgesWithSource::Local(edges) => (edges, true, None),
+            EdgesWithSource::Remote { edges, source } => (edges, false, Some(source)),
         };
 
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
@@ -169,12 +220,36 @@ impl Inner {
                 }
             }
 
-            return true;
+            // Reject edges with nonces too far in the future. Otherwise an attacker can set
+            // nonces years ahead to bypass the past-only prune window above. A nonce that
+            // doesn't map to a valid timestamp is rejected as well: `is_edge_older_than`
+            // treats such an edge as not-old, so it would never be pruned, granting the
+            // attacker the very immunity this check is meant to deny.
+            match Edge::nonce_to_utc(e.nonce()) {
+                Ok(nonce_time) if nonce_time <= now + EDGE_NONCE_FUTURE_TOLERANCE => {}
+                _ => {
+                    metrics::EDGE_DROPPED.inc();
+                    return false;
+                }
+            }
+
+            true
         });
+
+        // Use batch-local provisional counters to track how many new keys we're
+        // accepting in this batch, so we can skip expensive signature verification
+        // once caps are reached.
+        let mut provisional_new_edges: usize = 0;
+        let base_edge_count = self.edges.len();
+        let base_source_count = source
+            .as_ref()
+            .map(|s| self.source_edge_count.get(s).copied().unwrap_or(0))
+            .unwrap_or(0);
 
         // Stop at first invalid edge.
         let mut valid_edges = Vec::<Edge>::new();
         let mut ok = true;
+        let mut dropped_by_pre_check: u64 = 0;
         for edge in edges {
             if edge.key().0 == edge.key().1 {
                 // Locally a node might create a self-loop to validate its self-discovered public IP, but that
@@ -186,15 +261,48 @@ impl Inner {
                 ok = false;
                 break;
             }
+            // Cheap pre-check: skip signature verification if this new key would
+            // be rejected by source or global caps anyway.
+            let is_new_key = !self.edges.contains_key(edge.key());
+            if is_new_key {
+                if base_edge_count + provisional_new_edges >= self.config.max_total_edges {
+                    metrics::EDGE_DROPPED.inc();
+                    dropped_by_pre_check += 1;
+                    continue;
+                }
+                if source.is_some()
+                    && base_source_count + provisional_new_edges >= self.config.max_edges_per_source
+                {
+                    metrics::EDGE_DROPPED.inc();
+                    dropped_by_pre_check += 1;
+                    continue;
+                }
+            }
             if !edge.verify() {
                 ok = false;
                 break;
+            }
+            if is_new_key {
+                provisional_new_edges += 1;
             }
             valid_edges.push(edge);
         }
 
         // Add the verified edges to the graph.
-        valid_edges.retain(|e| self.update_edge(e.clone()));
+        // Limit drops may still happen here (e.g., BFS peer cap).
+        let pre_retain_count = valid_edges.len();
+        valid_edges.retain(|e| self.update_edge(e.clone(), source.as_ref()));
+        let dropped_by_update = (pre_retain_count - valid_edges.len()) as u64;
+
+        if dropped_by_pre_check + dropped_by_update > 0 {
+            tracing::info!(
+                target: "network",
+                ?source,
+                dropped_by_pre_check,
+                dropped_by_update,
+                "edges dropped due to routing graph limits"
+            );
+        }
         (valid_edges, ok)
     }
 
@@ -251,29 +359,25 @@ pub(crate) struct Graph {
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
-    updater: MultithreadRuntimeHandle<GraphActor>,
+    inner: Mutex<Inner>,
+    clock: Clock,
 }
 
 impl Graph {
     pub fn new(clock: Clock, config: GraphConfig) -> Arc<Self> {
-        Arc::new_cyclic(|weak| {
-            let weak = weak.clone();
-            let updater = new_owned_multithread_actor(1, move || GraphActor {
-                clock: clock.clone(),
-                graph: weak.clone(),
-                inner: Inner {
-                    graph: bfs::Graph::new(config.node_id.clone()),
-                    config: config.clone(),
-                    edges: Default::default(),
-                    peer_reachable_at: HashMap::new(),
-                },
-            });
-            Self {
-                routing_table: RoutingTableView::new(),
-                unreliable_peers: ArcSwap::default(),
-                snapshot: ArcSwap::default(),
-                updater,
-            }
+        Arc::new(Self {
+            routing_table: RoutingTableView::new(),
+            unreliable_peers: ArcSwap::default(),
+            snapshot: ArcSwap::default(),
+            inner: Mutex::new(Inner {
+                graph: bfs::Graph::new(config.node_id.clone(), config.max_graph_peers),
+                config,
+                edges: Default::default(),
+                peer_reachable_at: HashMap::new(),
+                edge_source: HashMap::new(),
+                source_edge_count: HashMap::new(),
+            }),
+            clock,
         })
     }
 
@@ -300,37 +404,19 @@ impl Graph {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we accept all the edges verified so
     /// far and return an error only afterwards.
-    pub async fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
-        self.updater.send_async(UpdateEdges(edges)).await.unwrap()
-    }
-}
-
-struct GraphActor {
-    clock: Clock,
-    graph: Weak<Graph>,
-    inner: Inner,
-}
-
-impl Actor for GraphActor {}
-
-#[derive(Debug)]
-struct UpdateEdges(Vec<EdgesWithSource>);
-
-impl Handler<UpdateEdges, (Vec<Edge>, Vec<bool>)> for GraphActor {
-    fn handle(&mut self, msg: UpdateEdges) -> (Vec<Edge>, Vec<bool>) {
+    pub fn update(&self, edges: Vec<EdgesWithSource>) -> (Vec<Edge>, Vec<bool>) {
+        let mut inner = self.inner.lock();
         let mut new_edges = vec![];
         let mut oks = vec![];
-        for es in msg.0 {
-            let (es, ok) = self.inner.add_edges(&self.clock, es);
+        for es in edges {
+            let (es, ok) = inner.add_edges(&self.clock, es);
             oks.push(ok);
             new_edges.extend(es);
         }
-        if let Some(graph) = self.graph.upgrade() {
-            let snapshot = self.inner.update(&self.clock, &graph.unreliable_peers.load());
-            let snapshot = Arc::new(snapshot);
-            graph.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
-            graph.snapshot.store(snapshot);
-        }
+        let snapshot = inner.update(&self.clock, &self.unreliable_peers.load());
+        let snapshot = Arc::new(snapshot);
+        self.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
+        self.snapshot.store(snapshot);
         (new_edges, oks)
     }
 }

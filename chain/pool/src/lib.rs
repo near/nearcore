@@ -98,7 +98,7 @@ impl TransactionPool {
         // to catch a logic error in estimation of transaction size.
         let new_total_transaction_size = self
             .total_transaction_size
-            .checked_add(validated_tx.get_size())
+            .checked_add(validated_tx.wire_size())
             .expect("Total transaction size is too large");
         if let Some(limit) = self.total_transaction_size_limit {
             if new_total_transaction_size > limit {
@@ -166,7 +166,7 @@ impl TransactionPool {
                     // here catches a logic error.
                     self.total_transaction_size = self
                         .total_transaction_size
-                        .checked_sub(tx.get_size())
+                        .checked_sub(tx.wire_size())
                         .expect("Total transaction size dropped below zero");
                     false
                 });
@@ -626,13 +626,13 @@ mod tests {
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
         for tx in transactions.clone() {
-            total_transaction_size += tx.get_size();
+            total_transaction_size += tx.wire_size();
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
         // Removing transactions decreases the size.
         for tx in transactions {
-            total_transaction_size -= tx.get_size();
+            total_transaction_size -= tx.wire_size();
             pool.remove_transactions(&[tx.into_signed_tx()]);
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
@@ -644,7 +644,7 @@ mod tests {
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         // Each transaction is at least 1 byte in size, so the last transaction will not fit.
         let pool_size_limit =
-            transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
+            transactions.iter().map(|tx| tx.wire_size()).sum::<u64>().strict_sub(1);
         let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit), "");
         for (i, tx) in transactions.iter().cloned().enumerate() {
             if i + 1 < transactions.len() {

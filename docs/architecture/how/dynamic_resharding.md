@@ -95,7 +95,7 @@ At the last block of each epoch, the block producer:
 1. Collects `proposed_split` values from all chunk headers in the block.
 2. Calls `get_upcoming_shard_split()` which:
    - Checks if dynamic resharding is enabled (via `ShardLayoutConfig::Dynamic`).
-   - Checks the resharding cooldown (`can_reshard()` -- verifies `epoch_height - last_resharding >= min_epochs_between_resharding`).
+   - Checks the resharding cooldown (`can_reshard()` -- verifies `epoch_height - last_resharding >= min_epochs_between_resharding`). `min_epochs_between_resharding` must be `> 0`: allowing back-to-back reshardings is unsafe because a freshly-created child shard would inherit `proposed_split` from the parent's final chunk while its own first chunk freshly computes `proposed_split = None`, triggering `InvalidChunkHeaderShardSplit`.
    - Calls `pick_shard_to_split()` to select the winning shard: forced shards have priority, otherwise the shard with highest `total_memory()` wins.
 3. Embeds the result as `shard_split: Option<(ShardId, AccountId)>` in `BlockHeaderInnerRestV6`.
 
@@ -118,6 +118,21 @@ Both `proposed_split` and `shard_split` are validated to prevent forging:
 
 - **Chunk header validation**: During state witness validation, the `proposed_split` in the received chunk header is compared against the locally-computed `ChunkExtra.proposed_split()`. Mismatch produces `InvalidChunkHeaderShardSplit`.
 - **Block header validation**: During block processing, the `shard_split` in the block header is recomputed by calling `get_upcoming_shard_split()` with the block's chunk headers. Mismatch produces `InvalidBlockHeaderShardSplit`.
+
+### 2.6 Validator Assignment Across Resharding
+
+Gated by `ProtocolFeature::StickyReshardingValidatorAssignment` (protocol version 153). Without the feature, an epoch with a layout change reassigns all chunk producers from scratch by `ShardIndex`, forcing every producer to potentially state-sync a different shard. With the feature, `EpochManager::finalize_epoch()` calls `AssignmentStrategy::select(prev_layout, new_layout)` which picks one of:
+
+- **`CarryOver`**: layouts equal — copy the prev assignment by `ShardIndex`.
+- **`StickyResharding`**: feature on and `new_layout` is derived from `prev_layout` — preserve the prev assignment by `ShardId`. Unchanged shards keep their chunk producers; a parent that splits has its producers distributed across its children via greedy stake-balanced bin-packing (`bin_pack_into_children` in `chain/epoch-manager/src/shard_assignment.rs`).
+- **`Fresh`**: feature off, or sticky construction failed (e.g. non-derived layouts in tests).
+
+The strategy is built once in `select` (validating the prev->new shard-id mapping) and consumed by `assign_chunk_producers_to_shards`. On a sticky-resharding epoch the per-epoch `chunk_producer_assignment_changes_limit` is raised to `num_chunk_producers / num_shards` so freshly split children can reach target population in one go rather than being chronically understaffed.
+
+Limitations:
+
+- Only single-parent splits are supported. Shard merges would require carrying multiple parents' producers into one child and are not yet implemented.
+- When `num_chunk_producers < min_validators_per_shard * num_shards`, the assignment falls into `assign_to_satisfy_shards`, which round-robins producers across shards with repeats. Sticky-by-id does not hold in that regime; production configurations (`min=1`, validator counts >> shard counts) preclude this in practice.
 
 ---
 
@@ -212,7 +227,35 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ---
 
-## 6. Uncompleted TODOs
+## 6. Memtrie Pre-loading for Dynamic Resharding
+
+The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but we have an entire epoch (~12 hours on mainnet) between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
+
+### Timeline
+
+- **Epoch N, last block**: `shard_split` embedded in block header.
+- **Epoch N -> N+1 boundary**: `finalize_epoch()` creates EpochInfo for epoch N+2 with new shard layout. At this point, `postprocess_ready_block()` in `chain/chain/src/chain.rs` detects the layout change via `maybe_start_memtrie_preload_for_resharding()` and starts a background thread to load the parent shard's memtrie from flat storage.
+- **Epoch N+1, early blocks**: The background thread completes loading (typically ~30s). On the next call to `finalize_background_memtrie_loading()` (which runs in `postprocess_ready_block()` on every block), the loaded memtrie is received from the background thread, delta catch-up is applied to bring it up to date, and it's inserted into the active memtries map.
+
+### Key implementation details
+
+- **Background task**: Uses `AsyncComputationSpawner` + `crossbeam::channel::bounded(1)` to run the load as a background task. In production this runs on a separate thread; in test-loop tests it runs deterministically via `TestLoopAsyncComputationSpawner`. The spawner is passed to `spawn_background_memtrie_loading_for_shard()` by the caller (`Chain`).
+- **Flat head pausing**: Before spawning the background task, `spawn_background_memtrie_loading_for_shard()` places a hold on the shard's `FlatStorage` flat head (via `hold_flat_head()`). While held, new deltas are still accumulated but the flat head does not advance and deltas are not GC'd. This preserves the deltas needed for catch-up after the background load completes. The hold is released when loading succeeds, fails, or is cancelled. Multiple subsystems (state snapshots, background memtrie loading, resharding) can independently hold the flat head; it only advances once all holds are released.
+- **Delta catch-up**: After the background load completes, `apply_deltas_to_memtries()` in `core/store/src/trie/mem/loading.rs` applies any flat state deltas accumulated during the loading period. Deltas at or below the base height (flat_head at load start) are skipped, as are deltas whose state roots are already in the memtrie.
+- **Safe insertion**: The memtrie is inserted into the active map in `postprocess_ready_block()`, before chunk processing for that block begins. This ensures no in-flight chunk applications see an unexpected memtrie appear mid-processing.
+- **Startup fallback**: If the node restarts during epoch N+1 (after the decision but before execution), `Chain::new()` detects the pending resharding via `EpochManagerAdapter::get_resharding_parent_shard_uid()` (which compares current and next epoch shard layouts) and adds the parent shard for synchronous loading.
+- **Cancellation**: Pending loads for shards that are no longer tracked are cancelled via `retain_memtries()` when memtries are retained at epoch boundaries. Flat head updates are re-enabled for cancelled shards.
+
+### Key files
+
+- `core/store/src/flat/storage.rs` -- `hold_flat_head()` / `release_flat_head_hold()` used to pause/resume flat head updates during loading
+- `core/store/src/trie/mem/loading.rs` -- `apply_deltas_to_memtries()` for reusable delta catch-up (with `base_height` filtering)
+- `core/store/src/trie/shard_tries.rs` -- `spawn_background_memtrie_loading_for_shard()`, `try_finalize_background_memtrie_loading()`, `retain_memtries()` (cancellation)
+- `chain/chain/src/chain.rs` -- `maybe_start_memtrie_preload_for_resharding()` (epoch boundary trigger), `postprocess_ready_block()` (per-block finalization), `Chain::new()` (startup detection)
+
+---
+
+## 7. Uncompleted TODOs
 
 ### Dynamic Resharding Specific
 
@@ -220,17 +263,17 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 2. **`chain/epoch-manager/src/adapter.rs:736`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding. Dynamic trie loading needs to be implemented.
 
-3. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
+3. ~~**`chain/epoch-manager/src/adapter.rs`** -- `get_shard_uids_pending_resharding()` returns empty for dynamic resharding.~~ Resolved: removed. Memtrie pre-loading now uses `EpochManagerAdapter::get_resharding_parent_shard_uid()` to compare current vs next epoch shard layouts at epoch boundaries, startup, and state sync (see section 6).
 
-4. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
+4. **`chain/epoch-manager/src/test_utils.rs:439`** -- Test utilities still create `BlockInfoV3` instead of `BlockInfoV4`.
 
-5. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
+5. **`core/store/src/config.rs:217`** -- Cache size computation for dynamic resharding protocol versions is currently skipped.
 
-6. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
+6. **`tools/fork-network/src/cli.rs:353,707`** -- Fork network tool does not support dynamic resharding yet.
+
+7. **`tools/database/src/memtrie.rs:399`** -- CLI tool for finding boundary accounts needs updating for dynamic resharding.
 
 ### General Resharding TODOs (May Affect Dynamic Resharding)
-
-7. **`chain/epoch-manager/src/shard_assignment.rs:198`** -- Shard assignment for validators after resharding is not yet implemented.
 
 8. **`chain/client/src/stateless_validation/shadow_validate.rs:22`** -- Shadow validation breaks across resharding boundaries.
 
@@ -245,3 +288,38 @@ When the network first enables dynamic resharding (transitioning from static to 
 ### Spice-Resharding Integration
 
 13. Multiple TODOs in `chunk_executor_actor.rs`, `spice_data_distributor_actor.rs`, `spice_chunk_validation.rs`, and `spice_chunk_application.rs` indicate that the Spice feature does not yet handle resharding transitions properly.
+
+---
+
+## 8. Monitoring
+
+Prometheus metrics covering the dynamic resharding pipeline, by stage.
+
+### Split proposal (chunk application, `chain/chain/src/runtime/`)
+
+- `near_dynamic_resharding_shard_memory_usage{shard_uid}` -- trie-cost memory usage of the shard, i.e. the value compared against the split threshold. The main leading indicator of an upcoming split. Exported from `check_dynamic_resharding`, so it updates only near epoch ends (and not during the resharding cooldown); between updates it holds the last epoch-end snapshot.
+- `near_dynamic_resharding_memory_usage_threshold`, `near_dynamic_resharding_min_child_memory_usage`, `near_dynamic_resharding_max_number_of_shards` -- the active `DynamicReshardingConfig` thresholds, so dashboards can compute `usage / threshold` without hardcoding values. Same update cadence as above.
+- `near_dynamic_resharding_proposed_split_{left,right}_memory{shard_uid}` -- trie-cost balance of the last proposed split. A proposal appears only in the single boundary-block chunk, so the gauges are **latched** (they persist the last proposed split rather than resetting to 0 on the next chunk); no series until a split has been proposed for the shard.
+- `near_dynamic_resharding_proposed_split_info{shard_uid, boundary_account}` -- info-style metric (value 1) carrying the proposed boundary account; latched per shard alongside the memory gauges (the series for an old boundary is removed when the boundary changes).
+- `near_dynamic_resharding_find_split_errors_total{shard_uid}` -- failures to compute the trie split for a shard during chunk application. **Alert on > 0**: the shard won't be proposed for resharding and the failure warrants investigation.
+
+### Selection and consensus (`chain/epoch-manager/`, `chain/chain/src/validate.rs`)
+
+- `near_dynamic_resharding_validation_failures_total{kind}` -- `kind` is `chunk_header` (`InvalidChunkHeaderShardSplit`) or `block_header` (`InvalidBlockHeaderShardSplit`). **Alert on > 0**: a malicious peer or, worse, non-determinism in the split computation.
+- `near_dynamic_resharding_scheduled_epoch_height{shard_uid, boundary_account}` -- set in `next_next_shard_layout()` when a split is selected; the value is the epoch height at which the new layout takes effect.
+- `near_resharding_assignment_strategy_total{strategy}` -- chunk producer assignment strategy chosen at each epoch finalization (`carry_over` / `sticky_resharding` / `fresh`). Alert on `fresh` increments when sticky assignment is enabled.
+
+### Preparation in epoch N+1 (memtrie preload, `core/store/`)
+
+- `near_memtrie_background_load_status{shard_uid}` -- 0 none, 1 loading, 2 awaiting finalization, 3 applying delta catch-up, 4 done, 5 already loaded (preload no-op: the parent memtrie was already in memory). 4 and 5 both mean the memtrie is ready -- a shard may transition 4->5 at a later epoch boundary. Alert on being stuck at 1 (load should take ~30s) or 3.
+- `near_memtrie_background_load_retries_total{shard_uid}` -- failed load attempts; the node panics after the max retries, so alert on the first one.
+- `near_memtrie_background_load_duration_seconds{shard_uid, stage}` -- histogram, `stage` is `load` or `catchup`; catch-up runs synchronously in block postprocessing.
+- `near_memtrie_background_load_deltas{shard_uid}` -- number of flat-state deltas that accumulated and were applied while loading the memtrie during the last background load (the bulk applied by the loader thread; grows with how long the load took and the block rate). The brief finalization catch-up afterwards is not counted.
+- `near_flat_head_holds{shard_uid}` -- active holds preventing the flat head from advancing. A leaked hold causes unbounded delta growth (symptom: rising `near_flat_storage_distance_to_head`).
+
+### Execution (`chain/chain/src/resharding/`)
+
+- `near_resharding_status{shard_uid}` -- overall per-parent-shard state machine: -2 cancelled, -1 failed, 1 scheduled, 2 splitting flat storage, 3 flat storage catch-up, 4 resharding trie state, 5 done (no series until a resharding is scheduled for the shard). Alert on -1 or on being stuck in 1-4. Only reflects reshardings executed by the running node: a resharding interrupted by a crash must be completed with the offline `resume-resharding` tool, during which the series is absent.
+- `near_resharding_start_timestamp_seconds{shard_uid}` / `near_resharding_total_duration_seconds{shard_uid}` -- execution start (unix time) and total wall time on completion.
+- `near_resharding_memtrie_split_duration_seconds` -- histogram of the synchronous memtrie split at the boundary block (block-processing critical path).
+- Pre-existing per-component metrics: `near_flat_storage_resharding_status`, `near_flat_storage_resharding_split_shard_{processed_batches,batch_size,processed_bytes}`, `near_state_col_resharding_processed_batches`.

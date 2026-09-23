@@ -10,13 +10,16 @@ from messages.bridge import *
 schema = dict(tx_schema + crypto_schema + bridge_schema)
 
 
-def make_transaction(receiverId, nonce, actions, blockHash, accountId,
-                     pk) -> Transaction:
+def make_transaction(receiverId,
+                     nonce,
+                     actions,
+                     blockHash,
+                     accountId,
+                     pk,
+                     key_type=KEY_TYPE_ED25519) -> Transaction:
     tx = Transaction()
     tx.signerId = accountId
-    tx.publicKey = PublicKey()
-    tx.publicKey.keyType = 0
-    tx.publicKey.data = pk
+    tx.publicKey = make_public_key(pk, key_type)
     tx.nonce = nonce
     tx.receiverId = receiverId
     tx.actions = actions
@@ -29,19 +32,30 @@ def compute_transaction_hash(tx: Transaction) -> bytes:
     return hashlib.sha256(msg).digest()
 
 
-def sign_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
-                     sk) -> SignedTransaction:
-    tx = make_transaction(receiverId, nonce, actions, blockHash, accountId, pk)
-    hash_bytes = compute_transaction_hash(tx)
+def sign_hash(hash_bytes, sk, key_type=KEY_TYPE_ED25519) -> bytes:
+    if key_type == KEY_TYPE_MLDSA65:
+        # imported here because it needs cryptography>=48
+        from mldsa65 import MlDsa65Key
+        return MlDsa65Key.sign_with_seed(sk, hash_bytes)
+    return SigningKey(sk[:32]).sign(hash_bytes).signature
 
-    signature = Signature()
-    signature.keyType = 0
-    seed = sk[:32]
-    signature.data = SigningKey(seed).sign(hash_bytes).signature
+
+def sign_transaction(receiverId,
+                     nonce,
+                     actions,
+                     blockHash,
+                     accountId,
+                     pk,
+                     sk,
+                     key_type=KEY_TYPE_ED25519) -> SignedTransaction:
+    tx = make_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
+                          key_type)
+    hash_bytes = compute_transaction_hash(tx)
 
     signedTx = SignedTransaction()
     signedTx.transaction = tx
-    signedTx.signature = signature
+    signedTx.signature = make_signature(sign_hash(hash_bytes, sk, key_type),
+                                        key_type)
     signedTx.id = base58.b58encode(hash_bytes).decode('utf8')
     return signedTx
 
@@ -50,11 +64,17 @@ def serialize_transaction(tx: SignedTransaction) -> bytes:
     return BinarySerializer(schema).serialize(tx)
 
 
-def sign_and_serialize_transaction(receiverId, nonce, actions, blockHash,
-                                   accountId, pk, sk):
+def sign_and_serialize_transaction(receiverId,
+                                   nonce,
+                                   actions,
+                                   blockHash,
+                                   accountId,
+                                   pk,
+                                   sk,
+                                   key_type=KEY_TYPE_ED25519):
     return serialize_transaction(
         sign_transaction(receiverId, nonce, actions, blockHash, accountId, pk,
-                         sk))
+                         sk, key_type))
 
 
 def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
@@ -65,9 +85,7 @@ def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
     delegateAction.actions = actions
     delegateAction.nonce = nonce
     delegateAction.maxBlockHeight = maxBlockHeight
-    delegateAction.publicKey = PublicKey()
-    delegateAction.publicKey.keyType = 0
-    delegateAction.publicKey.data = publicKey
+    delegateAction.publicKey = make_public_key(publicKey)
     signableMessageDiscriminant = 2**30 + 366
     serializer = BinarySerializer(schema)
     serializer.serialize_num(signableMessageDiscriminant, 4)
@@ -84,10 +102,7 @@ def create_signed_delegated_action(senderId, receiverId, actions, nonce,
     delegated_action, hash_ = compute_delegated_action_hash(
         senderId, receiverId, actions, nonce, maxBlockHeight, publicKey)
 
-    signature = Signature()
-    signature.keyType = 0
-    seed = sk[:32]
-    signature.data = SigningKey(seed).sign(hash_).signature
+    signature = make_signature(sign_hash(hash_, sk))
 
     signedDA = SignedDelegate()
     signedDA.delegateAction = delegated_action
@@ -103,16 +118,14 @@ def create_create_account_action():
     return action
 
 
-def create_full_access_key_action(pk):
+def create_full_access_key_action(pk, key_type=KEY_TYPE_ED25519):
     permission = AccessKeyPermission()
     permission.enum = 'fullAccess'
     permission.fullAccess = FullAccessPermission()
     accessKey = AccessKey()
     accessKey.nonce = 0
     accessKey.permission = permission
-    publicKey = PublicKey()
-    publicKey.keyType = 0
-    publicKey.data = pk
+    publicKey = make_public_key(pk, key_type)
     addKey = AddKey()
     addKey.accessKey = accessKey
     addKey.publicKey = publicKey
@@ -123,9 +136,7 @@ def create_full_access_key_action(pk):
 
 
 def create_delete_access_key_action(pk):
-    publicKey = PublicKey()
-    publicKey.keyType = 0
-    publicKey.data = pk
+    publicKey = make_public_key(pk)
     deleteKey = DeleteKey()
     deleteKey.publicKey = publicKey
     action = Action()
@@ -146,9 +157,7 @@ def create_payment_action(amount):
 def create_staking_action(amount, pk):
     stake = Stake()
     stake.stake = amount
-    stake.publicKey = PublicKey()
-    stake.publicKey.keyType = 0
-    stake.publicKey.data = pk
+    stake.publicKey = make_public_key(pk)
     action = Action()
     action.enum = 'stake'
     action.stake = stake
@@ -202,6 +211,88 @@ def create_delete_account_action(beneficiary):
     action.enum = 'deleteAccount'
     action.deleteAccount = deleteAccount
     return action
+
+
+def create_gas_key_full_access_key_action(pk,
+                                          num_nonces,
+                                          key_type=KEY_TYPE_ED25519):
+    gasKeyInfo = GasKeyInfo()
+    gasKeyInfo.balance = 0
+    gasKeyInfo.numNonces = num_nonces
+    gasKeyFullAccess = GasKeyFullAccessPermission()
+    gasKeyFullAccess.gasKeyInfo = gasKeyInfo
+    permission = AccessKeyPermission()
+    permission.enum = 'gasKeyFullAccess'
+    permission.gasKeyFullAccess = gasKeyFullAccess
+    accessKey = AccessKey()
+    accessKey.nonce = 0
+    accessKey.permission = permission
+    publicKey = make_public_key(pk, key_type)
+    addKey = AddKey()
+    addKey.accessKey = accessKey
+    addKey.publicKey = publicKey
+    action = Action()
+    action.enum = 'addKey'
+    action.addKey = addKey
+    return action
+
+
+def create_transfer_to_gas_key_action(pk, deposit, key_type=KEY_TYPE_ED25519):
+    transferToGasKey = TransferToGasKey()
+    transferToGasKey.publicKey = make_public_key(pk, key_type)
+    transferToGasKey.deposit = deposit
+    action = Action()
+    action.enum = 'transferToGasKey'
+    action.transferToGasKey = transferToGasKey
+    return action
+
+
+def create_withdraw_from_gas_key_action(pk, amount):
+    withdrawFromGasKey = WithdrawFromGasKey()
+    withdrawFromGasKey.publicKey = make_public_key(pk)
+    withdrawFromGasKey.amount = amount
+    action = Action()
+    action.enum = 'withdrawFromGasKey'
+    action.withdrawFromGasKey = withdrawFromGasKey
+    return action
+
+
+def sign_and_serialize_transaction_v1(receiverId,
+                                      nonce,
+                                      nonce_index,
+                                      actions,
+                                      blockHash,
+                                      accountId,
+                                      pk,
+                                      sk,
+                                      key_type=KEY_TYPE_ED25519):
+    tx = TransactionV1()
+    tx.signerId = accountId
+    tx.publicKey = make_public_key(pk, key_type)
+    txNonce = TransactionNonce()
+    txNonce.enum = 'gasKeyNonce'
+    nonceData = GasKeyNonceData()
+    nonceData.nonce = nonce
+    nonceData.nonceIndex = nonce_index
+    txNonce.gasKeyNonce = nonceData
+    tx.nonce = txNonce
+    tx.receiverId = receiverId
+    tx.actions = actions
+    tx.blockHash = blockHash
+    nonceMode = NonceMode()
+    nonceMode.enum = 'monotonic'
+    nonceMode.monotonic = NonceModeVariant()
+    tx.nonceMode = nonceMode
+
+    serializer = BinarySerializer(schema)
+    serializer.serialize_num(1, 1)  # V1 discriminant
+    serializer.serialize_struct(tx)
+    tx_bytes = bytes(serializer.array)
+
+    hash_bytes = hashlib.sha256(tx_bytes).digest()
+    serializer.serialize_struct(
+        make_signature(sign_hash(hash_bytes, sk, key_type), key_type))
+    return bytes(serializer.array)
 
 
 def create_delegate_action(signedDelegate):
@@ -261,13 +352,13 @@ def sign_payment_tx(key, to, amount, nonce, blockHash):
     action = create_payment_action(amount)
     return sign_and_serialize_transaction(to, nonce, [action], blockHash,
                                           key.account_id, key.decoded_pk(),
-                                          key.decoded_sk())
+                                          key.decoded_sk(), key.key_type)
 
 
 def sign_payment_tx_and_get_hash(key, to, amount, nonce, block_hash):
     action = create_payment_action(amount)
     tx = make_transaction(to, nonce, [action], block_hash, key.account_id,
-                          key.decoded_pk())
+                          key.decoded_pk(), key.key_type)
     hash_bytes = compute_transaction_hash(tx)
     signed_tx = sign_payment_tx(key, to, amount, nonce, block_hash)
     return signed_tx, base58.b58encode(hash_bytes).decode('utf8')

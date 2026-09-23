@@ -1,3 +1,4 @@
+use crate::spice::chunk_application::ChunkPersistenceConfig;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -5,13 +6,11 @@ pub use latest_witnesses::LatestWitnessesInfo;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
+use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV1};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{
-    ProcessedReceipt, ProcessedReceiptMetadata, Receipt, ReceiptSource, ReceiptToTxInfo,
-};
+use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -33,16 +32,14 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
+    get_block_shard_id, get_outcome_id_block_hash_rev, get_spice_invalid_chunk_key, index_to_bytes,
     to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::{
-    GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,
-    STATE_SYNC_DUMP_KEY, StoreStatistics,
-};
+use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::light_client_block::StoredLightClientBlock;
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -53,7 +50,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::sync::Arc;
-use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
+use utils::{
+    check_transaction_validity_period, compute_transaction_validity,
+    early_prepare_txs_check_validity_period,
+};
 
 pub mod latest_witnesses;
 pub mod utils;
@@ -90,10 +90,6 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last final block of the chain that we executed.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
-    /// Last block of the chain that we executed.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> BlockHeight;
     /// Stop height observed during the last garbage collection iteration.
@@ -127,29 +123,21 @@ pub trait ChainStoreAccess {
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
-    /// Returns hash of the first available block after genesis.
+    /// Returns hash of the earliest block whose state the node can still serve.
     fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
-        // To find the earliest available block we use the `tail` marker primarily
-        // used by garbage collection system.
-        // NOTE: `tail` is the block height at which we can say that there is
-        // at most 1 block available in the range from the genesis height to
-        // the tail. Thus, the strategy is to find the first block AFTER the tail
-        // height, and use the `prev_hash` to get the reference to the earliest
-        // block.
-        // The earliest block can be the genesis block.
+        // The earliest servable block is the first one at or above both
+        // markers:
+        // - `gc_stop_height`: during normal operation everything below it is
+        //   (or soon will be) garbage collected
+        // - `tail`: after state sync `gc_stop_height` can fall below `tail`,
+        //   pointing at blocks the node never downloaded; `tail` is the oldest
+        //   block actually present.
+        // In steady state `tail == gc_stop_height - 1`, so the max is `gc_stop_height`.
         let head_header_height = self.head_header()?.height();
-        let tail = self.tail();
-
-        // There is a corner case when there are no blocks after the tail, and
-        // the tail is in fact the earliest block available on the chain.
-        if let Ok(block_hash) = self.get_block_hash_by_height(tail) {
-            return Ok(Some(block_hash));
-        }
-        for height in tail + 1..=head_header_height {
+        let earliest_kept_height = self.gc_stop_height().max(self.tail());
+        for height in earliest_kept_height..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
-                let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                debug_assert!(self.block_exists(&earliest_block_hash));
-                return Ok(Some(earliest_block_hash));
+                return Ok(Some(block_hash));
             }
         }
         Ok(None)
@@ -188,7 +176,11 @@ pub trait ChainStoreAccess {
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>>;
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>>;
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
@@ -325,6 +317,18 @@ impl ChainStore {
 
     pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
         ChainStore { save_state_changes, ..self }
+    }
+
+    /// Both the chain-side apply path and the spice executor read off this
+    /// surface to keep the gating decisions in one place at the per-shard
+    /// call site.
+    pub fn chunk_persistence_config(&self) -> ChunkPersistenceConfig {
+        ChunkPersistenceConfig {
+            save_trie_changes: self.save_trie_changes,
+            save_tx_outcomes: self.save_tx_outcomes,
+            save_receipt_to_tx: self.save_receipt_to_tx,
+            save_state_changes: self.save_state_changes,
+        }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -508,17 +512,12 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
-        chunk
-            .to_transactions()
-            .into_iter()
-            .map(|signed_tx| {
-                self.check_transaction_validity_period(
-                    prev_block_header,
-                    signed_tx.transaction.block_hash(),
-                )
-                .is_ok()
-            })
-            .collect()
+        compute_transaction_validity(
+            &self.store,
+            self.transaction_validity_period,
+            prev_block_header,
+            chunk,
+        )
     }
 
     /// Builds a closure that checks whether a gapped strict-nonce transaction's
@@ -699,10 +698,7 @@ impl ChainStore {
             StateChangesRequest::SingleAccessKeyChanges { keys } => {
                 let mut changes = StateChanges::new();
                 for key in keys {
-                    let data_key = TrieKey::AccessKey {
-                        account_id: key.account_id.clone(),
-                        public_key: key.public_key.clone(),
-                    };
+                    let data_key = TrieKey::access_key(key.account_id.clone(), &key.public_key);
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key));
@@ -883,16 +879,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::final_head(self)
     }
 
-    /// Spice final head execution head.
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_final_execution_head(self)
-    }
-
-    /// Spice execution head.
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        ChainStoreAdapter::spice_execution_head(self)
-    }
-
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
@@ -998,8 +984,12 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
-        self.chunk_store().is_invalid_chunk(chunk_hash)
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>> {
+        self.chunk_store().is_invalid_chunk(height_created, chunk_hash)
     }
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
@@ -1046,11 +1036,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
-    processed_receipt_ids: HashMap<(CryptoHash, ShardId), Arc<Vec<ProcessedReceiptMetadata>>>,
-    processed_receipts_to_save: Vec<Receipt>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
-    outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
-    outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
     transactions: HashMap<CryptoHash, Arc<SignedTransaction>>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
@@ -1058,7 +1044,6 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
-    receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1074,8 +1059,6 @@ pub struct ChainStoreUpdate<'a> {
     fork_tail: Option<BlockHeight>,
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
-    spice_final_execution_head: Option<Arc<Tip>>,
-    spice_execution_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
     gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
@@ -1102,8 +1085,6 @@ impl<'a> ChainStoreUpdate<'a> {
             fork_tail: None,
             header_head: None,
             final_head: None,
-            spice_final_execution_head: None,
-            spice_execution_head: None,
             largest_target_height: None,
             gc_stop_height: None,
             trie_changes: vec![],
@@ -1180,22 +1161,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(final_head.clone())
         } else {
             self.chain_store.final_head()
-        }
-    }
-
-    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        if let Some(final_execution_head) = self.spice_final_execution_head.as_ref() {
-            Ok(final_execution_head.clone())
-        } else {
-            self.chain_store.spice_final_execution_head()
-        }
-    }
-
-    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
-        if let Some(execution_head) = self.spice_execution_head.as_ref() {
-            Ok(execution_head.clone())
-        } else {
-            self.chain_store.spice_execution_head()
         }
     }
 
@@ -1364,13 +1329,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
-        if let Some(metadata) =
-            self.chain_store_cache_update.processed_receipt_ids.get(&(*block_hash, shard_id))
-        {
-            Ok(Arc::clone(metadata))
-        } else {
-            self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
-        }
+        self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
     }
 
     /// Get receipts produced for block with given hash.
@@ -1405,11 +1364,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
-        if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
-            Some(Arc::clone(chunk))
-        } else {
-            self.chain_store.is_invalid_chunk(chunk_hash)
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>> {
+        match self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
+            Some(chunk) => Some(Arc::clone(chunk)),
+            None => self.chain_store.is_invalid_chunk(height_created, chunk_hash),
         }
     }
 
@@ -1483,16 +1445,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.final_head = Some(t.clone().into());
-        Ok(())
-    }
-
-    pub fn save_spice_final_execution_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.spice_final_execution_head = Some(t.clone().into());
-        Ok(())
-    }
-
-    pub fn save_spice_execution_head(&mut self, t: Tip) -> Result<(), Error> {
-        self.spice_execution_head = Some(t.into());
         Ok(())
     }
 
@@ -1680,30 +1632,6 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
-    pub fn save_processed_receipt_ids(
-        &mut self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-        processed_receipts: Vec<ProcessedReceipt>,
-        receipt_to_tx_ids: Vec<CryptoHash>,
-    ) {
-        let mut metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
-            .iter()
-            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
-            .collect();
-        if self.chain_store.save_receipt_to_tx {
-            for id in receipt_to_tx_ids {
-                metadata.push(ProcessedReceiptMetadata::new(id, ReceiptSource::ReceiptToTxGc));
-            }
-        }
-        self.chain_store_cache_update
-            .processed_receipts_to_save
-            .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
-        self.chain_store_cache_update
-            .processed_receipt_ids
-            .insert((*hash, shard_id), Arc::new(metadata));
-    }
-
     pub fn save_incoming_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -1711,36 +1639,6 @@ impl<'a> ChainStoreUpdate<'a> {
         receipt_proof: Arc<Vec<ReceiptProof>>,
     ) {
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
-    }
-
-    pub fn save_outcomes_with_proofs(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        proofs: Vec<MerklePath>,
-    ) {
-        // The OutcomeIds index is needed for GC of TransactionResultForBlock entries.
-        // ReceiptToTx GC is handled separately via ProcessedReceiptIds.
-        if !self.chain_store.save_tx_outcomes {
-            return;
-        }
-        let mut outcome_ids = Vec::with_capacity(outcomes.len());
-        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update.outcomes.insert(
-                (outcome_with_id.id, *block_hash),
-                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
-            );
-        }
-        self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
-    }
-
-    pub fn save_receipt_to_tx(&mut self, receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>) {
-        if !self.chain_store.save_receipt_to_tx {
-            return;
-        }
-        self.chain_store_cache_update.receipt_to_tx.extend(receipt_to_tx);
     }
 
     pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
@@ -1803,9 +1701,9 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
-        stats: ChunkApplyStatsV0,
+        stats: ChunkApplyStatsV1,
     ) {
-        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V0(stats));
+        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V1(stats));
     }
 
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -1892,16 +1790,6 @@ impl<'a> ChainStoreUpdate<'a> {
             Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head);
             Self::write_col_misc(
                 &mut store_update,
-                SPICE_FINAL_EXECUTION_HEAD_KEY,
-                &mut self.spice_final_execution_head,
-            );
-            Self::write_col_misc(
-                &mut store_update,
-                SPICE_EXECUTION_HEAD_KEY,
-                &mut self.spice_execution_head,
-            );
-            Self::write_col_misc(
-                &mut store_update,
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
             );
@@ -1924,7 +1812,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     &map,
                 );
                 store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block);
-                if cfg!(feature = "protocol_feature_spice") {
+                if cfg!(feature = "protocol_feature_spice") && block.header().is_spice() {
                     let prev_hash = block.header().prev_hash();
                     let mut prev_next_hashes =
                         self.chain_store.get_all_next_block_hashes(prev_hash);
@@ -2040,7 +1928,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(
                 DBCol::EpochLightClientBlocks,
                 epoch_hash.as_ref(),
-                light_client_block,
+                &StoredLightClientBlock::from(LightClientBlockView::clone(light_client_block)),
             );
         }
         {
@@ -2063,47 +1951,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     receipt,
                 );
-            }
-
-            for ((block_hash, shard_id), metadata) in
-                &self.chain_store_cache_update.processed_receipt_ids
-            {
-                store_update.set_ser(
-                    DBCol::ProcessedReceiptIds,
-                    &get_block_shard_id(block_hash, *shard_id),
-                    metadata,
-                );
-            }
-            for receipt in &self.chain_store_cache_update.processed_receipts_to_save {
-                save_receipt(&mut store_update, receipt);
-            }
-        }
-
-        {
-            let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
-
-            for ((outcome_id, block_hash), outcome_with_proof) in
-                &self.chain_store_cache_update.outcomes
-            {
-                store_update.insert_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
-                );
-            }
-            for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
-                store_update.set_ser(
-                    DBCol::OutcomeIds,
-                    &get_block_shard_id(block_hash, *shard_id),
-                    &ids,
-                );
-            }
-        }
-
-        {
-            let _span = tracing::trace_span!(target: "store", "write_receipt_to_tx").entered();
-            for (receipt_id, info) in &self.chain_store_cache_update.receipt_to_tx {
-                store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
             }
         }
 
@@ -2217,7 +2064,11 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());
         }
         for (chunk_hash, chunk) in &self.chain_store_cache_update.invalid_chunks {
-            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk);
+            store_update.insert_ser(
+                DBCol::spice_invalid_chunks(),
+                &get_spice_invalid_chunk_key(chunk.height_created(), chunk_hash),
+                chunk,
+            );
         }
         for block_height in &self.chain_store_cache_update.processed_block_heights {
             store_update.set_ser(DBCol::ProcessedBlockHeights, &index_to_bytes(*block_height), &());

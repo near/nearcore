@@ -32,7 +32,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -46,6 +46,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_outcome: false,
         method: "main".into(),
         max_gas_burnt: None,
+        min_contract_size_per_local: None,
     }
 }
 
@@ -58,6 +59,7 @@ pub(crate) struct TestBuilder {
     opaque_outcome: bool,
     method: String,
     max_gas_burnt: Option<Gas>,
+    min_contract_size_per_local: Option<Option<u64>>,
 }
 
 impl TestBuilder {
@@ -93,6 +95,11 @@ impl TestBuilder {
         self
     }
 
+    pub(crate) fn min_contract_size_per_local(mut self, min_size: Option<u64>) -> Self {
+        self.min_contract_size_per_local = Some(min_size);
+        self
+    }
+
     pub(crate) fn opaque_error(mut self) -> Self {
         self.opaque_error = true;
         self
@@ -101,28 +108,6 @@ impl TestBuilder {
     pub(crate) fn opaque_outcome(mut self) -> Self {
         self.opaque_outcome = true;
         self
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn skip_wasmtime(mut self) -> Self {
-        self.skip.insert(VMKind::Wasmtime);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn skip_near_vm(mut self) -> Self {
-        self.skip.insert(VMKind::NearVm);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn only_wasmtime(self) -> Self {
-        self.skip_near_vm()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn only_near_vm(self) -> Self {
-        self.skip_wasmtime()
     }
 
     /// Add additional protocol features to this test.
@@ -194,7 +179,7 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     println!("Skipping {:?}", vm_kind);
                     continue;
@@ -206,6 +191,9 @@ impl TestBuilder {
                 config.vm_kind = vm_kind;
                 if let Some(max_gas_burnt) = self.max_gas_burnt {
                     config.limit_config.max_gas_burnt = max_gas_burnt;
+                }
+                if let Some(min_size) = self.min_contract_size_per_local {
+                    config.limit_config.min_contract_size_per_local = min_size;
                 }
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();

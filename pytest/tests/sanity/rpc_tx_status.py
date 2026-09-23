@@ -11,7 +11,7 @@ import transaction
 GOOD_FINAL_EXECUTION_STATUS = ['FINAL', 'EXECUTED', 'EXECUTED_OPTIMISTIC']
 
 
-def submit_tx_and_check(nodes, node_index, tx):
+def submit_tx_and_check(nodes, node_index, tx, method_name):
     node = nodes[node_index]
     res = node.send_tx_and_wait_until(tx,
                                       wait_until="EXECUTED_OPTIMISTIC",
@@ -19,7 +19,7 @@ def submit_tx_and_check(nodes, node_index, tx):
     assert 'error' not in res, res
 
     tx_hash = res['result']['transaction']['hash']
-    query_res = nodes[0].json_rpc('EXPERIMENTAL_tx_status', [tx_hash, 'test0'])
+    query_res = nodes[0].json_rpc(method_name, [tx_hash, 'test0'])
     assert 'error' not in query_res, query_res
 
     receipt_id_from_outcomes = set(
@@ -46,23 +46,23 @@ def submit_tx_and_check(nodes, node_index, tx):
     return query_res
 
 
-def test_tx_status(nodes, *, nonce_offset: int = 0):
+def test_tx_status(nodes, method_name, *, nonce_offset: int = 0):
     signer_key = nodes[0].signer_key
     encoded_block_hash = nodes[0].get_latest_block().hash_bytes
     payment_tx = transaction.sign_payment_tx(signer_key, 'test1', 100,
                                              nonce_offset + 1,
                                              encoded_block_hash)
-    submit_tx_and_check(nodes, 0, payment_tx)
+    submit_tx_and_check(nodes, 0, payment_tx, method_name)
 
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
         signer_key, load_test_contract(), nonce_offset + 2, encoded_block_hash)
-    submit_tx_and_check(nodes, 0, deploy_contract_tx)
+    submit_tx_and_check(nodes, 0, deploy_contract_tx, method_name)
 
     function_call_tx = transaction.sign_function_call_tx(
         signer_key, signer_key.account_id, 'write_key_value',
         struct.pack('<QQ', 42, 24), 300000000000000, 0, nonce_offset + 3,
         encoded_block_hash)
-    submit_tx_and_check(nodes, 0, function_call_tx)
+    submit_tx_and_check(nodes, 0, function_call_tx, method_name)
 
     # Regression test for https://github.com/near/nearcore/issues/13872
     # A cross contract call with "EXECUTED_OPTIMISTIC" RPC semantics should
@@ -76,7 +76,7 @@ def test_tx_status(nodes, *, nonce_offset: int = 0):
         signer_key, signer_key.account_id, 'generate_large_receipt',
         bytes(args, 'utf-8'), 300000000000000, 0, nonce_offset + 4,
         encoded_block_hash)
-    res = submit_tx_and_check(nodes, 0, ccc_function_call_tx)
+    res = submit_tx_and_check(nodes, 0, ccc_function_call_tx, method_name)
     function_call_receipts = [
         r for r in res['result']['receipts']
         if 'Action' in r['receipt'] and any(
@@ -108,7 +108,9 @@ def start_cluster(*, archive: bool = False):
 
 
 def main():
-    test_tx_status(start_cluster())
+    nodes = start_cluster()
+    test_tx_status(nodes, "tx_status")
+    test_tx_status(nodes, "EXPERIMENTAL_tx_status", nonce_offset=10)
 
 
 if __name__ == '__main__':

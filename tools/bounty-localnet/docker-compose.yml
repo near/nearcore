@@ -1,0 +1,110 @@
+# Bounty-localnet: 1 one-shot init service (generates configs) + up to 8
+# validators. validator0 always on; validator1..7 gated by min2..min8
+# profiles. COMPOSE_PROFILES must be min<NUM_VALIDATORS> (the `just
+# bounty-localnet` recipe derives it).
+
+# Both images come from the same multi-target Dockerfile so neard compiles
+# once. Do NOT add `target:` here — fork-build overrides inherit every key
+# of this block, and a stale target would break them; the runtime stage is
+# last in the Dockerfile, so no target = runtime image.
+x-validator-build: &validator-build
+  context: ../..
+  dockerfile: tools/bounty-localnet/Dockerfile.init
+  args:
+    make_target: neard-release
+
+# All validators share one explicitly tagged image: one build regardless of
+# N, and compose/bake agree on the name (their default tags differ).
+#
+# Entrypoint guard catches NUM_VALIDATORS/COMPOSE_PROFILES desync (validator
+# started with an empty bind mount). Trailing "bash" sets $0 so "$@"
+# forwards `command:` args to run.sh.
+x-validator-defaults: &validator-defaults
+  image: bounty-localnet-neard:local
+  build: *validator-build
+  entrypoint:
+    - /bin/bash
+    - -c
+    - |
+      if [ ! -f /srv/near/config.json ]; then
+          echo "ERROR: /srv/near/config.json missing — this validator has no generated config." >&2
+          echo "       Likely NUM_VALIDATORS and COMPOSE_PROFILES are out of sync in .env" >&2
+          echo "       (COMPOSE_PROFILES must be min<NUM_VALIDATORS>; empty for NUM_VALIDATORS=1)." >&2
+          echo "       Fix .env and ./reset.sh, or use 'just bounty-localnet' which derives it." >&2
+          exit 1
+      fi
+      exec /usr/local/bin/run.sh "$$@"
+    - bash
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  init:
+    image: bounty-localnet-init:local
+    build:
+      context: ../..
+      dockerfile: tools/bounty-localnet/Dockerfile.init
+      target: init
+      args:
+        make_target: neard-release
+    entrypoint: ["/bin/bash", "/bounty-localnet/init.sh"]
+    volumes:
+      - ./network:/network
+      - ./init.sh:/bounty-localnet/init.sh:ro
+      - ./reporter-key.json:/bounty-localnet/reporter-key.json:ro
+    environment:
+      NUM_VALIDATORS: ${NUM_VALIDATORS}
+      NUM_SHARDS: ${NUM_SHARDS}
+      CHAIN_ID: ${CHAIN_ID}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+
+  validator0:
+    <<: *validator-defaults
+    volumes:
+      - ./network/node0:/srv/near
+    ports:
+      - "3030:3030"
+
+  validator1:
+    <<: *validator-defaults
+    profiles: [min2, min3, min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node1:/srv/near
+
+  validator2:
+    <<: *validator-defaults
+    profiles: [min3, min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node2:/srv/near
+
+  validator3:
+    <<: *validator-defaults
+    profiles: [min4, min5, min6, min7, min8]
+    volumes:
+      - ./network/node3:/srv/near
+
+  validator4:
+    <<: *validator-defaults
+    profiles: [min5, min6, min7, min8]
+    volumes:
+      - ./network/node4:/srv/near
+
+  validator5:
+    <<: *validator-defaults
+    profiles: [min6, min7, min8]
+    volumes:
+      - ./network/node5:/srv/near
+
+  validator6:
+    <<: *validator-defaults
+    profiles: [min7, min8]
+    volumes:
+      - ./network/node6:/srv/near
+
+  validator7:
+    <<: *validator-defaults
+    profiles: [min8]
+    volumes:
+      - ./network/node7:/srv/near

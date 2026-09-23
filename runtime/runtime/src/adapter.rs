@@ -1,5 +1,5 @@
 use crate::near_primitives::shard_layout::ShardUId;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;
@@ -9,6 +9,7 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::ViewStateResult;
 use near_vm_runner::ContractCode;
+use std::num::NonZeroU32;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -24,6 +25,7 @@ pub trait ViewRuntimeAdapter {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
 
     fn call_function(
@@ -56,7 +58,12 @@ pub trait ViewRuntimeAdapter {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
+        after: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+    ) -> Result<
+        (Vec<(PublicKeyHandle, AccessKey)>, Option<PublicKeyHandle>),
+        crate::state_viewer::errors::ViewAccessKeyError,
+    >;
 
     fn view_gas_key_nonces(
         &self,
@@ -72,6 +79,8 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<NonZeroU32>,
         include_proof: bool,
     ) -> Result<ViewStateResult, crate::state_viewer::errors::ViewStateError>;
 

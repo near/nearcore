@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { MouseEvent, useCallback, useMemo, useState } from 'react';
-import { PeerInfoView, fetchEpochInfo, fetchFullStatus } from './api';
+import { PeerInfoView, fetchEpochInfoLight, fetchFullStatus } from './api';
 import './CurrentPeersView.scss';
 import { addDebugPortLink, formatDurationInMillis, formatTraffic } from './utils';
 
@@ -55,7 +55,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
         data: epochInfo,
         error: epochInfoError,
         isLoading: epochInfoLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
+    } = useQuery(['epochInfoLight', addr], () => fetchEpochInfoLight(addr, null));
 
     const { blockProducers, chunkProducers, knownSet, reachableSet, numPeersByStatus, peers } =
         useMemo(() => {

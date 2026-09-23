@@ -7,6 +7,7 @@ use near_crypto::InMemorySigner;
 use near_epoch_manager::EpochManager;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_state_viewer::apply_chain_range;
 use near_state_viewer::cli::{ApplyRangeMode, StorageSource};
 use near_store::Store;
@@ -19,7 +20,6 @@ use std::path::Path;
 fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     let store = create_test_store();
@@ -179,5 +179,9 @@ fn test_apply_chain_range_no_chunks() {
         }
     }
     assert_eq!(has_tx, 1, "{:#?}", lines);
-    assert_eq!(no_tx, 8, "{:#?}", lines);
+    // Under AccountCostIncrease, the send_money tx produces an extra refund receipt at some
+    // height, turning one "no_tx, no_receipt" line into a receipt-bearing line.
+    let expected_no_tx =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 7 } else { 8 };
+    assert_eq!(no_tx, expected_no_tx, "{:#?}", lines);
 }

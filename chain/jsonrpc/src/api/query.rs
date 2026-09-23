@@ -29,7 +29,18 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::new(value).try_pair(parse_path_data).unwrap_or_parse()
+        let request: Self = Params::new(value).try_pair(parse_path_data).unwrap_or_parse()?;
+        if let QueryRequest::ViewState { prefix, after_key, limit, include_proof, .. } =
+            &request.request
+        {
+            super::validate_view_state_pagination(
+                prefix.as_slice(),
+                after_key.as_ref().map(|k| k.as_slice()),
+                *limit,
+                *include_proof,
+            )?;
+        }
+        Ok(request)
     }
 }
 
@@ -58,7 +69,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
     let request = match query_command {
         "account" => QueryRequest::ViewAccount { account_id },
         "access_key" => match maybe_extra_arg {
-            None => QueryRequest::ViewAccessKeyList { account_id },
+            None => QueryRequest::ViewAccessKeyList { account_id, after_key: None, limit: None },
             Some(pk) => QueryRequest::ViewAccessKey {
                 account_id,
                 public_key: pk
@@ -70,6 +81,8 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         "contract" => QueryRequest::ViewState {
             account_id,
             prefix: parse_data()?.into(),
+            after_key: None,
+            limit: None,
             include_proof: false,
         },
         "call" => match maybe_extra_arg {
@@ -119,6 +132,12 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
                 Self::UnknownGasKey { public_key, block_height, block_hash }
             }
+            QueryError::TooManyAccessKeys {
+                requested_account_id,
+                limit,
+                block_height,
+                block_hash,
+            } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }

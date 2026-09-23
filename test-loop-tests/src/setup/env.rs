@@ -54,7 +54,8 @@ impl TestLoopEnv {
 
         let client_handle = self.node_datas[0].client_sender.actor_handle();
         let client_actor = self.test_loop.data.get(&client_handle);
-        let max_block_production_delay = client_actor.client.config.max_block_production_delay;
+        let max_block_production_delay =
+            client_actor.client.config.max_block_production_delay.get();
         let genesis_height = client_actor.client.chain.genesis().height();
         self.test_loop.run_until(
             |test_loop_data| {
@@ -107,7 +108,7 @@ impl TestLoopEnv {
         let cloud_storage = self.get_cloud_storage(node_data);
         let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
-        NodeSetupState { account_id, client_config, storage }
+        NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
     fn get_split_store_and_cold_db(
@@ -248,6 +249,7 @@ impl TestLoopEnv {
         let genesis = self.shared_state.genesis.clone();
         let tempdir_path = self.shared_state.tempdir.path().to_path_buf();
         NodeStateBuilder::new(genesis, tempdir_path)
+            .bucket_config(self.shared_state.bucket_config.clone())
     }
 }
 

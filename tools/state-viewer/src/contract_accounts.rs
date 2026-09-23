@@ -134,9 +134,11 @@ pub(crate) enum ActionType {
     DeleteAccount,
     DataReceipt,
     Delegate,
+    DelegateV2,
     DeployGlobalContract,
     UseGlobalContract,
     DeterministicStateInit,
+    UniversalStateInit,
     TransferToGasKey,
     WithdrawFromGasKey,
 }
@@ -362,9 +364,11 @@ fn map_action(action: &Action) -> ActionType {
         Action::DeleteKey(_) => ActionType::DeleteKey,
         Action::DeleteAccount(_) => ActionType::DeleteAccount,
         Action::Delegate(_) => ActionType::Delegate,
+        Action::DelegateV2(_) => ActionType::DelegateV2,
         Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
         Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
         Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
+        Action::UniversalStateInit(_) => ActionType::UniversalStateInit,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
         Action::WithdrawFromGasKey(_) => ActionType::WithdrawFromGasKey,
     }
@@ -669,10 +673,10 @@ mod tests {
     /// Create a test access key key-value pair to insert in the test trie.
     fn access_key_tuple(account: &str, num: u8) -> (Vec<u8>, Option<Vec<u8>>) {
         (
-            TrieKey::AccessKey {
-                account_id: account.parse().unwrap(),
-                public_key: near_crypto::PublicKey::empty(near_crypto::KeyType::ED25519),
-            }
+            TrieKey::access_key(
+                account.parse().unwrap(),
+                &near_crypto::PublicKey::empty(near_crypto::KeyType::ED25519),
+            )
             .to_vec(),
             Some(vec![num, num, num, num]),
         )

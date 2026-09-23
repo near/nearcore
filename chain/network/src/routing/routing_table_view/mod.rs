@@ -93,10 +93,6 @@ impl RoutingTableView {
         self.0.lock().find_next_hop(target)
     }
 
-    pub(crate) fn get_distance(&self, peer_id: &PeerId) -> Option<u32> {
-        self.0.lock().distance.get(peer_id).copied()
-    }
-
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {
         self.0.lock().next_hops.get(peer_id).cloned()
     }

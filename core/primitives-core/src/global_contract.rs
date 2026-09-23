@@ -23,7 +23,9 @@ use std::fmt;
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractIdentifier {
+    #[serde(rename = "hash")]
     CodeHash(CryptoHash) = 0,
+    #[serde(rename = "account_id")]
     AccountId(AccountId) = 1,
 }
 

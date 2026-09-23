@@ -89,7 +89,7 @@ pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 use crate::cost_table::format_gas;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
-use crate::estimator_context::EstimatorContext;
+use crate::estimator_context::{BlockLatency, EstimatorContext};
 use crate::gas_cost::GasCost;
 pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
@@ -107,7 +107,7 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
@@ -118,9 +118,9 @@ use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
 use utils::{
-    average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
-    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost, transaction_cost_ext,
+    average_cost, extra_refund_block_latency, fn_cost, fn_cost_count, fn_cost_in_contract,
+    fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
+    read_resource, transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -250,6 +250,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     ),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
+    (Cost::OpFloat, adversarial_float_nan_canonicalization),
+    (Cost::OpInt, op_int),
+    (Cost::OpWideArithmetic, op_wide_arithmetic),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
     (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
     (Cost::ReadMemoryBase, read_memory_base),
@@ -272,11 +275,23 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Keccak256Byte, keccak256_byte),
     (Cost::Keccak512Base, keccak512_base),
     (Cost::Keccak512Byte, keccak512_byte),
+    (Cost::UniversalStateInitToAccountIdBase, universal_state_init_to_account_id_base),
+    (Cost::UniversalStateInitToAccountIdByte, universal_state_init_to_account_id_byte),
+    (Cost::Sha3256Base, sha3_256_base),
+    (Cost::Sha3256Byte, sha3_256_byte),
+    (Cost::Sha3384Base, sha3_384_base),
+    (Cost::Sha3384Byte, sha3_384_byte),
+    (Cost::Sha3512Base, sha3_512_base),
+    (Cost::Sha3512Byte, sha3_512_byte),
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
     (Cost::Ed25519VerifyByte, ed25519_verify_byte),
+    (Cost::P256VerifyBase, p256_verify_base),
+    (Cost::P256VerifyByte, p256_verify_byte),
+    (Cost::MlDsaVerifyBase, ml_dsa_verify_base),
+    (Cost::MlDsaVerifyByte, ml_dsa_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -304,20 +319,21 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
     (Cost::DeployBytes, pure_deploy_bytes),
+    (Cost::AdversarialCompileMaxBlocks, adversarial_compile_max_blocks),
     (Cost::ContractLoadingBase, contract_loading_base),
     (Cost::ContractLoadingPerByte, contract_loading_per_byte),
+    (Cost::AdversarialLoadManyGlobals, adversarial_load_many_globals),
+    (Cost::AdversarialLoadManyDataSegments, adversarial_load_many_data_segments),
+    (Cost::AdversarialLoadManyElementSegments, adversarial_load_many_element_segments),
     (Cost::FunctionCallPerStorageByte, function_call_per_storage_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
-    #[cfg(feature = "nightly")]
     (Cost::YieldCreateBase, yield_create_base),
-    #[cfg(feature = "nightly")]
     (Cost::YieldCreateByte, yield_create_byte),
-    #[cfg(feature = "nightly")]
+    (Cost::YieldCreateWithIdBase, yield_create_with_id_base),
     (Cost::YieldResumeBase, yield_resume_base),
-    #[cfg(feature = "nightly")]
     (Cost::YieldResumeByte, yield_resume_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
@@ -391,7 +407,7 @@ fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     };
     let block_size = 100;
     // Sender != Receiver means this will be executed over two blocks.
-    let block_latency = 1;
+    let block_latency = 1 + extra_refund_block_latency();
     let cost = transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0;
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
@@ -426,7 +442,7 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Transferring from one account to another may touch two shards, thus executes over two blocks.
-        let block_latency = 1;
+        let block_latency = 1 + extra_refund_block_latency();
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
@@ -450,7 +466,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
         };
         let block_size = 100;
         // Creating a new account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
-        let block_latency = 1;
+        let block_latency = 1 + extra_refund_block_latency();
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
@@ -716,7 +732,8 @@ fn deploy_contract_cost(
     };
     // Use a small block size since deployments are gas heavy.
     let block_size = 5;
-    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 0);
+    let (total_cost, _ext) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, extra_refund_block_latency());
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
@@ -727,6 +744,35 @@ fn contract_compile_base(ctx: &mut EstimatorContext) -> GasCost {
 fn contract_compile_bytes(ctx: &mut EstimatorContext) -> GasCost {
     compilation_cost_base_per_byte(ctx).1
 }
+
+fn adversarial_compile_max_blocks(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_compile_max_blocks(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_globals(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_globals(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_data_segments(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_data_segments(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_load_many_element_segments(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::adversarial_load_many_element_segments(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn adversarial_float_nan_canonicalization(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_float_nan_canonicalization(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn op_int(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_int_baseline(ctx.config.metric, ctx.config.vm_kind)
+}
+
+fn op_wide_arithmetic(ctx: &mut EstimatorContext) -> GasCost {
+    vm_estimator::op_wide_arithmetic(ctx.config.metric, ctx.config.vm_kind)
+}
+
 fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(base_byte_cost) = ctx.cached.compile_cost_base_per_byte.clone() {
         return base_byte_cost;
@@ -832,7 +878,7 @@ fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usiz
         tb.transaction_from_function_call(sender, "noop", args)
     };
     let block_size = 5;
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
 }
 
@@ -871,11 +917,11 @@ fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
     // The function returns a promise.
-    let block_latency = 1;
+    let block_latency = 1 + extra_refund_block_latency();
     let (base_cost, _) =
         fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base, block_latency);
 
@@ -886,11 +932,11 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (total_cost, _) =
         fn_cost_count(ctx, "data_receipt_100kib_40", ExtCosts::base, block_latency);
     // The function returns a chain of two promises.
-    let block_latency = 2;
+    let block_latency = 2 + extra_refund_block_latency();
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_40", ExtCosts::base, block_latency);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
@@ -911,7 +957,7 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
             tb.transaction_from_actions(sender, receiver, vec![action])
         };
         // meta tx is delayed by 2 block compared to local receipt
-        let block_latency = 2;
+        let block_latency = 2 + extra_refund_block_latency();
         let block_size = 100;
         let (gas_cost, _ext_costs) =
             transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
@@ -943,9 +989,6 @@ fn action_deterministic_state_init_per_entry(ctx: &mut EstimatorContext) -> GasC
 fn action_deterministic_state_init_base_per_entry_per_byte(
     ctx: &mut EstimatorContext,
 ) -> (GasCost, GasCost, GasCost) {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return (GasCost::zero(), GasCost::zero(), GasCost::zero());
-    }
     if let Some(base_byte_cost) =
         ctx.cached.action_deterministic_state_init_base_per_entry_per_byte.clone()
     {
@@ -1004,7 +1047,7 @@ fn deterministic_state_init_cost(
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
-    let block_latency = 0;
+    let block_latency = extra_refund_block_latency();
     let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base, block_latency);
     assert_eq!(count, 1_000_000);
 
@@ -1024,6 +1067,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let config_store = RuntimeConfigStore::new(None);
     let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
+    config.vm_kind = vm_kind;
     // The soak test contract is a finite loop that must exhaust gas to abort.
     // Cap max_gas_burnt so it reliably runs out of gas.
     config.limit_config.max_gas_burnt = Gas::from_teragas(300);
@@ -1149,6 +1193,56 @@ fn keccak512_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
 }
 
+fn universal_state_init_to_account_id_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.universal_state_init_to_account_id_base {
+        return cost.clone();
+    }
+    let cost = fn_cost(
+        ctx,
+        "universal_state_init_to_account_id_10b_10k",
+        ExtCosts::universal_state_init_to_account_id_base,
+        10_000,
+    );
+    ctx.cached.universal_state_init_to_account_id_base.insert(cost).clone()
+}
+fn universal_state_init_to_account_id_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base = universal_state_init_to_account_id_base(ctx);
+    // inside the WASM function, there are 10k calls to the host function.
+    let base_call_num = 10_000;
+    // each call derives an id from a 10kiB state init
+    let iteration_bytes = 10 * 1024;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(
+        ctx,
+        "universal_state_init_to_account_id_10kib_10k",
+        ExtCosts::universal_state_init_to_account_id_byte,
+        total_bytes,
+    );
+    // subtract the base cost, which `fn_cost` has already spread over the bytes
+    byte - base / iteration_bytes
+}
+
+fn sha3_256_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_256_10b_10k", ExtCosts::sha3_256_base, 10_000)
+}
+fn sha3_256_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_256_10kib_10k", ExtCosts::sha3_256_byte, 10 * 1024 * 10_000)
+}
+
+fn sha3_384_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_384_10b_10k", ExtCosts::sha3_384_base, 10_000)
+}
+fn sha3_384_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_384_10kib_10k", ExtCosts::sha3_384_byte, 10 * 1024 * 10_000)
+}
+
+fn sha3_512_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_512_10b_10k", ExtCosts::sha3_512_base, 10_000)
+}
+fn sha3_512_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "sha3_512_10kib_10k", ExtCosts::sha3_512_byte, 10 * 1024 * 10_000)
+}
+
 fn ripemd160_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ripemd160_10b_10k", ExtCosts::ripemd160_base, 10_000)
 }
@@ -1176,6 +1270,46 @@ fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
     let iteration_bytes = 16384;
     let total_bytes = base_call_num * iteration_bytes;
     let byte = fn_cost(ctx, "ed25519_verify_16kib_64", ExtCosts::ed25519_verify_byte, total_bytes);
+    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    byte - base / iteration_bytes
+}
+
+fn p256_verify_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.p256_verify_base {
+        return cost.clone();
+    }
+    let cost = fn_cost(ctx, "p256_verify_32b_500", ExtCosts::p256_verify_base, 500);
+    ctx.cached.p256_verify_base.insert(cost).clone()
+}
+
+fn p256_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base = p256_verify_base(ctx);
+    // inside the WASM function, there are 64 calls to `p256_verify`.
+    let base_call_num = 64;
+    // each call checks a message of size 16kiB
+    let iteration_bytes = 16384;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(ctx, "p256_verify_16kib_64", ExtCosts::p256_verify_byte, total_bytes);
+    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    byte - base / iteration_bytes
+}
+
+fn ml_dsa_verify_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.ml_dsa_verify_base {
+        return cost.clone();
+    }
+    let cost = fn_cost(ctx, "ml_dsa_verify_32b_500", ExtCosts::ml_dsa_verify_base, 500);
+    ctx.cached.ml_dsa_verify_base.insert(cost).clone()
+}
+
+fn ml_dsa_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base = ml_dsa_verify_base(ctx);
+    // inside the WASM function, there are 64 calls to `ml_dsa_verify`.
+    let base_call_num = 64;
+    // each call checks a message of size 16kiB
+    let iteration_bytes = 16384;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(ctx, "ml_dsa_verify_16kib_64", ExtCosts::ml_dsa_verify_byte, total_bytes);
     // need to subtract the base cost, which has already been divided by the number of bytes per iteration
     byte - base / iteration_bytes
 }
@@ -1290,7 +1424,7 @@ fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
         "storage_has_key_10b_key_1k",
         ExtCosts::storage_has_key_base,
         1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1300,7 +1434,7 @@ fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_has_key_10kib_key_1k",
         ExtCosts::storage_has_key_byte,
         10 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 
@@ -1314,7 +1448,7 @@ fn storage_read_base(ctx: &mut EstimatorContext) -> GasCost {
         "storage_read_10b_key_1k",
         ExtCosts::storage_read_base,
         1000,
-        0,
+        BlockLatency::Uniform(0),
     );
     ctx.cached.storage_read_base.insert(cost).clone()
 }
@@ -1325,7 +1459,7 @@ fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_read_10kib_key_1k",
         ExtCosts::storage_read_key_byte,
         10 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1335,7 +1469,7 @@ fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_read_10b_key_1k",
         ExtCosts::storage_read_value_byte,
         100 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 
@@ -1365,7 +1499,7 @@ fn storage_write_evicted_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_write_10b_key_10kib_value_1k",
         ExtCosts::storage_write_evicted_byte,
         10 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 
@@ -1376,7 +1510,7 @@ fn storage_remove_base(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10b_key_1k",
         ExtCosts::storage_remove_base,
         1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1386,7 +1520,7 @@ fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10kib_key_1k",
         ExtCosts::storage_remove_key_byte,
         10 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1396,7 +1530,7 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10b_key_1k",
         ExtCosts::storage_remove_ret_value_byte,
         10 * 1024 * 1000,
-        0,
+        BlockLatency::Uniform(0),
     )
 }
 
@@ -1464,7 +1598,7 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
     let blocks = vec![vec![]; n_blocks + n_warmup];
     let measurements = iter::repeat_with(|| {
         testbed
-            .measure_blocks(blocks.clone(), 0)
+            .measure_blocks(blocks.clone(), BlockLatency::Uniform(0))
             .into_iter()
             .skip(n_warmup)
             .map(|(gas, _ext)| gas)
@@ -1502,14 +1636,17 @@ fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = noop_function_call_cost(ctx);
     let result = if let Some(cost) = &ctx.cached.yield_create_base {
         cost.clone()
     } else {
-        let (result, count) =
-            fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
+        let (result, count) = fn_cost_count(
+            ctx,
+            "yield_create_base",
+            ExtCosts::yield_create_base,
+            extra_refund_block_latency(),
+        );
         assert_eq!(count, 1000);
         let result = result / count;
         ctx.cached.yield_create_base.insert(result).clone()
@@ -1517,17 +1654,20 @@ fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
 }
 
-#[cfg(feature = "nightly")]
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     let noop_function_call = noop_function_call_cost(ctx);
     let base_cost = yield_create_base(ctx);
-    let method_cost =
-        fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 1);
+    let method_cost = fn_cost_count(
+        ctx,
+        "yield_create_byte_100b_method_length",
+        ExtCosts::yield_create_base,
+        extra_refund_block_latency(),
+    );
     let argument_cost = fn_cost_count(
         ctx,
         "yield_create_byte_1000b_argument_length",
         ExtCosts::yield_create_base,
-        1,
+        extra_refund_block_latency(),
     );
     let compute = |(cost, count): (GasCost, u64), bytes: u64| -> GasCost {
         let it = cost.saturating_sub(&noop_function_call, &NonNegativeTolerance::PER_MILLE) / count;
@@ -1536,7 +1676,24 @@ fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     std::cmp::max(compute(method_cost, 100), compute(argument_cost, 1001))
 }
 
-#[cfg(feature = "nightly")]
+fn yield_create_with_id_base(ctx: &mut EstimatorContext) -> GasCost {
+    let base_cost = noop_function_call_cost(ctx);
+    let result = if let Some(cost) = &ctx.cached.yield_create_with_id_base {
+        cost.clone()
+    } else {
+        let (result, count) = fn_cost_count(
+            ctx,
+            "yield_create_with_id_base",
+            ExtCosts::yield_create_with_id_base,
+            extra_refund_block_latency(),
+        );
+        assert_eq!(count, 1000);
+        let result = result / count;
+        ctx.cached.yield_create_with_id_base.insert(result).clone()
+    };
+    result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
+}
+
 fn yield_resume_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
@@ -1544,11 +1701,10 @@ fn yield_resume_base(ctx: &mut EstimatorContext) -> GasCost {
         "yield_resume_base",
         ExtCosts::yield_resume_base,
         255,
-        1,
+        BlockLatency::SetupAndMeasured { setup: 0, measured: 1 },
     )
 }
 
-#[cfg(feature = "nightly")]
 fn yield_resume_byte(ctx: &mut EstimatorContext) -> GasCost {
     let baseline = fn_cost_with_setup(
         ctx,
@@ -1556,7 +1712,7 @@ fn yield_resume_byte(ctx: &mut EstimatorContext) -> GasCost {
         "yield_resume_base",
         ExtCosts::yield_resume_base,
         255,
-        1,
+        BlockLatency::SetupAndMeasured { setup: 0, measured: 1 },
     );
     let with_payload = fn_cost_with_setup(
         ctx,
@@ -1564,7 +1720,7 @@ fn yield_resume_byte(ctx: &mut EstimatorContext) -> GasCost {
         "yield_resume_payload",
         ExtCosts::yield_resume_base,
         255,
-        1,
+        BlockLatency::SetupAndMeasured { setup: 0, measured: 1 },
     );
     with_payload.saturating_sub(&baseline, &NonNegativeTolerance::PER_MILLE) / 1000
 }

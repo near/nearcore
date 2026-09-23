@@ -95,11 +95,28 @@ fn test_instant_delete_account() {
     assert_matches!(as_action_receipt(&call_promise_receipt).actions(), [Action::FunctionCall(_)]);
 
     let delete_outcome = &outcome.receipts_outcome[1];
-    assert_eq!(
-        call_promise_outcome.outcome.receipt_ids,
-        vec![delete_outcome.id],
-        "call_promise expected to produce exactly the DeleteAccount receipt"
-    );
+    if near_primitives::version::ProtocolFeature::AccountCostIncrease
+        .enabled(near_primitives::version::PROTOCOL_VERSION)
+    {
+        // Under AccountCostIncrease the call_promise function-call receipt also produces a
+        // price_surplus gas-refund receipt; that refund is the second receipt id alongside
+        // the DeleteAccount instant receipt.
+        assert_eq!(
+            call_promise_outcome.outcome.receipt_ids.len(),
+            2,
+            "expected DeleteAccount + gas-refund receipts"
+        );
+        assert!(
+            call_promise_outcome.outcome.receipt_ids.contains(&delete_outcome.id),
+            "DeleteAccount receipt should be one of call_promise's children"
+        );
+    } else {
+        assert_eq!(
+            call_promise_outcome.outcome.receipt_ids,
+            vec![delete_outcome.id],
+            "call_promise expected to produce exactly the DeleteAccount receipt"
+        );
+    }
     let delete_receipt = env.rpc_node().receipt(delete_outcome.id);
     assert_matches!(as_action_receipt(&delete_receipt).actions(), [Action::DeleteAccount(_)]);
 

@@ -1,5 +1,6 @@
 use crate::env::test_env::TestEnv;
 use near_async::messaging::CanSend;
+use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_network::types::PartialEncodedChunkRequestMsg;
@@ -25,6 +26,7 @@ fn test_request_chunk_restart() {
         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
             partial_encoded_chunk_request: request.clone(),
             route_back: CryptoHash::default(),
+            recv_permit: RecvMessagePermit::none(),
         },
     );
     assert!(env.network_adapters[0].pop().is_some());
@@ -34,6 +36,7 @@ fn test_request_chunk_restart() {
         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
             partial_encoded_chunk_request: request,
             route_back: CryptoHash::default(),
+            recv_permit: RecvMessagePermit::none(),
         },
     );
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();

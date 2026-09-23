@@ -1,5 +1,5 @@
 use crate::client_actor::{ClientActor, ShutdownReason};
-use crate::sync::SYNC_V2_ENABLED;
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -15,7 +15,7 @@ use near_epoch_manager::epoch_sync::{
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkRequestWithPermit, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -32,7 +32,6 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{Store, metrics};
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -55,13 +54,9 @@ pub struct EpochSync {
     genesis: BlockHeader,
     async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     config: EpochSyncConfig,
-    /// Whether this node is archival. Archival nodes must not do epoch sync.
-    archive: bool,
     /// The last epoch sync proof and the epoch ID it was computed for.
     /// We reuse the same proof as long as the current epoch ID is the same.
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
-    // See `my_own_epoch_sync_boundary_block_header()`.
-    my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
 }
 
 impl EpochSync {
@@ -71,32 +66,15 @@ impl EpochSync {
         genesis: BlockHeader,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
-        archive: bool,
-        store: &Store,
     ) -> Self {
-        let my_own_epoch_sync_boundary_block_header = store
-            .epoch_store()
-            .get_epoch_sync_proof()
-            .expect("IO error querying epoch sync proof")
-            .map(|proof| proof.current_epoch.first_block_header_in_epoch);
-
         Self {
             clock,
             network_adapter,
             genesis,
             async_computation_spawner,
             config,
-            archive,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
-            my_own_epoch_sync_boundary_block_header,
         }
-    }
-
-    /// Returns the block hash of the first block of the epoch that this node was initially
-    /// bootstrapped to using epoch sync, or None if this node was not bootstrapped using
-    /// epoch sync.
-    pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
-        self.my_own_epoch_sync_boundary_block_header.as_deref()
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
@@ -144,51 +122,20 @@ impl EpochSync {
         Ok(proof)
     }
 
-    /// Performs the V1 epoch sync logic if applicable in the current state of the blockchain.
-    /// This is periodically called by the client actor.
-    pub fn run(
-        &self,
-        status: &mut SyncStatus,
-        chain: &Chain,
-        highest_height: BlockHeight,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<(), Error> {
-        // Archival nodes must process every block; epoch sync would skip them.
-        if self.archive {
-            return Ok(());
-        }
-        // Within the epoch sync horizon — header/block sync is sufficient.
-        let tip_height = chain.chain_store().header_head()?.height;
-        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
-        if tip_height + horizon >= highest_height {
-            return Ok(());
-        }
-        // V1: only fresh (genesis) nodes may epoch sync.
-        if tip_height != chain.genesis().height() {
-            return Ok(());
-        }
-        // Ensure we're in the EpochSync status, creating it if needed.
-        if !matches!(status, SyncStatus::EpochSync(_)) {
-            *status = SyncStatus::EpochSync(EpochSyncStatus::NotStarted);
-        }
-        let SyncStatus::EpochSync(epoch_sync_status) = status else {
-            unreachable!();
-        };
-        self.run_v2(epoch_sync_status, highest_height_peers)
-    }
-
     /// Sends an epoch sync request to a random peer, or waits if a previous
     /// request is still in flight. Handles both initial send (NotStarted) and
     /// retry on timeout (InProgress).
-    pub fn run_v2(
+    pub fn run(
         &self,
         status: &mut EpochSyncStatus,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        peers_ahead: &[PeerAdvertisedHead],
+        peer_selector: &mut PeerSelector,
     ) -> Result<(), Error> {
         match status {
             EpochSyncStatus::InProgress { attempt_time, source_peer_id, .. } => {
                 if *attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!(target: "sync", %source_peer_id, "epoch sync from peer timed out, retrying");
+                    peer_selector.record_failed_to_serve(source_peer_id, self.clock.now_utc());
                 } else {
                     return Ok(());
                 }
@@ -197,9 +144,8 @@ impl EpochSync {
             EpochSyncStatus::Done => return Ok(()),
         }
 
-        // TODO(#11976): Implement a more robust logic for picking a peer to request epoch sync from.
-        let peer = highest_height_peers
-            .choose(&mut rand::thread_rng())
+        let peer = peer_selector
+            .pick(peers_ahead, self.clock.now_utc())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
         tracing::info!(target: "sync", peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
@@ -242,13 +188,7 @@ impl EpochSync {
             tracing::warn!(target: "sync", %source_peer, expected_peer = %source_peer_id, "ignoring epoch sync proof from unexpected peer");
             return Ok(false);
         }
-        if proof
-            .current_epoch
-            .first_block_header_in_epoch
-            .height()
-            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
-            >= *source_peer_height
-        {
+        if Self::min_peer_height_for_proof(chain, proof) >= *source_peer_height {
             tracing::error!(
                 target: "sync",
                 %source_peer,
@@ -274,6 +214,31 @@ impl EpochSync {
         self.verify_proof(proof, epoch_manager)?;
 
         Ok(true)
+    }
+
+    /// The lowest height a peer can advertise and still have this proof accepted.
+    /// `validate_proof` rejects a proof whose epoch starts any nearer than this.
+    fn min_peer_height_for_proof(chain: &Chain, proof: &EpochSyncProofV1) -> BlockHeight {
+        proof
+            .current_epoch
+            .first_block_header_in_epoch
+            .height()
+            .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
+    }
+
+    /// Whether catching up needs a data reset. The proof decides, not the peer
+    /// claim that started epoch sync.
+    ///
+    /// `decide_initial_phase` judges block sync against the same chain head, so a
+    /// proof that fails this never sends the node back to epoch sync.
+    fn proof_shows_head_beyond_horizon(
+        &self,
+        chain: &Chain,
+        proof: &EpochSyncProofV1,
+        chain_head_height: BlockHeight,
+    ) -> bool {
+        let horizon = self.config.epoch_sync_horizon_num_epochs * chain.epoch_length;
+        chain_head_height.saturating_add(horizon) < Self::min_peer_height_for_proof(chain, proof)
     }
 
     /// Applies a previously validated epoch sync proof to the store and updates
@@ -347,6 +312,23 @@ impl EpochSync {
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
 
         store_update.epoch_store_update().set_block_info(&first_block_info_in_epoch);
+        // The epoch-sync first block bypasses `record_block_info`, so seed its
+        // ChunkProducers rows here in the same update. The consensus reader
+        // hard-errors on a missing same-epoch anchor, and this block is the
+        // grandparent anchor for chunks at epoch-start + 2.
+        epoch_manager.seed_chunk_producers_after_epoch_sync(
+            &mut store_update.epoch_store_update(),
+            &first_block_info_in_epoch,
+        )?;
+        // `record_block_info`, which epoch sync bypasses, is otherwise the only
+        // block-processing writer of `EpochStart`. The early-kickout grace check no longer
+        // reads this column (it walks `BlockInfo.epoch_first_block`), but other readers
+        // still key on it and would error on the synced epoch without this row, e.g.
+        // `get_validator_info` (RPC), `compare_epoch_id`, the epoch-sync-proof migration,
+        // and `find_target_epoch_to_produce_proof_for` (serving epoch sync to other nodes).
+        store_update
+            .epoch_store_update()
+            .set_epoch_start(last_header.epoch_id(), last_header.height());
         store_update.chain_store_update().set_block_ordinal(
             proof.current_epoch.partial_merkle_tree_for_first_block.size(),
             last_header.hash(),
@@ -367,7 +349,7 @@ impl EpochSync {
         Ok(())
     }
 
-    fn verify_proof(
+    pub fn verify_proof(
         &self,
         proof: &EpochSyncProofV1,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -389,6 +371,13 @@ impl EpochSync {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid block producers for second epoch after genesis".to_string(),
             ));
+        }
+        if all_epochs[0].last_final_block_header.epoch_id() != &second_next_epoch_id_after_genesis {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "epoch_id mismatch for all_epochs[0] last final block header: expected {:?}, got {:?}",
+                second_next_epoch_id_after_genesis,
+                all_epochs[0].last_final_block_header.epoch_id(),
+            )));
         }
         Self::verify_final_block_endorsement(&all_epochs[0])?;
 
@@ -417,6 +406,16 @@ impl EpochSync {
                     epoch_index
                 )));
             }
+            if epoch.last_final_block_header.epoch_id()
+                != prev_epoch.last_final_block_header.next_epoch_id()
+            {
+                return Err(Error::InvalidEpochSyncProof(format!(
+                    "epoch_id mismatch at all_epochs[{}]: expected {:?}, got {:?}",
+                    epoch_index,
+                    prev_epoch.last_final_block_header.next_epoch_id(),
+                    epoch.last_final_block_header.epoch_id(),
+                )));
+            }
             Self::verify_final_block_endorsement(epoch)?;
         }
 
@@ -433,8 +432,18 @@ impl EpochSync {
         current_epoch: &EpochSyncProofCurrentEpochData,
         current_epoch_final_block_header: &BlockHeader,
     ) -> Result<(), Error> {
-        // Verify first_block_header_in_epoch
+        // Verify that first_block_header_in_epoch is in the same epoch as the
+        // last final block. Without this check, an attacker could substitute the
+        // first block of a previous epoch (which is also in the Merkle tree),
+        // causing the node to initialize with stale epoch data.
         let first_block_header = &current_epoch.first_block_header_in_epoch;
+        if first_block_header.epoch_id() != current_epoch_final_block_header.epoch_id() {
+            return Err(Error::InvalidEpochSyncProof(
+                "first_block_header_in_epoch is not in the expected epoch".to_string(),
+            ));
+        }
+
+        // Verify first_block_header_in_epoch hash
         if !near_primitives::merkle::verify_hash(
             *current_epoch_final_block_header.block_merkle_root(),
             &current_epoch.merkle_proof_for_first_block,
@@ -450,8 +459,10 @@ impl EpochSync {
         // needs to be valid and have the correct root.
         //
         // Note that the block_ordinal in the header is 1-based, so we need to add 1 to the size.
-        if current_epoch.partial_merkle_tree_for_first_block.size() + 1
-            != first_block_header.block_ordinal()
+        // Use checked_add so an attacker-controlled size of u64::MAX cannot trigger an arithmetic
+        // overflow panic (which would crash a bootstrapping node) before the is_well_formed check.
+        if current_epoch.partial_merkle_tree_for_first_block.size().checked_add(1)
+            != Some(first_block_header.block_ordinal())
         {
             return Err(Error::InvalidEpochSyncProof(
                 "invalid size in partial_merkle_tree_for_first_block".to_string(),
@@ -491,14 +502,7 @@ impl EpochSync {
         last_epoch: &EpochSyncProofLastEpochData,
         current_epoch_first_block_header: &BlockHeader,
     ) -> Result<(), Error> {
-        let epoch_sync_data_hash = CryptoHash::hash_borsh(&(
-            &last_epoch.first_block_in_epoch,
-            &last_epoch.second_last_block_in_epoch,
-            &last_epoch.last_block_in_epoch,
-            &last_epoch.epoch_info,
-            &last_epoch.next_epoch_info,
-            &last_epoch.next_next_epoch_info,
-        ));
+        let epoch_sync_data_hash = last_epoch.compute_epoch_sync_data_hash();
         let expected_epoch_sync_data_hash =
             current_epoch_first_block_header.epoch_sync_data_hash().ok_or_else(|| {
                 Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string())
@@ -549,10 +553,16 @@ impl EpochSync {
             )));
         }
 
-        let message_to_sign = Approval::get_data_for_sig(
-            &ApprovalInner::Endorsement(prev_block_hash),
-            block_height + 1,
-        );
+        // `block_height` comes from an attacker-controlled header in the proof and is not bounded
+        // before this point, so use checked_add to avoid an arithmetic overflow panic (which would
+        // crash a bootstrapping node) when the height is u64::MAX.
+        let Some(target_height) = block_height.checked_add(1) else {
+            return Err(Error::InvalidEpochSyncProof(format!(
+                "block height {block_height} too large in epoch sync proof"
+            )));
+        };
+        let message_to_sign =
+            Approval::get_data_for_sig(&ApprovalInner::Endorsement(prev_block_hash), target_height);
 
         let mut total_stake = Balance::ZERO;
         let mut endorsed_stake = Balance::ZERO;
@@ -560,7 +570,7 @@ impl EpochSync {
         for (validator, may_be_signature) in block_producers.iter().zip(endorsements.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(&message_to_sign, validator.public_key()) {
-                    return Err(near_chain::Error::InvalidEpochSyncProof(format!(
+                    return Err(Error::InvalidEpochSyncProof(format!(
                         "Invalid signature for block {} from validator {:?}",
                         block_height,
                         validator.account_id()
@@ -585,6 +595,7 @@ impl EpochSync {
 
 impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
+        let response_permit = msg.response_permit;
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
@@ -597,9 +608,10 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                 tracing::warn!(target: "sync", ?head, ?genesis_height, "no epoch sync proof is stored");
                 return;
             };
-            self.client.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
-            ));
+            self.client.network_adapter.send(NetworkRequestWithPermit {
+                request: NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
+                permit: response_permit,
+            });
         } else {
             let store = self.client.chain.chain_store.store();
             let network_adapter = self.client.network_adapter.clone();
@@ -620,11 +632,49 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
                             return;
                         }
                     };
-                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
-                    ));
+                    network_adapter.send(NetworkRequestWithPermit {
+                        request: NetworkRequests::EpochSyncResponse {
+                            peer_id: requester_peer_id,
+                            proof,
+                        },
+                        permit: response_permit,
+                    });
                 },
             )
+        }
+    }
+}
+
+impl ClientActor {
+    /// The peer answered, but not with a proof we can use. It did not serve what
+    /// it advertised, so it leaves the preferred set the way silence would. The
+    /// request stands until its timeout, which paces the next attempt.
+    fn note_epoch_sync_proof_unusable(&mut self, peer_id: &PeerId) {
+        self.client
+            .sync_handler
+            .peer_selector
+            .record_failed_to_serve(peer_id, self.clock.now_utc());
+    }
+
+    fn reset_data_or_choose_a_sync_phase(&mut self, proof: &EpochSyncProofV1) {
+        let Ok(head) = self.client.chain.head() else {
+            tracing::error!(target: "sync", "failed to read head while handling epoch sync proof");
+            return;
+        };
+        let epoch_sync = &self.client.sync_handler.epoch_sync;
+        if epoch_sync.proof_shows_head_beyond_horizon(&self.client.chain, proof, head.height) {
+            tracing::info!(target: "sync", head_height = head.height, "stale node validated epoch sync proof, requesting data reset");
+            if let Some(tx) = self.shutdown_signal.take() {
+                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
+            }
+            return;
+        }
+        let min_peer_height = EpochSync::min_peer_height_for_proof(&self.client.chain, proof);
+        tracing::warn!(target: "sync", head_height = head.height, min_peer_height, "epoch sync proof leaves the node inside the horizon, keeping the store");
+        if let Err(err) =
+            self.client.sync_handler.decide_initial_phase(&self.client.chain, min_peer_height)
+        {
+            tracing::error!(target: "sync", ?err, "failed to choose a sync phase from the epoch sync proof");
         }
     }
 }
@@ -645,6 +695,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             Ok(proof) => proof,
             Err(err) => {
                 tracing::error!(target: "sync", ?err, "failed to uncompress epoch sync proof");
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
                 return;
             }
         };
@@ -659,9 +710,14 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             self.client.epoch_manager.as_ref(),
         ) {
             Ok(true) => {}
-            Ok(false) => return, // silently ignored (logged inside validate_proof)
+            Ok(false) => {
+                // Logged inside validate_proof.
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
+                return;
+            }
             Err(err) => {
                 tracing::error!(target: "sync", ?err, "failed to validate epoch sync proof");
+                self.note_epoch_sync_proof_unusable(&msg.from_peer);
                 return;
             }
         }
@@ -675,11 +731,8 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             }
         };
         let genesis_height = self.client.chain.genesis().height();
-        if SYNC_V2_ENABLED && tip_height != genesis_height {
-            tracing::info!(target: "sync", "stale node validated epoch sync proof, requesting data reset");
-            if let Some(tx) = self.shutdown_signal.take() {
-                let _ = tx.send(ShutdownReason::EpochSyncDataReset);
-            }
+        if tip_height != genesis_height {
+            self.reset_data_or_choose_a_sync_phase(&proof);
             return;
         }
 
@@ -691,6 +744,28 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             self.client.epoch_manager.as_ref(),
         ) {
             tracing::error!(target: "sync", ?err, "failed to apply epoch sync proof");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EpochSync;
+    use near_chain::Error;
+    use near_primitives::hash::CryptoHash;
+
+    /// Regression test: an attacker-supplied epoch sync proof may carry a block header whose height
+    /// is u64::MAX. `verify_block_endorsements` computes `block_height + 1`, which would overflow
+    /// and crash a bootstrapping node. It must instead be rejected as an invalid proof.
+    #[test]
+    fn verify_block_endorsements_rejects_max_height() {
+        let err = EpochSync::verify_block_endorsements(CryptoHash::default(), u64::MAX, &[], &[])
+            .unwrap_err();
+        match &err {
+            Error::InvalidEpochSyncProof(msg) => {
+                assert!(msg.contains("too large"), "unexpected message: {msg}");
+            }
+            _ => panic!("expected InvalidEpochSyncProof, got: {err}"),
         }
     }
 }

@@ -2,7 +2,7 @@ use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_crypto::{PublicKey, SecretKey};
+use near_crypto::{PublicKey, PublicKeyHandle, SecretKey};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::types::query::{
@@ -11,10 +11,15 @@ use near_jsonrpc_primitives::types::query::{
 use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, Finality};
 use near_primitives::views::{AccessKeyPermissionView, QueryRequest, QueryResponseKind};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
+use std::num::NonZeroU32;
 use std::path::Path;
 
+// Access-key list page size; the node clamps it to its own limit.
+pub(crate) const ACCESS_KEY_PAGE_SIZE: Option<NonZeroU32> = NonZeroU32::new(1000);
+
 pub(crate) struct SecretAccessKey {
-    pub(crate) original_key: Option<PublicKey>,
+    /// The source chain key this was mapped from, as it appears in the trie.
+    pub(crate) original_handle: Option<PublicKeyHandle>,
     pub(crate) mapped_key: SecretKey,
     pub(crate) permission: Option<AccessKeyPermissionView>,
 }
@@ -23,7 +28,7 @@ pub(crate) fn default_extra_key(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> SecretAccessKey {
     SecretAccessKey {
-        original_key: None,
+        original_handle: None,
         mapped_key: crate::key_mapping::default_extra_key(secret),
         permission: None,
     }
@@ -34,9 +39,9 @@ pub(crate) fn map_pub_key(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> anyhow::Result<SecretAccessKey> {
     let public_key: PublicKey = public_key.parse().context("Could not parse public key")?;
-    // we say original_key is None here because the user provided it on the command line in this case, so no need to print it again.
+    // we say original_handle is None here because the user provided it on the command line in this case, so no need to print it again.
     Ok(SecretAccessKey {
-        original_key: None,
+        original_handle: None,
         mapped_key: crate::key_mapping::map_key(&public_key, secret),
         permission: None,
     })
@@ -82,30 +87,37 @@ pub(crate) fn keys_from_source_db(
         .context("failed mapping ShardID to ShardUID")?;
     let chunk_extra =
         chain.get_chunk_extra(header.hash(), &shard_uid).context("failed getting chunk extra")?;
-    match runtime
-        .query(
-            shard_uid,
-            chunk_extra.state_root(),
-            header.height(),
-            header.raw_timestamp(),
-            header.prev_hash(),
-            header.hash(),
-            header.epoch_id(),
-            &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
-        )
-        .with_context(|| format!("failed fetching access keys for {}", &account_id))?
-        .kind
-    {
-        QueryResponseKind::AccessKeyList(l) => Ok(l
-            .keys
-            .into_iter()
-            .map(|k| SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&k.public_key, secret),
-                original_key: Some(k.public_key),
-                permission: Some(k.access_key.permission),
-            })
-            .collect()),
-        _ => unreachable!(),
+    let mut keys = Vec::new();
+    let mut after_key = None;
+    loop {
+        let response = runtime
+            .query(
+                shard_uid,
+                chunk_extra.state_root(),
+                header.height(),
+                header.raw_timestamp(),
+                header.prev_hash(),
+                header.hash(),
+                header.epoch_id(),
+                &QueryRequest::ViewAccessKeyList {
+                    account_id: account_id.clone(),
+                    after_key,
+                    limit: ACCESS_KEY_PAGE_SIZE,
+                },
+            )
+            .with_context(|| format!("failed fetching access keys for {}", &account_id))?;
+        let QueryResponseKind::AccessKeyList(l) = response.kind else {
+            unreachable!();
+        };
+        keys.extend(l.keys.into_iter().map(|k| SecretAccessKey {
+            mapped_key: crate::key_mapping::map_key_handle(&k.public_key, secret),
+            original_handle: Some(k.public_key),
+            permission: Some(k.access_key.permission),
+        }));
+        match l.last_key {
+            Some(cursor) => after_key = Some(cursor),
+            None => return Ok(keys),
+        }
     }
 }
 
@@ -123,28 +135,37 @@ pub(crate) async fn keys_from_rpc(
         Some(h) => BlockReference::BlockId(BlockId::Height(h)),
         None => BlockReference::Finality(Finality::None),
     };
-    let request = RpcQueryRequest {
-        block_reference,
-        request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
-    };
+    let mut keys = Vec::new();
+    let mut after_key = None;
+    loop {
+        let request = RpcQueryRequest {
+            block_reference: block_reference.clone(),
+            request: QueryRequest::ViewAccessKeyList {
+                account_id: account_id.clone(),
+                after_key,
+                limit: ACCESS_KEY_PAGE_SIZE,
+            },
+        };
 
-    let response = match rpc_client.query(request).await {
-        Ok(r) => r,
-        Err(e) => anyhow::bail!("failed making RPC request: {:?}", e),
-    };
+        let response = match rpc_client.query(request).await {
+            Ok(r) => r,
+            Err(e) => anyhow::bail!("failed making RPC request: {:?}", e),
+        };
 
-    match response.kind {
-        RpcQueryResponseKind::AccessKeyList(l) => Ok(l
-            .keys
-            .into_iter()
-            .map(|k| SecretAccessKey {
-                mapped_key: crate::key_mapping::map_key(&k.public_key, secret),
-                original_key: Some(k.public_key),
-                permission: Some(k.access_key.permission),
-            })
-            .collect()),
-        k => {
-            anyhow::bail!("received unexpected RPC response for access key query: {:?}", k);
+        let RpcQueryResponseKind::AccessKeyList(l) = response.kind else {
+            anyhow::bail!(
+                "received unexpected RPC response for access key query: {:?}",
+                response.kind
+            );
+        };
+        keys.extend(l.keys.into_iter().map(|k| SecretAccessKey {
+            mapped_key: crate::key_mapping::map_key_handle(&k.public_key, secret),
+            original_handle: Some(k.public_key),
+            permission: Some(k.access_key.permission),
+        }));
+        match l.last_key {
+            Some(cursor) => after_key = Some(cursor),
+            None => return Ok(keys),
         }
     }
 }

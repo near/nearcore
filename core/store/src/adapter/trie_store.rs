@@ -87,7 +87,7 @@ impl TrieStoreAdapter {
     }
 
     #[cfg(test)]
-    pub fn iter_raw_bytes(&self) -> crate::db::DBIterator {
+    pub fn iter_raw_bytes(&self) -> crate::db::DBIterator<'_> {
         self.store.iter_raw_bytes(DBCol::State)
     }
 }
@@ -223,7 +223,7 @@ pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardU
 }
 
 /// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, return None.
-fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
+pub fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
         .caching_get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
         .map(|v| *v)

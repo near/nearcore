@@ -3,6 +3,7 @@ use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
+use ::rocksdb::properties::{PropName, PropertyName};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
@@ -22,11 +23,11 @@ pub mod snapshot;
 /// List of integer RocksDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
+static CF_PROPERTY_NAMES: LazyLock<Vec<PropertyName>> = LazyLock::new(|| {
     use ::rocksdb::properties;
     let mut ret = Vec::new();
-    ret.extend_from_slice(
-        &[
+    ret.extend(
+        [
             properties::LIVE_SST_FILES_SIZE,
             properties::ESTIMATE_LIVE_DATA_SIZE,
             properties::COMPACTION_PENDING,
@@ -38,7 +39,7 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
             properties::CUR_SIZE_ACTIVE_MEM_TABLE,
             properties::SIZE_ALL_MEM_TABLES,
         ]
-        .map(std::ffi::CStr::to_owned),
+        .map(PropName::to_owned),
     );
     for level in 0..=6 {
         ret.push(properties::num_files_at_level(level));
@@ -125,9 +126,12 @@ impl RocksDB {
         let cache = guard
             .entry(path.to_path_buf())
             .or_insert_with(|| Arc::new(deserialized_column::Cache::enabled()));
-        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
+        let mut counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
+        // Reaching here means the open succeeded, so log it. On failure the `?`
+        // above returns early and drops `counter` without logging open or close.
+        counter.mark_opened();
         let cf_handles = Self::get_cf_handles(&db, columns);
         Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter, cache: Arc::clone(cache) })
     }
@@ -147,7 +151,15 @@ impl RocksDB {
         } else {
             DB::open_cf_descriptors(&options, path, cfs)
         }
-        .map_err(io::Error::other)?;
+        .map_err(|error| {
+            // RocksDB only surfaces a terse low level error here (e.g.
+            // `While reading file sequentially: <dir>/: Is a directory`). Log the
+            // CURRENT/MANIFEST pointers before returning, since a failed start is
+            // often rolled back to an older binary whose successful open rewrites
+            // them and heals whatever tripped us up.
+            log_rocksdb_open_failure(path, mode, &error);
+            io::Error::other(error)
+        })?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::new().unwrap();
@@ -386,8 +398,9 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        let timer =
-            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values::<&str>(&["get", col.into()])
+            .start_timer();
         let read_options = rocksdb_read_options();
         let result = self
             .db
@@ -398,15 +411,15 @@ impl Database for RocksDB {
         result
     }
 
-    fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
+    fn iter_raw_bytes(&self, col: DBCol) -> DBIterator<'_> {
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter(&self, col: DBCol) -> DBIterator {
+    fn iter(&self, col: DBCol) -> DBIterator<'_> {
         refcount::iter_with_rc_logic(col, self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter_prefix(&self, col: DBCol, key_prefix: &[u8]) -> DBIterator {
+    fn iter_prefix(&self, col: DBCol, key_prefix: &[u8]) -> DBIterator<'_> {
         let iter = self.iter_raw_bytes_internal(col, Some(key_prefix), None, None);
         refcount::iter_with_rc_logic(col, iter)
     }
@@ -536,6 +549,53 @@ impl Database for RocksDB {
     fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
         Arc::clone(&self.cache)
     }
+
+    fn ingest_external_sst_files(
+        &self,
+        col: DBCol,
+        paths: &[PathBuf],
+        move_files: bool,
+    ) -> anyhow::Result<()> {
+        let cf = self.cf_handle(col);
+        let mut opts = ::rocksdb::IngestExternalFileOptions::default();
+        opts.set_move_files(move_files);
+        // Required when ingesting SST files from a live DB (non-zero sequence numbers).
+        // cspell:ignore seqno
+        opts.set_allow_global_seqno(true);
+        self.db
+            .ingest_external_file_cf_opts(&cf, &opts, paths.to_vec())
+            .with_context(|| format!("failed to ingest SST files into {col:?}"))
+    }
+}
+
+/// Logs the `CURRENT` pointer and the `MANIFEST` it references after
+/// [`RocksDB::open_db`] fails to open the instance.
+///
+/// RocksDB's own error is a terse low level IO error (for example
+/// `While reading file sequentially: <dir>/: Is a directory`) that doesn't say
+/// what is broken on disk, and a failed start is often rolled back to an older
+/// binary whose successful open rewrites `CURRENT`/`MANIFEST` - healing the bad
+/// state before anyone can inspect it. `CURRENT` is a tiny file naming the live
+/// manifest, so reading it (and stat-ing that manifest) is cheap regardless of
+/// database size and is the usual explanation for a failed open.
+fn log_rocksdb_open_failure(path: &Path, mode: Mode, error: &::rocksdb::Error) {
+    let current = std::fs::read_to_string(path.join("CURRENT"));
+    let manifest = current.as_ref().ok().map(|content| {
+        let name = content.trim_end_matches('\n');
+        match std::fs::metadata(path.join(name)) {
+            Ok(meta) => format!("{name:?} (len={}, is_file={})", meta.len(), meta.is_file()),
+            Err(err) => format!("{name:?} (unreadable: {err})"),
+        }
+    });
+    tracing::error!(
+        target: "db",
+        path = %path.display(),
+        ?mode,
+        %error,
+        current = ?current,
+        ?manifest,
+        "failed to open rocksdb instance",
+    );
 }
 
 fn cf_descriptors(

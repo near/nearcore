@@ -6,6 +6,7 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
@@ -13,6 +14,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
 use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
@@ -23,7 +25,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -60,8 +62,21 @@ impl<'a> TestLoopNode<'a> {
         self.client().chain.tail()
     }
 
+    pub fn chunk_tail(&self) -> BlockHeight {
+        self.client().chain.chain_store().chunk_tail()
+    }
+
     pub fn head(&self) -> Arc<Tip> {
         self.client().chain.head().unwrap()
+    }
+
+    pub fn final_head(&self) -> Arc<Tip> {
+        self.client().chain.final_head().unwrap()
+    }
+
+    pub fn protocol_version_at_head(&self) -> ProtocolVersion {
+        let head = self.head();
+        self.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
     }
 
     pub fn last_executed(&self) -> Arc<Tip> {
@@ -80,6 +95,12 @@ impl<'a> TestLoopNode<'a> {
     pub fn last_executed_block(&self) -> Arc<Block> {
         let block_hash = self.last_executed().last_block_hash;
         self.block(block_hash)
+    }
+
+    pub fn last_certified_block_header(&self) -> Arc<BlockHeader> {
+        let chain_store = &self.client().chain.chain_store;
+        let head_hash = self.head().last_block_hash;
+        get_last_certified_block_header(chain_store, &head_hash).unwrap()
     }
 
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
@@ -153,6 +174,21 @@ impl<'a> TestLoopNode<'a> {
             panic!("unexpected query response type")
         };
         Ok(access_key_view)
+    }
+
+    pub fn view_gas_key_nonces_query(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, QueryError> {
+        let response = self.runtime_query(QueryRequest::ViewGasKeyNonces {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        })?;
+        let QueryResponseKind::GasKeyNonces(view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(view.nonces)
     }
 
     pub fn query_balance(&self, account_id: &AccountId) -> Balance {
@@ -417,6 +453,13 @@ impl<'a> NodeRunner<'a> {
         self.run_until(|node| node.head().height >= height, timeout);
     }
 
+    pub fn run_until_final_head_height(&mut self, height: BlockHeight) {
+        let initial_height = self.final_head().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff);
+        self.run_until(|node| node.final_head().height >= height, timeout);
+    }
+
     pub fn run_until_executed_height(&mut self, height: BlockHeight) {
         let initial_height = self.last_executed().height;
         let height_diff = height.saturating_sub(initial_height) as usize;
@@ -447,6 +490,45 @@ impl<'a> NodeRunner<'a> {
         self.run_until(
             |node| node.head().height >= initial_head_height + num_blocks as u64,
             maximum_duration,
+        );
+    }
+
+    /// Run until all given transactions appear in the head block.
+    /// Returns the height of the block containing the transactions.
+    pub fn run_until_included(&mut self, tx_hashes: &[CryptoHash]) -> BlockHeight {
+        let tx_hashes = tx_hashes.to_vec();
+        self.run_until(
+            |node| {
+                let head = node.head();
+                let block = node.client().chain.get_block(&head.last_block_hash).unwrap();
+                let mut included = std::collections::HashSet::new();
+                for chunk_header in block.chunks().iter() {
+                    let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                    for tx in chunk.to_transactions() {
+                        included.insert(tx.get_hash());
+                    }
+                }
+                tx_hashes.iter().all(|h| included.contains(h))
+            },
+            Duration::seconds(20),
+        );
+        self.head().height
+    }
+
+    /// Run until the last certified block height is at least `height`.
+    pub fn run_until_certified(&mut self, height: BlockHeight) {
+        let initial_height = self.head().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        let extra = self.node_data.expected_execution_delay() as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff + extra + 1);
+        self.run_until(
+            |node| {
+                let chain_store = &node.client().chain.chain_store;
+                let head_hash = chain_store.head().unwrap().last_block_hash;
+                near_chain::spice::core::get_last_certified_block_header(chain_store, &head_hash)
+                    .map_or(false, |h| h.height() >= height)
+            },
+            timeout,
         );
     }
 
@@ -549,7 +631,7 @@ impl<'a> NodeRunner<'a> {
         result.lock().take().unwrap()
     }
 
-    pub fn run_jsonrpc_query<T>(
+    pub fn run_with_jsonrpc_client<T>(
         &mut self,
         make_query: impl FnOnce(&JsonRpcClient) -> BoxFuture<'static, Result<T, RpcError>>,
         maximum_duration: Duration,
@@ -559,6 +641,14 @@ impl<'a> NodeRunner<'a> {
     {
         let jsonrpc_client = self.node_data.jsonrpc_client();
         self.run_future("jsonrpc_query", make_query(&jsonrpc_client), maximum_duration)
+    }
+
+    pub fn run_jsonrpc_query(
+        &mut self,
+        request: RpcQueryRequest,
+        maximum_duration: Duration,
+    ) -> Result<RpcQueryResponse, RpcError> {
+        self.run_with_jsonrpc_client(|client| client.query(request), maximum_duration)
     }
 
     #[cfg(feature = "test_features")]
@@ -582,6 +672,10 @@ impl<'a> NodeRunner<'a> {
         self.client().chain.head().unwrap()
     }
 
+    fn final_head(&self) -> Arc<Tip> {
+        self.client().chain.final_head().unwrap()
+    }
+
     fn last_executed(&self) -> Arc<Tip> {
         if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
             self.client().chain.chain_store().spice_execution_head().unwrap()
@@ -591,6 +685,6 @@ impl<'a> NodeRunner<'a> {
     }
 
     fn calculate_block_distance_timeout(&self, num_blocks: usize) -> Duration {
-        self.client().config.max_block_production_delay * (num_blocks as u32 + 1)
+        self.client().config.max_block_production_delay.get() * (num_blocks as u32 + 1)
     }
 }

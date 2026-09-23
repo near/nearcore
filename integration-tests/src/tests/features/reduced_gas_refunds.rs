@@ -4,7 +4,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::errors::{self, ActionErrorKind};
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{ExecutionOutcomeWithIdView, FinalExecutionStatus};
 use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
@@ -20,7 +20,10 @@ fn test_burn_all_gas() {
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
-    assert_eq!(refunds, vec![], "no refunds");
+    // AccountCostIncrease adds a refund for the purchase/burn price difference.
+    let expected_refunds =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    assert_eq!(refunds.len(), expected_refunds, "no unused-gas refund, only price_surplus");
 }
 
 #[test]
@@ -31,7 +34,10 @@ fn test_deposit_refund() {
 
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
-    assert_eq!(refunds.len(), 1, "only refund deposit");
+    // AccountCostIncrease adds a refund for the purchase/burn price difference.
+    let extra_price_surplus_refund =
+        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 };
+    assert_eq!(refunds.len(), 1 + extra_price_surplus_refund, "deposit refund");
 }
 
 #[test]

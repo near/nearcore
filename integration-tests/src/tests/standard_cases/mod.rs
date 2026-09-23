@@ -14,8 +14,8 @@ use near_primitives::account::{
 };
 use near_primitives::action::TransferAction;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
-    MethodResolveError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, FunctionCallError, InvalidAccessKeyError,
+    InvalidTxError, MethodResolveError, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -41,6 +41,11 @@ use testlib::runtime_utils::{
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwrap();
 
+// AccountCostIncrease adds a refund for the purchase/burn price difference.
+const fn extra_refund_outcomes() -> usize {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+}
+
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
     let store = RuntimeConfigStore::new(None);
     let config = RuntimeConfig::clone(store.get_config(node.genesis().config.protocol_version));
@@ -59,7 +64,7 @@ fn add_access_key(
     let transaction_result =
         node_user.add_key(account_id.clone(), signer2.public_key(), access_key.clone()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     transaction_result
@@ -175,63 +180,111 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result = node_user
-        .function_call(
-            account_id.clone(),
-            bob_account(),
-            "",
-            vec![],
-            Gas::from_teragas(100),
-            Balance::ZERO,
-        )
-        .unwrap();
-    assert_eq!(
-        transaction_result.status,
-        FinalExecutionStatus::Failure(
-            ActionError {
-                index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
-            }
-            .into()
-        )
+    let result = node_user.function_call(
+        account_id.clone(),
+        bob_account(),
+        "",
+        vec![],
+        Gas::from_teragas(100),
+        Balance::ZERO,
     );
-    // Refund receipt may not be ready yet
-    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
-    let new_root = node_user.get_state_root();
-    assert_ne!(root, new_root);
+
+    if ProtocolFeature::RejectEmptyMethodName.enabled(PROTOCOL_VERSION) {
+        // The empty method name is now rejected during transaction validation, before the
+        // transaction is admitted, so it never reaches the chain. Depending on the
+        // node backend this surfaces either as a server-side invalid-tx error or as an
+        // outcome carrying the invalid-tx failure.
+        assert_matches!(
+            result,
+            Err(CommitError::Server(ServerError::TxExecutionError(
+                TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::FunctionCallEmptyMethodName
+                ))
+            ))) | Ok(FinalExecutionOutcomeView {
+                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::FunctionCallEmptyMethodName
+                    )
+                )),
+                ..
+            })
+        );
+    } else {
+        // Pre-feature: the transaction is admitted and fails on-chain in the VM with
+        // MethodEmptyName, still burning gas and changing the state root.
+        let transaction_result = result.unwrap();
+        assert_eq!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::FunctionCallError(
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                    )
+                }
+                .into()
+            )
+        );
+        // Refund receipt may not be ready yet
+        assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
+        let new_root = node_user.get_state_root();
+        assert_ne!(root, new_root);
+    }
 }
 
 pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result = node_user
-        .function_call(
-            account_id.clone(),
-            bob_account(),
-            "",
-            vec![],
-            Gas::from_teragas(100),
-            Balance::from_yoctonear(10),
-        )
-        .unwrap();
-    assert_eq!(
-        transaction_result.status,
-        FinalExecutionStatus::Failure(
-            ActionError {
-                index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                ))
-            }
-            .into()
-        )
+    let result = node_user.function_call(
+        account_id.clone(),
+        bob_account(),
+        "",
+        vec![],
+        Gas::from_teragas(100),
+        Balance::from_yoctonear(10),
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 3);
-    let new_root = node_user.get_state_root();
-    assert_ne!(root, new_root);
+
+    if ProtocolFeature::RejectEmptyMethodName.enabled(PROTOCOL_VERSION) {
+        // The empty method name is now rejected during transaction validation, before the
+        // transaction is admitted, so it never reaches the chain. Depending on the
+        // node backend this surfaces either as a server-side invalid-tx error or as an
+        // outcome carrying the invalid-tx failure.
+        assert_matches!(
+            result,
+            Err(CommitError::Server(ServerError::TxExecutionError(
+                TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                    ActionsValidationError::FunctionCallEmptyMethodName
+                ))
+            ))) | Ok(FinalExecutionOutcomeView {
+                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::ActionsValidation(
+                        ActionsValidationError::FunctionCallEmptyMethodName
+                    )
+                )),
+                ..
+            })
+        );
+    } else {
+        // Pre-feature: the transaction is admitted and fails on-chain in the VM with
+        // MethodEmptyName, still burning gas and changing the state root.
+        let transaction_result = result.unwrap();
+        assert_eq!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::FunctionCallError(
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
+                    )
+                }
+                .into()
+            )
+        );
+        assert_eq!(transaction_result.receipts_outcome.len(), 3);
+        let new_root = node_user.get_state_root();
+        assert_ne!(root, new_root);
+    }
 }
 
 pub fn test_smart_contract_with_args(node: impl Node) {
@@ -287,7 +340,7 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let transaction_result =
         node_user.deploy_contract(account_id.clone(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -301,15 +354,11 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
         bob_account(),
         TESTING_INIT_BALANCE.checked_add(Balance::from_yoctonear(1)).unwrap(),
     );
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(_)))
-                | Ok(FinalExecutionOutcomeView { status: FinalExecutionStatus::Failure(_), .. })
-        );
-    } else {
-        result.unwrap_err();
-    }
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(_)))
+            | Ok(FinalExecutionOutcomeView { status: FinalExecutionStatus::Failure(_), .. })
+    );
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 }
 
@@ -366,7 +415,7 @@ pub fn test_upload_contract(node: impl Node) {
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     // Refund receipt may not be ready yet
-    assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 
     node_user.view_contract_code(&eve_dot_alice_account()).expect_err(
         "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"contract code of account eve.alice.near does not exist while viewing\")) }");
@@ -377,7 +426,7 @@ pub fn test_upload_contract(node: impl Node) {
     let transaction_result =
         node_user.deploy_contract(eve_dot_alice_account(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(&eve_dot_alice_account()).unwrap();
@@ -395,7 +444,7 @@ pub fn test_redeploy_contract(node: impl Node) {
     let transaction_result =
         node_user.deploy_contract(account_id.clone(), test_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(account_id).unwrap();
@@ -453,19 +502,23 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::MLDSA65 => {
+            panic!("test fed an ML-DSA-65 pubkey into an implicit-account derivation path")
+        }
     };
 
     let transfer_cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
         AccountType::NearDeterministicAccount => fee_helper.create_account_transfer_cost(),
         AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::UniversalAccount => fee_helper.create_account_transfer_cost(),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     };
 
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -501,6 +554,10 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
             // A transfer to ETH-implicit address does not create access key.
             assert!(view_access_key.is_err());
         }
+        AccountType::UniversalAccount => {
+            // A transfer to a universal address does not create an access key.
+            assert!(view_access_key.is_err());
+        }
         AccountType::NamedAccount => std::panic!("must be implicit"),
     }
 
@@ -508,11 +565,18 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
 
+    // Only the first transfer creates the account, so only that one carries the
+    // AccountCostIncrease account_creation_charge. The second transfer goes to the
+    // existing account and only pays the gas portion (which still includes
+    // `create_account.exec` because `transfer_exec_fee` keys off the receiver's
+    // account-id format, not whether the account exists).
+    let second_transfer_cost =
+        transfer_cost.checked_sub(fee_helper.extra_account_creation_charge()).unwrap();
     let AccountView { amount, locked, .. } = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (amount, locked),
@@ -522,7 +586,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
                 .unwrap()
                 .checked_sub(TESTING_INIT_STAKE)
                 .unwrap()
-                .checked_sub(transfer_cost.checked_mul(2).unwrap())
+                .checked_sub(transfer_cost)
+                .unwrap()
+                .checked_sub(second_transfer_cost)
                 .unwrap(),
             TESTING_INIT_STAKE
         )
@@ -542,6 +608,9 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let receiver_id = match public_key.key_type() {
         KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
         KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+        KeyType::MLDSA65 => {
+            panic!("test fed an ML-DSA-65 pubkey into an implicit-account derivation path")
+        }
     };
 
     let transaction_result = node_user
@@ -560,28 +629,29 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap()
         .checked_add(add_access_key_fee)
         .unwrap();
-    let refund_cost = fee_helper.gas_refund_cost(gas_refund);
+    let refund_cost = fee_helper.gas_refund_cost(gas_refund.gas);
 
-    let cost =
-        refund_cost
-            .checked_add(match receiver_id.get_account_type() {
-                AccountType::NearImplicitAccount => fee_helper
+    let cost = refund_cost
+        .checked_add(match receiver_id.get_account_type() {
+            AccountType::NearImplicitAccount => fee_helper
+                .create_account_transfer_full_key_cost_fail_on_create_account()
+                .checked_add(fee_helper.gas_to_balance(
+                    create_account_fee.checked_add(add_access_key_fee).unwrap().gas,
+                ))
+                .unwrap(),
+            AccountType::EthImplicitAccount
+            | AccountType::NearDeterministicAccount
+            | AccountType::UniversalAccount => {
+                // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+                fee_helper
                     .create_account_transfer_full_key_cost_fail_on_create_account()
-                    .checked_add(fee_helper.gas_to_balance(
-                        create_account_fee.checked_add(add_access_key_fee).unwrap(),
-                    ))
-                    .unwrap(),
-                AccountType::EthImplicitAccount | AccountType::NearDeterministicAccount => {
-                    // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
-                    fee_helper
-                        .create_account_transfer_full_key_cost_fail_on_create_account()
-                        // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
-                        .checked_add(fee_helper.gas_to_balance(create_account_fee))
-                        .unwrap()
-                }
-                AccountType::NamedAccount => std::panic!("must be implicit"),
-            })
-            .unwrap();
+                    // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
+                    .checked_add(fee_helper.gas_to_balance(create_account_fee.gas))
+                    .unwrap()
+            }
+            AccountType::NamedAccount => std::panic!("must be implicit"),
+        })
+        .unwrap();
 
     assert_eq!(
         transaction_result.status,
@@ -621,7 +691,8 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let bob = node_user.view_account(&bob_account()).unwrap();
-    assert_eq!(bob.amount, TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap());
+    let initial_amount = TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap();
+    assert_eq!(bob.amount, initial_amount);
     let transaction_result = node_user
         .function_call(
             alice_account(),
@@ -648,10 +719,19 @@ pub fn test_smart_contract_reward(node: impl Node) {
         .checked_sub(fee_helper.function_call_exec_gas(b"run_test".len() as u64))
         .unwrap();
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
-    assert_eq!(
-        bob.amount,
-        TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap().checked_add(reward).unwrap()
-    );
+    assert_eq!(bob.amount, initial_amount.checked_add(reward).unwrap());
+
+    // Once `RemoveGasRewards` is enabled, a function call pays no gas reward to
+    // the contract account: the reward is zero and the contract account balance
+    // is left unchanged by the call. Before the feature, the contract account
+    // receives a reward (30% of the burned function-call gas).
+    let protocol_version = node.genesis().config.protocol_version;
+    if ProtocolFeature::RemoveGasRewards.enabled(protocol_version) {
+        assert_eq!(reward, Balance::ZERO);
+        assert_eq!(bob.amount, initial_amount);
+    } else {
+        assert_ne!(reward, Balance::ZERO);
+    }
 }
 
 pub fn test_transaction_invalid_signature(node: impl Node) {
@@ -665,26 +745,17 @@ pub fn test_transaction_invalid_signature(node: impl Node) {
     tx.signature = Signature::from_parts(KeyType::ED25519, &[0u8; 64]).unwrap();
     let result = node_user.commit_transaction(tx);
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidSignature)
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidSignature
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_matches!(
-            result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidSignature)
-            ))) | Err(CommitError::OutcomeNotFound)
-        );
-    }
+    assert_matches!(
+        result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidSignature
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidSignature
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_send_money_over_balance(node: impl Node) {
@@ -692,21 +763,17 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let node_user = node.user();
     let money_used = TESTING_INIT_BALANCE.checked_add(Balance::from_yoctonear(1)).unwrap();
     let result0 = node_user.send_money(account_id.clone(), bob_account(), money_used);
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result0,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::NotEnoughBalance { .. })
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::NotEnoughBalance { .. }
-                )),
-                ..
-            })
-        );
-    } else {
-        result0.unwrap_err();
-    }
+    assert_matches!(
+        result0,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::NotEnoughBalance { .. }
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::NotEnoughBalance { .. }
+            )),
+            ..
+        })
+    );
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
@@ -741,7 +808,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    assert_eq!(transaction_result.receipts_outcome.len(), 2 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let result1 = node_user.view_account(account_id).unwrap();
@@ -873,7 +940,8 @@ pub fn test_create_account_again(node: impl Node) {
         .fee(ActionCosts::transfer)
         .exec_fee()
         .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -939,7 +1007,8 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         .fee(ActionCosts::transfer)
         .exec_fee()
         .checked_add(fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee())
-        .unwrap();
+        .unwrap()
+        .gas;
     let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
@@ -990,7 +1059,7 @@ pub fn test_swap_key(node: impl Node) {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root1 = node_user.get_state_root();
     assert_ne!(new_root, new_root1);
 
@@ -1031,7 +1100,7 @@ pub fn test_add_existing_key(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
@@ -1051,7 +1120,7 @@ pub fn test_delete_key(node: impl Node) {
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
@@ -1083,7 +1152,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
@@ -1102,7 +1171,7 @@ pub fn test_delete_key_last(node: impl Node) {
     match transaction_result {
         Ok(transaction_result) => {
             assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-            assert_eq!(transaction_result.receipts_outcome.len(), 1);
+            assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
         }
         Err(err) => {
             // TODO(#6724): This is a wrong error, the transaction actually
@@ -1185,7 +1254,7 @@ pub fn test_delete_access_key(node: impl Node) {
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
@@ -1245,7 +1314,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let transaction_result =
         node_user.delete_key(account_id.clone(), signer2.public_key()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
@@ -1359,21 +1428,17 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         Balance::ZERO,
     );
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::MethodNameMismatch { .. }
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch { .. }
+                )
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
@@ -1400,21 +1465,17 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         Balance::ZERO,
     );
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::ReceiverMismatch { .. }
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch { .. }
+                )
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
@@ -1434,25 +1495,17 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            transaction_result,
-            Err(CommitError::Server(ServerError::TxExecutionError(
-                TxExecutionError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::MethodNameMismatch { .. }
-                ))
-            ))) | Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::RequiresFullAccess
-                    )
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(transaction_result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        transaction_result,
+        Err(CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch { .. })
+        )))) | Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_increase_stake(node: impl Node) {
@@ -1466,7 +1519,7 @@ pub fn test_increase_stake(node: impl Node) {
         .stake(account_id.clone(), node.block_signer().public_key(), amount_staked)
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let node_user = node.user();
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -1496,7 +1549,7 @@ pub fn test_decrease_stake(node: impl Node) {
     let fee_helper = fee_helper(&node);
     let stake_cost = fee_helper.stake_cost();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
@@ -1523,7 +1576,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let transaction_result = node_user
         .stake(eve_dot_alice_account(), node.block_signer().public_key(), Balance::ZERO)
         .unwrap();
@@ -1537,7 +1590,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 }
 
 /// Account must have enough balance to cover storage of the account.
@@ -1548,19 +1601,15 @@ pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     node_user.set_signer(signer);
     let result = node_user.send_money(account_id, alice_account(), Balance::from_yoctonear(10));
 
-    if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            result,
-            Ok(FinalExecutionOutcomeView {
-                status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::LackBalanceForState { .. }
-                )),
-                ..
-            })
-        );
-    } else {
-        assert_eq!(result.unwrap_err(), CommitError::OutcomeNotFound);
-    }
+    assert_matches!(
+        result,
+        Ok(FinalExecutionOutcomeView {
+            status: FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::LackBalanceForState { .. }
+            )),
+            ..
+        })
+    );
 }
 
 pub fn test_delete_account_ok(node: impl Node) {
@@ -1632,7 +1681,7 @@ pub fn test_delete_account_fail(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
         node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
@@ -1654,7 +1703,7 @@ pub fn test_delete_account_no_account(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 }
 
 pub fn test_delete_account_while_staking(node: impl Node) {
@@ -1669,15 +1718,24 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     let fee_helper = fee_helper(&node);
     let stake_fee = fee_helper.stake_cost();
     let delete_account_fee = fee_helper.prepaid_delete_account_cost();
+    // The newly-created account also pays the AccountCostIncrease creation charge out of the
+    // transferred balance, so the amount available to stake is reduced accordingly.
+    let account_creation_charge = fee_helper.extra_account_creation_charge();
     let transaction_result = node_user
         .stake(
             eve_dot_alice_account(),
             node.block_signer().public_key(),
-            money_used.checked_sub(stake_fee).unwrap().checked_sub(delete_account_fee).unwrap(),
+            money_used
+                .checked_sub(stake_fee)
+                .unwrap()
+                .checked_sub(delete_account_fee)
+                .unwrap()
+                .checked_sub(account_creation_charge)
+                .unwrap(),
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     let transaction_result =
         node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
     assert_eq!(
@@ -1690,7 +1748,7 @@ pub fn test_delete_account_while_staking(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
     assert!(node.user().view_account(&eve_dot_alice_account()).is_ok());
 }
 

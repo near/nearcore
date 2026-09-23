@@ -7,10 +7,11 @@ use std::{cell::RefCell, time::Duration};
 
 thread_local! {
     static METRICS: RefCell<Metrics> = const { RefCell::new(Metrics {
-        near_vm_compilation_time: Duration::new(0, 0),
-        wasmtime_compilation_time: Duration::new(0, 0),
+        compilation_time: Duration::new(0, 0),
+        execution_time: Duration::new(0, 0),
         compiled_contract_cache_lookups: 0,
         compiled_contract_cache_hits: 0,
+        compiled_contract_memory_cache_hits: 0,
     }) };
 }
 
@@ -18,8 +19,18 @@ static COMPILATION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_vm_runner_compilation_seconds",
         "Histogram of how long it takes to compile things",
-        &["vm_kind", "shard_id"],
-        None,
+        &["shard_id"],
+        Some(vec![0.025, 0.05, 0.1, 0.5]),
+    )
+    .unwrap()
+});
+
+static EXECUTION_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_vm_runner_execution_seconds",
+        "Histogram of how long it takes to execute a contract call",
+        &["shard_id"],
+        Some(vec![0.025, 0.05, 0.1, 0.5]),
     )
     .unwrap()
 });
@@ -56,35 +67,46 @@ static COMPILED_CONTRACT_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::n
     .unwrap()
 });
 
+static COMPILED_CONTRACT_MEMORY_CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_vm_compiled_contract_memory_cache_hits_total",
+        "The number of times the runtime finds an entry in the in-memory contracts cache.",
+        &["context", "shard_id"],
+    )
+    .unwrap()
+});
+
 #[derive(Default, Copy, Clone)]
 struct Metrics {
-    near_vm_compilation_time: Duration,
-    wasmtime_compilation_time: Duration,
+    compilation_time: Duration,
+    execution_time: Duration,
     /// Number of lookups from the compiled contract cache.
     compiled_contract_cache_lookups: u64,
     /// Number of times the lookup from the compiled contract cache finds a match.
     compiled_contract_cache_hits: u64,
+    /// Number of times the in-memory cache had the contract (compiled + execution context).
+    compiled_contract_memory_cache_hits: u64,
 }
 
-#[cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
-pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
-    use near_parameters::vm::VMKind;
-    METRICS.with_borrow_mut(|m| match kind {
-        VMKind::Wasmer0 => unreachable!(),
-        VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
-        VMKind::Wasmer2 => unreachable!(),
-        VMKind::NearVm => m.near_vm_compilation_time += duration,
-    });
+#[cfg(feature = "wasmtime_vm")]
+pub(crate) fn compilation_duration(duration: Duration) {
+    METRICS.with_borrow_mut(|m| m.compilation_time += duration);
 }
 
-/// Updates metrics to record a compiled-contract cache lookup,
-/// where is_hit=true indicates that we found an entry in the cache.
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool) {
+pub(crate) fn record_execution_duration(duration: Duration) {
+    METRICS.with_borrow_mut(|m| m.execution_time += duration);
+}
+
+/// Records the result of a compiled-contract cache lookup.
+#[cfg(feature = "wasmtime_vm")]
+pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool, is_memory_hit: bool) {
     METRICS.with_borrow_mut(|m| {
         m.compiled_contract_cache_lookups += 1;
         if is_hit {
             m.compiled_contract_cache_hits += 1;
+        }
+        if is_memory_hit {
+            m.compiled_contract_memory_cache_hits += 1;
         }
     });
 }
@@ -99,27 +121,38 @@ pub(crate) fn set_compiled_contract_cache_metrics(cache_id: &str, items: usize, 
 }
 
 /// Reports the current metrics at the end of a single VM invocation (eg. to run a function call).
-pub fn report_metrics(shard_id: &str, caller_context: &str) {
+pub fn report_metrics(shard_id: impl std::fmt::Display, caller_context: &str) {
     METRICS.with_borrow_mut(|m| {
-        if !m.near_vm_compilation_time.is_zero() {
-            COMPILATION_TIME
-                .with_label_values(&["near_vm", shard_id])
-                .observe(m.near_vm_compilation_time.as_secs_f64());
+        let has_data = !m.compilation_time.is_zero()
+            || !m.execution_time.is_zero()
+            || m.compiled_contract_cache_lookups > 0;
+        if !has_data {
+            *m = Metrics::default();
+            return;
         }
-        if !m.wasmtime_compilation_time.is_zero() {
+        let shard_id = shard_id.to_string();
+        if !m.compilation_time.is_zero() {
             COMPILATION_TIME
-                .with_label_values(&["wasmtime", shard_id])
-                .observe(m.wasmtime_compilation_time.as_secs_f64());
+                .with_label_values(&[&shard_id])
+                .observe(m.compilation_time.as_secs_f64());
+        }
+        if !m.execution_time.is_zero() {
+            EXECUTION_TIME.with_label_values(&[&shard_id]).observe(m.execution_time.as_secs_f64());
         }
         if m.compiled_contract_cache_lookups > 0 {
             COMPILED_CONTRACT_CACHE_LOOKUPS_TOTAL
-                .with_label_values(&[caller_context, shard_id])
+                .with_label_values(&[caller_context, &shard_id])
                 .inc_by(m.compiled_contract_cache_lookups);
         }
         if m.compiled_contract_cache_hits > 0 {
             COMPILED_CONTRACT_CACHE_HITS_TOTAL
-                .with_label_values(&[caller_context, shard_id])
+                .with_label_values(&[caller_context, &shard_id])
                 .inc_by(m.compiled_contract_cache_hits);
+        }
+        if m.compiled_contract_memory_cache_hits > 0 {
+            COMPILED_CONTRACT_MEMORY_CACHE_HITS_TOTAL
+                .with_label_values(&[caller_context, &shard_id])
+                .inc_by(m.compiled_contract_memory_cache_hits);
         }
 
         *m = Metrics::default();

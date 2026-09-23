@@ -16,6 +16,7 @@ use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptSource};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -73,6 +74,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
 struct ChunkApplicationInput {
     chunk_header: ShardChunkHeader,
     block: Block,
+    shard_uid: ShardUId,
     storage_config: RuntimeStorageConfig,
     apply_reason: ApplyChunkReason,
     block_context: ApplyChunkBlockContext,
@@ -87,6 +89,7 @@ fn apply_chunk_from_input(
     let ChunkApplicationInput {
         block,
         chunk_header,
+        shard_uid,
         storage_config,
         apply_reason,
         block_context,
@@ -95,13 +98,22 @@ fn apply_chunk_from_input(
         ..
     } = input;
 
+    // Pin the memtrie root so the runtime's pin assertion is satisfied when
+    // memtries are loaded (e.g. `StorageSource::Memtrie`). Returns an
+    // unpinned handle if no memtrie is loaded for this shard.
+    let memtrie_pin = runtime_adapter
+        .get_tries()
+        .maybe_pin_memtrie_root(shard_uid, storage_config.state_root)
+        .unwrap();
+
     // Can't have an `ApplyChunkShardContext` field inside `ChunkApplicationInput` because `last_validator_proposals` is borrowed.
     let chunk_context = ApplyChunkShardContext {
-        shard_id: chunk_header.shard_id(),
+        shard_uid,
         last_validator_proposals: chunk_header.prev_validator_proposals(),
         gas_limit: chunk_header.gas_limit(),
         is_new_chunk: chunk_header.is_new_chunk(block.header().height()),
         on_post_state_ready: None,
+        memtrie_pin,
     };
 
     runtime_adapter
@@ -116,6 +128,7 @@ fn apply_chunk_from_input(
         .unwrap()
 }
 
+#[allow(clippy::large_enum_variant)]
 /// Result of `get_chunk_application_input` - either input for chunk application or a reason why we can't apply the chunk and should skip it.
 enum ApplicationInputOrSkip {
     Input(ChunkApplicationInput),
@@ -274,6 +287,7 @@ fn get_chunk_application_input(
         ApplicationInputOrSkip::Input(ChunkApplicationInput {
             chunk_header,
             block: (*block).clone(),
+            shard_uid,
             storage_config: runtime_storage,
             apply_reason,
             block_context: ApplyChunkBlockContext::from_header(
@@ -296,6 +310,7 @@ fn get_chunk_application_input(
         ApplicationInputOrSkip::Input(ChunkApplicationInput {
             chunk_header,
             block: (*block).clone(),
+            shard_uid,
             storage_config: storage.create_runtime_storage(*chunk_extra.state_root()),
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_context: ApplyChunkBlockContext::from_header(

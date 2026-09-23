@@ -1,15 +1,13 @@
 use crate::setup::builder::TestLoopBuilder;
-use itertools::Itertools as _;
+use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::messaging::CanSend as _;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::BlockResponse;
 use near_crypto::{KeyType, PublicKey};
+use near_network::types::NetworkResponses;
 use near_network::types::{NetworkRequests, ReasonForBan};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::hash;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{Balance, validator_stake::ValidatorStake};
 use parking_lot::RwLock;
@@ -29,28 +27,8 @@ enum InvalidBlockMode {
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
 
-    let block_producers = ["test1", "test2", "test3", "test4"];
-    let validators_spec = ValidatorsSpec::desired_roles(&block_producers, &[]);
-    let shard_layout = ShardLayout::single_shard();
-    let epoch_length = 100;
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .build();
-
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
-
-    let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_actor_handle).client;
-    let epoch_manager = client.epoch_manager.clone();
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(100).build();
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
 
     let ban_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
     let bad_block_send_height = 8;
@@ -61,7 +39,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut ban_counter = ban_counter.write();
             match request {
                 NetworkRequests::Block { mut block } => {
@@ -99,7 +77,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
                         }
                     }
-                    Some(NetworkRequests::Block { block })
+                    HandlerResult::Unhandled(NetworkRequests::Block { block })
                 }
                 NetworkRequests::BanPeer { ref peer_id, ref ban_reason } => match mode {
                     InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
@@ -108,25 +86,18 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         if *ban_counter > 3 {
                             panic!("more bans than expected");
                         }
-                        None
+                        HandlerResult::Handled(NetworkResponses::NoResponse)
                     }
                     InvalidBlockMode::InvalidBlock => {
                         panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
                     }
                 },
-                _ => Some(request),
+                _ => HandlerResult::Unhandled(request),
             }
         }));
     }
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(client_actor_handle).client;
-            let head = client.chain.head().unwrap();
-            head.height >= 25
-        },
-        Duration::seconds(60),
-    );
+    env.node_runner(0).run_until_head_height(25);
 
     let ban_counter = *ban_counter.read();
     match mode {
@@ -158,33 +129,11 @@ fn test_ban_peer_for_ill_formed_block() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_produce_block_with_approvals_arrived_early() {
     init_test_logger();
 
-    let block_producers = ["test1", "test2", "test3", "test4"];
-    let validators_spec = ValidatorsSpec::desired_roles(&block_producers, &[]);
-    let shard_layout = ShardLayout::multi_shard(4, 3);
-    let epoch_length = 100;
-
-    let genesis = TestLoopBuilder::new_genesis_builder()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec)
-        .build();
-
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let clients = block_producers.into_iter().map(|a| a.parse().unwrap()).collect_vec();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .build();
-
-    let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_actor_handle).client;
-    let epoch_manager = client.epoch_manager.clone();
+    let mut env = TestLoopBuilder::new().validators(4, 0).num_shards(4).epoch_length(100).build();
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
 
     let block_holder: Arc<RwLock<Option<SpanWrapped<BlockResponse>>>> = Arc::new(RwLock::new(None));
     let approval_counter: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
@@ -195,7 +144,7 @@ fn test_produce_block_with_approvals_arrived_early() {
         .collect();
 
     let block_withholding_height = 10;
-    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
 
     let (block_producer_for_next_height, _) = epoch_manager
         .get_block_producer_info(&epoch_id, block_withholding_height + 1)
@@ -219,7 +168,7 @@ fn test_produce_block_with_approvals_arrived_early() {
 
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
+        peer_actor.register_override_handler(Box::new(move |request| -> HandlerResult {
             let mut approval_counter = approval_counter.write();
             match &request {
                 NetworkRequests::Block { block } => {
@@ -247,9 +196,9 @@ fn test_produce_block_with_approvals_arrived_early() {
                             }
                             .span_wrap(),
                         );
-                        return None;
+                        return HandlerResult::Handled(NetworkResponses::NoResponse);
                     }
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 }
                 NetworkRequests::Approval { approval_message } => {
                     if approval_message.target == block_producer_for_next_height
@@ -261,24 +210,16 @@ fn test_produce_block_with_approvals_arrived_early() {
                         let block_response = block_holder.read().clone().unwrap();
                         client_senders[&block_producer_for_next_height].send(block_response);
                     }
-                    Some(request)
+                    HandlerResult::Unhandled(request)
                 }
-                _ => Some(request),
+                _ => HandlerResult::Unhandled(request),
             }
         }));
     }
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(client_actor_handle).client;
-            let head = client.chain.final_head().unwrap();
-            head.height >= block_withholding_height + 1
-        },
-        Duration::seconds(60),
-    );
+    env.node_runner(0).run_until_final_head_height(block_withholding_height + 1);
 
     // Block after delayed one should still be produced though approvals for it arrived before the
     // block.
-    let client = &env.test_loop.data.get(client_actor_handle).client;
-    assert!(client.chain.get_block_by_height(block_withholding_height + 1).is_ok());
+    assert!(env.node(0).client().chain.get_block_by_height(block_withholding_height + 1).is_ok());
 }

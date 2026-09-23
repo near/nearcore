@@ -1,9 +1,10 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
-use near_client_primitives::types::{GetReceipt, GetReceiptError};
+use near_client_primitives::types::{GetReceipt, GetReceiptError, GetReceiptToTxError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
-    ReceiptReference, RpcReceiptError, RpcReceiptRequest,
+    ReceiptReference, RpcReceiptError, RpcReceiptRequest, RpcReceiptToTxError,
+    RpcReceiptToTxRequest,
 };
 use serde_json::Value;
 
@@ -36,6 +37,45 @@ impl RpcFrom<GetReceiptError> for RpcReceiptError {
                     .with_label_values(&["RpcReceiptError"])
                     .inc();
                 Self::InternalError { error_message: error.to_string() }
+            }
+        }
+    }
+}
+
+impl RpcRequest for RpcReceiptToTxRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::parse(value)
+    }
+}
+
+impl RpcFrom<AsyncSendError> for RpcReceiptToTxError {
+    fn rpc_from(error: AsyncSendError) -> Self {
+        Self::InternalError { error_message: error.to_string() }
+    }
+}
+
+impl RpcFrom<GetReceiptToTxError> for RpcReceiptToTxError {
+    fn rpc_from(error: GetReceiptToTxError) -> Self {
+        // No wildcard arm: new `#[non_exhaustive]` variants must surface on
+        // the wire, not silently degrade to InternalError.
+        match error {
+            GetReceiptToTxError::UnknownReceipt(receipt_id) => Self::UnknownReceipt { receipt_id },
+            GetReceiptToTxError::DepthExceeded { receipt_id, limit } => {
+                Self::DepthExceeded { receipt_id, limit }
+            }
+            GetReceiptToTxError::Unsupported(error_message) => Self::Unsupported { error_message },
+            GetReceiptToTxError::OutcomesNotStored => Self::OutcomesNotStored,
+            GetReceiptToTxError::WindowTooLarge { requested, maximum } => {
+                Self::WindowTooLarge { requested, maximum }
+            }
+            GetReceiptToTxError::MalformedHint(error_message) => {
+                Self::MalformedHint { error_message }
+            }
+            GetReceiptToTxError::BudgetExceeded { scanned, limit } => {
+                Self::BudgetExceeded { scanned, limit }
+            }
+            GetReceiptToTxError::InternalError(error_message) => {
+                Self::InternalError { error_message }
             }
         }
     }

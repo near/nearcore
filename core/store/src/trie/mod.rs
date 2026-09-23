@@ -62,7 +62,7 @@ pub(crate) mod split;
 mod state_parts;
 mod state_snapshot;
 mod trie_recording;
-mod trie_storage;
+pub mod trie_storage;
 pub mod trie_storage_update;
 #[cfg(test)]
 mod trie_tests;
@@ -154,6 +154,7 @@ impl<'a> AccessOptions<'a> {
     }
 }
 
+// MIN_MEMORY_USAGE_PER_PART_ENTRY in near-primitives mirrors node_cost; a test keeps them equal.
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Copy, Hash)]
@@ -508,6 +509,21 @@ impl TrieChanges {
 
     pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
         self.deletions.as_slice()
+    }
+
+    /// Returns a copy of this TrieChanges with only the insertions, clearing
+    /// deletions and in-memory changes. Used for resharding, where only
+    /// insertions are applied to the store and persisting deletions would
+    /// corrupt GC refcounts.
+    pub fn insertions_only(&self) -> TrieChanges {
+        TrieChanges {
+            old_root: self.old_root,
+            new_root: self.new_root,
+            insertions: self.insertions.clone(),
+            deletions: vec![],
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
+        }
     }
 }
 
@@ -1693,14 +1709,14 @@ impl Trie {
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
     #[inline]
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
         self.disk_iter_with_prune_condition(None)
     }
 
     pub fn disk_iter_with_max_depth(
         &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
         self.disk_iter_with_prune_condition(Some(prune_condition))
     }
@@ -1709,7 +1725,7 @@ impl Trie {
     pub fn disk_iter_with_prune_condition(
         &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator, StorageError> {
+    ) -> Result<DiskTrieIterator<'_>, StorageError> {
         DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 
@@ -1882,6 +1898,15 @@ mod tests {
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     const SHARD_VERSION: u32 = 1;
+
+    #[test]
+    fn state_part_entry_limit_uses_the_real_node_cost() {
+        assert_eq!(
+            TRIE_COSTS.node_cost,
+            near_primitives::state_part::MIN_MEMORY_USAGE_PER_PART_ENTRY,
+            "near-primitives bounds state part entries by this cost and cannot see TRIE_COSTS"
+        );
+    }
 
     fn test_clear_trie(
         tries: &ShardTries,

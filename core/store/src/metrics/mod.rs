@@ -442,6 +442,15 @@ pub mod flat_state_metrics {
         .unwrap()
     });
 
+    pub static FLAT_HEAD_HOLDS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_flat_head_holds",
+            "Number of active holds preventing the flat storage head from advancing",
+            &["shard_uid"],
+        )
+        .unwrap()
+    });
+
     pub mod inlining_migration {
         use near_o11y::metrics::{
             Histogram, IntCounter, try_create_histogram, try_create_int_counter,
@@ -545,25 +554,6 @@ pub mod resharding {
             });
     }
 }
-
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_cold_migration_initial_writes",
-        "Number of write calls to cold store made for every column during initial population of cold storage.",
-        &["col"],
-    )
-    .unwrap()
-});
-
-pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_cold_migration_initial_writes_time",
-        "Time spent on writing initial migration batches by column.",
-        &["column"],
-        None,
-    )
-    .unwrap()
-});
 
 pub static TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT: LazyLock<IntCounter> =
     LazyLock::new(|| {

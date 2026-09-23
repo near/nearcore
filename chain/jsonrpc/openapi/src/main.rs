@@ -2,7 +2,7 @@ use itertools::Itertools;
 use okapi::openapi3::{OpenApi, SchemaObject};
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 
@@ -21,17 +21,24 @@ use near_jsonrpc_primitives::types::{
     config::{RpcProtocolConfigError, RpcProtocolConfigRequest, RpcProtocolConfigResponse},
     congestion::{RpcCongestionLevelError, RpcCongestionLevelRequest, RpcCongestionLevelResponse},
     gas_price::{RpcGasPriceError, RpcGasPriceRequest, RpcGasPriceResponse},
+    indexer::{RpcIndexerBlockError, RpcIndexerBlockRequest, RpcIndexerBlockResponse},
     light_client::{
         RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+        RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+        RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockError,
         RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
+        RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
     },
     maintenance::{
         RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
     },
     network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
     query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
-    receipts::{RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse},
+    receipts::{
+        RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxError,
+        RpcReceiptToTxRequest, RpcReceiptToTxResponse,
+    },
     split_storage::{
         RpcSplitStorageInfoError, RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
     },
@@ -345,14 +352,42 @@ fn add_title_to_allof(
     }
 }
 
+/// Schemas whose `required` list is stripped so generated clients stay
+/// compatible across networks (testnet/mainnet may expose different fields)
+/// and nearcore versions where fields may be added or removed.
+/// Shared between the OpenAPI and OpenRPC generators.
+pub(crate) const SCHEMAS_TO_REMOVE_REQUIRED_FROM: &[&str] = &[
+    "RpcClientConfigResponse",
+    "GCConfig",
+    "CloudArchivalWriterConfig",
+    "StateSyncConfig",
+    "DumpConfig",
+    "SyncConcurrency",
+    "EpochSyncConfig",
+    "ChunkDistributionNetworkConfig",
+    "ChunkDistributionUris",
+    "RpcProtocolConfigResponse",
+    "RuntimeConfigView",
+    "RuntimeFeesConfigView",
+    "DataReceiptCreationConfigView",
+    "ActionCreationConfigView",
+    "StorageUsageConfigView",
+    "VMConfigView",
+    "LimitConfig",
+    "ExtCostsConfigView",
+    "AccountCreationConfigView",
+    "CongestionControlConfigView",
+    "WitnessConfigView",
+];
+
 /// Removes the "required" list from specific schemas
 #[derive(Debug, Clone)]
 pub struct RemoveRequiredFrom {
-    schemas: Vec<String>,
+    schemas: &'static [&'static str],
 }
 
 impl RemoveRequiredFrom {
-    pub fn new(schemas: Vec<String>) -> Self {
+    pub fn new(schemas: &'static [&'static str]) -> Self {
         Self { schemas }
     }
 }
@@ -361,8 +396,8 @@ impl schemars::transform::Transform for RemoveRequiredFrom {
     fn transform(&mut self, schema: &mut schemars::Schema) {
         // Check in $defs for all target schemas (schemas are in $defs at this point in the pipeline)
         if let Some(serde_json::Value::Object(defs)) = schema.get_mut("$defs") {
-            for schema_name in &self.schemas {
-                if let Some(target_schema) = defs.get_mut(schema_name) {
+            for schema_name in self.schemas {
+                if let Some(target_schema) = defs.get_mut(*schema_name) {
                     if let serde_json::Value::Object(schema_obj) = target_schema {
                         schema_obj.remove("required");
                     }
@@ -373,6 +408,58 @@ impl schemars::transform::Transform for RemoveRequiredFrom {
         // Continue transforming subschemas recursively
         transform_subschemas(self, schema);
     }
+}
+
+/// Makes one field optional (drops it from `required`) in a single tagged variant
+/// of a `oneOf` schema. `RpcTransactionError` is `#[serde(tag = "name", content = "info")]`,
+/// so schemars marks the `info` content field required for every non-unit variant —
+/// including `TIMEOUT_ERROR`, whose payload is actually an `Option<TimeoutErrorCause>`.
+/// Advertising `info` as required would make clients generated from this spec reject
+/// `TIMEOUT_ERROR` responses from older nodes that omit it. Dropping it from `required`
+/// keeps those clients compatible across the node-upgrade boundary.
+#[derive(Debug, Clone)]
+pub struct MakeVariantFieldOptional {
+    schema: &'static str,
+    variant: &'static str,
+    field: &'static str,
+}
+
+impl MakeVariantFieldOptional {
+    pub fn new(schema: &'static str, variant: &'static str, field: &'static str) -> Self {
+        Self { schema, variant, field }
+    }
+}
+
+impl schemars::transform::Transform for MakeVariantFieldOptional {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        // Schemas are in `$defs` at this point in the pipeline (see RemoveRequiredFrom).
+        if let Some(Value::Object(defs)) = schema.get_mut("$defs") {
+            if let Some(Value::Object(target)) = defs.get_mut(self.schema) {
+                if let Some(Value::Array(variants)) = target.get_mut("oneOf") {
+                    for variant in variants.iter_mut() {
+                        if variant_has_tag(variant, self.variant) {
+                            if let Some(Value::Array(required)) = variant.get_mut("required") {
+                                required.retain(|field| field.as_str() != Some(self.field));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Continue transforming subschemas recursively
+        transform_subschemas(self, schema);
+    }
+}
+
+/// Whether `variant` is the `#[serde(tag = "name")]` branch tagged with `tag`.
+fn variant_has_tag(variant: &Value, tag: &str) -> bool {
+    variant
+        .get("properties")
+        .and_then(|properties| properties.get("name"))
+        .and_then(|name| name.get("enum"))
+        .and_then(|values| values.as_array())
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(tag)))
 }
 
 /// Interchanges `oneOf` and `allOf` in the schema for InterchangeOneOfsAndAllOfs transform
@@ -423,33 +510,14 @@ fn interchange_one_ofs_and_all_ofs(
 }
 
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
-    let config_schemas_to_remove_required = vec![
-        "RpcClientConfigResponse".to_string(),
-        "GCConfig".to_string(),
-        "CloudArchivalWriterConfig".to_string(),
-        "StateSyncConfig".to_string(),
-        "DumpConfig".to_string(),
-        "ExternalStorageConfig".to_string(),
-        "SyncConcurrency".to_string(),
-        "EpochSyncConfig".to_string(),
-        "ChunkDistributionNetworkConfig".to_string(),
-        "ChunkDistributionUris".to_string(),
-        "RpcProtocolConfigResponse".to_string(),
-        "RuntimeConfigView".to_string(),
-        "RuntimeFeesConfigView".to_string(),
-        "DataReceiptCreationConfigView".to_string(),
-        "ActionCreationConfigView".to_string(),
-        "StorageUsageConfigView".to_string(),
-        "VMConfigView".to_string(),
-        "LimitConfig".to_string(),
-        "ExtCostsConfigView".to_string(),
-        "AccountCreationConfigView".to_string(),
-        "CongestionControlConfigView".to_string(),
-        "WitnessConfigView".to_string(),
-    ];
-
     let mut settings = schemars::generate::SchemaSettings::openapi3();
-    settings.transforms.push(Box::new(RemoveRequiredFrom::new(config_schemas_to_remove_required)));
+    settings.transforms.push(Box::new(RemoveRequiredFrom::new(SCHEMAS_TO_REMOVE_REQUIRED_FROM)));
+    // `TimeoutError`'s `info` payload is an `Option`, so it must not be advertised as required.
+    settings.transforms.push(Box::new(MakeVariantFieldOptional::new(
+        "RpcTransactionError",
+        "TIMEOUT_ERROR",
+        "info",
+    )));
 
     settings.transforms.insert(
         0,
@@ -636,7 +704,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.2.3".to_string(),
+            version: "1.3.32".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -775,6 +843,14 @@ fn main() {
         "Queries status of a transaction by hash and returns the final transaction result."
             .to_string(),
     );
+    add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "tx_status".to_string(),
+        "Queries status of a transaction by hash, \
+        returning the final transaction result and details of all receipts."
+            .to_string(),
+    );
     add_spec_for_path::<RpcValidatorRequest, RpcValidatorResponse, RpcValidatorError>(
         &mut all_schemas,
         &mut all_paths,
@@ -831,6 +907,42 @@ fn main() {
         "EXPERIMENTAL_light_client_block_proof".to_string(),
         "Returns the proofs for a transaction execution.".to_string(),
     );
+    add_spec_for_path::<
+        RpcLightClientChunkExecutionProofRequest,
+        RpcLightClientChunkExecutionProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_chunk_execution_proof".to_string(),
+        "Returns a proof that a chunk's certified execution roots are committed by the chain, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientExecutionOutcomeProofRequest,
+        RpcLightClientExecutionOutcomeProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_execution_outcome_proof".to_string(),
+        "Returns a transaction or receipt execution outcome together with its proof against the chunk's certified outcome root, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<
+        RpcLightClientStateProofRequest,
+        RpcLightClientStateProofResponse,
+        RpcLightClientProofError,
+    >(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_light_client_state_proof".to_string(),
+        "Returns a value from a shard's state together with its trie proof against the chunk's certified state root, verifiable against a trusted light client head.".to_string(),
+    );
+    add_spec_for_path::<RpcIndexerBlockRequest, RpcIndexerBlockResponse, RpcIndexerBlockError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_indexer_block".to_string(),
+        "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.".to_string(),
+    );
     add_spec_for_path::<RpcProtocolConfigRequest, RpcProtocolConfigResponse, RpcProtocolConfigError>(
         &mut all_schemas,
         &mut all_paths,
@@ -843,11 +955,21 @@ fn main() {
         "EXPERIMENTAL_receipt".to_string(),
         "Fetches a receipt by its ID (as is, without a status or execution outcome)".to_string(),
     );
+    add_spec_for_path::<RpcReceiptToTxRequest, RpcReceiptToTxResponse, RpcReceiptToTxError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "EXPERIMENTAL_receipt_to_tx".to_string(),
+        "Resolves a receipt ID back to the originating transaction hash and sender account"
+            .to_string(),
+    );
     add_spec_for_path::<RpcTransactionStatusRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_tx_status".to_string(),
-        "Queries status of a transaction by hash, returning the final transaction result and details of all receipts.".to_string(),
+        "[Deprecated] Queries status of a transaction by hash, \
+        returning the final transaction result and details of all receipts. \
+        Consider using `tx_status` instead."
+            .to_string(),
     );
     add_spec_for_path::<RpcValidatorsOrderedRequest, RpcValidatorsOrderedResponse, RpcValidatorError>(
         &mut all_schemas,

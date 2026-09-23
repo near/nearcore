@@ -1,5 +1,8 @@
-use near_crypto::PublicKey;
-use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_crypto::{InMemorySigner, PublicKey, SecretKey};
+use near_primitives::action::delegate::{
+    DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedDelegateActionRef,
+    VersionedSignedDelegateAction,
+};
 use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -39,13 +42,53 @@ fn map_action(
             Some(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }))
         }
         Action::Delegate(delegate) => {
-            if delegate_allowed {
-                map_delegate_action(delegate, secret, default_key)
-            } else {
+            if !delegate_allowed {
                 // This should not happen, but we handle the case here defensively
                 tracing::warn!(target: "mirror", ?delegate, "a delegate action was contained inside another delegate action");
-                None
+                return None;
             }
+            let resign = |action: DelegateAction, key: SecretKey| {
+                let tx_hash = action.get_nep461_hash();
+                let signature = key.sign(tx_hash.as_ref());
+                Action::Delegate(Box::new(SignedDelegateAction {
+                    delegate_action: action,
+                    signature,
+                }))
+            };
+            map_delegate_action((&delegate.delegate_action).into(), secret, default_key, resign)
+        }
+        Action::DelegateV2(delegate) => {
+            if !delegate_allowed {
+                // This should not happen, but we handle the case here defensively
+                tracing::warn!(target: "mirror", ?delegate, "a delegate action was contained inside another delegate action");
+                return None;
+            }
+            let versioned_nonce =
+                VersionedDelegateActionRef::from(&delegate.delegate_action).nonce();
+            let resign = move |action: DelegateAction, key: SecretKey| {
+                let signer = InMemorySigner::from_secret_key(action.sender_id.clone(), key);
+                let DelegateAction {
+                    sender_id,
+                    receiver_id,
+                    actions,
+                    nonce: _,
+                    max_block_height,
+                    public_key,
+                } = action;
+                let delegate_action = DelegateActionV2 {
+                    sender_id,
+                    receiver_id,
+                    actions,
+                    nonce: versioned_nonce,
+                    max_block_height,
+                    public_key,
+                };
+                Action::DelegateV2(Box::new(VersionedSignedDelegateAction::sign(
+                    &signer,
+                    delegate_action.into(),
+                )))
+            };
+            map_delegate_action((&delegate.delegate_action).into(), secret, default_key, resign)
         }
         // We don't want to mess with the set of validators in the target chain
         Action::Stake(_) => None,
@@ -53,12 +96,15 @@ fn map_action(
     }
 }
 
+/// Shared key/account remapping for delegate-style actions. `resign` rebuilds
+/// the signed action from the mapped inner action and the mapped signing key.
 fn map_delegate_action(
-    delegate: &SignedDelegateAction,
+    delegate_action: VersionedDelegateActionRef<'_>,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
+    resign: impl FnOnce(DelegateAction, SecretKey) -> Action,
 ) -> Option<Action> {
-    let source_actions = delegate.delegate_action.get_actions();
+    let source_actions = delegate_action.get_actions();
     let mut actions = Vec::with_capacity(source_actions.len());
 
     let mut account_created = false;
@@ -92,21 +138,16 @@ fn map_delegate_action(
             .unwrap(),
         );
     }
-    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key, secret);
+    let mapped_key = crate::key_mapping::map_key(delegate_action.public_key(), secret);
     let mapped_action = DelegateAction {
-        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id, secret),
-        receiver_id: crate::key_mapping::map_account(&delegate.delegate_action.receiver_id, secret),
+        sender_id: crate::key_mapping::map_account(delegate_action.sender_id(), secret),
+        receiver_id: crate::key_mapping::map_account(delegate_action.receiver_id(), secret),
         actions,
-        nonce: delegate.delegate_action.nonce,
-        max_block_height: delegate.delegate_action.max_block_height,
+        nonce: delegate_action.nonce().nonce(),
+        max_block_height: delegate_action.max_block_height(),
         public_key: mapped_key.public_key(),
     };
-    let tx_hash = mapped_action.get_nep461_hash();
-    let d = SignedDelegateAction {
-        delegate_action: mapped_action,
-        signature: mapped_key.sign(tx_hash.as_ref()),
-    };
-    Some(Action::Delegate(Box::new(d)))
+    Some(resign(mapped_action, mapped_key))
 }
 
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
@@ -212,12 +253,12 @@ pub(crate) fn map_records<P: AsRef<Path>>(
     near_chain_configs::stream_records_from_file(reader, |mut r| {
         match &mut r {
             StateRecord::AccessKey { account_id, public_key, access_key } => {
-                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
-                let new_record = StateRecord::AccessKey {
-                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
-                    public_key: replacement.public_key(),
-                    access_key: access_key.clone(),
-                };
+                let replacement = crate::key_mapping::map_key_handle(public_key, secret.as_ref());
+                let new_record = StateRecord::access_key(
+                    crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    &replacement.public_key(),
+                    access_key.clone(),
+                );
                 // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                 if account_id.get_account_type() != AccountType::NearImplicitAccount
                     && access_key.permission == AccessKeyPermission::FullAccess
@@ -229,13 +270,13 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                let replacement = crate::key_mapping::map_key(&public_key, secret.as_ref());
-                let new_record = StateRecord::GasKeyNonce {
-                    account_id: crate::key_mapping::map_account(&account_id, secret.as_ref()),
-                    public_key: replacement.public_key(),
-                    index: *index,
-                    nonce: *nonce,
-                };
+                let replacement = crate::key_mapping::map_key_handle(public_key, secret.as_ref());
+                let new_record = StateRecord::gas_key_nonce(
+                    crate::key_mapping::map_account(&account_id, secret.as_ref()),
+                    &replacement.public_key(),
+                    *index,
+                    *nonce,
+                );
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
@@ -281,11 +322,11 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 
     for account_id in accounts {
         if !has_full_key.contains(&account_id) {
-            records_seq.serialize_element(&StateRecord::AccessKey {
+            records_seq.serialize_element(&StateRecord::access_key(
                 account_id,
-                public_key: default_key.clone(),
-                access_key: AccessKey::full_access(),
-            })?;
+                &default_key,
+                AccessKey::full_access(),
+            ))?;
         }
     }
     records_seq.end()?;
@@ -294,14 +335,15 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::state_record::StateRecord;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
-    use near_primitives::types::Balance;
+    use near_primitives::types::{AccountId, Balance};
     use near_primitives_core::account::AccessKey;
 
     #[test]
@@ -489,7 +531,8 @@ mod test {
     }
 
     fn has_default_full_access_key(records: &[StateRecord]) -> bool {
-        let default_key = crate::key_mapping::default_extra_key(None).public_key();
+        let default_key: near_crypto::PublicKeyHandle =
+            (&crate::key_mapping::default_extra_key(None).public_key()).into();
         records.iter().any(|r| match r {
             StateRecord::AccessKey { public_key, access_key, .. } => {
                 *public_key == default_key
@@ -506,17 +549,9 @@ mod test {
         let records = vec![
             StateRecord::Account {
                 account_id: "alice.near".parse().unwrap(),
-                account: near_primitives::test_utils::account_new(
-                    Balance::from_yoctonear(1_000_000),
-                    near_primitives::hash::CryptoHash::default(),
-                ),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
             },
-            StateRecord::GasKeyNonce {
-                account_id: "alice.near".parse().unwrap(),
-                public_key,
-                index: 3,
-                nonce: 42,
-            },
+            StateRecord::gas_key_nonce("alice.near".parse().unwrap(), &public_key, 3, 42),
         ];
         let out = run_map_records(&records);
         let gas_key_record = out
@@ -528,7 +563,7 @@ mod test {
             unreachable!()
         };
         assert_eq!(account_id.as_str(), "alice.near");
-        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(*public_key, (&mapped_public_key).into());
         assert_eq!(*index, 3);
         assert_eq!(*nonce, 42);
         // GasKeyNonce record should not suppress adding a full default access
@@ -543,16 +578,13 @@ mod test {
         let records = vec![
             StateRecord::Account {
                 account_id: "bob.near".parse().unwrap(),
-                account: near_primitives::test_utils::account_new(
-                    Balance::from_yoctonear(1_000_000),
-                    near_primitives::hash::CryptoHash::default(),
-                ),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
             },
-            StateRecord::AccessKey {
-                account_id: "bob.near".parse().unwrap(),
-                public_key,
-                access_key: AccessKey::gas_key_full_access(4),
-            },
+            StateRecord::access_key(
+                "bob.near".parse().unwrap(),
+                &public_key,
+                AccessKey::gas_key_full_access(4),
+            ),
         ];
         let out = run_map_records(&records);
         let gas_key_record = out
@@ -568,7 +600,7 @@ mod test {
             unreachable!()
         };
         assert_eq!(account_id.as_str(), "bob.near");
-        assert_eq!(*public_key, mapped_public_key);
+        assert_eq!(*public_key, (&mapped_public_key).into());
         assert_eq!(
             access_key.permission,
             AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
@@ -579,5 +611,44 @@ mod test {
         // GasKeyFullAccess record should not suppress adding a full default access
         // key for mirror purposes.
         assert!(has_default_full_access_key(&out));
+    }
+
+    /// An account whose only full access key is post-quantum.
+    #[test]
+    fn test_map_records_mldsa65_access_key() {
+        let secret_key = SecretKey::from_seed(KeyType::MLDSA65, "pq-key");
+        let public_key = secret_key.public_key();
+        let account_id: AccountId = "pq.near".parse().unwrap();
+
+        let records = vec![
+            StateRecord::Account {
+                account_id: account_id.clone(),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
+            },
+            StateRecord::access_key(account_id, &public_key, AccessKey::full_access()),
+        ];
+        let out = run_map_records(&records);
+
+        // The forked state carries a mapped ML-DSA-65 key, not the source one.
+        let forked_handle = out
+            .iter()
+            .find_map(|r| match r {
+                StateRecord::AccessKey { public_key, access_key, .. }
+                    if access_key.permission == AccessKeyPermission::FullAccess
+                        && matches!(public_key, PublicKeyHandle::MlDsa65(_)) =>
+                {
+                    Some(public_key.clone())
+                }
+                _ => None,
+            })
+            .expect("mapped ML-DSA-65 access key should be in output");
+        assert_ne!(forked_handle, (&public_key).into());
+
+        // And it's the key mirror signs replayed transactions with.
+        let mapped_key = crate::key_mapping::map_key(&public_key, None);
+        assert_eq!(forked_handle, (&mapped_key.public_key()).into());
+
+        // The account already has a full access key, so no default one is added.
+        assert!(!has_default_full_access_key(&out));
     }
 }

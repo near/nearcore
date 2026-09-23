@@ -1,11 +1,15 @@
-use super::NightshadeRuntime;
+use super::{NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::{
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, GenesisConfig,
+    default_view_access_keys_limit,
 };
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::gas::Gas;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
-use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+use near_vm_runner::{
+    ContractRuntimeCache, FilesystemContractRuntimeCache, noop_background_spawner,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -24,14 +28,14 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             None,
+            default_view_access_keys_limit(),
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            false,
-            true,
+            RuntimeOptions::default(),
         )
     }
 
@@ -45,7 +49,9 @@ impl NightshadeRuntime {
         trie_config: TrieConfig,
         gc_num_epochs_to_keep: u64,
         is_cloud_archival_writer: bool,
+        snapshot_every_n_epochs: u64,
         save_receipt_to_tx: bool,
+        max_gas_burnt_view: Option<Gas>,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -53,14 +59,21 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             None,
-            None,
+            default_view_access_keys_limit(),
+            max_gas_burnt_view,
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
-            StateSnapshotConfig::enabled(home_dir.join("data")),
+            StateSnapshotConfig::enabled_with_cadence(
+                home_dir.join("data"),
+                snapshot_every_n_epochs,
+            ),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
-            is_cloud_archival_writer,
-            save_receipt_to_tx,
+            RuntimeOptions {
+                is_cloud_archival_writer,
+                save_receipt_to_tx,
+                ..RuntimeOptions::default()
+            },
         )
     }
 
@@ -79,6 +92,9 @@ impl NightshadeRuntime {
                 "contract.cache",
                 1,
                 None,
+                // Test runtime never evicts.
+                FilesystemContractRuntimeCache::MAX_DISK_CACHE_BYTES,
+                noop_background_spawner(),
             )
             .expect("filesystem contract cache")
             .handle(),

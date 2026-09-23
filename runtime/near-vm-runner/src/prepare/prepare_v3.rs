@@ -11,8 +11,11 @@ struct PrepareContext<'a> {
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
+    function_body_size_limit: u64,
     table_limit: u32,
     table_element_limit: u64,
+    type_limit: u64,
+    global_limit: u64,
     validator: wp::Validator,
     func_validator_allocations: wp::FuncValidatorAllocations,
     before_import_section: bool,
@@ -37,9 +40,12 @@ impl<'a> PrepareContext<'a> {
             // Practically reaching u64::MAX locals or functions is infeasible, so when the limit is not
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
-            local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
+            local_limit: max_locals(code, config).unwrap_or(u64::MAX),
+            function_body_size_limit: limits.max_function_body_size.unwrap_or(u64::MAX),
             table_limit: limits.max_tables_per_contract.unwrap_or(u32::MAX),
             table_element_limit,
+            type_limit: limits.max_types_per_contract.unwrap_or(u64::MAX),
+            global_limit: limits.max_globals_per_contract.unwrap_or(u64::MAX),
             validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
@@ -50,8 +56,7 @@ impl<'a> PrepareContext<'a> {
 
     /// “Early” preparation.
     ///
-    /// Must happen before the finite-wasm analysis and is applicable to NearVm just as much as it is
-    /// applicable to other runtimes.
+    /// Must happen before the finite-wasm analysis and is applicable to all runtimes.
     ///
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
@@ -60,7 +65,7 @@ impl<'a> PrepareContext<'a> {
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
-                tracing::trace!(?err, "was not able to early prepare the input module");
+                tracing::trace!(target: "vm", ?err, "was not able to early prepare the input module");
                 PrepareError::Deserialization
             })?;
             match payload {
@@ -75,6 +80,10 @@ impl<'a> PrepareContext<'a> {
                 }
 
                 wp::Payload::TypeSection(reader) => {
+                    self.type_limit = self
+                        .type_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyTypes)?;
                     self.validator
                         .type_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
@@ -117,7 +126,7 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
-                    // importing the memory instead in NearVm.
+                    // importing the memory instead.
                     self.ensure_import_section();
                     self.before_memory_section = false;
                     self.validator
@@ -134,6 +143,10 @@ impl<'a> PrepareContext<'a> {
                     self.validator
                         .global_section(&reader)
                         .map_err(|_| PrepareError::Deserialization)?;
+                    self.global_limit = self
+                        .global_limit
+                        .checked_sub(u64::from(reader.count()))
+                        .ok_or(PrepareError::TooManyGlobals)?;
                     self.copy_section(SectionId::Global, reader.range())?;
                 }
                 wp::Payload::ExportSection(reader) => {
@@ -226,6 +239,16 @@ impl<'a> PrepareContext<'a> {
                     self.copy_section(SectionId::Code, range.clone())?;
                 }
                 wp::Payload::CodeSectionEntry(func) => {
+                    let body_size = func.range().len() as u64;
+                    if body_size > self.function_body_size_limit {
+                        tracing::debug!(
+                            target: "vm",
+                            body_size,
+                            limit = self.function_body_size_limit,
+                            "function body size exceeds the limit"
+                        );
+                        return Err(PrepareError::FunctionBodyTooLarge);
+                    }
                     let local_reader =
                         func.get_locals_reader().map_err(|_| PrepareError::Deserialization)?;
                     for local in local_reader {
@@ -251,12 +274,7 @@ impl<'a> PrepareContext<'a> {
                     func_validator.validate(&func).map_err(|_| PrepareError::Deserialization)?;
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
-                wp::Payload::CustomSection(reader) => {
-                    if !self.config.discard_custom_sections {
-                        self.ensure_export_section();
-                        self.copy_section(SectionId::Custom, reader.range())?;
-                    }
-                }
+                wp::Payload::CustomSection(_) => {}
 
                 // Extensions not supported.
                 wp::Payload::UnknownSection { .. }
@@ -273,7 +291,7 @@ impl<'a> PrepareContext<'a> {
                 | wp::Payload::ComponentImportSection(_)
                 | wp::Payload::ComponentExportSection(_)
                 | _ => {
-                    tracing::trace!("input module contains unsupported section");
+                    tracing::trace!(target: "vm", "input module contains unsupported section");
                     return Err(PrepareError::Deserialization);
                 }
             }
@@ -384,11 +402,6 @@ pub(crate) fn prepare_contract(
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
-    match kind {
-        VMKind::NearVm => return Ok(lightly_steamed),
-        VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
-    }
-
     let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
         .with_gas(SimpleGasCostCfg {
@@ -398,7 +411,7 @@ pub(crate) fn prepare_contract(
         })
         .analyze(&lightly_steamed)
         .map_err(|err| {
-            tracing::error!(?err, ?kind, "analysis failed");
+            tracing::error!(target: "vm", ?err, ?kind, "analysis failed");
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
@@ -408,16 +421,52 @@ pub(crate) fn prepare_contract(
         &analysis,
         config.regular_op_cost,
         config.limit_config.max_stack_height,
+        config.limit_config.max_blocks_per_function.unwrap_or(u64::MAX),
+        config.limit_config.max_blocks_per_contract.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_function.unwrap_or(u64::MAX),
+        config.limit_config.max_params_per_contract.unwrap_or(u64::MAX),
+        config.limit_config.max_operand_stack_bytes_per_function.unwrap_or(u64::MAX),
     )
     .run()
     .map_err(|err| {
-        tracing::error!(?err, ?kind, "instrumentation failed");
-        PrepareError::Serialization
+        use super::instrument_v3::Error;
+        match err {
+            Error::TooManyBlocksPerFunction => PrepareError::TooManyBlocksPerFunction,
+            Error::TooManyBlocksPerContract => PrepareError::TooManyBlocksPerContract,
+            Error::TooManyParamsPerFunction => PrepareError::TooManyParamsPerFunction,
+            Error::TooManyParamsPerContract => PrepareError::TooManyParamsPerContract,
+            Error::OperandStackTooLarge => PrepareError::OperandStackTooLarge,
+            err => {
+                tracing::error!(target: "vm", ?err, ?kind, "instrumentation failed");
+                PrepareError::Serialization
+            }
+        }
     })?;
+    // Guard against overflowing Cranelift’s 24-bit SSA value counter. Each wasm
+    // byte produces at least one SSA value, so capping the instrumented size is a
+    // conservative proxy.
+    // TODO: if we ever need to relax this limit, count actual wasm instructions
+    // during the instrumentation pass instead of using byte size as a proxy.
+    if let Some(max_size) = config.limit_config.max_instrumented_code_size {
+        if res.len() as u64 > max_size {
+            tracing::debug!(target: "vm", size=res.len(), ?kind, "instrumented code too large");
+            return Err(PrepareError::InstrumentedCodeTooLarge);
+        }
+    }
     Ok(res)
 }
 
-// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
+fn max_locals(code: &[u8], config: &Config) -> Option<u64> {
+    let limits = &config.limit_config;
+    let size_dependent_limit = limits.min_contract_size_per_local.map(|min_size_per_local| {
+        u64::try_from(code.len())
+            .unwrap_or(u64::MAX)
+            .checked_div(min_size_per_local)
+            .unwrap_or(u64::MAX)
+    });
+    [limits.max_locals_per_contract, size_dependent_limit].into_iter().flatten().min()
+}
+
 struct SimpleMaxStackCfg;
 
 impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
@@ -461,6 +510,9 @@ struct SimpleGasCostCfg {
 macro_rules! gas_cost {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
         $(
+            // The macro produces many visitor functions with unused arguments, the easiest
+            // solution is to ignore the warnings.
+            #[allow(unused_variables)]
             fn $visit(&mut self $($(, $arg: $argty)*)?) -> Fee {
                 gas_cost!(@@self $visit)
             }
@@ -476,6 +528,8 @@ macro_rules! gas_cost {
     (@@$self:ident visit_table_init) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident visit_table_copy) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident visit_table_fill) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_memory_grow) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
+    (@@$self:ident visit_table_grow) => { Fee { linear: $self.linear_unit, constant: $self.linear_base } };
     (@@$self:ident $visit:ident) => { Fee::constant($self.regular) };
 }
 
@@ -486,130 +540,4 @@ impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
 
 impl<'a> wp::VisitSimdOperator<'a> for SimpleGasCostCfg {
     wp::for_each_visit_simd_operator!(gas_cost);
-}
-
-#[cfg(test)]
-mod test {
-    use super::VMKind;
-    use crate::logic::errors::PrepareError;
-    use crate::tests::test_vm_config;
-    use finite_wasm_6::wasmparser as wp;
-
-    fn wasmparser_decode(
-        code: &[u8],
-        features: crate::features::WasmFeatures,
-    ) -> Result<(Option<u64>, Option<u64>, Option<u32>, u64), wp::BinaryReaderError> {
-        use wp::ValidPayload;
-        let mut validator = wp::Validator::new_with_features(features.into());
-        let mut function_count = Some(0u64);
-        let mut local_count = Some(0u64);
-        let mut table_count = Some(0u32);
-        let mut max_elements_per_table = 0;
-        for payload in wp::Parser::new(0).parse_all(code) {
-            let payload = payload?;
-
-            // The validator does not output `ValidPayload::Func` for imported functions.
-            if let wp::Payload::ImportSection(ref import_section_reader) = payload {
-                for import_section in import_section_reader.clone() {
-                    match import_section?.ty {
-                        wp::TypeRef::Func(_) => {
-                            function_count = function_count.and_then(|f| f.checked_add(1))
-                        }
-                        wp::TypeRef::Table(wp::TableType { initial, .. }) => {
-                            table_count = table_count.and_then(|n| n.checked_add(1));
-                            max_elements_per_table = max_elements_per_table.max(initial);
-                        }
-                        wp::TypeRef::Memory(_) | wp::TypeRef::Global(_) | wp::TypeRef::Tag(_) => {}
-                    }
-                }
-            }
-
-            match validator.payload(&payload)? {
-                ValidPayload::Ok => (),
-                ValidPayload::Func(validator, body) => {
-                    validator.into_validator(Default::default()).validate(&body)?;
-                    function_count = function_count.and_then(|f| f.checked_add(1));
-                    // Count the global number of local variables.
-                    let mut local_reader = body.get_locals_reader()?;
-                    for _ in 0..local_reader.get_count() {
-                        let (count, _type) = local_reader.read()?;
-                        local_count = local_count.and_then(|l| l.checked_add(count.into()));
-                    }
-                }
-                ValidPayload::Parser(_) => {
-                    panic!("submodules not supported and should've been rejected")
-                }
-                ValidPayload::End(_) => {}
-            }
-        }
-        Ok((function_count, local_count, table_count, max_elements_per_table))
-    }
-
-    fn validate_contract(
-        code: &[u8],
-        features: crate::features::WasmFeatures,
-        config: &near_parameters::vm::Config,
-    ) -> Result<(), PrepareError> {
-        let (function_count, local_count, table_count, element_count) =
-            wasmparser_decode(code, features).map_err(|e| {
-                tracing::debug!(err=?e, "wasmparser failed decoding a contract");
-                PrepareError::Deserialization
-            })?;
-        // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
-        // of this check is important. In the past we first validated the entire module and only then
-        // verified that the limit is not exceeded. While it would be more efficient to check for this
-        // before validating the function bodies, it would change the results for malformed WebAssembly
-        // modules.
-        if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
-            if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
-                return Err(PrepareError::TooManyFunctions);
-            }
-        }
-        // Similarly, do the same for the number of locals.
-        if let Some(max_locals) = config.limit_config.max_locals_per_contract {
-            if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
-                return Err(PrepareError::TooManyLocals);
-            }
-        }
-        // Similarly, do the same for the number of tables.
-        if let Some(max_tables) = config.limit_config.max_tables_per_contract {
-            if table_count.ok_or(PrepareError::TooManyTables)? > max_tables {
-                return Err(PrepareError::TooManyTables);
-            }
-        }
-        // Similarly, do the same for the number of table elements.
-        if let Some(max_elements) = config.limit_config.max_elements_per_contract_table {
-            if usize::try_from(element_count).map_err(|_| PrepareError::TooManyTableElements)?
-                > max_elements
-            {
-                return Err(PrepareError::TooManyTableElements);
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn v3_preparation_wasmtime_generates_valid_contract_fuzzer() {
-        let config = test_vm_config(Some(VMKind::Wasmtime));
-        let features = crate::features::WasmFeatures::new(&config);
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
-            // pass our validation step!
-            if let Ok(_) = validate_contract(input, features, &config) {
-                match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wp::Validator::new_with_features(features.into());
-                        match validator.validate_all(&code) {
-                            Ok(_) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
-    }
 }

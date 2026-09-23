@@ -139,16 +139,8 @@ check-lychee:
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 
 # check tools/protocol-schema-check/res/protocol_schema.toml
-# On MacOS, not all structs are collected by `inventory`. Non-incremental build fixes that.
-# See https://github.com/dtolnay/inventory/issues/52.
-protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check RUSTC_BOOTSTRAP=1 RUSTFLAGS='--cfg enable_const_type_id' CARGO_INCREMENTAL=0"
+protocol_schema_env := "CARGO_TARGET_DIR=" + justfile_directory() + "/target/schema-check"
 check-protocol-schema:
-    # Below, we *should* have been used `cargo +nightly ...` instead of
-    # `RUSTC_BOOTSTRAP=1`. However, the env var appears to be more stable.
-    # `nightly` builds are updated daily and may be broken sometimes, e.g.
-    # https://github.com/rust-lang/rust/issues/130769.
-    #
-    # If there is an issue with the env var, fall back to `cargo +nightly ...`.
     env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
     env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts
 
@@ -195,3 +187,26 @@ check-cspell:
     # You will need the cspell npm package.
     # For nixpkgs users that's `nodePackages.cspell`
     git ls-files | cspell --no-progress --file-list stdin
+
+# Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`
+# users must sync it manually.
+# Bring up the bug-bounty localnet (4 validators by default; edit tools/bounty-localnet/.env to change).
+bounty-localnet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd tools/bounty-localnet
+    [ -f .env ] || cp .env.example .env
+    set -a
+    source .env
+    set +a
+    if (( NUM_VALIDATORS > 1 )); then
+        export COMPOSE_PROFILES="min${NUM_VALIDATORS}"
+    else
+        # empty export, not unset: shell env must win over the .env value
+        export COMPOSE_PROFILES=""
+    fi
+    docker compose up --build
+
+# Tear down the bug-bounty localnet and wipe its generated state.
+bounty-localnet-reset:
+    cd tools/bounty-localnet && ./reset.sh

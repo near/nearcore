@@ -7,6 +7,7 @@ pub mod messaging;
 pub mod multithread;
 pub mod test_loop;
 pub mod test_utils;
+pub mod thread_pool;
 pub mod tokio;
 
 use crate::futures::FutureSpawner;
@@ -169,21 +170,6 @@ pub fn new_owned_future_spawner(description: &str) -> Box<dyn FutureSpawner> {
     Box::new(OwnedFutureSpawner {
         handle: spawn_tokio_actor(EmptyActor, description.to_string(), CancellationToken::new()),
     })
-}
-
-/// Spawns a multithreaded actor which is NOT owned by any ActorSystem.
-/// Rather, the returned handle, when dropped, will stop the actor and its runtime.
-pub fn new_owned_multithread_actor<A: Actor + Send + 'static>(
-    num_threads: usize,
-    make_actor_fn: impl Fn() -> A + Sync + Send + 'static,
-) -> MultithreadRuntimeHandle<A> {
-    let (cancellation_signal, cancellation_receiver) = crossbeam_channel::bounded::<()>(0);
-    spawn_multithread_actor(
-        num_threads,
-        make_actor_fn,
-        cancellation_receiver,
-        Some(cancellation_signal), // never cancelled
-    )
 }
 
 struct OwnedFutureSpawner {

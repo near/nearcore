@@ -80,6 +80,9 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: ./.github/actions/install-clang
+
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
         if: (github.event_name != 'pull_request' || matrix.run_on_pr)
@@ -103,12 +106,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
-        with:
-          against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+          version: 1.72.0
+          # The action enables these on pull_request events only. Set them
+          # explicitly so they also run on merge_group.
+          lint: true
+          format: true
+          breaking: true
+          breaking_against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+          pr_comment: false
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"
@@ -151,6 +158,7 @@ jobs:
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/install-clang
       - run: cargo build --profile dev-release -p neard --bin neard --features nightly
       # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
@@ -194,6 +202,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just check-protocol-schema
 
   py_style_check:
@@ -265,6 +274,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just check-cargo-clippy
 
   doctests:
@@ -295,6 +305,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
+      - uses: ./.github/actions/install-clang
       - run: just doctests
 
   spellcheck:
@@ -403,6 +414,7 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-udeps
+      - uses: ./.github/actions/install-clang
       - run: just check-cargo-udeps
 
   cargo_audit:
@@ -443,6 +455,11 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: false
           flags: unittests-nightly
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
+        with:
+          files: unit-linux-spice.json
+          fail_ci_if_error: false
+          flags: unittests-spice
       - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: py-nightly.json

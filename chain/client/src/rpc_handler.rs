@@ -1,9 +1,13 @@
 use crate::metrics;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::{ActorSystem, messaging};
 use near_chain::check_transaction_validity_period;
+use near_chain::spice::chunk_application::spice_shard_congestion_info;
+use near_chain::spice::core::get_last_certified_block_header;
+use near_chain::types::PendingConstraints;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::Tip;
 use near_chain_configs::MutableValidatorSigner;
@@ -23,7 +27,6 @@ use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
-use near_primitives::unwrap_or_return;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -50,6 +53,7 @@ pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -59,6 +63,7 @@ pub fn spawn_rpc_handler_actor(
     let actor = RpcHandlerActor::new(
         config.clone(),
         tx_pool,
+        pending_transaction_queue,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -75,6 +80,7 @@ pub struct RpcHandlerConfig {
     pub disable_tx_routing: bool,
     pub epoch_length: u64,
     pub transaction_validity_period: BlockHeightDelta,
+    pub spice_pending_transaction_queue_enabled: bool,
 }
 
 /// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocessing on incoming data.
@@ -86,6 +92,7 @@ pub struct RpcHandlerActor {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -99,6 +106,7 @@ impl RpcHandlerActor {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+        pending_transaction_queue: Arc<Mutex<ShardedPendingTransactionQueue>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -110,6 +118,7 @@ impl RpcHandlerActor {
         Self {
             config,
             tx_pool,
+            pending_transaction_queue,
             validator_signer,
             chain_store,
             epoch_manager,
@@ -129,12 +138,15 @@ impl RpcHandlerActor {
         is_forwarded: bool,
         check_only: bool,
     ) -> ProcessTxResponse {
-        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
-            let signer = self.validator_signer.get();
-            let me = signer.as_ref().map(|signer| signer.validator_id());
-            tracing::debug!(target: "client", ?me, ?tx, "dropping tx");
-            ProcessTxResponse::NoResponse
-        })
+        match self.process_tx_internal(&tx, is_forwarded, check_only) {
+            Ok(response) => response,
+            Err(err) => {
+                let signer = self.validator_signer.get();
+                let me = signer.as_ref().map(|signer| signer.validator_id());
+                tracing::debug!(target: "client", ?me, ?tx, ?err, "failed to process tx");
+                ProcessTxResponse::InternalError(err.to_string())
+            }
+        }
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
@@ -167,8 +179,28 @@ impl RpcHandlerActor {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let receiver_shard =
             shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id());
-        let receiver_congestion_info =
-            cur_block.block_congestion_info().get(&receiver_shard).copied();
+        // TODO(spice): get_last_certified_block_header does multiple DB reads
+        // (loading uncertified chunks + block headers). Cache the last certified
+        // block header for the current head, or store the last-certified hash in
+        // chain state so this is O(1).
+        let spice_certified_header = if ProtocolFeature::Spice.enabled(protocol_version) {
+            Some(get_last_certified_block_header(&self.chain_store, &head.last_block_hash)?)
+        } else {
+            None
+        };
+
+        let receiver_congestion_info = if let Some(certified_header) = &spice_certified_header {
+            // Receiver-shard congestion from the last certified block's executed
+            // ChunkExtras, to reject transactions to a congested shard.
+            spice_shard_congestion_info(
+                &self.chain_store,
+                &shard_layout,
+                certified_header.as_ref(),
+                receiver_shard,
+            )
+        } else {
+            cur_block.block_congestion_info().get(&receiver_shard).copied()
+        };
 
         let validated_tx = match self.runtime.validate_tx(
             &shard_layout,
@@ -188,34 +220,58 @@ impl RpcHandlerActor {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
-            if !ProtocolFeature::Spice.enabled(protocol_version) {
+            let (state_root, constraints) = if let Some(certified_header) = &spice_certified_header
+            {
                 let chunk_store = self.chain_store.chunk_store();
-                let state_root =
-                    match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
-                        Ok(chunk_extra) => *chunk_extra.state_root(),
-                        Err(_) => {
-                            // Not being able to fetch a state root most likely implies that we haven't
-                            //     caught up with the next epoch yet.
-                            if is_forwarded {
-                                return Err(near_client_primitives::types::Error::Other(
-                                    "Node has not caught up yet".to_string(),
-                                ));
-                            } else {
-                                self.forward_tx(&epoch_id, signed_tx)?;
-                                return Ok(ProcessTxResponse::RequestRouted);
-                            }
+                let root = match chunk_store.get_chunk_extra(certified_header.hash(), &shard_uid) {
+                    Ok(chunk_extra) => *chunk_extra.state_root(),
+                    Err(_) => {
+                        if is_forwarded {
+                            return Err(near_client_primitives::types::Error::Other(
+                                "Node has not caught up yet".to_string(),
+                            ));
+                        } else {
+                            self.forward_tx(&epoch_id, signed_tx)?;
+                            return Ok(ProcessTxResponse::RequestRouted);
                         }
-                    };
-                if let Err(err) = self.runtime.can_verify_and_charge_tx(
-                    &shard_layout,
-                    gas_price,
-                    state_root,
-                    &validated_tx,
-                    protocol_version,
-                ) {
-                    tracing::debug!(target: "client", ?err, "invalid tx");
-                    return Ok(ProcessTxResponse::InvalidTx(err));
-                }
+                    }
+                };
+                let constraints = if self.config.spice_pending_transaction_queue_enabled {
+                    let ptq = self.pending_transaction_queue.lock();
+                    ptq.get(&shard_uid)
+                        .map(|q| q.get_pending_constraints(&signed_tx))
+                        .unwrap_or_default()
+                } else {
+                    PendingConstraints::default()
+                };
+                (root, constraints)
+            } else {
+                let chunk_store = self.chain_store.chunk_store();
+                let root = match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
+                    Ok(chunk_extra) => *chunk_extra.state_root(),
+                    Err(_) => {
+                        if is_forwarded {
+                            return Err(near_client_primitives::types::Error::Other(
+                                "Node has not caught up yet".to_string(),
+                            ));
+                        } else {
+                            self.forward_tx(&epoch_id, signed_tx)?;
+                            return Ok(ProcessTxResponse::RequestRouted);
+                        }
+                    }
+                };
+                (root, PendingConstraints::default())
+            };
+            if let Err(err) = self.runtime.can_verify_and_charge_tx(
+                &shard_layout,
+                gas_price,
+                state_root,
+                &validated_tx,
+                protocol_version,
+                &constraints,
+            ) {
+                tracing::debug!(target: "client", ?err, "invalid tx");
+                return Ok(ProcessTxResponse::InvalidTx(err));
             }
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
@@ -268,7 +324,7 @@ impl RpcHandlerActor {
             }
             tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "non-validator received a forwarded transaction, dropping it");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-            return Ok(ProcessTxResponse::NoResponse);
+            return Ok(ProcessTxResponse::Dropped);
         }
 
         if check_only {
@@ -277,7 +333,7 @@ impl RpcHandlerActor {
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
             tracing::debug!(target: "client", ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "received forwarded transaction but no tracking shard");
-            return Ok(ProcessTxResponse::NoResponse);
+            return Ok(ProcessTxResponse::Dropped);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
         self.forward_tx(&epoch_id, signed_tx).map(|()| ProcessTxResponse::RequestRouted)

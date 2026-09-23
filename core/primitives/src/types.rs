@@ -2,12 +2,13 @@ use self::chunk_extra::ChunkExtra;
 use crate::account::{AccessKey, Account};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
+use crate::merkle::merklize;
 use crate::shard_layout::ShardLayout;
-use crate::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
+use crate::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use chunk_validator_stats::ChunkStats;
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, PublicKeyHandle};
 use near_primitives_core::hash::hash;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -48,7 +49,7 @@ pub enum Finality {
 }
 
 /// Account ID with its public key.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountWithPublicKey {
     pub account_id: AccountId,
@@ -260,16 +261,16 @@ pub enum StateChangeValue {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         access_key: AccessKey,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },
@@ -341,27 +342,27 @@ impl StateChanges {
                         },
                     },
                 )),
-                TrieKey::AccessKey { account_id, public_key } => {
+                TrieKey::AccessKey { account_id, key_handle } => {
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
                             value: if let Some(change_data) = data {
                                 StateChangeValue::AccessKeyUpdate {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                     access_key: <_>::try_from_slice(&change_data)
                                         .expect("Failed to parse internally stored access key"),
                                 }
                             } else {
                                 StateChangeValue::AccessKeyDeletion {
                                     account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
+                                    public_key: key_handle.clone(),
                                 }
                             },
                         },
                     ))
                 }
-                TrieKey::GasKeyNonce { account_id, public_key, index } => state_changes.extend(
+                TrieKey::GasKeyNonce { account_id, key_handle, index } => state_changes.extend(
                     // Deletion of a nonce can only be done with a corresponding
                     // deletion of the gas key, so we don't need to report these.
                     changes.into_iter().filter_map(|RawStateChange { cause, data }| {
@@ -369,7 +370,7 @@ impl StateChanges {
                             cause,
                             value: StateChangeValue::GasKeyNonceUpdate {
                                 account_id: account_id.clone(),
-                                public_key: public_key.clone(),
+                                public_key: key_handle.clone(),
                                 index,
                                 nonce: Nonce::try_from_slice(&change_data)
                                     .expect("Failed to parse internally stored gas key nonce"),
@@ -432,6 +433,8 @@ impl StateChanges {
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
+                TrieKey::YieldIdToDataId { .. } => {}
+                TrieKey::DataIdToYieldId { .. } => {}
             }
         }
 
@@ -974,8 +977,18 @@ pub mod chunk_extra {
             }
         }
 
+        /// Builds the chunk extra for an old (missing) chunk from the
+        /// previous chunk extra. All fields are carried over except the
+        /// state root, which is replaced with the one produced by applying
+        /// the old chunk.
+        pub fn next_for_old_chunk(&self, state_root: StateRoot) -> Self {
+            let mut new_extra = self.clone();
+            *new_extra.state_root_mut() = state_root;
+            new_extra
+        }
+
         #[inline]
-        pub fn validator_proposals(&self) -> ValidatorStakeIter {
+        pub fn validator_proposals(&self) -> ValidatorStakeIter<'_> {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validator_proposals),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
@@ -1155,7 +1168,29 @@ impl ValidatorStats {
     }
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
+/// Per-validator chunk endorsement stats accumulated over a spice epoch,
+/// indexed by the current epoch's validator id. Carried on the last block of
+/// the epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.
+#[derive(
+    Default,
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct SpiceChunkEndorsementStats {
+    pub produced: u32,
+    pub expected: u32,
+}
+
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, ProtocolSchema)]
 pub struct BlockChunkValidatorStats {
     pub block_stats: ValidatorStats,
     pub chunk_stats: ChunkStats,
@@ -1295,7 +1330,21 @@ pub struct StateChangesForShard {
 
 /// In spice missing chunks and equivalent to empty chunks so block hash and shard id always
 /// uniquely identifies chunks.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SpiceChunkId {
     pub block_hash: CryptoHash,
     pub shard_id: ShardId,
@@ -1308,6 +1357,85 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
+/// Merkle leaf committing to a single chunk's certified execution roots.
+/// The `chunk_execution_root` in a spice block header is the merkle root over
+/// these leaves, sorted by `chunk_id`.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum ChunkExecutionRoots {
+    V1(ChunkExecutionRootsV1),
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionRootsV1 {
+    pub chunk_id: SpiceChunkId,
+    pub state_root: CryptoHash,
+    pub outcome_root: CryptoHash,
+    pub outgoing_receipts_root: CryptoHash,
+}
+
+impl ChunkExecutionRoots {
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        match self {
+            ChunkExecutionRoots::V1(roots) => &roots.chunk_id,
+        }
+    }
+
+    pub fn from_execution_result(
+        chunk_id: &SpiceChunkId,
+        execution_result: &ChunkExecutionResult,
+    ) -> Self {
+        ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+            chunk_id: chunk_id.clone(),
+            state_root: *execution_result.chunk_extra.state_root(),
+            outcome_root: *execution_result.chunk_extra.outcome_root(),
+            outgoing_receipts_root: execution_result.outgoing_receipts_root,
+        })
+    }
+}
+
+/// Leaves for the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn sorted_chunk_execution_roots<'a>(
+    execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
+) -> Vec<ChunkExecutionRoots> {
+    let mut leaves: Vec<ChunkExecutionRoots> = execution_results
+        .map(|(chunk_id, execution_result)| {
+            ChunkExecutionRoots::from_execution_result(chunk_id, execution_result)
+        })
+        .collect();
+    leaves.sort_by(|a, b| a.chunk_id().cmp(b.chunk_id()));
+    leaves
+}
+
+/// Merkle root over the block's certified chunk execution results, sorted by `chunk_id`.
+pub fn compute_chunk_execution_root<'a>(
+    execution_results: impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)>,
+) -> CryptoHash {
+    let leaves = sorted_chunk_execution_roots(execution_results);
+    merklize(&leaves).0
+}
+
 /// Execution results for all shards in the block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
@@ -1316,6 +1444,18 @@ impl BlockExecutionResults {
     pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
         self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
             acc.checked_add(execution_result.chunk_extra.gas_limit())
+        })
+    }
+
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_used())
+        })
+    }
+
+    pub fn compute_balance_burnt_checked(&self) -> Option<Balance> {
+        self.0.iter().try_fold(Balance::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.balance_burnt())
         })
     }
 }
@@ -1335,6 +1475,22 @@ pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Non-designated endorsements already on chain, accumulated for the all-stake fallback.
+    pub present_fallback_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+    /// Height at which the chunk became certifiable, meaning its parent got certified and the
+    /// designated validators could act. Set once, then carried forward. The all-stake fallback
+    /// opens `SPICE_FALLBACK_CERTIFICATION_DELAY` blocks later.
+    pub certifiable_since_height: Option<BlockHeight>,
+}
+
+impl SpiceUncertifiedChunkInfo {
+    /// All endorsements already on chain for this chunk: designated (`present_endorsements`) and
+    /// non-designated (`present_fallback_endorsements`).
+    pub fn all_present_endorsements(
+        &self,
+    ) -> impl Iterator<Item = &(AccountId, SpiceStoredVerifiedEndorsement)> {
+        self.present_endorsements.iter().chain(&self.present_fallback_endorsements)
+    }
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing
@@ -1358,9 +1514,77 @@ pub enum PromiseYieldStatus {
 
 #[cfg(test)]
 mod tests {
+    use super::chunk_extra::ChunkExtra;
     use super::validator_stake::ValidatorStake;
+    use super::{
+        ChunkExecutionResult, ChunkExecutionRoots, ChunkExecutionRootsV1, SpiceChunkId,
+        compute_chunk_execution_root,
+    };
+    use crate::bandwidth_scheduler::BandwidthRequests;
+    use crate::congestion_info::CongestionInfo;
+    use crate::hash::CryptoHash;
+    use crate::merkle::merklize;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives_core::types::Balance;
+    use near_primitives_core::types::{Balance, Gas, ShardId};
+
+    fn execution_result(
+        state_root: CryptoHash,
+        outcome_root: CryptoHash,
+        outgoing_receipts_root: CryptoHash,
+    ) -> ChunkExecutionResult {
+        let chunk_extra = ChunkExtra::new(
+            &state_root,
+            outcome_root,
+            vec![],
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            Some(CongestionInfo::default()),
+            BandwidthRequests::empty(),
+            None,
+        );
+        ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
+    }
+
+    #[test]
+    fn test_chunk_execution_root_leaf_mapping_and_sorting() {
+        let block_hash = CryptoHash::hash_bytes(b"block");
+        let chunk_id_0 = SpiceChunkId { block_hash, shard_id: ShardId::new(0) };
+        let chunk_id_1 = SpiceChunkId { block_hash, shard_id: ShardId::new(1) };
+
+        let result_0 = execution_result(
+            CryptoHash::hash_bytes(b"state-0"),
+            CryptoHash::hash_bytes(b"outcome-0"),
+            CryptoHash::hash_bytes(b"receipts-0"),
+        );
+        let result_1 = execution_result(
+            CryptoHash::hash_bytes(b"state-1"),
+            CryptoHash::hash_bytes(b"outcome-1"),
+            CryptoHash::hash_bytes(b"receipts-1"),
+        );
+
+        // Feed the statements out of chunk_id order to exercise the sort.
+        let statements = [(&chunk_id_1, &result_1), (&chunk_id_0, &result_0)];
+        let got = compute_chunk_execution_root(statements.into_iter());
+
+        // Hand-build the leaves sorted by chunk_id with the intended field mapping.
+        let expected_leaves = vec![
+            ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+                chunk_id: chunk_id_0.clone(),
+                state_root: *result_0.chunk_extra.state_root(),
+                outcome_root: *result_0.chunk_extra.outcome_root(),
+                outgoing_receipts_root: result_0.outgoing_receipts_root,
+            }),
+            ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
+                chunk_id: chunk_id_1.clone(),
+                state_root: *result_1.chunk_extra.state_root(),
+                outcome_root: *result_1.chunk_extra.outcome_root(),
+                outgoing_receipts_root: result_1.outgoing_receipts_root,
+            }),
+        ];
+        let expected = merklize(&expected_leaves).0;
+        assert_eq!(got, expected);
+    }
 
     fn new_validator_stake(stake: Balance) -> ValidatorStake {
         ValidatorStake::new(

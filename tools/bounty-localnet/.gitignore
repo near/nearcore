@@ -1,0 +1,5 @@
+# Generated state — re-created on every `up` after a `reset.sh`.
+network/
+.env
+# Reporter-edited compose override (committed only as .example).
+docker-compose.override.yml

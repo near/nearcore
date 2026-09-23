@@ -1,6 +1,6 @@
+use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
-use crate::config::StateSnapshotType;
 use crate::db::ColdDB;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
@@ -182,6 +182,14 @@ pub struct StoreOpener<'a> {
 
     /// Opener for an instance of cloud storage if one was configured.
     cloud: Option<CloudStorageOpener>,
+
+    /// Whether this opener is for a state snapshot database.
+    ///
+    /// State snapshot DBs only contain a subset of columns (see
+    /// `STATE_SNAPSHOT_COLUMNS`) and lack epoch/chain data needed by most
+    /// migrations. This flag is passed through to `StoreMigrator::migrate`
+    /// so individual migrations can skip steps that require missing data.
+    is_snapshot: bool,
 }
 
 /// Opener for a single RocksDB instance.
@@ -214,8 +222,9 @@ impl<'a> StoreOpener<'a> {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud = cloud_storage_context.map(|context| CloudStorageOpener::new(context));
-        Self { hot, cold, migrator: None, cloud }
+        let cloud = cloud_storage_context
+            .map(|context| CloudStorageOpener::new(context, BucketConfig::canonical()));
+        Self { hot, cold, migrator: None, cloud, is_snapshot: false }
     }
 
     /// Returns true if this opener is for an archival node.
@@ -230,6 +239,15 @@ impl<'a> StoreOpener<'a> {
     /// attempt to perform migrations.
     pub fn with_migrator(mut self, migrator: &'a dyn StoreMigrator) -> Self {
         self.migrator = Some(migrator);
+        self
+    }
+
+    /// Marks this opener as opening a state snapshot database.
+    ///
+    /// State snapshot DBs lack most chain/epoch data. This flag is forwarded
+    /// to `StoreMigrator::migrate` so migrations can skip inapplicable steps.
+    pub fn as_snapshot(mut self) -> Self {
+        self.is_snapshot = true;
         self
     }
 
@@ -268,7 +286,6 @@ impl<'a> StoreOpener<'a> {
     /// and runs the migration on each of them.
     ///
     /// Migrations is not performed in the following cases:
-    /// - If snapshots are disabled
     /// - If the migrator is not found
     /// - If the state snapshots directory does not exist
     /// - If the state snapshot is already migrated
@@ -278,17 +295,9 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
-        let state_snapshots_dir = match self.hot.config.state_snapshot_config.state_snapshot_type {
-            StateSnapshotType::Enabled => {
-                // At this point, the self.hot.path was built from home_dir and store_config.path.
-                let config = StateSnapshotConfig::enabled(&self.hot.path);
-                config.state_snapshots_dir().unwrap().to_path_buf()
-            }
-            StateSnapshotType::Disabled => {
-                tracing::debug!(target: "db_opener", "state snapshots are disabled, skipping state snapshots migration");
-                return Ok(());
-            }
-        };
+        // At this point, the self.hot.path was built from home_dir and store_config.path.
+        let config = StateSnapshotConfig::enabled(&self.hot.path);
+        let state_snapshots_dir = config.state_snapshots_dir().unwrap().to_path_buf();
 
         if !state_snapshots_dir.exists() {
             tracing::debug!(
@@ -313,7 +322,8 @@ impl<'a> StoreOpener<'a> {
             }
 
             let opener = NodeStorage::opener(&snapshot_path, &config, None, None)
-                .with_migrator(self.migrator.unwrap());
+                .with_migrator(self.migrator.unwrap())
+                .as_snapshot();
             let _ = opener.open_in_mode(Mode::ReadWrite)?;
         }
         Ok(())
@@ -339,8 +349,13 @@ impl<'a> StoreOpener<'a> {
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
         }
 
-        let (hot_snapshot, cold_snapshot) =
-            Self::ensure_version(mode, &self.hot, self.cold.as_ref(), &self.migrator)?;
+        let (hot_snapshot, cold_snapshot) = Self::ensure_version(
+            mode,
+            &self.hot,
+            self.cold.as_ref(),
+            &self.migrator,
+            self.is_snapshot,
+        )?;
 
         if let Err(error) = self.migrate_state_snapshots() {
             // If migration fails the node may not be able to share state parts.
@@ -393,8 +408,13 @@ impl<'a> StoreOpener<'a> {
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
         }
 
-        let (hot_snapshot, cold_snapshot) =
-            Self::ensure_version(mode, &self.hot, self.cold.as_ref(), &self.migrator)?;
+        let (hot_snapshot, cold_snapshot) = Self::ensure_version(
+            mode,
+            &self.hot,
+            self.cold.as_ref(),
+            &self.migrator,
+            self.is_snapshot,
+        )?;
 
         // If ensure_version didn't create snapshots (no migration needed), create them now
         let hot_snapshot =
@@ -411,6 +431,7 @@ impl<'a> StoreOpener<'a> {
 
     // Creates the DB if it doesn't exist.
     fn ensure_created(mode: Mode, opener: &DBOpener) -> Result<(), StoreOpenerError> {
+        tracing::debug!(target: "db_opener", path=%opener.path.display(), ?mode, "reading database metadata to check existence");
         let meta = opener.get_metadata()?;
         match meta {
             Some(_) if !mode.must_create() => {
@@ -484,6 +505,7 @@ impl<'a> StoreOpener<'a> {
         hot_opener: &DBOpener,
         cold_opener: Option<&DBOpener>,
         migrator: &Option<&dyn StoreMigrator>,
+        is_snapshot: bool,
     ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
         tracing::debug!(
             target: "db_opener",
@@ -570,7 +592,7 @@ impl<'a> StoreOpener<'a> {
 
             // Run migration on both stores
             migrator
-                .migrate(&hot_store, cold_db.as_ref(), version)
+                .migrate(&hot_store, cold_db.as_ref(), version, is_snapshot)
                 .map_err(StoreOpenerError::MigrationError)?;
 
             // Update versions in both stores
@@ -703,6 +725,11 @@ pub trait StoreMigrator {
     /// It doesn't update database's metadata (i.e. what version is stored in
     /// the database) which is responsibility of the caller.
     ///
+    /// When `is_snapshot` is true, the store being migrated is a state snapshot
+    /// database which only contains a subset of columns (see
+    /// `STATE_SNAPSHOT_COLUMNS`). Migrations should skip steps that depend on
+    /// data not present in snapshot DBs (e.g. epoch/chain data).
+    ///
     /// **Panics** if `version` is not supported (the caller is supposed to
     /// check support via [`Self::check_support`] method) or if it's greater or
     /// equal to [`DB_VERSION`].
@@ -711,6 +738,7 @@ pub trait StoreMigrator {
         hot_store: &Store,
         cold_db: Option<&ColdDB>,
         version: DbVersion,
+        is_snapshot: bool,
     ) -> anyhow::Result<()>;
 }
 

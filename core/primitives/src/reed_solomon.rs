@@ -12,7 +12,7 @@ use tracing::span::EnteredSpan;
 pub type ReedSolomonPart = Option<Box<[u8]>>;
 
 pub const REED_SOLOMON_MAX_PARTS: usize = reed_solomon_erasure::galois_8::Field::ORDER;
-const MAX_ENCODED_LENGTH: usize = 512usize.checked_mul(bytesize::MIB as usize).unwrap();
+const MAX_ENCODED_LENGTH: usize = 512usize.strict_mul(bytesize::MIB as usize);
 
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
 pub fn reed_solomon_encode<T: BorshSerialize>(
@@ -74,7 +74,7 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
 }
 
 pub fn reed_solomon_part_length(encoded_length: usize, data_parts: usize) -> usize {
-    (encoded_length + data_parts - 1) / data_parts
+    encoded_length.div_ceil(data_parts)
 }
 
 pub fn reed_solomon_num_data_parts(total_parts: usize, ratio_data_parts: f64) -> usize {

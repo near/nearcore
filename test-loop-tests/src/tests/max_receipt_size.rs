@@ -16,13 +16,11 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size() {
     init_test_logger();
 
@@ -129,8 +127,6 @@ fn test_max_receipt_size() {
 // isn't because of a bug (See https://github.com/near/nearcore/issues/12606)
 // Runtime shouldn't die when it encounters a receipt with size above `max_receipt_size`.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_promise_return() {
     init_test_logger();
 
@@ -175,8 +171,7 @@ fn test_max_receipt_size_promise_return() {
             }))],
         }),
     });
-    let base_receipt_template =
-        action_receipt_v1_to_latest(&base_receipt_template, PROTOCOL_VERSION);
+    let base_receipt_template = action_receipt_v1_to_latest(&base_receipt_template);
     let base_receipt_size = borsh::object_length(&base_receipt_template).unwrap();
     let max_receipt_size = 4_194_304;
     let args_size = max_receipt_size - base_receipt_size;
@@ -218,8 +213,6 @@ fn test_max_receipt_size_promise_return() {
 /// Creates the following promise DAG:
 /// A[self.return_large_value()] -then-> B[self.mark_test_completed()]
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_value_return() {
     init_test_logger();
 
@@ -314,11 +307,7 @@ fn test_max_receipt_size_yield_resume() {
     let yield_receipt_res =
         env.rpc_runner().execute_tx(yield_receipt_tx, Duration::seconds(10)).unwrap();
 
-    let expected_size = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        4194504
-    } else {
-        4194503
-    };
+    let expected_size = 4194504;
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             index: Some(0),
@@ -365,69 +354,76 @@ fn assert_oversized_receipt_occurred(node: &TestLoopNode<'_>) {
     let epoch_manager = &*client.epoch_manager;
 
     let tip = chain.head().unwrap();
-    let mut block = chain.get_block(&tip.last_block_hash).unwrap();
-    let mut prev_block = chain.get_block(&block.header().prev_hash()).unwrap();
-
-    let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
+    let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
 
-    // Go over all blocks in the range
+    let mut block = chain.get_block(&tip.last_block_hash).unwrap();
+
+    // Go over all blocks down to genesis looking for a receipt above max_receipt_size.
     loop {
         if block.header().is_genesis() {
             panic!("Didn't find receipt with size above max_receipt_size!");
         }
+        let prev_block = chain.get_block(block.header().prev_hash()).unwrap();
 
-        let cur_shard_layout = client
-            .epoch_manager
-            .get_shard_layout(&epoch_manager.get_epoch_id(&block.hash()).unwrap())
+        let shard_layout = epoch_manager
+            .get_shard_layout(&epoch_manager.get_epoch_id(block.hash()).unwrap())
             .unwrap();
 
-        // Go over all new chunks in a block
-        for new_chunk in block.chunks().iter_new() {
-            let shard_id = new_chunk.shard_id();
-            let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
-                .unwrap()
-                .2;
-            let prev_height_included =
-                prev_block.chunks().get(prev_shard_index).unwrap().height_included();
+        let oversized = if ProtocolFeature::Spice.enabled(protocol_version) {
+            // With spice chunks are executed asynchronously and their produced receipts are
+            // persisted as receipt proofs keyed by the block in which the chunk was applied,
+            // rather than as incoming receipts on the following block.
+            shard_layout.shard_ids().any(|shard_id| {
+                chain
+                    .chain_store()
+                    .iter_receipt_proofs_for_shard(block.hash(), shard_id)
+                    .iter()
+                    .flat_map(|proof| proof.0.iter())
+                    .any(|receipt| receipt_is_oversized(receipt, max_receipt_size))
+            })
+        } else {
+            block.chunks().iter_new().any(|new_chunk| {
+                let shard_id = new_chunk.shard_id();
+                let prev_shard_index = epoch_manager
+                    .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
+                    .unwrap()
+                    .2;
+                let prev_height_included =
+                    prev_block.chunks().get(prev_shard_index).unwrap().height_included();
+                let incoming_receipts_proofs = get_incoming_receipts_for_shard(
+                    &chain.chain_store,
+                    epoch_manager,
+                    shard_id,
+                    &shard_layout,
+                    *block.hash(),
+                    prev_height_included,
+                    ReceiptFilter::TargetShard,
+                )
+                .unwrap();
+                incoming_receipts_proofs
+                    .iter()
+                    .flat_map(|response| response.1.iter())
+                    .flat_map(|proof| proof.0.iter())
+                    .any(|receipt| receipt_is_oversized(receipt, max_receipt_size))
+            })
+        };
 
-            // Fetch incoming receipts for this chunk
-            let incoming_receipts_proofs = get_incoming_receipts_for_shard(
-                &chain.chain_store,
-                epoch_manager,
-                shard_id,
-                &cur_shard_layout,
-                *block.hash(),
-                prev_height_included,
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
-
-            // Look for receipt with size above max_receipt_size
-            for response in incoming_receipts_proofs {
-                for proof in response.1.iter() {
-                    for receipt in &proof.0 {
-                        let receipt_size: u64 =
-                            borsh::object_length(receipt).unwrap().try_into().unwrap();
-                        let max_receipt_size =
-                            runtime_config.wasm_config.limit_config.max_receipt_size;
-                        if receipt_size > max_receipt_size {
-                            // Success! found receipt above max size
-                            tracing::info!(
-                                %receipt_size,
-                                %max_receipt_size,
-                                "found receipt above max size"
-                            );
-                            return;
-                        }
-                    }
-                }
-            }
+        if oversized {
+            return;
         }
 
         block = prev_block;
-        prev_block = chain.get_block(block.header().prev_hash()).unwrap();
     }
+}
+
+fn receipt_is_oversized(receipt: &Receipt, max_receipt_size: u64) -> bool {
+    let receipt_size: u64 = borsh::object_length(receipt).unwrap().try_into().unwrap();
+    if receipt_size > max_receipt_size {
+        tracing::info!(%receipt_size, %max_receipt_size, "found receipt above max size");
+        return true;
+    }
+    false
 }

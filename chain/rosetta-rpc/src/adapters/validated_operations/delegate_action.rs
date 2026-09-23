@@ -5,6 +5,8 @@ pub(crate) struct DelegateActionOperation {
     pub(crate) max_block_height: near_primitives::types::BlockHeight,
     pub(crate) public_key: crate::models::PublicKey,
     pub(crate) nonce: near_primitives::types::Nonce,
+    /// `Some` for a gas-key `DelegateV2` action, `None` otherwise.
+    pub(crate) nonce_index: Option<near_primitives::types::NonceIndex>,
 }
 
 impl ValidatedOperation for DelegateActionOperation {
@@ -24,6 +26,7 @@ impl ValidatedOperation for DelegateActionOperation {
                 public_key: Some(self.public_key),
                 max_block_height: Some(self.max_block_height),
                 nonce: Some(self.nonce),
+                nonce_index: self.nonce_index,
                 ..Default::default()
             }),
 
@@ -49,8 +52,15 @@ impl TryFrom<crate::models::Operation> for DelegateActionOperation {
         let public_key = metadata.public_key.ok_or_else(required_fields_error)?;
         let max_block_height = metadata.max_block_height.ok_or_else(required_fields_error)?;
         let nonce = metadata.nonce.ok_or_else(required_fields_error)?;
+        let nonce_index = metadata.nonce_index;
 
-        Ok(Self { receiver_id: operation.account, public_key, max_block_height, nonce })
+        Ok(Self {
+            receiver_id: operation.account,
+            public_key,
+            max_block_height,
+            nonce,
+            nonce_index,
+        })
     }
 }
 
@@ -61,6 +71,7 @@ impl From<near_primitives::action::delegate::DelegateAction> for DelegateActionO
             max_block_height: delegate_action.max_block_height,
             public_key: (&delegate_action.public_key).into(),
             nonce: delegate_action.nonce,
+            nonce_index: None,
         }
     }
 }

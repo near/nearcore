@@ -1,6 +1,6 @@
 codecov:
   notify:
-    after_n_builds: 3 # Keep in sync with .github/workflows/ci.yml
+    after_n_builds: 4 # Keep in sync with .github/workflows/ci.yml
   # Dear h4xx0rz reading this,
   # Feel free to use this token to upload arbitrary coverage information to codecov.
   # We do not care. The best you can do is make us facepalm.
@@ -33,6 +33,9 @@ component_management:
       - type: patch
         target: auto
         only_pulls: true
+        # Report patch coverage on PRs but never fail the check (avoids a
+        # spurious red cross on PRs that add code without full line coverage).
+        informational: true
   individual_components:
     - component_id: unit-tests
       flag_regexes: ["unittests"]

@@ -108,44 +108,6 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 }
 
 #[test]
-#[cfg_attr(not(all(feature = "wasmtime_vm", feature = "near_vm", target_arch = "x86_64")), ignore)]
-#[cfg(feature = "prepare")]
-fn slow_test_near_vm_and_wasmtime_agree_fuzzer() {
-    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
-        let code = ContractCode::new(module.0.to_bytes(), None);
-        let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
-        let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
-        assert_eq!(near_vm, wasmtime);
-    });
-}
-
-#[test]
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-fn slow_test_near_vm_is_reproducible_fuzzer() {
-    use crate::near_vm_runner::NearVM;
-    use near_primitives_core::hash::CryptoHash;
-
-    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
-        let code = ContractCode::new(module.0.to_bytes(), None);
-        let config = std::sync::Arc::new(test_vm_config(Some(VMKind::NearVm)));
-        let mut first_hash = None;
-        for _ in 0..3 {
-            let vm = NearVM::new(config.clone());
-            let exec = match vm.compile_uncached(&code) {
-                Ok(e) => e,
-                Err(_) => return,
-            };
-            let code = exec.serialize().unwrap();
-            let hash = CryptoHash::hash_bytes(&code);
-            match first_hash {
-                None => first_hash = Some(hash),
-                Some(h) => assert_eq!(h, hash),
-            }
-        }
-    })
-}
-
-#[test]
 #[cfg(feature = "wasmtime_vm")]
 fn slow_test_wasmtime_vm_is_reproducible_fuzzer() {
     use crate::wasmtime_runner::WasmtimeVM;

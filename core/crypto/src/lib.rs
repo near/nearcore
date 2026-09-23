@@ -1,11 +1,12 @@
-#![cfg_attr(enable_const_type_id, feature(const_type_id))]
 #![deny(clippy::arithmetic_side_effects)]
 
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};
 pub use key_file::KeyFile;
 pub use signature::{
-    ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, Secp256K1PublicKey, Secp256K1Signature,
-    SecretKey, Signature,
+    ED25519PublicKey, ED25519SecretKey, KeyType, ML_DSA_65_HASH_LENGTH,
+    ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH,
+    MlDsa65PublicKey, MlDsa65PublicKeyHandle, MlDsa65Signature, PublicKey, PublicKeyHandle,
+    Secp256K1PublicKey, Secp256K1Signature, SecretKey, Signature, ml_dsa_65_from_seed,
 };
 pub use signer::{EmptySigner, InMemorySigner, Signer};
 
@@ -17,6 +18,7 @@ mod traits;
 mod util;
 
 mod errors;
+pub mod hash_domain;
 pub mod key_conversion;
 mod key_file;
 mod signature;

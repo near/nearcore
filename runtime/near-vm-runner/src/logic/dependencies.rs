@@ -3,9 +3,9 @@ use super::VMLogicError;
 use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use crate::logic::types::ActionIndex;
 use near_crypto::PublicKey;
-use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::hash::{CryptoHash, YieldId};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
-use std::borrow::Cow;
+use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
 
 /// Representation of the address slice of guest memory.
 #[derive(Clone, Copy)]
@@ -33,66 +33,6 @@ impl MemSlice {
         let start = T::try_from(self.ptr).map_err(|_| ())?;
         Ok(start..end)
     }
-}
-
-/// An abstraction over the memory of the smart contract.
-pub trait MemoryLike {
-    /// Returns success if the memory interval is completely inside smart
-    /// contract’s memory.
-    ///
-    /// You often don’t need to use this method since other methods will perform
-    /// the check, however it may be necessary to prevent potential denial of
-    /// service attacks.  See [`Self::read_memory`] for description.
-    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
-
-    /// Returns view of the content of the given memory interval.
-    ///
-    /// Not all implementations support borrowing the memory directly.  In those
-    /// cases, the data is copied into a vector.
-    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()>;
-
-    /// Reads the content of the given memory interval.
-    ///
-    /// Returns error if the memory interval isn’t completely inside the smart
-    /// contract memory.
-    ///
-    /// # Potential denial of service
-    ///
-    /// Note that improper use of this function may lead to denial of service
-    /// attacks.  For example, consider the following function:
-    ///
-    /// ```
-    /// # use near_vm_runner::logic::{MemoryLike, MemSlice};
-    ///
-    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
-    ///     let mut vec = vec![0; slice.len()?];
-    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
-    ///     Ok(vec)
-    /// }
-    /// ```
-    ///
-    /// If attacker controls length argument, it may cause attempt at allocation
-    /// of arbitrarily-large buffer and crash the program.  In situations like
-    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
-    /// the length is valid.  For example:
-    ///
-    /// ```
-    /// # use near_vm_runner::logic::{MemoryLike, MemSlice};
-    ///
-    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
-    ///     mem.fits_memory(slice)?;
-    ///     let mut vec = vec![0; slice.len()?];
-    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
-    ///     Ok(vec)
-    /// }
-    /// ```
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
-
-    /// Writes the buffer into the smart contract memory.
-    ///
-    /// Returns error if the memory interval isn’t completely inside the smart
-    /// contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -262,12 +202,18 @@ pub trait External {
     /// Size of the recorded trie storage proof.
     fn get_recorded_storage_size(&self) -> usize;
 
+    /// Size of the recorded trie storage proof before the receipt execution started.
+    fn storage_proof_size_before_receipt(&self) -> usize;
+
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>>;
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
+
+    /// Returns the chain ID of the current chain.
+    fn chain_id(&self) -> String;
 
     /// Create an action receipt which will be executed after all the receipts identified by
     /// `receipt_indices` are complete.
@@ -297,6 +243,22 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
+    /// Create a PromiseYield action receipt with a user-provided yield ID.
+    ///
+    /// Returns `Some((ReceiptIndex, data_id))` of the newly created receipt on success, or
+    /// `None` if a yield with the same `user_yield_id` is already pending for this account.
+    /// The yield_id -> data_id mapping is stored in the trie for duplicate detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    /// * `user_yield_id` - user-provided 32-byte yield identifier
+    fn create_promise_yield_receipt_with_id(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: YieldId,
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError>;
+
     /// Creates a receipt under the specified `data_id` containing given `data`.
     ///
     /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been
@@ -313,6 +275,23 @@ pub trait External {
     fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError>;
+
+    /// Resume a yield previously created by `promise_yield_create_with_id`, using the user-provided
+    /// `yield_id` instead of the runtime-generated `data_id`.
+    ///
+    /// The runtime looks up the corresponding `data_id` from the trie mapping and submits the
+    /// resume data. Returns `Ok(true)` if the yield was found and resume was submitted,
+    /// `Ok(false)` if no yield exists for the given `yield_id`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_yield_id` - user-provided 32-byte yield identifier from `yield_create_with_id`
+    /// * `data` - contents of the DataReceipt
+    fn submit_promise_resume_data_with_yield_id(
+        &mut self,
+        user_yield_id: YieldId,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError>;
 
@@ -416,13 +395,43 @@ pub trait External {
         value: Vec<u8>,
     ) -> Result<(), VMLogicError>;
 
+    /// The counts a `UniversalStateInit` action carrying `state_init` is priced on.
+    ///
+    /// Decoding is a host-side concern: the typed form carries public key handles,
+    /// whose types live outside this crate. Split from the append so the caller can
+    /// charge before the action exists, rather than relying on a failed charge
+    /// discarding a receipt it has already been added to.
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts;
+
+    /// Attach a `UniversalStateInit` action, built from the bytes a contract
+    /// supplied, to an existing receipt.
+    ///
+    /// The bytes go into the action verbatim, because the account the receipt
+    /// targets is identified by exactly them.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `state_init`    - the borsh of a `UniversalStateInit`
+    /// * `amount`        - how much NEAR to attach to the initialization
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    );
+
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
     /// [`distribute_unused_gas`](Self::distribute_unused_gas).
     ///
-    /// For more information, see [super::VMLogic::promise_batch_action_function_call_weight].
+    /// For more information, see the `promise_batch_action_function_call_weight` host function.
     ///
     /// # Arguments
     ///
@@ -620,4 +629,6 @@ pub trait External {
     ///
     /// Panics if `ReceiptIndex` is invalid.
     fn set_refund_to(&mut self, receipt_index: ReceiptIndex, refund_to: AccountId);
+
+    fn post_quantum_keys_enabled(&self) -> bool;
 }

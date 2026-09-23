@@ -211,6 +211,16 @@ pub struct Config {
     #[serde(default = "default_trusted_stun_servers")]
     pub trusted_stun_servers: Vec<stun::ServerAddr>,
 
+    /// Size of the semaphore which limits the total size of the messages queued for sending
+    /// across all the connections. Once exhausted, new outgoing messages are dropped.
+    /// If unset, defaults to `DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outgoing_queue_limiter_capacity_bytes: Option<usize>,
+    /// Maximum capacity of the write buffer of a single connection. Exceeding it closes the
+    /// connection. If unset, defaults to `DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_write_buffer_capacity_bytes: Option<usize>,
+
     /// Configuration for Tier1 network.
     /// Tier1 network is a special network between validator nodes that provides faster
     /// consensus-related message delivery.
@@ -322,7 +332,6 @@ pub struct NetworkConfigOverrides {
     pub max_send_peers: Option<u32>,
     pub routed_message_ttl: Option<u8>,
     pub max_routes_to_store: Option<usize>,
-    pub highest_peer_horizon: Option<u64>,
     pub push_info_period_millis: Option<i64>,
     pub outbound_disabled: Option<bool>,
     pub accounts_data_broadcast_rate_limit_burst: Option<u64>,
@@ -330,6 +339,16 @@ pub struct NetworkConfigOverrides {
     pub routing_table_update_rate_limit_burst: Option<u64>,
     pub routing_table_update_rate_limit_qps: Option<f64>,
     pub received_messages_rate_limits: Option<messages_limits::OverrideConfig>,
+    /// Maximum number of edges allowed in a single SyncRoutingTable message.
+    pub routing_graph_max_edges_per_message: Option<usize>,
+    /// Maximum number of new edge keys a single remote peer can introduce.
+    pub routing_graph_max_edges_per_source: Option<usize>,
+    /// Maximum number of unique peer IDs in the BFS routing graph.
+    pub routing_graph_max_peers: Option<usize>,
+    /// Maximum total number of edges stored in the routing graph.
+    pub routing_graph_max_edges: Option<usize>,
+    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
+    pub routing_graph_max_accounts_per_message: Option<usize>,
 }
 
 impl Default for Config {
@@ -360,6 +379,8 @@ impl Default for Config {
             public_addrs: vec![],
             allow_private_ip_in_public_addrs: false,
             trusted_stun_servers: default_trusted_stun_servers(),
+            outgoing_queue_limiter_capacity_bytes: None,
+            max_write_buffer_capacity_bytes: None,
             tier1: Tier1Config::default(),
             experimental: ExperimentalConfig::default(),
         }

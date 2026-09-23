@@ -10,6 +10,7 @@ use crate::stun;
 use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
+use bytesize::{GIB, MIB};
 use near_async::time;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::MutableValidatorSigner;
@@ -22,17 +23,31 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
-
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
+
+/// Default routing graph limits.
+pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE: usize = 50_000;
+pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE: usize = 50_000;
+pub const DEFAULT_ROUTING_GRAPH_MAX_PEERS: usize = 100_000;
+pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES: usize = 1_000_000;
+/// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
+/// Sized at ~10x the realistic validator count to leave headroom.
+pub const DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE: usize = 10_000;
+
+/// Default size of the semaphore which limits the total size of the outgoing messages.
+pub const DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 3 * GIB as usize;
+/// Default maximum capacity of the write buffer of a single connection.
+pub const DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = 700 * MIB as usize;
 
 /// Maximum number of PeerAddrs in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
 
 /// Maximum number of peers to include in a PeersResponse message.
 pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
+
+/// Maximum number of block header hashes in a BlockHeadersRequest locator.
+pub const MAX_BLOCK_HEADER_HASHES: usize = 20;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
@@ -79,7 +94,7 @@ impl ValidatorConfig {
         self.signer.get().map(|s| s.validator_id().clone())
     }
 
-    pub fn frozen_view(&self) -> FrozenValidatorConfig {
+    pub fn frozen_view(&self) -> FrozenValidatorConfig<'_> {
         FrozenValidatorConfig { signer: self.signer.get(), proxies: &self.proxies }
     }
 }
@@ -178,10 +193,6 @@ pub struct NetworkConfig {
     pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Height horizon for highest height peers
-    /// For example if one peer is 1 height away from max height peer,
-    /// we still want to use the rest to query for state/headers/blocks.
-    pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
@@ -212,6 +223,21 @@ pub struct NetworkConfig {
     /// Configuration of rate limits for incoming messages.
     pub received_messages_rate_limits: messages_limits::Config,
 
+    /// Maximum number of edges allowed in a single SyncRoutingTable message.
+    pub routing_graph_max_edges_per_message: usize,
+    /// Maximum number of new edge keys a single remote peer can introduce.
+    pub routing_graph_max_edges_per_source: usize,
+    /// Maximum number of unique peer IDs in the BFS routing graph.
+    pub routing_graph_max_peers: usize,
+    /// Maximum total number of edges stored in the routing graph.
+    pub routing_graph_max_edges: usize,
+    /// Maximum number of AnnounceAccount entries allowed in a single SyncRoutingTable message.
+    pub routing_graph_max_accounts_per_message: usize,
+    /// Size of the semaphore which limits the total size of the outgoing messages.
+    pub outgoing_queue_limiter_capacity_bytes: usize,
+    /// Maximum capacity of the write buffer of a single connection.
+    pub max_write_buffer_capacity_bytes: usize,
+
     #[cfg(test)]
     pub(crate) event_sink:
         near_async::messaging::Sender<crate::peer_manager::peer_manager_actor::Event>,
@@ -236,9 +262,6 @@ impl NetworkConfig {
         if let Some(max_routes_to_store) = overrides.max_routes_to_store {
             self.max_routes_to_store = max_routes_to_store
         }
-        if let Some(highest_peer_horizon) = overrides.highest_peer_horizon {
-            self.highest_peer_horizon = highest_peer_horizon
-        }
         if let Some(millis) = overrides.push_info_period_millis {
             self.push_info_period = time::Duration::milliseconds(millis)
         }
@@ -259,6 +282,21 @@ impl NetworkConfig {
         }
         if let Some(rate_limits) = overrides.received_messages_rate_limits {
             self.received_messages_rate_limits.apply_overrides(rate_limits);
+        }
+        if let Some(v) = overrides.routing_graph_max_edges_per_message {
+            self.routing_graph_max_edges_per_message = v;
+        }
+        if let Some(v) = overrides.routing_graph_max_edges_per_source {
+            self.routing_graph_max_edges_per_source = v;
+        }
+        if let Some(v) = overrides.routing_graph_max_peers {
+            self.routing_graph_max_peers = v;
+        }
+        if let Some(v) = overrides.routing_graph_max_edges {
+            self.routing_graph_max_edges = v;
+        }
+        if let Some(v) = overrides.routing_graph_max_accounts_per_message {
+            self.routing_graph_max_accounts_per_message = v;
         }
     }
 
@@ -393,7 +431,6 @@ impl NetworkConfig {
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
-            highest_peer_horizon: HIGHEST_PEER_HORIZON,
             push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             archive,
@@ -408,6 +445,17 @@ impl NetworkConfig {
                 None
             },
             received_messages_rate_limits: messages_limits::Config::standard_preset(),
+            routing_graph_max_edges_per_message: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE,
+            routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+            routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
+            routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
+            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
+            outgoing_queue_limiter_capacity_bytes: cfg
+                .outgoing_queue_limiter_capacity_bytes
+                .unwrap_or(DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES),
+            max_write_buffer_capacity_bytes: cfg
+                .max_write_buffer_capacity_bytes
+                .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -469,7 +517,6 @@ impl NetworkConfig {
             ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
-            highest_peer_horizon: 5,
             push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             inbound_disabled: false,
@@ -488,6 +535,13 @@ impl NetworkConfig {
             },
             skip_tombstones: None,
             received_messages_rate_limits: messages_limits::Config::default(),
+            routing_graph_max_edges_per_message: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_MESSAGE,
+            routing_graph_max_edges_per_source: DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
+            routing_graph_max_peers: DEFAULT_ROUTING_GRAPH_MAX_PEERS,
+            routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
+            routing_graph_max_accounts_per_message: DEFAULT_ROUTING_GRAPH_MAX_ACCOUNTS_PER_MESSAGE,
+            outgoing_queue_limiter_capacity_bytes: DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
+            max_write_buffer_capacity_bytes: DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
                 near_async::messaging::noop(),
@@ -546,6 +600,25 @@ impl NetworkConfig {
         if let Err(err) = self.received_messages_rate_limits.validate() {
             anyhow::bail!("One or more invalid rate limits: {err:?}");
         }
+
+        anyhow::ensure!(
+            self.routing_graph_max_edges_per_message > 0,
+            "routing_graph_max_edges_per_message must be > 0"
+        );
+        anyhow::ensure!(
+            self.routing_graph_max_edges_per_source > 0,
+            "routing_graph_max_edges_per_source must be > 0"
+        );
+        anyhow::ensure!(self.routing_graph_max_peers > 0, "routing_graph_max_peers must be > 0");
+        anyhow::ensure!(self.routing_graph_max_edges > 0, "routing_graph_max_edges must be > 0");
+        anyhow::ensure!(
+            self.routing_graph_max_edges_per_source <= self.routing_graph_max_edges,
+            "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
+        );
+        anyhow::ensure!(
+            self.routing_graph_max_accounts_per_message > 0,
+            "routing_graph_max_accounts_per_message must be > 0"
+        );
 
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
@@ -651,11 +724,6 @@ mod test {
                 &overrides.max_routes_to_store
             ));
             assert!(check_override_field(
-                &before.highest_peer_horizon,
-                &after.highest_peer_horizon,
-                &overrides.highest_peer_horizon
-            ));
-            assert!(check_override_field(
                 &before.push_info_period,
                 &after.push_info_period,
                 &overrides
@@ -677,6 +745,31 @@ mod test {
                 &after.accounts_data_broadcast_rate_limit.qps,
                 &overrides.accounts_data_broadcast_rate_limit_qps
             ));
+            assert!(check_override_field(
+                &before.routing_graph_max_edges_per_message,
+                &after.routing_graph_max_edges_per_message,
+                &overrides.routing_graph_max_edges_per_message
+            ));
+            assert!(check_override_field(
+                &before.routing_graph_max_edges_per_source,
+                &after.routing_graph_max_edges_per_source,
+                &overrides.routing_graph_max_edges_per_source
+            ));
+            assert!(check_override_field(
+                &before.routing_graph_max_peers,
+                &after.routing_graph_max_peers,
+                &overrides.routing_graph_max_peers
+            ));
+            assert!(check_override_field(
+                &before.routing_graph_max_edges,
+                &after.routing_graph_max_edges,
+                &overrides.routing_graph_max_edges
+            ));
+            assert!(check_override_field(
+                &before.routing_graph_max_accounts_per_message,
+                &after.routing_graph_max_accounts_per_message,
+                &overrides.routing_graph_max_accounts_per_message
+            ));
         };
         let no_overrides = NetworkConfigOverrides::default();
         let mut overrides = NetworkConfigOverrides::default();
@@ -685,6 +778,11 @@ mod test {
         overrides.routed_message_ttl = Some(43);
         overrides.accounts_data_broadcast_rate_limit_burst = Some(44);
         overrides.accounts_data_broadcast_rate_limit_qps = Some(45.0);
+        overrides.routing_graph_max_edges_per_message = Some(10_000);
+        overrides.routing_graph_max_edges_per_source = Some(20_000);
+        overrides.routing_graph_max_peers = Some(30_000);
+        overrides.routing_graph_max_edges = Some(40_000);
+        overrides.routing_graph_max_accounts_per_message = Some(5_000);
 
         let nc_before =
             config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
@@ -725,6 +823,44 @@ mod test {
         };
         let sad = ad.sign(&signer.into()).unwrap();
         assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+    }
+
+    #[test]
+    fn test_routing_graph_config_validation() {
+        // max_edges_per_message = 0 should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_edges_per_message = 0;
+        assert!(nc.verify().is_err());
+
+        // max_edges_per_source = 0 should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_edges_per_source = 0;
+        assert!(nc.verify().is_err());
+
+        // max_peers = 0 should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_peers = 0;
+        assert!(nc.verify().is_err());
+
+        // max_edges = 0 should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_edges = 0;
+        assert!(nc.verify().is_err());
+
+        // max_edges_per_source > max_edges should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_edges_per_source = 100;
+        nc.routing_graph_max_edges = 50;
+        assert!(nc.verify().is_err());
+
+        // max_accounts_per_message = 0 should fail.
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.routing_graph_max_accounts_per_message = 0;
+        assert!(nc.verify().is_err());
+
+        // Valid config should pass.
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        assert!(nc.verify().is_ok());
     }
 
     #[test]

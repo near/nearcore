@@ -1,4 +1,6 @@
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::network_protocol::StateResponseInfo;
+use crate::recv_permit::RecvMessagePermit;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
@@ -9,9 +11,10 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -63,7 +66,7 @@ pub struct StateRequestHeader {
 pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_idx: StatePartIndex,
 }
 
 /// Outgoing response to received state request.
@@ -92,12 +95,12 @@ impl StateResponse {
         }
     }
 
-    pub fn part_id_or_header(&self) -> PartIdOrHeader {
+    pub fn part_or_header(&self) -> PartOrHeader {
         match self {
-            Self::Ack(ack) => ack.part_id_or_header,
-            Self::State(state) => match state.part_id() {
-                Some(part_id) => PartIdOrHeader::Part { part_id },
-                None => PartIdOrHeader::Header,
+            Self::Ack(ack) => ack.part_or_header,
+            Self::State(state) => match state.part_idx() {
+                Some(part_idx) => PartOrHeader::Part { part_idx },
+                None => PartOrHeader::Header,
             },
         }
     }
@@ -121,8 +124,9 @@ pub struct ProcessTxRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessTxResponse {
-    /// No response.
-    NoResponse,
+    /// The node dropped the transaction without acting on it (e.g. a forwarded transaction
+    /// that this node will neither relay nor include).
+    Dropped,
     /// Valid transaction inserted into mempool as response to Transaction.
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
@@ -132,6 +136,8 @@ pub enum ProcessTxResponse {
     /// The node being queried does not track the shard needed and therefore cannot provide useful
     /// response.
     DoesNotTrackShard,
+    /// Processing the transaction failed with an internal error; the string carries debug context.
+    InternalError(String),
 }
 
 /// Account announcements that needs to be validated before being processed.
@@ -143,24 +149,31 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement);
+#[derive(Debug)]
+pub struct SpiceChunkEndorsementMessage(pub SpiceChunkEndorsement, pub RecvMessagePermit);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EpochSyncRequestMessage {
     pub from_peer: PeerId,
+    pub recv_permit: RecvMessagePermit,
+    /// Outgoing-queue reservation for the response message. Acquired in
+    /// the network layer when this request arrived. The client holds it
+    /// through proof derivation and uses it when sending the response.
+    pub response_permit: OutgoingPermit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EpochSyncResponseMessage {
     pub from_peer: PeerId,
     pub proof: CompressedEpochSyncProof,
+    pub recv_permit: RecvMessagePermit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct OptimisticBlockMessage {
     pub optimistic_block: OptimisticBlock,
     pub from_peer: PeerId,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

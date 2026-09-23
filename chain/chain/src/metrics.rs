@@ -5,6 +5,7 @@ use near_o11y::metrics::{
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec,
 };
+use near_primitives::shard_layout::ShardUId;
 use std::sync::LazyLock;
 
 /// Exponential buckets for both negative and positive values.
@@ -83,6 +84,42 @@ pub static BLOCK_HEIGHT_SPICE_EXECUTION_HEAD: LazyLock<IntGauge> = LazyLock::new
     )
     .unwrap()
 });
+pub static BLOCK_SPICE_UNCERTIFIED_CHUNKS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_block_spice_uncertified_chunks",
+        "Number of chunks awaiting certification",
+    )
+    .unwrap()
+});
+pub static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_spice_certification_lag",
+        "Height distance from the chain head to the oldest block with uncertified chunks, 0 when \
+         nothing older awaits certification",
+    )
+    .unwrap()
+});
+pub static SPICE_PRE_ACTIVATION_MESSAGES_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_spice_pre_activation_messages_dropped_total",
+        "Number of spice messages dropped because spice is not active for them, either \
+         because the block they reference is not a spice block or because that block \
+         could not be resolved, by message kind",
+        &["kind"],
+    )
+    .unwrap()
+});
+pub static SPICE_PRE_ACTIVATION_REQUEST_ENTRIES_DROPPED: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_spice_pre_activation_request_entries_dropped_total",
+            "Number of entries of batched spice messages dropped because spice is not active \
+             for the block they reference, by message kind. The rest of the message is still \
+             processed, so these are entries rather than messages",
+            &["kind"],
+        )
+        .unwrap()
+    });
 pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",
@@ -252,6 +289,13 @@ pub static NUM_FAILED_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(||
     )
     .unwrap()
 });
+pub static NUM_FAILED_OPTIMISTIC_BLOCK_APPLIES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_num_failed_optimistic_block_applies",
+        "Number of per-shard optimistic apply tasks that returned an error",
+    )
+    .unwrap()
+});
 pub(crate) static SCHEDULED_CATCHUP_BLOCK: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_catchup_scheduled_block_height",
@@ -300,6 +344,113 @@ pub(crate) static SHARD_LAYOUT_NUM_SHARDS: LazyLock<IntGauge> = LazyLock::new(||
     try_create_int_gauge(
         "near_shard_layout_num_shards",
         "The number of shards in the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
+pub(crate) static DYNAMIC_RESHARDING_VALIDATION_FAILURES: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_dynamic_resharding_validation_failures_total",
+            "Number of validation failures of dynamic resharding fields in received headers: \
+             'chunk_header' - proposed_split mismatch, 'block_header' - shard_split mismatch. \
+             A non-zero value indicates a malicious peer or, worse, non-determinism in the \
+             trie split computation.",
+            &["kind"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCKS_DELAY_TRACKER_ENTRIES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_blocks_delay_tracker_entries",
+        "Number of entries the blocks delay tracker holds, by map.",
+        &["map"],
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCKS_DELAY_TRACKER_REFUSED_BLOCKS: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_refused_blocks_total",
+            "Number of blocks the delay tracker did not record, by reason.",
+            &["reason"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCKS_DELAY_TRACKER_MISSING_ENTRIES: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_blocks_delay_tracker_missing_entries_total",
+            "Number of marks for a block the delay tracker does not hold, by mark.",
+            &["mark"],
+        )
+        .unwrap()
+    });
+
+/// Values of the `near_resharding_status` gauge.
+#[derive(Clone, Copy)]
+pub(crate) enum ReshardingStatus {
+    /// Resharding was cancelled before completing (e.g. node shutdown or the
+    /// children shards are no longer tracked).
+    Cancelled = -2,
+    /// Resharding failed (at any stage).
+    Failed = -1,
+    /// Resharding event received, waiting for the resharding block to become final.
+    Scheduled = 1,
+    /// Splitting the parent shard's flat storage.
+    SplittingFlatStorage = 2,
+    /// Children shards' flat storage catch-up.
+    CatchingUp = 3,
+    /// Resharding the trie state (State column).
+    ReshardingTrieState = 4,
+    /// Resharding successfully completed.
+    Done = 5,
+}
+
+pub(crate) static RESHARDING_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_status",
+        "Overall status of a resharding event for the parent shard: -2 - cancelled, \
+         -1 - failed, 1 - scheduled, 2 - splitting flat storage, \
+         3 - flat storage catch-up, 4 - resharding trie state, 5 - done. \
+         No series is exported while no resharding has been scheduled for the shard.",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) fn set_resharding_status(parent_shard_uid: &ShardUId, status: ReshardingStatus) {
+    RESHARDING_STATUS.with_label_values(&[&parent_shard_uid.to_string()]).set(status as i64);
+}
+
+pub(crate) static RESHARDING_START_TIMESTAMP: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_start_timestamp_seconds",
+        "Unix timestamp of when the resharding of the parent shard started executing",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_TOTAL_DURATION: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_total_duration_seconds",
+        "Total wall time of the resharding of the parent shard, from execution start \
+         to trie state resharding completion",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_MEMTRIE_SPLIT_DURATION: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_resharding_memtrie_split_duration_seconds",
+        "Time taken by the synchronous memtrie split at the resharding boundary block; \
+         this work is on the block-processing critical path",
+        exponential_buckets(0.01, 2.0, 15).unwrap(),
     )
     .unwrap()
 });
@@ -398,29 +549,18 @@ pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyL
     .unwrap()
 });
 
-pub(crate) static THREAD_POOL_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_thread_pool_num_threads",
-        "current number of threads in apply chunks thread pool",
-        &["pool_name"],
-    )
-    .unwrap()
-});
-
-pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_thread_pool_max_num_threads",
-        "maximum observed number of threads in apply chunks thread pool",
-        &["pool_name"],
-    )
-    .unwrap()
-});
-
-pub(crate) static THREAD_POOL_QUEUE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    try_create_int_gauge_vec(
-        "near_thread_pool_queue_size",
-        "thread pool job queue size",
-        &["pool_name"],
+pub static ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_anchored_chunk_producer_lookup_total",
+        "Anchored chunk-producer lookups during V2 validation, for chunk headers, state \
+         witnesses and contract-distribution messages. `message_type` is `chunk`, `witness`, \
+         `contract_accesses`, or `contract_deploys`. `result` is `hit` (producer returned), \
+         `miss_anchor_block` \
+         (grandparent anchor not yet processed, node is two or more blocks behind, message \
+         dropped), `miss_db_entry` (anchor known but DBCol::ChunkProducers entry absent, also \
+         dropped; a persistent non-zero rate signals a writer bug), or `error` (other \
+         EpochError).",
+        &["shard_id", "message_type", "result"],
     )
     .unwrap()
 });

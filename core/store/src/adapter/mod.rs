@@ -1,5 +1,6 @@
 pub mod chain_store;
 pub mod chunk_store;
+pub mod cloud_archival_store;
 pub mod epoch_store;
 pub mod flat_store;
 pub mod trie_store;
@@ -96,6 +97,10 @@ pub trait StoreAdapter {
         chain_store::ChainStoreAdapter::new(self.store())
     }
 
+    fn cloud_archival_store(&self) -> cloud_archival_store::CloudArchivalStoreAdapter {
+        cloud_archival_store::CloudArchivalStoreAdapter::new(self.store())
+    }
+
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
     }
@@ -121,19 +126,29 @@ pub trait StoreAdapter {
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
 
-    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter {
+    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter<'_> {
         chain_store::ChainStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter {
+    fn cloud_archival_store_update(
+        &mut self,
+    ) -> cloud_archival_store::CloudArchivalStoreUpdateAdapter<'_> {
+        cloud_archival_store::CloudArchivalStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn chunk_store_update(&mut self) -> chunk_store::ChunkStoreUpdateAdapter<'_> {
+        chunk_store::ChunkStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter<'_> {
         epoch_store::EpochStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
+    fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter<'_> {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
     }
 
-    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
+    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter<'_> {
         trie_store::TrieStoreUpdateAdapter::new(self.store_update())
     }
 }

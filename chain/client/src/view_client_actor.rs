@@ -7,7 +7,11 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::spice_chain::SpiceChainReader;
+use near_chain::receipt_to_tx::{
+    DEFAULT_HINT_WINDOW, HintResolution, HintScanStats, ResolveHintError, Scan,
+    resolve_receipt_via_hint,
+};
+use near_chain::spice::chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
@@ -17,13 +21,17 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigVie
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
-    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
-    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
+    GetLightClientChunkExecutionProof, GetLightClientExecutionOutcomeProof,
+    GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError,
+    GetLightClientStateProof, GetLightClientStateProofResponse, GetMaintenanceWindows,
+    GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProcessedReceiptIds,
+    GetProcessedReceiptIdsError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
+    GetReceiptError, GetReceiptToTx, GetReceiptToTxError, GetReceiptToTxResponse,
+    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError, TxStatusOutcome,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -37,29 +45,32 @@ use near_network::types::{
 };
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::errors::EpochError;
+use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptOrigin, ReceiptToTxInfo};
+use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
 use near_primitives::sharding::ShardChunk;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
-    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
-    ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
+    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
+    TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
-    TxExecutionStatus, TxStatusView,
+    BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView,
+    LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView, QueryRequest,
+    QueryResponse, ReceiptView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
+    StateProofView, TxExecutionStatus, TxStatusView,
 };
 use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
+use near_store::trie::AccessOptions;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -73,7 +84,9 @@ const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
 const REQUEST_WAIT_TIME: i64 = 1000;
 
-/// Request and response manager across all instances of ViewClientActor.
+/// Request and response manager shared by every ViewClientActor thread. All threads read one
+/// queue, so the thread that records a `TxStatusRequest` is not the one that handles its
+/// `TxStatusResponse`.
 pub struct ViewClientRequestManager {
     /// Transaction query that needs to be forwarded to other shards
     pub tx_status_requests: lru::LruCache<CryptoHash, Instant>,
@@ -119,6 +132,7 @@ impl ViewClientActor {
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
     ) -> MultithreadRuntimeHandle<ViewClientActor> {
+        let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
             ViewClientActor::new(
                 clock.clone(),
@@ -130,6 +144,7 @@ impl ViewClientActor {
                 config.clone(),
                 adv.clone(),
                 validator_signer.clone(),
+                request_manager.clone(),
             )
             .unwrap()
         })
@@ -145,6 +160,7 @@ impl ViewClientActor {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
+        request_manager: Arc<RwLock<ViewClientRequestManager>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -171,7 +187,7 @@ impl ViewClientActor {
             runtime,
             network_adapter,
             config,
-            request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            request_manager,
             spice_chain_reader,
         })
     }
@@ -315,6 +331,26 @@ impl ViewClientActor {
             self.epoch_manager.get_epoch_start_height(cur_block_info.hash())?
                 + self.epoch_manager.get_epoch_config(&epoch_id)?.epoch_length;
 
+        // An account that is not a validator of this epoch is never sampled as a block or
+        // chunk producer, so the whole remainder of the epoch is a single window.
+        let Some(&validator_id) = epoch_info.get_validator_id(&account_id) else {
+            let rest_of_epoch = head.height..next_epoch_start_height;
+            return Ok(if rest_of_epoch.is_empty() { vec![] } else { vec![rest_of_epoch] });
+        };
+
+        // Sampling only ever returns validators listed in the corresponding settlement, so an
+        // account missing from one can never be drawn from it and needs no sampling there.
+        let samples_as_block_producer =
+            epoch_info.block_producers_settlement().contains(&validator_id);
+        let chunk_producer_shard_ids: Vec<ShardId> = shard_ids
+            .iter()
+            .copied()
+            .filter(|&shard_id| {
+                let Ok(shard_index) = shard_layout.get_shard_index(shard_id) else { return false };
+                epoch_info.chunk_producers_settlement()[shard_index].contains(&validator_id)
+            })
+            .collect();
+
         let mut windows: MaintenanceWindowsView = Vec::new();
         let mut start_block_of_window: Option<BlockHeight> = None;
         let last_block_of_epoch = next_epoch_start_height - 1;
@@ -322,19 +358,14 @@ impl ViewClientActor {
         // This loop does not go beyond the current epoch so it is valid to use
         // the EpochInfo and ShardLayout from the current epoch.
         for block_height in head.height..next_epoch_start_height {
-            let bp = epoch_info.sample_block_producer(block_height);
-            let bp = epoch_info.get_validator(bp).account_id().clone();
-            let cps: Vec<AccountId> = shard_ids
-                .iter()
-                .map(|&shard_id| {
-                    let cp = epoch_info
-                        .sample_chunk_producer(&shard_layout, shard_id, block_height)
-                        .unwrap();
-                    let cp = epoch_info.get_validator(cp).account_id().clone();
-                    cp
-                })
-                .collect();
-            if account_id != bp && !cps.iter().any(|a| *a == account_id) {
+            let produces_block = samples_as_block_producer
+                && epoch_info.sample_block_producer(block_height) == validator_id;
+            let mut chunk_producers = chunk_producer_shard_ids.iter().map(|&shard_id| {
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, block_height).unwrap()
+            });
+            if !produces_block
+                && !chunk_producers.any(|chunk_producer| chunk_producer == validator_id)
+            {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {
                         windows.push(start..block_height + 1);
@@ -354,7 +385,26 @@ impl ViewClientActor {
         Ok(windows)
     }
 
+    /// Returns true if the given block height has been garbage collected on this non-archive node.
+    fn is_block_gc(&self, block_height: BlockHeight) -> bool {
+        if self.config.archive {
+            return false;
+        }
+        match self.chain.head() {
+            Ok(tip) => block_height < self.runtime.get_gc_stop_height(&tip.last_block_hash),
+            Err(_) => false,
+        }
+    }
+
     pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+        // For height-based queries, check upfront whether the block has been garbage collected.
+        if let BlockReference::BlockId(BlockId::Height(h)) = &msg.block_reference {
+            if self.is_block_gc(*h) {
+                let block_hash = self.chain.get_block_hash_by_height(*h).unwrap_or_default();
+                return Err(QueryError::GarbageCollectedBlock { block_height: *h, block_hash });
+            }
+        }
+
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -375,23 +425,22 @@ impl ViewClientActor {
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
                 .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let tip = self.chain.head();
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
-                    Ok(tip) => {
-                        let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
-                        if !self.config.archive && header.height() < gc_stop_height {
-                            QueryError::GarbageCollectedBlock {
-                                block_height: header.height(),
-                                block_hash: *header.hash(),
-                            }
-                        } else {
-                            QueryError::UnavailableShard { requested_shard_id: shard_id }
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
+                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
+                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
+                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+                        && self.is_block_gc(header.height())
+                    {
+                        QueryError::GarbageCollectedBlock {
+                            block_height: header.height(),
+                            block_hash: *header.hash(),
                         }
+                    } else {
+                        QueryError::UnavailableShard { requested_shard_id: shard_id }
                     }
-                    Err(err) => QueryError::InternalError { error_message: err.to_string() },
-                },
+                }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }
                 }
@@ -440,6 +489,17 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::TooManyAccessKeys {
+                    requested_account_id,
+                    limit,
+                    block_height,
+                    block_hash,
+                } => QueryError::TooManyAccessKeys {
+                    requested_account_id,
+                    limit,
+                    block_height,
+                    block_hash,
+                },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
                     error,
@@ -616,7 +676,7 @@ impl ViewClientActor {
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-    ) -> Result<TxStatusView, TxStatusError> {
+    ) -> Result<TxStatusOutcome, TxStatusError> {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
@@ -624,12 +684,12 @@ impl ViewClientActor {
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
                 let status = self.get_tx_execution_status(&res)?;
-                return Ok(TxStatusView {
-                    execution_outcome: Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                        res,
-                    )),
+                let execution_outcome =
+                    Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res));
+                return Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
+                    execution_outcome,
                     status,
-                });
+                })));
             }
         }
 
@@ -639,8 +699,8 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
-            match self.chain.get_partial_transaction_result(&tx_hash) {
-                Ok(tx_result) => {
+            match self.chain.get_partial_transaction_result_option(&tx_hash) {
+                Ok(Some(tx_result)) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
@@ -651,35 +711,16 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(TxStatusView { execution_outcome: Some(res), status })
+                    let tx_status_view = TxStatusView { execution_outcome: Some(res), status };
+                    Ok(TxStatusOutcome::Observed(Box::new(tx_status_view)))
                 }
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
-                        let transaction =
-                            SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
-                        if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
-                            let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                                FinalExecutionOutcomeView {
-                                    status: FinalExecutionStatus::Started,
-                                    transaction,
-                                    transaction_outcome: tx_outcome.into(),
-                                    receipts_outcome: vec![],
-                                },
-                            );
-                            Ok(TxStatusView {
-                                execution_outcome: Some(outcome),
-                                status: TxExecutionStatus::Included,
-                            })
-                        } else {
-                            Ok(TxStatusView {
-                                execution_outcome: None,
-                                status: TxExecutionStatus::Included,
-                            })
-                        }
-                    } else {
-                        Err(TxStatusError::MissingTransaction(tx_hash))
-                    }
-                }
+                // The transaction is in the store (included) but has no execution outcome yet.
+                Ok(None) => Ok(TxStatusOutcome::Observed(Box::new(TxStatusView {
+                    execution_outcome: None,
+                    status: TxExecutionStatus::Included,
+                }))),
+                // The transaction is not in this node's store at all.
+                Err(near_chain::Error::DBNotFoundErr(_)) => Ok(TxStatusOutcome::NotObserved),
                 Err(err) => {
                     tracing::warn!(target: "client", ?err, "error trying to get transaction result");
                     Err(err.into())
@@ -708,7 +749,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
+            Ok(TxStatusOutcome::DoesNotTrackShard { shard_id: target_shard_id })
         }
     }
 
@@ -845,17 +886,12 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
-            .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_inner.height_created(),
-                shard_id: chunk_inner.shard_id(),
-            })
+            .get_chunk_producer_info_from_prev_block(
+                chunk_inner.prev_block_hash(),
+                chunk_inner.shard_id(),
+            )
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
@@ -863,8 +899,8 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
     }
 }
 
-impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActor {
-    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
+impl Handler<TxStatus, Result<TxStatusOutcome, TxStatusError>> for ViewClientActor {
+    fn handle(&mut self, msg: TxStatus) -> Result<TxStatusOutcome, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
@@ -955,6 +991,22 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+}
+
+/// Returns whether the given shard's chunk at `block_hash` was applied on
+/// this node, i.e. whether its `ChunkExtra` is present in the store.
+impl Handler<GetChunkExtraExists, Result<bool, GetStateChangesError>> for ViewClientActor {
+    fn handle(&mut self, msg: GetChunkExtraExists) -> Result<bool, GetStateChangesError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetChunkExtraExists"])
+            .start_timer();
+        match self.chain.chain_store().get_chunk_extra(&msg.block_hash, &msg.shard_uid) {
+            Ok(_) => Ok(true),
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => Ok(false),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -1115,43 +1167,48 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                 let mut outcome_proof = outcome;
                 let epoch_id =
                     *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
-                let shard_layout =
-                    self.epoch_manager.get_shard_layout(&epoch_id).into_chain_error()?;
                 let target_shard_id =
                     account_id_to_shard_id(self.epoch_manager.as_ref(), &account_id, &epoch_id)
                         .into_chain_error()?;
-                let target_shard_index = shard_layout
-                    .get_shard_index(target_shard_id)
-                    .map_err(Into::into)
-                    .into_chain_error()?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
                 )?;
-                if let Some((h, target_shard_id)) = res {
-                    outcome_proof.block_hash = h;
-                    // Here we assume the number of shards is small so this reconstruction
-                    // should be fast
-                    let outcome_roots = self
-                        .chain
-                        .get_block(&h)?
-                        .chunks()
-                        .iter()
-                        .map(|header| *header.prev_outcome_root())
-                        .collect::<Vec<_>>();
-                    if target_shard_index >= outcome_roots.len() {
-                        return Err(GetExecutionOutcomeError::InconsistentState {
-                            number_or_shards: outcome_roots.len(),
-                            execution_outcome_shard_id: target_shard_id,
-                        });
-                    }
-                    Ok(GetExecutionOutcomeResponse {
-                        outcome_proof: outcome_proof.into(),
-                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_index].clone(),
-                    })
-                } else {
-                    Err(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })
+                let Some((confirming_block_hash, confirming_shard_id, confirming_shard_index)) =
+                    res
+                else {
+                    return Err(GetExecutionOutcomeError::NotConfirmed {
+                        transaction_or_receipt_id: id,
+                    });
+                };
+                outcome_proof.block_hash = confirming_block_hash;
+                let confirming_block = self.chain.get_block(&confirming_block_hash)?;
+                // Here we assume the number of shards is small so this reconstruction
+                // should be fast
+                let outcome_roots = confirming_block
+                    .chunks()
+                    .iter()
+                    .map(|header| *header.prev_outcome_root())
+                    .collect::<Vec<_>>();
+                let (outcome_root, outcome_root_paths) = merklize(&outcome_roots);
+                if &outcome_root != confirming_block.header().outcome_root() {
+                    return Err(GetExecutionOutcomeError::InternalError {
+                        error_message: "recomputed outcome root disagrees with the confirming \
+                                        block's committed root"
+                            .to_string(),
+                    });
                 }
+                let Some(outcome_root_proof) = outcome_root_paths.get(confirming_shard_index)
+                else {
+                    return Err(GetExecutionOutcomeError::InconsistentState {
+                        number_or_shards: outcome_roots.len(),
+                        execution_outcome_shard_id: confirming_shard_id,
+                    });
+                };
+                Ok(GetExecutionOutcomeResponse {
+                    outcome_proof: outcome_proof.into(),
+                    outcome_root_proof: outcome_root_proof.clone(),
+                })
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let head = self.chain.head()?;
@@ -1217,6 +1274,367 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
     }
 }
 
+impl
+    Handler<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetProcessedReceiptIds,
+    ) -> Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetProcessedReceiptIds"])
+            .start_timer();
+        Ok(self
+            .chain
+            .chain_store()
+            .get_processed_receipt_ids(&msg.block_hash, msg.shard_id)?
+            .iter()
+            .cloned()
+            .collect())
+    }
+}
+
+impl Handler<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>
+    for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetReceiptToTx,
+    ) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceiptToTx"]).start_timer();
+
+        let result = handle_receipt_to_tx(self, msg);
+        record_receipt_to_tx_outcome(&result);
+        result
+    }
+}
+
+const RECEIPT_TO_TX_MAX_DEPTH: u32 = 1000;
+
+fn handle_receipt_to_tx(
+    actor: &ViewClientActor,
+    msg: GetReceiptToTx,
+) -> Result<GetReceiptToTxResponse, GetReceiptToTxError> {
+    let hint_provided = msg.block_height.is_some();
+    if msg.shard_id.is_some() && !hint_provided {
+        return Err(GetReceiptToTxError::MalformedHint(
+            "shard_id requires block_height".to_string(),
+        ));
+    }
+    // `window` meaningless without hint. Reject explicitly so caller
+    // supplying `{receipt_id, window: 999}` doesn't get silent accept
+    // with param discarded.
+    if msg.window.is_some() && !hint_provided {
+        return Err(GetReceiptToTxError::MalformedHint("window requires block_height".to_string()));
+    }
+    let effective_window = msg.window.unwrap_or(DEFAULT_HINT_WINDOW);
+    let max_hint_window = actor.config.receipt_to_tx_max_hint_window;
+    let max_hop_distance = actor.config.receipt_to_tx_max_hop_distance;
+    if hint_provided && effective_window > max_hint_window {
+        return Err(GetReceiptToTxError::WindowTooLarge {
+            requested: effective_window,
+            maximum: max_hint_window,
+        });
+    }
+
+    // tracks_all_shards required both modes: cross-shard historical
+    // lookups need every shard's chain data locally.
+    if !actor.config.tracked_shards_config.tracks_all_shards() {
+        return Err(GetReceiptToTxError::Unsupported("node does not track all shards".to_string()));
+    }
+    // Column-only mode requires save_receipt_to_tx. Hint mode doesn't —
+    // rebuilds origin from OutcomeIds + Receipts/Transactions.
+    if !hint_provided && !actor.config.save_receipt_to_tx {
+        return Err(GetReceiptToTxError::Unsupported(
+            "receipt-to-tx mapping is disabled (save_receipt_to_tx=false) and no hint supplied"
+                .to_string(),
+        ));
+    }
+
+    // TODO(receipt-to-tx-bench): benchmark cold-RocksDB worst-case to tune
+    // `receipt_to_tx_max_outcomes_per_request` default; current 20k is a
+    // conservative estimate.
+    // TODO(sharded-rpc): if a sharded variant lands, move coordination logic
+    // out of view_client_actor into the sharded handler.
+    let max_outcomes_per_request = actor.config.receipt_to_tx_max_outcomes_per_request;
+
+    let mut current_receipt_id = msg.receipt_id;
+    let mut current_height = msg.block_height;
+    // Shards a column-miss scan inspects, resolved lazily at scan time (column
+    // hits skip it). Caller `shard_id` seeds first scan; each `FromReceipt` hop
+    // reseeds to parent's predecessor account.
+    let mut scan_shards = msg.shard_id.map(ScanShards::Hint).unwrap_or(ScanShards::Enumerate);
+    let mut remaining_budget = max_outcomes_per_request;
+    // Monotonic. False → true on first scan-resolve, never reset. After
+    // scan, `current_height` = parent's exact execution height; causality
+    // bounds later ancestors at or before anchor → column-miss scans stay
+    // `Ancestor + max_hop_distance`. Pre-first-scan anchor = caller's
+    // literal hint, `CenterOut` spans both sides.
+    let mut have_scanned = false;
+
+    for _ in 0..RECEIPT_TO_TX_MAX_DEPTH {
+        let column_info = actor.chain.chain_store().get_receipt_to_tx(&current_receipt_id);
+        let info = match column_info {
+            Some(info) => info,
+            None => {
+                let Some(height) = current_height else {
+                    return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                };
+                if !actor.config.save_tx_outcomes {
+                    return Err(GetReceiptToTxError::OutcomesNotStored);
+                }
+                let scan = if have_scanned {
+                    Scan::Ancestor { max_distance: max_hop_distance }
+                } else {
+                    Scan::CenterOut { window: effective_window }
+                };
+                match scan_for_seed(
+                    actor,
+                    current_receipt_id,
+                    height,
+                    &scan_shards,
+                    scan,
+                    &mut remaining_budget,
+                )? {
+                    Some(res) => {
+                        have_scanned = true;
+                        current_height = Some(res.outcome_block_height);
+                        // Next-hop seed set by the FromReceipt arm below;
+                        // FromTransaction arm returns without scanning.
+                        res.info
+                    }
+                    None => {
+                        return Err(GetReceiptToTxError::UnknownReceipt(current_receipt_id));
+                    }
+                }
+            }
+        };
+
+        let ReceiptToTxInfo::V1(v1) = info;
+        match v1.origin {
+            ReceiptOrigin::FromTransaction(origin) => {
+                return Ok(GetReceiptToTxResponse {
+                    transaction_hash: origin.tx_hash,
+                    sender_account_id: origin.sender_account_id,
+                });
+            }
+            ReceiptOrigin::FromReceipt(origin) => {
+                let parent_id = origin.parent_receipt_id;
+                // Next hop targets parent P's producing shard. P executed on
+                // shard(P.receiver_id) = this receipt's predecessor_id; P's parent
+                // lives at shard(parent_predecessor_id). Carry the account, resolve
+                // its lineage lazily at scan time, so a producing outcome on a
+                // reshard-retired ancestor shard is still scanned.
+                scan_shards = ScanShards::Account(origin.parent_predecessor_id);
+                current_receipt_id = parent_id;
+            }
+        }
+    }
+
+    Err(GetReceiptToTxError::DepthExceeded {
+        receipt_id: msg.receipt_id,
+        limit: RECEIPT_TO_TX_MAX_DEPTH,
+    })
+}
+
+/// Seed for which shards a column-miss scan inspects, resolved to shard ids
+/// lazily at scan time (see `resolve_scan_shards`).
+enum ScanShards {
+    /// Caller `shard_id` hint (first scan). Walked back through parent shards so
+    /// a hint naming a post-reshard child still reaches the retired parent.
+    /// Ancestors only, not descendants (reshards split forward); the mirror
+    /// (parent hint, producer forward on a child) is uncovered — caller drops the
+    /// hint and `Enumerate` covers it.
+    Hint(ShardId),
+    /// Predecessor account from a `FromReceipt` hop. Mapped to its shard at each
+    /// layout in the window, covering a reshard between producer and anchor.
+    Account(AccountId),
+    /// No hint, no derivation yet → every shard at any layout the window spans.
+    Enumerate,
+}
+
+/// Resolve the seed to the shards to scan, unioned across every distinct epoch
+/// layout the window spans. Version-agnostic: a static (V2) or dynamic (V3)
+/// reshard in the window contributes the pre-reshard layout, whose
+/// `account_id_to_shard_id` / `shard_ids` still name the retired parent.
+///
+/// `Ok(None)` = no height in the window has a local block header (all GC'd) →
+/// the caller returns `UnknownReceipt`. A missing header at a single height
+/// (`DBNotFoundErr`) is skipped — the same skip-and-continue the hint scan uses;
+/// other chain/epoch errors → `InternalError`, so corruption can't masquerade as
+/// a missing receipt.
+fn resolve_scan_shards(
+    actor: &ViewClientActor,
+    scan: Scan,
+    anchor_height: BlockHeight,
+    seed: &ScanShards,
+) -> Result<Option<Vec<ShardId>>, GetReceiptToTxError> {
+    let (lo, hi) = scan.height_bounds(anchor_height);
+
+    // Distinct layouts the window spans (tiny — ≤2 in practice).
+    let mut seen_epochs: Vec<EpochId> = Vec::new();
+    let mut layouts: Vec<ShardLayout> = Vec::new();
+    for height in lo..=hi {
+        let header = match actor.chain.get_block_header_by_height(height) {
+            Ok(header) => header,
+            Err(near_chain::Error::DBNotFoundErr(_)) => continue,
+            Err(e) => return Err(GetReceiptToTxError::InternalError(e.to_string())),
+        };
+        let epoch_id = *header.epoch_id();
+        if seen_epochs.contains(&epoch_id) {
+            continue;
+        }
+        seen_epochs.push(epoch_id);
+        let layout = actor
+            .chain
+            .epoch_manager
+            .get_shard_layout(&epoch_id)
+            .into_chain_error()
+            .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?;
+        layouts.push(layout);
+    }
+    if layouts.is_empty() {
+        return Ok(None);
+    }
+
+    // Union per seed across the window's layouts, deduping in place — a shard
+    // scanned twice double-charges the budget. Coverage-safe: `resolve_receipt_via_hint`
+    // re-keys outcomes by `(block_hash, shard_id)` per height, so a deduped id still
+    // hits its rows in every layout.
+    let mut shards: Vec<ShardId> = Vec::new();
+    let push = |id: ShardId, shards: &mut Vec<ShardId>| {
+        if !shards.contains(&id) {
+            shards.push(id);
+        }
+    };
+    for layout in &layouts {
+        match seed {
+            ScanShards::Account(account_id) => {
+                push(layout.account_id_to_shard_id(account_id), &mut shards);
+            }
+            ScanShards::Enumerate => {
+                for shard_id in layout.shard_ids() {
+                    push(shard_id, &mut shards);
+                }
+            }
+            ScanShards::Hint(shard_id) => {
+                for id in hint_lineage(layout, *shard_id)
+                    .map_err(|e| GetReceiptToTxError::InternalError(e.to_string()))?
+                {
+                    push(id, &mut shards);
+                }
+            }
+        }
+    }
+    Ok(Some(shards))
+}
+
+/// Hint's parent lineage in one layout: hint, then each ancestor it split from,
+/// stopping at the self-parent fixed point (an unchanged / V3 non-split shard is
+/// its own parent; the `parent == id` break prevents an infinite loop).
+/// `InvalidShardId` ends the walk (hint absent in this layout — expected); any
+/// other error propagates, so corruption can't look like a miss.
+fn hint_lineage(layout: &ShardLayout, hint: ShardId) -> Result<Vec<ShardId>, ShardLayoutError> {
+    let mut lineage = vec![hint];
+    let mut id = hint;
+    loop {
+        match layout.try_get_parent_shard_id(id) {
+            Ok(Some(parent)) => {
+                if parent == id {
+                    break;
+                }
+                lineage.push(parent);
+                id = parent;
+            }
+            Ok(None) => break,
+            Err(ShardLayoutError::InvalidShardId { .. }) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(lineage)
+}
+
+/// Run the hint scan over every shard the seed resolves to, sharing one budget.
+/// `UnknownReceipt` when no window height is resolvable or no shard yields it.
+fn scan_for_seed(
+    actor: &ViewClientActor,
+    receipt_id: CryptoHash,
+    block_height: BlockHeight,
+    seed: &ScanShards,
+    scan: Scan,
+    remaining_budget: &mut u64,
+) -> Result<Option<HintResolution>, GetReceiptToTxError> {
+    let Some(shard_ids) = resolve_scan_shards(actor, scan, block_height, seed)? else {
+        return Err(GetReceiptToTxError::UnknownReceipt(receipt_id));
+    };
+    for shard_id in shard_ids {
+        if let Some(resolution) =
+            run_hint_scan(actor, receipt_id, block_height, shard_id, scan, remaining_budget)?
+        {
+            return Ok(Some(resolution));
+        }
+    }
+    Ok(None)
+}
+
+/// Run one hint-fallback scan + unconditionally record stats. Used by
+/// column-miss branch in both `Scan::CenterOut` (pre-first-scan) and
+/// `Scan::Ancestor` (post-scan-resolved hop). Neither path drops metric
+/// accounting on error return.
+fn run_hint_scan(
+    actor: &ViewClientActor,
+    receipt_id: CryptoHash,
+    block_height: BlockHeight,
+    shard_id: ShardId,
+    scan: Scan,
+    remaining_budget: &mut u64,
+) -> Result<Option<HintResolution>, GetReceiptToTxError> {
+    let mut stats = HintScanStats::default();
+    let result = resolve_receipt_via_hint(
+        actor.chain.chain_store(),
+        receipt_id,
+        block_height,
+        shard_id,
+        scan,
+        &mut stats,
+        remaining_budget,
+    );
+    record_hint_scan_stats(stats);
+    let limit = actor.config.receipt_to_tx_max_outcomes_per_request;
+    result.map_err(|e| match e {
+        ResolveHintError::Chain(e) => GetReceiptToTxError::InternalError(e.to_string()),
+        ResolveHintError::BudgetExceeded => {
+            GetReceiptToTxError::BudgetExceeded { scanned: limit - *remaining_budget, limit }
+        }
+    })
+}
+
+fn record_hint_scan_stats(stats: HintScanStats) {
+    metrics::RECEIPT_TO_TX_HINT_HEIGHTS_SCANNED_TOTAL.inc_by(stats.heights_scanned);
+    metrics::RECEIPT_TO_TX_HINT_OUTCOMES_SCANNED_TOTAL.inc_by(stats.outcomes_scanned);
+}
+
+fn record_receipt_to_tx_outcome(result: &Result<GetReceiptToTxResponse, GetReceiptToTxError>) {
+    let outcome = match result {
+        Ok(_) => "ok",
+        Err(GetReceiptToTxError::UnknownReceipt(_)) => "unknown_receipt",
+        Err(GetReceiptToTxError::DepthExceeded { .. }) => "depth_exceeded",
+        Err(GetReceiptToTxError::Unsupported(_)) => "unsupported",
+        Err(GetReceiptToTxError::OutcomesNotStored) => "outcomes_not_stored",
+        Err(GetReceiptToTxError::WindowTooLarge { .. }) => "window_too_large",
+        Err(GetReceiptToTxError::MalformedHint(_)) => "malformed_hint",
+        Err(GetReceiptToTxError::BudgetExceeded { .. }) => "budget_exceeded",
+        Err(GetReceiptToTxError::InternalError(_)) => "internal_error",
+    };
+    metrics::RECEIPT_TO_TX_TOTAL.with_label_values(&[outcome]).inc();
+}
+
 impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof) -> Result<GetBlockProofResponse, GetBlockProofError> {
         tracing::debug!(target: "client", ?msg);
@@ -1233,6 +1651,239 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> f
             &msg.head_block_hash,
         )?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
+    }
+}
+
+impl ViewClientActor {
+    /// Builds a light-client proof that a chunk's certified execution roots are
+    /// committed by the block certifying them, and that this block is in the
+    /// block merkle tree of a final `light_client_head`.
+    fn build_chunk_execution_proof(
+        &self,
+        chunk_id: &SpiceChunkId,
+        light_client_head: &CryptoHash,
+    ) -> Result<ChunkExecutionProofView, GetLightClientProofError> {
+        let Some(certifying_block_hash) =
+            self.runtime.store().chain_store().get_chunk_certifying_block(chunk_id)
+        else {
+            return Err(GetLightClientProofError::ChunkNotCertified { chunk_id: chunk_id.clone() });
+        };
+
+        let head_header = self.chain.get_block_header(light_client_head)?;
+        self.chain.check_blocks_final_and_canonical(&[BlockHeader::clone(&head_header)]).map_err(
+            |error| GetLightClientProofError::InternalError {
+                error_message: format!("light client head is not final and canonical: {error}"),
+            },
+        )?;
+
+        let certifying_block = self.chain.get_block(&certifying_block_hash)?;
+        let certifying_height = certifying_block.header().height();
+        let head_height = head_header.height();
+        // The head must be strictly after the certifying block: the block merkle
+        // proof recomputes the head's block_merkle_root from the certifying block,
+        // and that root commits only to blocks before the head.
+        if head_height <= certifying_height {
+            return Err(GetLightClientProofError::LightClientHeadTooOld {
+                chunk_id: chunk_id.clone(),
+                certifying_block_height: certifying_height,
+                head_height,
+            });
+        }
+
+        let leaves = sorted_chunk_execution_roots(
+            certifying_block.spice_core_statements().iter_execution_results(),
+        );
+        let Some(index) = leaves.iter().position(|leaf| leaf.chunk_id() == chunk_id) else {
+            return Err(GetLightClientProofError::ChunkNotCertified { chunk_id: chunk_id.clone() });
+        };
+        let (root, paths) = merklize(&leaves);
+        if Some(root) != certifying_block.header().chunk_execution_root() {
+            return Err(GetLightClientProofError::InternalError {
+                error_message:
+                    "recomputed chunk_execution_root disagrees with the certifying block's committed root"
+                        .to_string(),
+            });
+        }
+        let roots = leaves[index].clone();
+        let roots_proof = paths[index].clone();
+
+        let certifying_block_header_lite =
+            LightClientBlockLiteView::from(BlockHeader::clone(certifying_block.header()));
+        let certifying_block_proof =
+            self.chain.compute_past_block_proof_in_merkle_tree_of_later_block(
+                &certifying_block_hash,
+                light_client_head,
+            )?;
+
+        Ok(ChunkExecutionProofView {
+            roots,
+            roots_proof,
+            certifying_block_header_lite,
+            certifying_block_proof,
+        })
+    }
+
+    /// The shard that executes `account_id` in `block_hash`'s epoch, and whether this
+    /// node tracks it there.
+    fn account_shard_at_block(
+        &self,
+        account_id: &AccountId,
+        block_hash: &CryptoHash,
+    ) -> Result<(ShardId, bool), GetLightClientProofError> {
+        let header = self.chain.get_block_header(block_hash)?;
+        let shard_id =
+            account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, header.epoch_id())
+                .into_chain_error()?;
+        let tracked = self
+            .shard_tracker
+            .cares_about_shard_checked(header.prev_hash(), shard_id)
+            .into_chain_error()?;
+        Ok((shard_id, tracked))
+    }
+}
+
+impl
+    Handler<
+        GetLightClientChunkExecutionProof,
+        Result<ChunkExecutionProofView, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientChunkExecutionProof,
+    ) -> Result<ChunkExecutionProofView, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientChunkExecutionProof"])
+            .start_timer();
+        self.build_chunk_execution_proof(&msg.chunk_id, &msg.light_client_head)
+    }
+}
+
+impl
+    Handler<
+        GetLightClientExecutionOutcomeProof,
+        Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientExecutionOutcomeProof,
+    ) -> Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientExecutionOutcomeProof"])
+            .start_timer();
+        let (id, account_id) = match msg.id {
+            TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
+                (transaction_hash, sender_id)
+            }
+            TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
+                (receipt_id, receiver_id)
+            }
+        };
+        let outcome = match self.chain.get_execution_outcome(&id) {
+            Ok(outcome) => outcome,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let (shard_id, tracked) =
+                    self.account_shard_at_block(&account_id, &msg.light_client_head)?;
+                if !tracked {
+                    return Err(GetLightClientProofError::UnavailableShard {
+                        transaction_or_receipt_id: id,
+                        shard_id,
+                    });
+                }
+                return Err(GetLightClientProofError::UnknownTransactionOrReceipt {
+                    transaction_or_receipt_id: id,
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let block_hash = outcome.block_hash;
+        let epoch_id = *self.chain.get_block_header(&block_hash)?.epoch_id();
+        // The executor, not the account named in the request, decides which shard ran
+        // this outcome. An unverified request hint would name a chunk whose outcome_root
+        // does not commit the outcome.
+        let executor_id = &outcome.outcome_with_id.outcome.executor_id;
+        let shard_id = account_id_to_shard_id(self.epoch_manager.as_ref(), executor_id, &epoch_id)
+            .into_chain_error()?;
+        let chunk_id = SpiceChunkId { block_hash, shard_id };
+        let chunk_execution_proof =
+            self.build_chunk_execution_proof(&chunk_id, &msg.light_client_head)?;
+        Ok(GetLightClientExecutionOutcomeProofResponse {
+            chunk_execution_proof,
+            outcome_proof: outcome.into(),
+        })
+    }
+}
+
+impl
+    Handler<
+        GetLightClientStateProof,
+        Result<GetLightClientStateProofResponse, GetLightClientProofError>,
+    > for ViewClientActor
+{
+    fn handle(
+        &mut self,
+        msg: GetLightClientStateProof,
+    ) -> Result<GetLightClientStateProofResponse, GetLightClientProofError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetLightClientStateProof"])
+            .start_timer();
+        let shard_id = msg.chunk_id.shard_id;
+        let chunk_block_header = self.chain.get_block_header(&msg.chunk_id.block_hash)?;
+        if !self
+            .shard_tracker
+            .cares_about_shard_checked(chunk_block_header.prev_hash(), shard_id)
+            .into_chain_error()?
+        {
+            return Err(GetLightClientProofError::ShardNotTracked { shard_id });
+        }
+        // Without this the server would answer an absent value for a target that lives in
+        // another shard, and that absence proof verifies against this chunk's state_root.
+        let account_shard_id = account_id_to_shard_id(
+            self.epoch_manager.as_ref(),
+            msg.target.account_id(),
+            chunk_block_header.epoch_id(),
+        )
+        .into_chain_error()?;
+        if account_shard_id != shard_id {
+            return Err(GetLightClientProofError::TargetShardMismatch {
+                account_id: msg.target.account_id().clone(),
+                account_shard_id,
+                requested_shard_id: shard_id,
+            });
+        }
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, chunk_block_header.epoch_id())
+                .into_chain_error()?;
+
+        let chunk_execution_proof =
+            self.build_chunk_execution_proof(&msg.chunk_id, &msg.light_client_head)?;
+        let ChunkExecutionRoots::V1(roots) = &chunk_execution_proof.roots;
+        let state_root = roots.state_root;
+
+        let trie = self
+            .runtime
+            .get_tries()
+            .get_view_trie_for_shard(shard_uid, state_root)
+            .recording_reads_new_recorder();
+        let trie_key = msg.target.to_trie_key().to_vec();
+        let value = trie.get(&trie_key, AccessOptions::DEFAULT).map_err(|error| match error {
+            StorageError::MissingTrieValue(_) => {
+                GetLightClientProofError::StateNotAvailable { chunk_id: msg.chunk_id.clone() }
+            }
+            error => GetLightClientProofError::InternalError { error_message: error.to_string() },
+        })?;
+        let Some(partial_storage) = trie.recorded_storage() else {
+            return Err(GetLightClientProofError::InternalError {
+                error_message: "trie did not record a state proof".to_string(),
+            });
+        };
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let state_proof = StateProofView { value: value.map(StoreValue::from), nodes };
+        Ok(GetLightClientStateProofResponse { chunk_execution_proof, state_proof })
     }
 }
 
@@ -1307,13 +1958,14 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) =
-            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
-        {
-            Some(Box::new(result.into_outcome()))
-        } else {
-            None
-        }
+        let tx_status = self.get_tx_status(tx_hash, signer_account_id, false);
+        let Ok(TxStatusOutcome::Observed(view)) = tx_status else {
+            return None;
+        };
+        let Some(result) = view.execution_outcome else {
+            return None;
+        };
+        Some(Box::new(result.into_outcome()))
     }
 }
 
@@ -1476,5 +2128,53 @@ impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
             return None;
         };
         self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
+    }
+}
+
+#[cfg(test)]
+mod hint_lineage_tests {
+    use super::hint_lineage;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::{AccountId, ShardId};
+
+    /// Static (V2) split layout plus its parent (retired), a post-split child,
+    /// and an unchanged self-parenting shard. Mirrors `setup_reshard_boundary`
+    /// in the test-loop tests, but at the layout level — no env needed.
+    fn split_layout() -> (ShardLayout, ShardId, ShardId, ShardId) {
+        let boundary: AccountId = "boundary".parse().unwrap();
+        let base = ShardLayout::multi_shard(3, 3);
+        let parent = base.account_id_to_shard_id(&boundary);
+        let split = ShardLayout::derive_shard_layout(&base, boundary.clone());
+        let child = split.account_id_to_shard_id(&boundary);
+        let unchanged = split
+            .shard_ids()
+            .find(|&s| matches!(split.try_get_parent_shard_id(s), Ok(Some(p)) if p == s))
+            .expect("split layout retains at least one unchanged shard");
+        (split, parent, child, unchanged)
+    }
+
+    #[test]
+    fn self_parent_terminates() {
+        let (split, _parent, _child, unchanged) = split_layout();
+        // Self-parenting shard stops at the fixed point and yields only itself
+        // (revert the `parent == id` break in `hint_lineage` and this hangs).
+        assert_eq!(hint_lineage(&split, unchanged).unwrap(), vec![unchanged]);
+    }
+
+    #[test]
+    fn child_reaches_retired_parent() {
+        let (split, parent, child, _unchanged) = split_layout();
+        // Post-split child walks up to its retired parent, then stops (the
+        // parent is absent from this layout → InvalidShardId ends the walk).
+        assert_eq!(hint_lineage(&split, child).unwrap(), vec![child, parent]);
+    }
+
+    #[test]
+    fn unknown_hint_yields_itself() {
+        let (split, parent, _child, _unchanged) = split_layout();
+        // The retired parent id is not a valid shard in the post-split layout;
+        // the walk ends immediately and the hint is still returned (harmless —
+        // the hint scan finds no rows for it).
+        assert_eq!(hint_lineage(&split, parent).unwrap(), vec![parent]);
     }
 }

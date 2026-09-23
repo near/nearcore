@@ -1,0 +1,9 @@
+{
+    "chunk_producers": 20,
+    "base_config_patch": "../../base_config_patch.json",
+    "base_genesis_patch": "./genesis_patch.json",
+    "num_accounts": 50000,
+    "tx_generator": {
+        "enabled": true
+    }
+}

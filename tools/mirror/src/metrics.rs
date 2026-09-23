@@ -19,3 +19,11 @@ pub static TRANSACTIONS_INCLUDED: LazyLock<IntCounter> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
+pub static TRANSACTIONS_REFORWARDED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_mirror_transactions_reforwarded",
+        "Total number of sent transactions re-forwarded because they were not observed on chain in time",
+    )
+    .unwrap()
+});

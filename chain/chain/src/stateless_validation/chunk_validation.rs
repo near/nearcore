@@ -2,14 +2,15 @@ use crate::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     apply_new_chunk, apply_old_chunk,
 };
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
-use crate::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use crate::types::{
+    ApplyChunkBlockContext, MaybePinnedMemtrieRoot, RuntimeAdapter, StorageDataSource,
+};
 use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
@@ -17,6 +18,7 @@ use crate::{Chain, ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -31,6 +33,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -102,8 +105,9 @@ pub enum ImplicitTransitionParams {
     /// of that chunk and its shard.
     ApplyOldChunk(ApplyChunkBlockContext, ShardUId),
     /// Transition resulted from resharding. Defined by boundary account, mode
-    /// saying which of child shards to retain, and parent shard uid.
-    Resharding(AccountId, RetainMode, ShardUId),
+    /// saying which of child shards to retain, child shard uid, and the
+    /// locally determined boundary block hash.
+    Resharding(AccountId, RetainMode, ShardUId, CryptoHash),
 }
 
 struct StateWitnessBlockRange {
@@ -289,12 +293,14 @@ fn get_resharding_transition(
             params.boundary_account,
             RetainMode::Left,
             shard_uid,
+            *prev_header.hash(),
         )))
     } else if params.right_child_shard == shard_uid {
         Ok(Some(ImplicitTransitionParams::Resharding(
             params.boundary_account,
             RetainMode::Right,
             shard_uid,
+            *prev_header.hash(),
         )))
     } else {
         Ok(None)
@@ -309,11 +315,33 @@ pub fn pre_validate_chunk_state_witness(
     store: &ChainStore,
     genesis: Arc<Block>,
     epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<PreValidationOutput, Error> {
     // Ensure that the chunk header version is supported in this protocol version
     let ChunkProductionKey { epoch_id, .. } = state_witness.chunk_production_key();
     let protocol_version = epoch_manager.get_epoch_info(&epoch_id)?.protocol_version();
     state_witness.chunk_header().validate_version(protocol_version)?;
+
+    let runtime_config = runtime_adapter.get_runtime_config(protocol_version);
+    for tx in state_witness.new_transactions() {
+        if let Err(err) =
+            ValidatedTransaction::check_valid_for_config(runtime_config, tx, protocol_version)
+        {
+            tracing::debug!(
+                target: "chain",
+                tx_hash = ?tx.get_hash(),
+                protocol_version,
+                ?err,
+                "new transaction is invalid for active protocol version",
+            );
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "new transaction {} is invalid for protocol version {}: {}",
+                tx.get_hash(),
+                protocol_version,
+                err
+            )));
+        }
+    }
 
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
@@ -583,6 +611,8 @@ pub fn validate_chunk_state_witness_impl(
                     new_chunk_data,
                     ShardContext { shard_uid, should_apply_chunk: true },
                     runtime_adapter,
+                    // Recorded-storage replay; no memtrie path.
+                    MaybePinnedMemtrieRoot::no_memtries(),
                     None,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
@@ -647,6 +677,12 @@ pub fn validate_chunk_state_witness_impl(
         .into_iter()
         .zip(state_witness.implicit_transitions().into_iter())
     {
+        let transition_block_hash = match &implicit_transition_params {
+            ImplicitTransitionParams::ApplyOldChunk(..) => transition.block_hash,
+            ImplicitTransitionParams::Resharding(_, _, _, boundary_block_hash) => {
+                *boundary_block_hash
+            }
+        };
         let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
                 let shard_context = ShardContext { shard_uid, should_apply_chunk: false };
@@ -666,6 +702,8 @@ pub fn validate_chunk_state_witness_impl(
                     old_chunk_data,
                     shard_context,
                     runtime_adapter,
+                    // Recorded-storage replay; no memtrie path.
+                    MaybePinnedMemtrieRoot::no_memtries(),
                 )?;
                 let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)
@@ -674,6 +712,7 @@ pub fn validate_chunk_state_witness_impl(
                 boundary_account,
                 retain_mode,
                 child_shard_uid,
+                boundary_block_hash,
             ) => {
                 let old_root = *chunk_extra.state_root();
                 let partial_storage = PartialStorage { nodes: transition.base_state.clone() };
@@ -682,11 +721,14 @@ pub fn validate_chunk_state_witness_impl(
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`
                 // because only the parent trie has the needed information.
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                //
+                // The boundary block is the last block of the old epoch. Resolve
+                // both shard layouts from it, matching the producer.
+                let epoch_id = epoch_manager.get_epoch_id(&boundary_block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                 let parent_congestion_info = chunk_extra.congestion_info();
 
-                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_epoch_id = epoch_manager.get_next_epoch_id(&boundary_block_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
                 let child_congestion_info = ReshardingManager::get_child_congestion_info(
                     &parent_trie,
@@ -713,7 +755,7 @@ pub fn validate_chunk_state_witness_impl(
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Post state root {:?} for implicit transition at block {:?} to shard {:?}, does not match expected state root {:?}",
                 chunk_extra.state_root(),
-                transition.block_hash,
+                transition_block_hash,
                 shard_uid,
                 transition.post_state_root
             )));
@@ -833,6 +875,7 @@ impl Chain {
             self.chain_store(),
             self.genesis_block(),
             epoch_manager,
+            self.runtime_adapter.as_ref(),
         )?;
         tracing::debug!(
             parent: &parent_span,
@@ -874,7 +917,10 @@ impl Chain {
                 }
                 Err(err) => {
                     crate::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
-                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .with_label_values(&[
+                            shard_id.to_string().as_str(),
+                            err.prometheus_label_value(),
+                        ])
                         .inc();
                     tracing::error!(
                         parent: &parent_span,

@@ -22,6 +22,7 @@ pub(crate) struct ActionCalledCountMetric {
     pub(crate) deploy_global_contract: IntCounter,
     pub(crate) use_global_contract: IntCounter,
     pub(crate) deterministic_state_init: IntCounter,
+    pub(crate) universal_state_init: IntCounter,
     pub(crate) function_call: IntCounter,
     pub(crate) transfer: IntCounter,
     pub(crate) stake: IntCounter,
@@ -46,6 +47,7 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
         deploy_global_contract: vec.with_label_values(&["DeployGlobalContract"]),
         use_global_contract: vec.with_label_values(&["UseGlobalContract"]),
         deterministic_state_init: vec.with_label_values(&["DeterministicStateInit"]),
+        universal_state_init: vec.with_label_values(&["UniversalStateInit"]),
         function_call: vec.with_label_values(&["FunctionCall"]),
         transfer: vec.with_label_values(&["Transfer"]),
         stake: vec.with_label_values(&["Stake"]),
@@ -56,6 +58,35 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
     }
 });
 
+pub static COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_contract_cache_warming_compiles_total",
+            "Warming compilations that produced a fresh cache entry. Duplicate \
+         submissions short-circuited as `ContractAlreadyInCache` are not counted.",
+        )
+        .unwrap()
+    });
+
+pub static COMPILATION_CACHE_WARMING_FAILURES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_cache_warming_failures_total",
+        "Warming compilations that did not produce a usable cache entry. \
+         Covers both cache infrastructure errors (disk, fd limits) and \
+         compilation errors under the next epoch's VM.",
+    )
+    .unwrap()
+});
+
+pub static COMPILATION_CACHE_WARMING_DROPPED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_contract_cache_warming_dropped_total",
+        "Warming submissions dropped because the pool's queue was at \
+         its configured max-item cap.",
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_applied_total",
@@ -63,26 +94,6 @@ pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     )
     .unwrap()
 });
-
-pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL: LazyLock<IntCounter> = LazyLock::new(
-    || {
-        try_create_int_counter(
-        "near_transaction_batch_signature_verify_success_total",
-        "The number of successful transaction batch signature verifications since starting this node",
-    )
-    .unwrap()
-    },
-);
-
-pub static TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL: LazyLock<IntCounter> = LazyLock::new(
-    || {
-        try_create_int_counter(
-        "near_transaction_batch_signature_verify_failure_total",
-        "The number of transaction batch signature verifications that failed since starting this node",
-    )
-    .unwrap()
-    },
-);
 
 pub static TRANSACTION_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
@@ -254,6 +265,20 @@ pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: LazyLock<IntCounterVec> = LazyLo
         "near_function_call_processed_host_errors",
         "The number of function calls resulting in host errors, since starting this node",
         &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_LINK_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_link_errors",
+        "The number of function calls resulting in link errors, since starting this node",
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_LOADING_ERRORS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_function_call_processed_loading_errors",
+        "The number of function calls resulting in loading errors, since starting this node",
     )
     .unwrap()
 });

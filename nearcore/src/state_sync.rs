@@ -10,7 +10,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_client::sync::external::{StateFileType, external_storage_location};
 use near_client::sync::external::{
-    StateSyncConnection, external_storage_location_directory, get_part_id_from_filename,
+    StateSyncConnection, external_storage_location_directory, get_part_idx_from_filename,
     is_part_filename,
 };
 use near_epoch_manager::EpochManagerAdapter;
@@ -18,10 +18,9 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
-use near_primitives::version::ProtocolVersion;
 use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -129,19 +128,19 @@ impl StateSyncDumpHandle {
     }
 }
 
-pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+pub fn extract_part_idx_from_part_file_name(file_name: &String) -> StatePartIndex {
     assert!(is_part_filename(file_name));
-    return get_part_id_from_filename(file_name).unwrap();
+    return get_part_idx_from_filename(file_name).unwrap();
 }
 
-async fn get_missing_part_ids_for_epoch(
+async fn get_missing_part_indices_for_epoch(
     shard_id: ShardId,
     chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: u64,
     total_parts: u64,
     external: &StateSyncConnection,
-) -> Result<HashSet<u64>, anyhow::Error> {
+) -> Result<HashSet<StatePartIndex>, anyhow::Error> {
     if total_parts == 0 {
         return Ok(HashSet::new());
     }
@@ -150,13 +149,13 @@ async fn get_missing_part_ids_for_epoch(
         epoch_id,
         epoch_height,
         shard_id,
-        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+        &StateFileType::StatePart { part_idx: 0, num_parts: 0 },
     );
     let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
             .iter()
-            .map(|file_name| extract_part_id_from_part_file_name(file_name))
+            .map(|file_name| extract_part_idx_from_part_file_name(file_name))
             .collect();
         let missing_nums: HashSet<_> =
             (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
@@ -180,7 +179,7 @@ struct ShardDump {
     // This is the set of parts who have an associated file stored in the ExternalConnection,
     // meaning they've already been dumped. We periodically check this (since other processes/machines
     // might have uploaded parts that we didn't) and avoid duplicating work for those parts that have already been updated.
-    parts_missing: Arc<RwLock<HashSet<u64>>>,
+    parts_missing: Arc<RwLock<HashSet<StatePartIndex>>>,
     // This will give Ok(()) when they're all done, or Err() when one gives an error
     // For now the tasks never fail, since we just retry all errors like the old implementation did,
     // but we probably want to make a change to distinguish which errors are actually retryable
@@ -204,7 +203,7 @@ impl DumpState {
     /// to contain the parts that haven't yet been uploaded, so that we only try to generate those.
     async fn set_missing_parts(&self, external: &StateSyncConnection, chain_id: &str) {
         for (shard_id, s) in &self.dump_state {
-            match get_missing_part_ids_for_epoch(
+            match get_missing_part_indices_for_epoch(
                 *shard_id,
                 chain_id,
                 &self.epoch_id,
@@ -278,7 +277,7 @@ enum NewDump {
 /// At startup or when we enter a new epoch, we initialize the `current_dump` field to represent the current epoch's state dump.
 /// Then for each shard that we track and want to dump state for, we'll have one `ShardDump` struct representing it stored in the
 /// `DumpState` struct that holds the global state. First we upload headers if they're not already present in the external storage, and
-/// then we start the part uploading by calling `start_upload_parts()`. This initializes one `PartUploader` struct for each shard_id and part_id,
+/// then we start the part uploading by calling `start_upload_parts()`. This initializes one `PartUploader` struct for each shard_id and part_idx,
 /// and spawns a PartUploader::upload_state_part() future for each, that will be responsible for generating and uploading that part if it's not
 /// already uploaded. When all the parts for a shard have been uploaded, we'll be notified by the `upload_parts` field of the associated
 /// `ShardDump` struct, which we check in `check_parts_upload()`.
@@ -316,10 +315,9 @@ struct PartUploader {
     // When part upload tasks are cancelled on a new epoch, this is set to -1 so tasks
     // know not to touch that metric anymore.
     parts_dumped: Arc<AtomicI64>,
-    parts_missing: Arc<RwLock<HashSet<u64>>>,
+    parts_missing: Arc<RwLock<HashSet<StatePartIndex>>>,
     obtain_parts: Arc<Semaphore>,
     canceled: Arc<AtomicBool>,
-    protocol_version: ProtocolVersion,
 }
 
 impl PartUploader {
@@ -341,12 +339,12 @@ impl PartUploader {
     /// the external storage. The state part generation is limited by the number of permits allocated to the `obtain_parts`
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
     /// to return Err() if the error is not going to be retryable.
-    async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
+    async fn upload_state_part(self: Arc<Self>, part_idx: StatePartIndex) -> anyhow::Result<()> {
         if !self.parts_missing.read().contains(&part_idx) {
             self.inc_parts_dumped();
             return Ok(());
         }
-        let part_id = PartId::new(part_idx, self.num_parts);
+        let part_id = StatePartId::new(part_idx, self.num_parts);
 
         let state_part = loop {
             if self.canceled.load(Ordering::Relaxed) {
@@ -381,7 +379,7 @@ impl PartUploader {
             }
         };
 
-        let file_type = StateFileType::StatePart { part_id: part_idx, num_parts: self.num_parts };
+        let file_type = StateFileType::StatePart { part_idx, num_parts: self.num_parts };
         let location = external_storage_location(
             &self.chain_id,
             &self.epoch_id,
@@ -393,7 +391,7 @@ impl PartUploader {
             if self.canceled.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            let bytes = state_part.to_bytes(self.protocol_version);
+            let bytes = state_part.to_bytes();
             match self.external.put_file(file_type.clone(), &bytes, self.shard_id, &location).await
             {
                 Ok(()) => {
@@ -431,9 +429,9 @@ impl PartUploader {
         parts.shuffle(&mut thread_rng());
 
         let mut tasks = tokio_stream::iter(parts)
-            .map(|part_id| {
+            .map(|part_idx| {
                 let me = self.clone();
-                let task = me.upload_state_part(part_id);
+                let task = me.upload_state_part(part_idx);
                 respawn_for_parallelism(&*future_spawner, "upload part", task)
             })
             .buffer_unordered(5);
@@ -745,9 +743,6 @@ impl StateDumper {
             senders.keys().collect::<HashSet<_>>(),
             dump.dump_state.keys().collect::<HashSet<_>>()
         );
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&dump.epoch_id).unwrap();
-
         // cspell:words uploaders
         let mut uploaders = dump
             .dump_state
@@ -777,7 +772,6 @@ impl StateDumper {
                     parts_missing: shard_dump.parts_missing.clone(),
                     obtain_parts: self.obtain_parts.clone(),
                     canceled: dump.canceled.clone(),
-                    protocol_version,
                 });
                 let dump_shard = uploader.dump_shard_state(sender, self.future_spawner.clone());
                 Some(dump_shard.boxed())
@@ -817,6 +811,9 @@ impl StateDumper {
                 self.clock.sleep(iteration_delay).await;
                 continue;
             };
+            if !self.should_dump_epoch(&sync_header)? {
+                return Ok(());
+            }
             match self.get_dump_state(&sync_header)? {
                 NewDump::Dump(mut dump, mut senders) => {
                     self.check_old_progress(sync_header.epoch_id(), &mut dump, &mut senders)?;
@@ -900,6 +897,10 @@ impl StateDumper {
                     "canceling existing dump of state for epoch upon new epoch"
                 );
                 dump.cancel().await;
+                // TODO(cloud_archival): test cancel-then-skip. `cancel()` empties
+                // `dump.dump_state`; leaving `InProgress` would panic the next
+                // `await_parts_upload`.
+                self.current_dump = CurrentDump::None;
             }
             CurrentDump::Done(epoch_id) => {
                 if epoch_id == sync_header.epoch_id() {
@@ -908,6 +909,9 @@ impl StateDumper {
             }
             CurrentDump::None => {}
         };
+        if !self.should_dump_epoch(&sync_header)? {
+            return Ok(());
+        }
         match self.get_dump_state(&sync_header)? {
             NewDump::Dump(mut dump, sender) => {
                 self.header_uploader(&dump).upload_headers(&mut dump).await;
@@ -919,6 +923,29 @@ impl StateDumper {
             }
         };
         Ok(())
+    }
+
+    /// Returns whether state for this epoch should be dumped. Cadence `1`
+    /// (default) always dumps. Larger cadences dump only epochs whose
+    /// `epoch_height` is a multiple of the cadence, plus every resharding epoch.
+    fn should_dump_epoch(&self, sync_header: &BlockHeader) -> anyhow::Result<bool> {
+        let snapshot_cadence = self.runtime.get_tries().state_snapshot_config().snapshot_cadence();
+        if snapshot_cadence <= 1 {
+            return Ok(true);
+        }
+        if self
+            .epoch_manager
+            .is_resharding_epoch(sync_header.hash())
+            .context("Failed checking whether epoch is a resharding epoch")?
+        {
+            return Ok(true);
+        }
+        let epoch_id = sync_header.epoch_id();
+        let epoch_info = self
+            .epoch_manager
+            .get_epoch_info(epoch_id)
+            .with_context(|| format!("Failed getting epoch info {:?}", epoch_id))?;
+        Ok(epoch_info.epoch_height() % snapshot_cadence == 0)
     }
 }
 

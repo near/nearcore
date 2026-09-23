@@ -43,6 +43,15 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys {
+        requested_account_id: near_primitives::types::AccountId,
+        limit: u32,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -232,6 +241,12 @@ pub enum Error {
     /// Invalid block merkle root.
     #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
+    /// Invalid block ordinal.
+    #[error("Invalid Block Ordinal")]
+    InvalidBlockOrdinal,
+    /// Invalid epoch sync data hash.
+    #[error("Invalid Epoch Sync Data Hash")]
+    InvalidEpochSyncDataHash,
     /// Invalid split shard ids.
     #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
     InvalidSplitShardsIds(ShardId, ShardId),
@@ -276,6 +291,18 @@ pub enum Error {
     /// Invalid spice core statements in block.
     #[error("Invalid spice core statements in block: {0}")]
     InvalidSpiceCoreStatements(#[from] Box<InvalidSpiceCoreStatementsError>),
+    /// `prev_last_certified_block_epoch_id` on a spice block header doesn't
+    /// match the epoch id of the last fully certified block as of prev.
+    #[error("Invalid prev_last_certified_block_epoch_id: {0}")]
+    InvalidPrevLastCertifiedBlockEpochId(String),
+    /// `spice_chunk_endorsement_stats` on a spice block header doesn't match the
+    /// value recomputed from the chain.
+    #[error("Invalid spice_chunk_endorsement_stats: {0}")]
+    InvalidSpiceChunkEndorsementStats(String),
+    /// `chunk_execution_root` on a spice block header doesn't match the merkle
+    /// root recomputed from the block's certified chunk execution results.
+    #[error("Invalid chunk_execution_root: {0}")]
+    InvalidChunkExecutionRoot(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -364,11 +391,16 @@ impl Error {
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
+            | Error::InvalidBlockOrdinal
+            | Error::InvalidEpochSyncDataHash
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
             | Error::BadHeaderForProtocolVersion(_)
-            | Error::InvalidSpiceCoreStatements(_) => true,
+            | Error::InvalidSpiceCoreStatements(_)
+            | Error::InvalidPrevLastCertifiedBlockEpochId(_)
+            | Error::InvalidSpiceChunkEndorsementStats(_)
+            | Error::InvalidChunkExecutionRoot(_) => true,
         }
     }
 
@@ -450,12 +482,19 @@ impl Error {
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
+            Error::InvalidBlockOrdinal => "invalid_block_ordinal",
+            Error::InvalidEpochSyncDataHash => "invalid_epoch_sync_data_hash",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::ReshardingError(_) => "resharding_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
             Error::InvalidSpiceCoreStatements(_) => "invalid_spice_core_statements",
+            Error::InvalidPrevLastCertifiedBlockEpochId(_) => {
+                "invalid_prev_last_certified_block_epoch_id"
+            }
+            Error::InvalidSpiceChunkEndorsementStats(_) => "invalid_spice_chunk_endorsement_stats",
+            Error::InvalidChunkExecutionRoot(_) => "invalid_chunk_execution_root",
         }
     }
 }
@@ -467,6 +506,9 @@ impl From<EpochError> for Error {
             EpochError::MissingBlock(h) => Error::DBNotFoundErr(format!("epoch block: {h}")),
             EpochError::NotAValidator(account_id, epoch_id) => {
                 Error::NotAValidator(format!("account_id: {account_id}, epoch_id: {epoch_id:?}"))
+            }
+            EpochError::ChunkProducerNotInDB(h, s) => {
+                Error::DBNotFoundErr(format!("chunk producer for block {h} shard {s}"))
             }
             err => Error::ValidatorError(err.to_string()),
         }

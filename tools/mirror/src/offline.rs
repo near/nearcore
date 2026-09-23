@@ -1,3 +1,4 @@
+use crate::key_util::ACCESS_KEY_PAGE_SIZE;
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -5,7 +6,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
@@ -183,7 +184,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError> {
+    ) -> Result<Vec<PublicKeyHandle>, ChainError> {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
         let shard_id =
@@ -192,9 +193,9 @@ impl crate::ChainAccess for ChainAccess {
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
-        match self
-            .runtime
-            .query(
+        let mut after_key = None;
+        loop {
+            let response = match self.runtime.query(
                 shard_uid,
                 chunk_extra.state_root(),
                 header.height(),
@@ -202,19 +203,30 @@ impl crate::ChainAccess for ChainAccess {
                 header.prev_hash(),
                 header.hash(),
                 header.epoch_id(),
-                &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
-            )?
-            .kind
-        {
-            QueryResponseKind::AccessKeyList(l) => {
-                for k in l.keys {
-                    if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                        ret.push(k.public_key);
-                    }
+                &QueryRequest::ViewAccessKeyList {
+                    account_id: account_id.clone(),
+                    after_key,
+                    limit: ACCESS_KEY_PAGE_SIZE,
+                },
+            ) {
+                Ok(response) => response,
+                Err(near_chain_primitives::error::QueryError::UnknownAccount { .. }) => {
+                    return Ok(ret);
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let QueryResponseKind::AccessKeyList(l) = response.kind else {
+                unreachable!();
+            };
+            for k in l.keys {
+                if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                    ret.push(k.public_key);
                 }
             }
-            _ => unreachable!(),
+            match l.last_key {
+                Some(cursor) => after_key = Some(cursor),
+                None => return Ok(ret),
+            }
         }
-        Ok(ret)
     }
 }

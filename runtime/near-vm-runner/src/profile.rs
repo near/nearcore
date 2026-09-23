@@ -44,6 +44,24 @@ impl ProfileDataV3 {
         profile_data
     }
 
+    /// Create a test profile valid for a specific config.
+    ///
+    /// Unlike `test()`, only assigns gas to ext costs that have non-zero gas in `config`,
+    /// satisfying the invariant that a non-zero profile value implies a non-zero gas cost.
+    pub fn test_with_config(config: &ExtCostsConfig) -> Self {
+        let mut profile = ProfileDataV3::default();
+        for (i, cost) in ExtCosts::iter().enumerate() {
+            let unit = cost.gas(config);
+            if unit != Gas::ZERO {
+                profile.add_ext_cost(cost, unit.checked_mul(i as u64 + 1).unwrap_or(unit));
+            }
+        }
+        for (i, cost) in ActionCosts::iter().enumerate() {
+            profile.add_action_cost(cost, Gas::from_gas(i as u64 + 1000));
+        }
+        profile
+    }
+
     #[inline]
     pub fn merge(&mut self, other: &ProfileDataV3) {
         for ((_, gas), (_, other_gas)) in
@@ -110,8 +128,24 @@ impl ProfileDataV3 {
             .fold(Gas::ZERO, |acc, x| acc.saturating_add(x))
     }
 
-    /// Returns total compute usage of host calls.
-    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+    /// Returns total compute usage of the function call.
+    ///
+    /// Compute usage has three potential sources:
+    ///
+    /// - wasm op cost (`regular_op_cost`): this currently doesn't support
+    ///                                     compute costs, compute = gas
+    /// - ext_costs (host functions):       calculated from the profile
+    /// - SEND cost for outgoing receipts:  since the profile does not count
+    ///                                     SEND/EXEC/SEND_SIR separately, it
+    ///                                     cannot be calculated from the
+    ///                                     profile. It is accounted for in the
+    ///                                     GasCounter and passed in as argument
+    ///                                     here.
+    pub fn total_compute_usage(
+        &self,
+        ext_costs_config: &ExtCostsConfig,
+        send_action_compute_usage: Compute,
+    ) -> Compute {
         let ext_compute_cost = self
             .wasm_ext_profile
             .iter()
@@ -134,10 +168,9 @@ impl ProfileDataV3 {
             })
             .fold(0, Compute::saturating_add);
 
-        // We currently only support compute costs for host calls. In the future we might add
-        // them for actions as well.
+        // We currently don't support compute costs for WASM operation costs
         ext_compute_cost
-            .saturating_add(self.action_gas().as_gas())
+            .saturating_add(send_action_compute_usage)
             .saturating_add(self.get_wasm_cost().as_gas())
     }
 }
@@ -260,7 +293,7 @@ mod test {
         let pretty_debug_str = format!("{profile_data:#?}");
         expect_test::expect![[r#"
             ------------------------------
-            Action gas: 26325
+            Action gas: 29406
             ------ Host functions --------
             contract_loading_base -> 1 [0% host]
             contract_loading_bytes -> 2 [0% host]
@@ -297,18 +330,18 @@ mod test {
             storage_remove_base -> 33 [0% host]
             storage_remove_key_byte -> 34 [0% host]
             storage_remove_ret_value_byte -> 35 [0% host]
-            storage_has_key_base -> 36 [1% host]
-            storage_has_key_byte -> 37 [1% host]
-            storage_iter_create_prefix_base -> 38 [1% host]
-            storage_iter_create_prefix_byte -> 39 [1% host]
-            storage_iter_create_range_base -> 40 [1% host]
-            storage_iter_create_from_byte -> 41 [1% host]
-            storage_iter_create_to_byte -> 42 [1% host]
-            storage_iter_next_base -> 43 [1% host]
-            storage_iter_next_key_byte -> 44 [1% host]
-            storage_iter_next_value_byte -> 45 [1% host]
-            touching_trie_node -> 46 [1% host]
-            read_cached_trie_node -> 47 [1% host]
+            storage_has_key_base -> 36 [0% host]
+            storage_has_key_byte -> 37 [0% host]
+            storage_iter_create_prefix_base -> 38 [0% host]
+            storage_iter_create_prefix_byte -> 39 [0% host]
+            storage_iter_create_range_base -> 40 [0% host]
+            storage_iter_create_from_byte -> 41 [0% host]
+            storage_iter_create_to_byte -> 42 [0% host]
+            storage_iter_next_base -> 43 [0% host]
+            storage_iter_next_key_byte -> 44 [0% host]
+            storage_iter_next_value_byte -> 45 [0% host]
+            touching_trie_node -> 46 [0% host]
+            read_cached_trie_node -> 47 [0% host]
             promise_and_base -> 48 [1% host]
             promise_and_per_promise -> 49 [1% host]
             promise_return -> 50 [1% host]
@@ -333,19 +366,32 @@ mod test {
             bls12381_g1_multiexp_base -> 69 [1% host]
             bls12381_g1_multiexp_element -> 70 [1% host]
             bls12381_g2_multiexp_base -> 71 [1% host]
-            bls12381_g2_multiexp_element -> 72 [2% host]
-            bls12381_map_fp_to_g1_base -> 73 [2% host]
-            bls12381_map_fp_to_g1_element -> 74 [2% host]
-            bls12381_map_fp2_to_g2_base -> 75 [2% host]
-            bls12381_map_fp2_to_g2_element -> 76 [2% host]
-            bls12381_pairing_base -> 77 [2% host]
-            bls12381_pairing_element -> 78 [2% host]
-            bls12381_p1_decompress_base -> 79 [2% host]
-            bls12381_p1_decompress_element -> 80 [2% host]
-            bls12381_p2_decompress_base -> 81 [2% host]
-            bls12381_p2_decompress_element -> 82 [2% host]
-            storage_large_read_overhead_base -> 83 [2% host]
-            storage_large_read_overhead_byte -> 84 [2% host]
+            bls12381_g2_multiexp_element -> 72 [1% host]
+            bls12381_map_fp_to_g1_base -> 73 [1% host]
+            bls12381_map_fp_to_g1_element -> 74 [1% host]
+            bls12381_map_fp2_to_g2_base -> 75 [1% host]
+            bls12381_map_fp2_to_g2_element -> 76 [1% host]
+            bls12381_pairing_base -> 77 [1% host]
+            bls12381_pairing_element -> 78 [1% host]
+            bls12381_p1_decompress_base -> 79 [1% host]
+            bls12381_p1_decompress_element -> 80 [1% host]
+            bls12381_p2_decompress_base -> 81 [1% host]
+            bls12381_p2_decompress_element -> 82 [1% host]
+            storage_large_read_overhead_base -> 83 [1% host]
+            storage_large_read_overhead_byte -> 84 [1% host]
+            p256_verify_base -> 85 [1% host]
+            p256_verify_byte -> 86 [1% host]
+            yield_create_with_id_base -> 87 [1% host]
+            sha3_256_base -> 88 [1% host]
+            sha3_256_byte -> 89 [1% host]
+            sha3_384_base -> 90 [1% host]
+            sha3_384_byte -> 91 [1% host]
+            sha3_512_base -> 92 [1% host]
+            sha3_512_byte -> 93 [1% host]
+            ml_dsa_verify_base -> 94 [1% host]
+            ml_dsa_verify_byte -> 95 [1% host]
+            universal_state_init_to_account_id_base -> 96 [2% host]
+            universal_state_init_to_account_id_byte -> 97 [2% host]
             ------ Actions --------
             create_account -> 1000
             delete_account -> 1001
@@ -373,6 +419,9 @@ mod test {
             gas_key_transfer_base -> 1023
             gas_key_byte -> 1024
             gas_key_nonce_write_base -> 1025
+            universal_state_init_base -> 1026
+            universal_state_init_byte -> 1027
+            universal_state_init_entry -> 1028
             ------------------------------
         "#]]
         .assert_eq(&pretty_debug_str)
@@ -428,8 +477,8 @@ mod test {
         profile_data.add_action_cost(ActionCosts::function_call_base, Gas::from_gas(100));
 
         assert_eq!(
-            profile_data.total_compute_usage(&ext_costs_config),
-            3 * profile_data.host_gas().as_gas() + profile_data.action_gas().as_gas()
+            profile_data.total_compute_usage(&ext_costs_config, 0),
+            3 * profile_data.host_gas().as_gas()
         );
     }
 

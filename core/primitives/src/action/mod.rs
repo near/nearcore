@@ -3,7 +3,9 @@ pub mod delegate;
 // This type used to be defined here, then moved to core primitives to give access to the vm
 // runtime. Reexporting it here avoids breakage on depending crates.
 use crate::{
-    deterministic_account_id::DeterministicAccountStateInit, trie_key::GlobalContractCodeIdentifier,
+    deterministic_account_id::DeterministicAccountStateInit,
+    trie_key::GlobalContractCodeIdentifier,
+    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -220,6 +222,30 @@ pub struct DeterministicStateInitAction {
     pub deposit: Balance,
 }
 
+/// Create a `0u` universal account from its state init. The receiver id must
+/// equal `derive_universal_account_id(state_init)`; the attached `deposit`
+/// covers the new account's storage staking.
+///
+/// The state init travels as the bytes the producer serialized, because the
+/// receiver id commits to exactly those bytes. The typed [`UniversalStateInit`]
+/// is a decoded view of them, used where the state has to be installed or priced.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct UniversalStateInitAction {
+    pub state_init: RawStateInit,
+    pub deposit: Balance,
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -365,6 +391,9 @@ pub enum Action {
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
     WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
+    /// Meta transaction carrying a `DelegateActionV2`, which supports gas keys.
+    DelegateV2(Box<delegate::VersionedSignedDelegateAction>) = 14,
+    UniversalStateInit(Box<UniversalStateInitAction>) = 15,
 }
 
 const _: () = assert!(
@@ -376,6 +405,30 @@ const _: () = assert!(
 );
 
 impl Action {
+    /// Whether this is a delegate action (meta transaction). Delegate actions
+    /// must not be nested inside one another, so this is the single predicate
+    /// the nesting guard and JSON schema filter rely on. Exhaustive by design:
+    /// a new variant must be classified here.
+    pub fn is_delegate(&self) -> bool {
+        match self {
+            Action::Delegate(_) | Action::DelegateV2(_) => true,
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::AddKey(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_)
+            | Action::UniversalStateInit(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => false,
+        }
+    }
+
     pub fn get_prepaid_gas(&self) -> Gas {
         match self {
             Action::FunctionCall(a) => a.gas,
@@ -387,8 +440,146 @@ impl Action {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
+            Action::UniversalStateInit(a) => a.deposit,
             Action::TransferToGasKey(a) => a.deposit,
             _ => Balance::ZERO,
+        }
+    }
+
+    /// Returns `true` if this action carries (anywhere in its structure) a
+    /// post-quantum public key or signature, meaning the
+    /// `PostQuantumSignatures` protocol feature must be enabled to admit it.
+    ///
+    /// Two layers of exhaustive matching by design: the outer match over
+    /// `Action` variants forces a compile-time decision when a new variant
+    /// is added; `KeyType::is_post_quantum` forces the same for any new
+    /// signature scheme. Do not collapse the action arms into a wildcard.
+    pub fn post_quantum_signatures_required(&self) -> bool {
+        match self {
+            // No key material on the wire.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_) => false,
+            // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
+            // A state init that does not decode carries no keys as far as this is
+            // concerned; it is rejected by action validation before it can run.
+            Action::UniversalStateInit(a) => {
+                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+                    state_init
+                        .access_keys()
+                        .iter()
+                        .any(|handle| handle.key_type().is_post_quantum())
+                })
+            }
+            // Each of these carries a single pubkey.
+            Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
+            Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::DeleteKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::TransferToGasKey(a) => a.public_key.key_type().is_post_quantum(),
+            Action::WithdrawFromGasKey(a) => a.public_key.key_type().is_post_quantum(),
+            // Recursive: a delegate action carries an inner signer pubkey,
+            // its signature, and a nested set of actions; any of them can
+            // transport post-quantum key material.
+            Action::Delegate(sda) => {
+                sda.delegate_action.public_key.key_type().is_post_quantum()
+                    || sda.signature.key_type().is_post_quantum()
+                    || sda
+                        .delegate_action
+                        .get_actions()
+                        .iter()
+                        .any(Action::post_quantum_signatures_required)
+            }
+            Action::DelegateV2(sda) => {
+                sda.delegate_action.public_key().key_type().is_post_quantum()
+                    || sda.signature.key_type().is_post_quantum()
+                    || sda
+                        .delegate_action
+                        .get_actions()
+                        .iter()
+                        .any(Action::post_quantum_signatures_required)
+            }
+        }
+    }
+
+    /// The state-init counts this action makes the receipt it belongs to pay
+    /// execution fees for.
+    ///
+    /// Both counts come back together on purpose. Each needs the same borsh
+    /// decode of the payload, and keeping them in one accessor is what stops the
+    /// two limits drifting apart.
+    ///
+    /// Exhaustive by design, so that a new action variant has to make the
+    /// decision explicitly rather than silently counting as zero. Do not
+    /// collapse the arms into a wildcard.
+    pub fn state_init_counts(&self) -> StateInitCounts {
+        match self {
+            // Carries a state init directly. A payload that does not decode
+            // describes nothing as far as this is concerned; it is rejected by
+            // action validation before it can run.
+            Action::DeterministicStateInit(a) => {
+                StateInitCounts { entries: a.state_init.data().len() as u64, keys: 0 }
+            }
+            Action::UniversalStateInit(a) => {
+                let counts = state_init_counts(&a.state_init);
+                StateInitCounts { entries: counts.num_entries, keys: counts.num_keys }
+            }
+            // Recursive: the inner actions become their own receipt, but the
+            // outer one prepays their fees, so their counts are part of what it
+            // reserves.
+            Action::Delegate(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::state_init_counts)
+                .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
+            Action::DelegateV2(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::state_init_counts)
+                .fold(StateInitCounts::ZERO, StateInitCounts::saturating_add),
+            // No state init anywhere in these.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::AddKey(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => StateInitCounts::ZERO,
+        }
+    }
+}
+
+/// What the state-init actions of one receipt commit to, summed.
+///
+/// Both counts are bounded per receipt rather than per action, because every
+/// action in a receipt shares its receiver and a state init has to derive to that
+/// receiver: a receipt can carry many byte-identical copies and pays for each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateInitCounts {
+    /// Storage entries, priced at `..._state_init_per_entry`.
+    pub entries: u64,
+    /// Committed access keys, priced at `add_full_access_key`.
+    pub keys: u64,
+}
+
+impl StateInitCounts {
+    pub const ZERO: Self = Self { entries: 0, keys: 0 };
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            entries: self.entries.saturating_add(other.entries),
+            keys: self.keys.saturating_add(other.keys),
         }
     }
 }

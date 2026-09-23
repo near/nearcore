@@ -4,21 +4,25 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::action::delegate::{
+    DelegateAction, SignedDelegateAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction,
+};
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
-    WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
-use crate::block_header::BlockHeaderInnerLite;
+use crate::block_header::{BlockHeaderInnerLite, BlockHeaderInnerLiteV2};
 use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
+use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
     Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
@@ -29,6 +33,7 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
+use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -36,31 +41,34 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransferAction,
 };
+use crate::trie_key::TrieKey;
 use crate::trie_split::TrieSplit;
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
-    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
-    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
-    ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, ChunkExecutionRoots, EpochHeight,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, SpiceChunkEndorsementStats,
+    StateChangeCause, StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest,
+    StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
+use crate::universal_state_init::RawStateInit;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKeyInfo};
+use near_primitives_core::account::{AccountContract, AccountState, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives_core::types::NonceIndex;
-use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
+use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -70,17 +78,34 @@ use validator_stake_view::ValidatorStakeView;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountView {
+    /// Liquid (non-staked) account balance, in yoctoNEAR.
     pub amount: Balance,
+    /// Staked balance locked for validation, in yoctoNEAR.
     pub locked: Balance,
+    /// Hash of the deployed contract code; the all-`1`s hash when no contract is deployed.
     pub code_hash: CryptoHash,
+    /// Total storage used by the account, in bytes.
     pub storage_usage: StorageUsage,
-    /// TODO(2271): deprecated.
+    /// Deprecated and unused. TODO(2271): remove.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    /// Set when the account uses a global contract referenced by code hash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_hash: Option<CryptoHash>,
+    /// Set when the account uses a global contract referenced by the deploying account id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub global_contract_account_id: Option<AccountId>,
+    /// Whether the account is initialized. Only a universal account can be
+    /// uninitialized: it has no access keys, code or data until a
+    /// `UniversalStateInit` arrives. Omitted for initialized accounts.
+    #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
+    pub state: AccountState,
+    /// The nonce an uninitialized account's own transactions must use, present
+    /// only while it is uninitialized. A self-signed state init is the one
+    /// transaction such an account can send, and this is the only way for a
+    /// client to learn the nonce it must carry: there is no access key to query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_nonce: Option<Nonce>,
 }
 
 /// A view of the contract code.
@@ -111,6 +136,8 @@ impl From<&Account> for AccountView {
             storage_paid_at: 0,
             global_contract_hash,
             global_contract_account_id,
+            state: account.state(),
+            bootstrap_nonce: account.bootstrap_nonce(),
         }
     }
 }
@@ -118,25 +145,6 @@ impl From<&Account> for AccountView {
 impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         (&account).into()
-    }
-}
-
-impl From<&AccountView> for Account {
-    fn from(view: &AccountView) -> Self {
-        let contract = match &view.global_contract_account_id {
-            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
-            None => match view.global_contract_hash {
-                Some(hash) => AccountContract::Global(hash),
-                None => AccountContract::from_local_code_hash(view.code_hash),
-            },
-        };
-        Account::new(view.amount, view.locked, contract, view.storage_usage)
-    }
-}
-
-impl From<AccountView> for Account {
-    fn from(view: AccountView) -> Self {
-        (&view).into()
     }
 }
 
@@ -243,7 +251,9 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyView {
+    /// Current nonce; each transaction signed with this key must use a strictly greater value.
     pub nonce: Nonce,
+    /// Access scope: full access, or a function-call permission with an optional allowance and method/receiver limits.
     pub permission: AccessKeyPermissionView,
 }
 
@@ -277,6 +287,9 @@ pub struct ViewStateResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
+    /// Cursor to resume from: present when more entries remain, absent when the listing is complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<StoreKey>,
 }
 
 /// A result returned by contract method
@@ -293,12 +306,26 @@ pub struct QueryError {
     pub logs: Vec<String>,
 }
 
-/// Describes information about an access key including the public key.
+/// Describes information about an access key including its on-trie
+/// identifier. For ed25519/secp256k1 access keys the `public_key` field
+/// is the full public key (string form unchanged from before); for
+/// ML-DSA-65 access keys it is a `ml-dsa-65-hash:...` SHA3-256 digest
+/// (the full pubkey is not stored on-chain).
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyInfoView {
-    pub public_key: PublicKey,
+    pub public_key: PublicKeyHandle,
     pub access_key: AccessKeyView,
+}
+
+impl AccessKeyInfoView {
+    /// Build an `AccessKeyInfoView` from anything convertible into
+    /// `PublicKeyHandle` (notably `PublicKey`). Encapsulates the conversion
+    /// so call sites can pass a `PublicKey` directly without
+    /// remembering the `.into()`.
+    pub fn new(public_key: impl Into<PublicKeyHandle>, access_key: AccessKeyView) -> Self {
+        Self { public_key: public_key.into(), access_key }
+    }
 }
 
 /// Lists access keys
@@ -306,11 +333,16 @@ pub struct AccessKeyInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
+    /// Pagination cursor. When `Some`, the listing was truncated and the caller
+    /// should issue another request with `after_key` set to this handle to fetch
+    /// the next page. `None` means this was the last page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_key: Option<PublicKeyHandle>,
 }
 
 impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
-        Self { keys: iter.into_iter().collect() }
+        Self { keys: iter.into_iter().collect(), last_key: None }
     }
 }
 
@@ -321,8 +353,6 @@ pub struct GasKeyNoncesView {
     pub nonces: Vec<Nonce>,
 }
 
-// cspell:words deepsize
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct KnownPeerStateView {
@@ -334,7 +364,6 @@ pub struct KnownPeerStateView {
     pub last_attempt: Option<(i64, String)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ConnectionInfoView {
@@ -344,7 +373,6 @@ pub struct ConnectionInfoView {
     pub time_connected_until: i64,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SnapshotHostInfoView {
@@ -354,7 +382,6 @@ pub struct SnapshotHostInfoView {
     pub shards: Vec<u64>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -380,6 +407,10 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
+        #[serde(default, rename = "after_key_base64", skip_serializing_if = "Option::is_none")]
+        after_key: Option<StoreKey>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
     },
@@ -389,6 +420,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after_key: Option<PublicKeyHandle>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<NonZeroU32>,
     },
     ViewGasKeyNonces {
         account_id: AccountId,
@@ -549,8 +584,6 @@ pub enum SyncStatusView {
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatusView),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         start_height: BlockHeight,
@@ -599,37 +632,6 @@ pub struct EdgeView {
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct LabeledEdgeView {
-    pub peer0: u32,
-    pub peer1: u32,
-    pub nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct EdgeCacheView {
-    pub peer_labels: HashMap<PeerId, u32>,
-    pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct PeerDistancesView {
-    pub distance: Vec<Option<u32>>,
-    pub min_nonce: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct NetworkRoutesView {
-    pub edge_cache: EdgeCacheView,
-    pub local_edges: HashMap<PeerId, EdgeView>,
-    pub peer_distances: HashMap<PeerId, PeerDistancesView>,
-    pub my_distances: HashMap<PeerId, u32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -697,12 +699,12 @@ impl From<&Tip> for BlockStatusView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PartElapsedTimeView {
-    pub part_id: u64,
+    pub part_id: StatePartIndex,
     pub elapsed_ms: u128,
 }
 
 impl PartElapsedTimeView {
-    pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
+    pub fn new(part_id: &StatePartIndex, elapsed_ms: u128) -> PartElapsedTimeView {
         Self { part_id: *part_id, elapsed_ms }
     }
 }
@@ -941,6 +943,12 @@ pub struct BlockHeaderView {
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     pub shard_split: Option<(ShardId, AccountId)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_last_certified_block_epoch_id: Option<EpochId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -985,6 +993,13 @@ impl From<&BlockHeader> for BlockHeaderView {
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
             shard_split: header.shard_split().cloned(),
+            prev_last_certified_block_epoch_id: header
+                .prev_last_certified_block_epoch_id()
+                .cloned(),
+            spice_chunk_endorsement_stats: header
+                .spice_chunk_endorsement_stats()
+                .map(<[SpiceChunkEndorsementStats]>::to_vec),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1021,21 +1036,15 @@ impl From<BlockHeaderView> for BlockHeader {
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
             view.shard_split,
+            view.prev_last_certified_block_epoch_id,
+            view.spice_chunk_endorsement_stats,
+            view.chunk_execution_root,
         )
     }
 }
 
 /// A part of a state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
@@ -1054,21 +1063,25 @@ pub struct BlockHeaderInnerLiteView {
     pub next_bp_hash: CryptoHash,
     /// The merkle root of all the block hashes
     pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results.
+    /// `None` for pre-spice headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_execution_root: Option<CryptoHash>,
 }
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = header.inner_lite();
         BlockHeaderInnerLiteView {
-            height: inner_lite.height,
-            epoch_id: inner_lite.epoch_id.0,
-            next_epoch_id: inner_lite.next_epoch_id.0,
-            prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.prev_outcome_root,
-            timestamp: inner_lite.timestamp,
-            timestamp_nanosec: inner_lite.timestamp,
-            next_bp_hash: inner_lite.next_bp_hash,
-            block_merkle_root: inner_lite.block_merkle_root,
+            height: header.height(),
+            epoch_id: header.epoch_id().0,
+            next_epoch_id: header.next_epoch_id().0,
+            prev_state_root: *header.prev_state_root(),
+            outcome_root: *header.outcome_root(),
+            timestamp: header.raw_timestamp(),
+            timestamp_nanosec: header.raw_timestamp(),
+            next_bp_hash: *header.next_bp_hash(),
+            block_merkle_root: *header.block_merkle_root(),
+            chunk_execution_root: header.chunk_execution_root(),
         }
     }
 }
@@ -1084,6 +1097,22 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
             timestamp: view.timestamp_nanosec,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
+        }
+    }
+}
+
+impl From<&BlockHeaderInnerLiteView> for BlockHeaderInnerLiteV2 {
+    fn from(view: &BlockHeaderInnerLiteView) -> Self {
+        BlockHeaderInnerLiteV2 {
+            height: view.height,
+            epoch_id: EpochId(view.epoch_id),
+            next_epoch_id: EpochId(view.next_epoch_id),
+            prev_state_root: view.prev_state_root,
+            prev_outcome_root: view.outcome_root,
+            timestamp: view.timestamp_nanosec,
+            next_bp_hash: view.next_bp_hash,
+            block_merkle_root: view.block_merkle_root,
+            chunk_execution_root: view.chunk_execution_root.unwrap_or_default(),
         }
     }
 }
@@ -1120,7 +1149,11 @@ pub struct ChunkHeaderView {
     /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
     /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
     /// `Some(Some(split))`: field present and set
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option::deserialize"
+    )]
     pub proposed_split: Option<Option<TrieSplit>>,
     pub signature: Signature,
 }
@@ -1376,6 +1409,54 @@ impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
     }
 }
 
+/// RPC view of a non-empty [`AccountContract`]. The `AccountContract::None`
+/// variant is represented externally as a JSON `null` via `Option`, so this
+/// enum only carries the three "contract is present" cases. Serializes as
+/// an externally-tagged object:
+///
+/// - `Local(hash)` → `{"local": "<CryptoHash>"}`
+/// - `GlobalHash(hash)` → `{"global_hash": "<CryptoHash>"}`
+/// - `GlobalAccountId(id)` → `{"global_account_id": "<AccountId>"}`
+///
+/// Mirrors [`AccountContract`] 1:1 (minus `None`) so consumers can preserve
+/// the distinction between a global-by-hash and global-by-account contract
+/// without descending into a nested identifier.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum AccountContractView {
+    Local(CryptoHash) = 0,
+    GlobalHash(CryptoHash) = 1,
+    GlobalAccountId(AccountId) = 2,
+}
+
+impl AccountContractView {
+    /// Project an [`AccountContract`] into its RPC view, with
+    /// `AccountContract::None` mapping to `Option::None` so the JSON layer
+    /// can render it as `null`.
+    pub fn from_account_contract(contract: AccountContract) -> Option<Self> {
+        match contract {
+            AccountContract::None => None,
+            AccountContract::Local(hash) => Some(AccountContractView::Local(hash)),
+            AccountContract::Global(hash) => Some(AccountContractView::GlobalHash(hash)),
+            AccountContract::GlobalByAccount(account_id) => {
+                Some(AccountContractView::GlobalAccountId(account_id))
+            }
+        }
+    }
+}
+
 impl From<GlobalContractIdentifierView> for GlobalContractIdentifier {
     fn from(code: GlobalContractIdentifierView) -> Self {
         match code {
@@ -1440,6 +1521,10 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     } = 8,
+    DelegateV2 {
+        delegate_action: VersionedDelegateActionPayload,
+        signature: Signature,
+    } = 16,
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
         #[cfg_attr(
@@ -1477,6 +1562,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
+    UniversalStateInit {
+        state_init: RawStateInit,
+        deposit: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1506,6 +1595,10 @@ impl From<Action> for ActionView {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
             Action::Delegate(action) => ActionView::Delegate {
+                delegate_action: action.delegate_action,
+                signature: action.signature,
+            },
+            Action::DelegateV2(action) => ActionView::DelegateV2 {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
@@ -1543,6 +1636,10 @@ impl From<Action> for ActionView {
                 public_key: action.public_key,
                 amount: action.amount,
             },
+            Action::UniversalStateInit(action) => ActionView::UniversalStateInit {
+                state_init: action.state_init,
+                deposit: action.deposit,
+            },
         }
     }
 }
@@ -1579,6 +1676,12 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DelegateV2 { delegate_action, signature } => {
+                Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                    delegate_action,
+                    signature,
+                }))
             }
             ActionView::DeployGlobalContract { code } => {
                 Action::DeployGlobalContract(DeployGlobalContractAction {
@@ -1618,6 +1721,12 @@ impl TryFrom<ActionView> for Action {
                 Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
+                }))
+            }
+            ActionView::UniversalStateInit { state_init, deposit } => {
+                Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+                    state_init,
+                    deposit,
                 }))
             }
         })
@@ -1822,6 +1931,14 @@ pub struct CostGasUsed {
 pub struct ExecutionMetadataView {
     pub version: u32,
     pub gas_profile: Option<Vec<CostGasUsed>>,
+    /// One entry per action in the receipt (V4+ only): the contract attached
+    /// to the receiver account immediately before that action ran. The inner
+    /// `Option` is `Some` (a tagged contract object) when the account had a
+    /// contract and `None` (rendered as JSON `null`) when it did not (e.g. an
+    /// account with no code, or one that did not yet exist). The outer
+    /// `Option` is `None` for older metadata versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
 impl Default for ExecutionMetadataView {
@@ -1836,6 +1953,17 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             ExecutionMetadata::V1 => 1,
             ExecutionMetadata::V2(_) => 2,
             ExecutionMetadata::V3(_) => 3,
+            ExecutionMetadata::V4(_) => 4,
+        };
+        let contracts = match &metadata {
+            ExecutionMetadata::V1 | ExecutionMetadata::V2(_) | ExecutionMetadata::V3(_) => None,
+            ExecutionMetadata::V4(v4) => Some(
+                v4.contracts
+                    .iter()
+                    .cloned()
+                    .map(AccountContractView::from_account_contract)
+                    .collect(),
+            ),
         };
         let mut gas_profile = match metadata {
             ExecutionMetadata::V1 => None,
@@ -1868,43 +1996,8 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
 
                 Some(costs)
             }
-            ExecutionMetadata::V3(profile) => {
-                // Add actions, wasm op, and ext costs in groups.
-                // actions costs are 1-to-1
-                let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .filter_map(|cost| {
-                        let gas_used = profile.get_action_cost(cost);
-                        (gas_used > Gas::ZERO).then(|| {
-                            CostGasUsed::action(
-                                format!("{:?}", cost).to_ascii_uppercase(),
-                                gas_used,
-                            )
-                        })
-                    })
-                    .collect();
-
-                // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
-                let wasm_gas_used = profile.get_wasm_cost();
-                if wasm_gas_used > Gas::ZERO {
-                    costs.push(CostGasUsed::wasm_host(
-                        "WASM_INSTRUCTION".to_string(),
-                        wasm_gas_used,
-                    ));
-                }
-
-                // ext costs are 1-to-1
-                for ext_cost in ExtCosts::iter() {
-                    let gas_used = profile.get_ext_cost(ext_cost);
-                    if gas_used > Gas::ZERO {
-                        costs.push(CostGasUsed::wasm_host(
-                            format!("{:?}", ext_cost).to_ascii_uppercase(),
-                            gas_used,
-                        ));
-                    }
-                }
-
-                Some(costs)
-            }
+            ExecutionMetadata::V3(profile) => Some(profile_v3_to_costs(&profile)),
+            ExecutionMetadata::V4(v4) => Some(profile_v3_to_costs(&v4.profile)),
         };
         if let Some(ref mut costs) = gas_profile {
             // The order doesn't really matter, but the default one is just
@@ -1917,8 +2010,38 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 lhs.cost_category.cmp(&rhs.cost_category).then_with(|| lhs.cost.cmp(&rhs.cost))
             });
         }
-        ExecutionMetadataView { version, gas_profile }
+        ExecutionMetadataView { version, gas_profile, contracts }
     }
+}
+
+fn profile_v3_to_costs(profile: &ProfileDataV3) -> Vec<CostGasUsed> {
+    // Add actions, wasm op, and ext costs in groups.
+    // actions costs are 1-to-1
+    let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
+        .filter_map(|cost| {
+            let gas_used = profile.get_action_cost(cost);
+            (gas_used > Gas::ZERO)
+                .then(|| CostGasUsed::action(format!("{:?}", cost).to_ascii_uppercase(), gas_used))
+        })
+        .collect();
+
+    // wasm op is a single cost, for historical reasons it is inaccurately displayed as "wasm host"
+    let wasm_gas_used = profile.get_wasm_cost();
+    if wasm_gas_used > Gas::ZERO {
+        costs.push(CostGasUsed::wasm_host("WASM_INSTRUCTION".to_string(), wasm_gas_used));
+    }
+
+    // ext costs are 1-to-1
+    for ext_cost in ExtCosts::iter() {
+        let gas_used = profile.get_ext_cost(ext_cost);
+        if gas_used > Gas::ZERO {
+            costs.push(CostGasUsed::wasm_host(
+                format!("{:?}", ext_cost).to_ascii_uppercase(),
+                gas_used,
+            ));
+        }
+    }
+    costs
 }
 
 impl CostGasUsed {
@@ -2014,7 +2137,6 @@ impl ExecutionOutcomeView {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -2069,6 +2191,7 @@ pub struct TxStatusView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None = 0,
@@ -2515,7 +2638,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
@@ -2534,19 +2657,15 @@ pub struct EpochValidatorInfo {
     pub epoch_start_height: BlockHeight,
     /// Epoch height
     pub epoch_height: EpochHeight,
+    /// Per-validator rewards paid out at the start of the previous epoch.
+    /// For epoch E, this contains the rewards earned in epoch E-2 that were
+    /// added to validator and treasury balances at the first block of epoch
+    /// E-1 (via `ValidatorAccountsUpdate`).
+    #[serde(default)]
+    pub validator_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
@@ -2554,7 +2673,7 @@ pub struct ValidatorKickoutView {
 }
 
 /// Describes information about the current epoch validator
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
@@ -2592,17 +2711,7 @@ pub struct CurrentEpochValidatorInfo {
     pub shards_endorsed: Vec<ShardId>,
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
@@ -2612,16 +2721,7 @@ pub struct NextEpochValidatorInfo {
 }
 
 /// A state for the current head of a light client. More info [here](https://nomicon.io/ChainSpec/LightClient).
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
@@ -2634,7 +2734,7 @@ pub struct LightClientBlockView {
     pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LightClientBlockLiteView {
     pub prev_block_hash: CryptoHash,
@@ -2653,14 +2753,85 @@ impl From<BlockHeader> for LightClientBlockLiteView {
 }
 impl LightClientBlockLiteView {
     pub fn hash(&self) -> CryptoHash {
-        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+        let inner_lite_bytes = if self.inner_lite.chunk_execution_root.is_some() {
+            let inner_lite: BlockHeaderInnerLiteV2 = (&self.inner_lite).into();
+            borsh::to_vec(&inner_lite).unwrap()
+        } else {
+            let inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+            borsh::to_vec(&inner_lite).unwrap()
+        };
         combine_hash(
-            &combine_hash(
-                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
-                &self.inner_rest_hash,
-            ),
+            &combine_hash(&hash(&inner_lite_bytes), &self.inner_rest_hash),
             &self.prev_block_hash,
         )
+    }
+}
+
+/// Proof that a chunk's certified execution roots are committed by a spice block
+/// that a light client can trust via its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from the leaf;
+/// `certifying_block_proof` places the certifying block into the head's block merkle tree.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkExecutionProofView {
+    pub roots: ChunkExecutionRoots,
+    pub roots_proof: MerklePath,
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    pub certifying_block_proof: MerklePath,
+}
+
+/// A value read from a shard's state, with the trie nodes that prove it against the
+/// chunk's `state_root`. An absent `value` is proved the same way.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct StateProofView {
+    pub value: Option<StoreValue>,
+    #[serde_as(as = "Vec<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub nodes: Vec<Arc<[u8]>>,
+}
+
+/// Which piece of a shard's state a light-client state proof targets.
+///
+/// An account that runs a global contract has no local code, so `LocalContractCode` is
+/// absent for it. `Account::contract()` says which case applies.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    Account { account_id: AccountId },
+    LocalContractCode { account_id: AccountId },
+    ContractData { account_id: AccountId, key: StoreKey },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
+}
+
+impl StateProofTarget {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            StateProofTarget::Account { account_id }
+            | StateProofTarget::LocalContractCode { account_id }
+            | StateProofTarget::ContractData { account_id, .. }
+            | StateProofTarget::AccessKey { account_id, .. } => account_id,
+        }
+    }
+
+    pub fn to_trie_key(&self) -> TrieKey {
+        match self {
+            StateProofTarget::Account { account_id } => {
+                TrieKey::Account { account_id: account_id.clone() }
+            }
+            StateProofTarget::LocalContractCode { account_id } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            StateProofTarget::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id: account_id.clone(), key: key.clone().into() }
+            }
+            StateProofTarget::AccessKey { account_id, public_key } => {
+                TrieKey::access_key(account_id.clone(), public_key.clone())
+            }
+        }
     }
 }
 
@@ -2731,6 +2902,17 @@ pub enum StateChangeKindView {
     AccessKeyTouched { account_id: AccountId },
     DataTouched { account_id: AccountId },
     ContractCodeTouched { account_id: AccountId },
+}
+
+impl StateChangeKindView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountTouched { account_id }
+            | Self::AccessKeyTouched { account_id }
+            | Self::DataTouched { account_id }
+            | Self::ContractCodeTouched { account_id } => account_id,
+        }
+    }
 }
 
 impl From<StateChangeKind> for StateChangeKindView {
@@ -2818,16 +3000,16 @@ pub enum StateChangeValueView {
     },
     AccessKeyUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         access_key: AccessKeyView,
     },
     AccessKeyDeletion {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: PublicKeyHandle,
         index: NonceIndex,
         nonce: Nonce,
     },
@@ -2853,6 +3035,22 @@ pub enum StateChangeValueView {
     ContractCodeDeletion {
         account_id: AccountId,
     },
+}
+
+impl StateChangeValueView {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::AccountUpdate { account_id, .. }
+            | Self::AccountDeletion { account_id }
+            | Self::AccessKeyUpdate { account_id, .. }
+            | Self::AccessKeyDeletion { account_id, .. }
+            | Self::GasKeyNonceUpdate { account_id, .. }
+            | Self::DataUpdate { account_id, .. }
+            | Self::DataDeletion { account_id, .. }
+            | Self::ContractCodeUpdate { account_id, .. }
+            | Self::ContractCodeDeletion { account_id } => account_id,
+        }
+    }
 }
 
 impl From<StateChangeValue> for StateChangeValueView {
@@ -2985,14 +3183,41 @@ impl CongestionInfoView {
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]
 mod tests {
-    use super::{ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
+    use super::{ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum};
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
+    use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::ExecutionMetadata;
+    use crate::trie_split::TrieSplit;
+    use crate::version::ProtocolFeature;
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use near_primitives_core::hash::CryptoHash;
     use serde_json::json;
+
+    #[test]
+    fn test_chunk_header_proposed_split_json_roundtrip() {
+        let mut view: ChunkHeaderView = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(
+            1,
+            0.into(),
+            CryptoHash::default(),
+            ProtocolFeature::DynamicResharding.protocol_version(),
+        ))
+        .into();
+        // Missing, present-null and present-value distinguish header versions.
+        for proposed_split in [None, Some(None), Some(Some(TrieSplit::dummy()))] {
+            view.proposed_split = proposed_split.clone();
+            let json = serde_json::to_value(&view).unwrap();
+            assert_eq!(json.get("proposed_split").is_some(), proposed_split.is_some());
+            let decoded: ChunkHeaderView = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(decoded.proposed_split, proposed_split);
+            assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+            // Version selection affects the recomputed chunk hash.
+            let expected_header: ShardChunkHeader = view.clone().into();
+            let decoded_header: ShardChunkHeader = decoded.into();
+            assert_eq!(decoded_header.chunk_hash(), expected_header.chunk_hash());
+        }
+    }
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -3027,6 +3252,22 @@ mod tests {
     #[test]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
+        let view = ExecutionMetadataView::from(metadata);
+        insta::assert_json_snapshot!(view);
+    }
+
+    /// `ExecutionMetadataView` with V4 metadata exposes both the gas profile
+    /// (same layout as V3) and the per-action contract list.
+    #[test]
+    fn test_exec_metadata_v4_view() {
+        use crate::transaction::ExecutionMetadataV4;
+        use near_primitives_core::account::AccountContract;
+        let metadata = ExecutionMetadata::V4(Box::new(ExecutionMetadataV4 {
+            profile: ProfileDataV3::test(),
+            // Receipt with two actions: a Transfer (no contract) followed by
+            // a FunctionCall against a local contract.
+            contracts: vec![AccountContract::None, AccountContract::Local(CryptoHash([7u8; 32]))],
+        }));
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }

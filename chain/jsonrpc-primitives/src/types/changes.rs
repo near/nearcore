@@ -42,6 +42,8 @@ pub enum RpcStateChangesError {
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
+    #[error("shard {shard_id} was not applied at this block on this node")]
+    ShardNotApplied { shard_id: near_primitives::types::ShardId },
 }
 
 impl From<RpcStateChangesError> for crate::errors::RpcError {

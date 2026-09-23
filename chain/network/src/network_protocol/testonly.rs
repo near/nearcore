@@ -11,11 +11,11 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::num_rational::Ratio;
 use near_primitives::reed_solomon::reed_solomon_encode;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunkBody, PartialEncodedChunkPart, ShardChunk,
 };
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -35,39 +35,6 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Arc<B
         Balance::from_yoctonear(1000),
         Balance::from_yoctonear(1000),
         &vec![],
-    ))
-}
-
-pub fn make_block(
-    clock: time::Clock,
-    signer: &ValidatorSigner,
-    prev: &Block,
-    chunks: Vec<ShardChunk>,
-) -> Arc<Block> {
-    Arc::new(Block::produce(
-        version::PROTOCOL_VERSION,
-        version::PROTOCOL_VERSION,
-        prev.header(),
-        prev.header().height() + 5,
-        prev.header().block_ordinal() + 1,
-        chunks.iter().cloned().map(|c| c.take_header()).collect(),
-        vec![vec![]; chunks.len()],
-        EpochId::default(),
-        EpochId::default(),
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::ZERO,
-        Some(Balance::ZERO),
-        signer,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        clock,
-        None,
-        None,
-        None,
-        None,
     ))
 }
 
@@ -233,10 +200,20 @@ impl Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
         blocks.push(make_genesis_block(&clock.clock(), chunks.make()));
-        let signer = make_validator_signer(rng);
+        let signer = Arc::new(make_validator_signer(rng));
         for _ in 1..block_count {
             clock.advance(time::Duration::seconds(15));
-            blocks.push(make_block(clock.clock(), &signer, blocks.last().unwrap(), chunks.make()));
+            let prev = blocks.last().unwrap();
+            let chunk_set = chunks.make();
+            let block = TestBlockBuilder::from_prev_block(clock.clock(), prev, signer.clone())
+                .chunks(chunk_set.iter().map(ShardChunk::cloned_header))
+                .height(prev.header().height() + 5)
+                .epoch_id(EpochId::default())
+                .next_epoch_id(EpochId::default())
+                .next_bp_hash(CryptoHash::default())
+                .block_merkle_root(CryptoHash::default())
+                .build();
+            blocks.push(block);
         }
         Chain {
             genesis_id: GenesisId {

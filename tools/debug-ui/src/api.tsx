@@ -113,15 +113,15 @@ export type SyncStatusView =
     | 'NoSync'
     | {
         EpochSync:
-            | 'NotStarted'
-            | {
-                  InProgress: {
-                      source_peer_height: number;
-                      source_peer_id: string;
-                      attempt_time: string;
-                  };
-              }
-            | 'Done';
+        | 'NotStarted'
+        | {
+            InProgress: {
+                source_peer_height: number;
+                source_peer_id: string;
+                attempt_time: string;
+            };
+        }
+        | 'Done';
     }
     | {
         HeaderSync: {
@@ -138,7 +138,6 @@ export type SyncStatusView =
             computation_tasks: string[];
         };
     }
-    | 'StateSyncDone'
     | {
         BlockSync: {
             start_height: number;
@@ -186,6 +185,14 @@ export interface DebugChunkStatus {
     endorsement_ratio?: number;
 }
 
+export interface ShardSizeAndParts {
+    shard_id: number;
+    shard_index: number;
+    shard_size: number;
+    state_parts_count: number;
+    state_header_exists: boolean;
+}
+
 export interface EpochInfoView {
     epoch_height: number;
     epoch_id: string;
@@ -196,7 +203,47 @@ export interface EpochInfoView {
     chunk_validators: string[];
     validator_info: EpochValidatorInfo;
     protocol_version: number;
-    shards_size_and_parts: [number, number, boolean][];
+    // Newer nodes send self-describing entries. Older nodes send tuples indexed by shard
+    // index, which does not identify the shards after a resharding.
+    // TODO(#16236): get rid of the tuples variant once all nodes are updated and return the entries
+    // in the new format.
+    shards_size_and_parts: ShardSizeAndParts[] | [number, number, boolean][];
+}
+
+export type NormalizedShardSizes = {
+    entries: ShardSizeAndParts[];
+    keyedByShardId: boolean;
+};
+
+// Both payload shapes are arrays, so they are told apart by their elements: the legacy one
+// holds tuples. An empty array is identical either way, so it can take either branch.
+function isLegacyShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): value is [number, number, boolean][] {
+    return Array.isArray(value[0]);
+}
+
+// Accepts either payload shape, reporting which one it got so callers can label shards
+// accurately instead of silently presenting a shard index as a shard id. Legacy entries get
+// `shard_id: -1`; when `keyedByShardId` is false, callers should use `shard_index` instead.
+export function normalizeShardsSizeAndParts(
+    value: EpochInfoView['shards_size_and_parts']
+): NormalizedShardSizes {
+    if (isLegacyShardsSizeAndParts(value)) {
+        return {
+            entries: value.map(
+                ([shardSize, statePartsCount, stateHeaderExists], shardIndex) => ({
+                    shard_id: -1,
+                    shard_index: shardIndex,
+                    shard_size: shardSize,
+                    state_parts_count: statePartsCount,
+                    state_header_exists: stateHeaderExists,
+                })
+            ),
+            keyedByShardId: false,
+        };
+    }
+    return { entries: value, keyedByShardId: true };
 }
 
 export interface EpochValidatorInfo {
@@ -321,35 +368,6 @@ export interface EdgeView {
     nonce: number;
 }
 
-export interface LabeledEdgeView {
-    peer0: number;
-    peer1: number;
-    nonce: number;
-}
-
-export interface EdgeCacheView {
-    peer_labels: { [peer_id: string]: number };
-    spanning_trees: { [peer_label: number]: LabeledEdgeView[] };
-}
-
-export interface PeerRoutesView {
-    distance: number[];
-    min_nonce: number;
-}
-
-export interface RoutingTableView {
-    edge_cache: EdgeCacheView;
-    local_edges: { [peer_id: string]: EdgeView };
-    peer_distances: { [peer_id: string]: PeerRoutesView };
-    my_distances: { [peer_id: string]: number };
-}
-
-export interface RoutingTableResponse {
-    status_response: {
-        Routes: RoutingTableView;
-    };
-}
-
 export interface SnapshotHostInfoView {
     peer_id: string;
     sync_hash: string;
@@ -431,8 +449,8 @@ function getTargetUrl(addr: string, endpoint: string): string {
 
     if (protocol === 'https:') {
         return getProxyUrl(addr, endpoint);
-    } 
-    
+    }
+
     if (protocol === 'http:') {
         return `http://${addr}/${endpoint}`;
     }
@@ -446,27 +464,44 @@ export interface ChainProcessingStatusResponse {
     };
 }
 
-export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'status'));
-    return await response.json();
+export class HttpError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+        super(message);
+        this.status = status;
+    }
 }
 
-export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/status'));
-    return await response.json();
+export function isClientError(error: unknown): boolean {
+    return error instanceof HttpError && error.status >= 400 && error.status < 500;
 }
 
-export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/sync_status'));
-    return await response.json();
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new HttpError(response.status, body || response.statusText);
+    }
+    return response.json();
 }
 
-export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
-    return await response.json();
+export function fetchBasicStatus(addr: string): Promise<StatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'status'));
 }
 
-export async function fetchBlockStatus(
+export function fetchFullStatus(addr: string): Promise<StatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/status'));
+}
+
+export function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/sync_status'));
+}
+
+export function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/tracked_shards'));
+}
+
+export function fetchBlockStatus(
     addr: string,
     height: number | null,
     mode: string | null,
@@ -482,81 +517,72 @@ export async function fetchBlockStatus(
     if (numBlocks !== null) {
         params.append('num_blocks', numBlocks.toString());
     }
-    
-    const response = await fetch(getTargetUrl(addr, `debug/api/block_status${params.toString() ? '?' + params : ''}`));
-    return await response.json();
+    const query = params.toString() ? '?' + params : '';
+    return fetchJson(getTargetUrl(addr, `debug/api/block_status${query}`));
 }
 
-export async function fetchEpochInfo(
+export function fetchEpochInfo(
     addr: string,
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
-    if (!response.ok) {
-        throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
-    }
-
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
 }
 
-export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/peer_store'));
-    return await response.json();
+// Lightweight variant of the recent-epochs list that omits the heavy per-validator
+// `validator_info`. Use this for views that only need epoch metadata and
+// producer/validator counts (recent epochs, epoch shards, current peers).
+export function fetchEpochInfoLight(
+    addr: string,
+    epochId: string | null
+): Promise<EpochInfoResponse> {
+    const trailing = epochId ? `/${epochId}` : '';
+    return fetchJson(getTargetUrl(addr, `debug/api/epoch_info_light${trailing}`));
 }
 
-export async function fetchRecentOutboundConnections(
+export function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/peer_store'));
+}
+
+export function fetchRecentOutboundConnections(
     addr: string
-): Promise<RecentOutboundConnectionsResponse> {   
-    const response = await fetch(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
-    return await response.json();
+): Promise<RecentOutboundConnectionsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
 }
 
-export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/network_routes'));
-    return await response.json();
+export function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
+    return fetchJson(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
 }
 
-export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
-    return await response.json();
-}
-
-export async function fetchChainProcessingStatus(
+export function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/chain_processing_status'));
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, 'debug/api/chain_processing_status'));
 }
 
 export type ApiEntityDataEntryValue = string | ApiEntityData;
 export type ApiEntityData = { entries: ApiEntityDataEntry[] };
 export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue };
 
-export async function fetchEntity(
+export function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/entity'), {
+    return fetchJson(getTargetUrl(addr, 'debug/api/entity'), {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
         },
         method: 'POST',
     });
-    if (response.status !== 200) {
-        throw await response.text();
-    }
-    return response.json();
 }
 
 export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 
-export async function fetchInstrumentedThreadsView(
+export function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    const response = await fetch(getTargetUrl(addr, 'debug/api/instrumented_threads'));
-    return await response.json();
+    return fetchJson(getTargetUrl(addr, 'debug/api/instrumented_threads'));
 }
 
 export interface InstrumentedThreadsViewResponse {
@@ -609,4 +635,3 @@ export interface MessageStatsForType {
     c: number;
     t: number;
 }
-

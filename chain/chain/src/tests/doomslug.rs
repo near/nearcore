@@ -1,6 +1,7 @@
 use crate::doomslug::ChunksReadiness;
 use crate::{Doomslug, DoomslugThresholdMode};
 use near_async::time::{Duration, FakeClock, Instant, Utc};
+use near_chain_configs::MutableConfigValue;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{CryptoHash, hash};
@@ -55,11 +56,11 @@ fn one_iter(
         Doomslug::new(
             clock.clock(),
             0,
-            Duration::milliseconds(200),
-            Duration::milliseconds(1000),
-            Duration::milliseconds(100),
-            delta * 20, // some arbitrary number larger than delta * 6
-            Rational32::new(1, 3),
+            MutableConfigValue::new(Duration::milliseconds(200), "endorsement_delay"),
+            MutableConfigValue::new(Duration::milliseconds(1000), "min_delay"),
+            // some arbitrary number larger than delta * 6
+            MutableConfigValue::new(delta * 20, "max_delay"),
+            MutableConfigValue::new(Rational32::new(1, 3), "chunk_wait_mult"),
             DoomslugThresholdMode::TwoThirds,
         )
     })

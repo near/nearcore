@@ -15,6 +15,7 @@ pub(crate) mod receipts;
 pub(crate) mod resharding;
 pub(crate) mod rotating_validators_runner;
 pub(crate) mod setups;
+pub(crate) mod sharded_rpc;
 pub(crate) mod sharding;
 pub(crate) mod transactions;
 pub(crate) mod trie_sanity;
@@ -42,7 +43,7 @@ pub(crate) fn run_for_number_of_blocks(
     num_blocks: usize,
 ) {
     let max_block_production_delay =
-        get_node_client(env, client_account_id).config.max_block_production_delay;
+        get_node_client(env, client_account_id).config.max_block_production_delay.get();
     let initial_head_height = get_node_head_height(env, client_account_id);
     env.test_loop.run_until(
         |test_loop_data| {

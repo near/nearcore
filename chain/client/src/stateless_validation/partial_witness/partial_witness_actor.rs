@@ -8,7 +8,8 @@ use crate::stateless_validation::contracts_cache_contains_contract;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
     ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
-    validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
+    validate_contract_code_response, validate_partial_encoded_contract_deploys,
+    validate_partial_encoded_state_witness,
 };
 use itertools::Itertools;
 use lru::LruCache;
@@ -27,17 +28,20 @@ use near_network::state_witness::{
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
-    ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
-    PartialEncodedContractDeploysPart,
+    BoundedContractCodes, ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash,
+    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST,
+    MainTransitionKey, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
+    split_contracts_for_response,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
@@ -45,6 +49,8 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::S
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::ContractCode;
@@ -58,6 +64,50 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
+
+/// Returns true if a message's version is wrong for its epoch and should be dropped:
+/// a V2 message before EarlyKickout is active, or a V1 message at or after it. If we
+/// cannot resolve the version (for example during header sync), returns false: this gate
+/// only rejects a known-wrong version, so an unknown one is left for downstream validation
+/// to accept or drop. This matters for V2, whose parts are never retransmitted.
+pub(super) fn version_mismatch(version: Option<ProtocolVersion>, is_v2: bool) -> bool {
+    let Some(version) = version else {
+        return false;
+    };
+    is_v2 != ProtocolFeature::EarlyKickout.enabled(version)
+}
+
+/// Same check as [`version_mismatch`], for a partial state witness.
+pub(super) fn witness_version_mismatch(
+    version: Option<ProtocolVersion>,
+    witness: &VersionedPartialEncodedStateWitness,
+) -> bool {
+    version_mismatch(version, matches!(witness, VersionedPartialEncodedStateWitness::V2(_)))
+}
+
+/// Label used for shard ids that are not in the epoch's shard layout.
+const UNKNOWN_SHARD_LABEL: &str = "unknown";
+
+/// Renders `shard_id` as a metric label, bucketing anything outside `epoch_id`'s shard
+/// layout as [`UNKNOWN_SHARD_LABEL`].
+///
+/// Both fields come straight off the wire and are only validated much later (see
+/// `validate_chunk_relevant`), so without this a peer could mint a fresh label value per
+/// message. Prometheus children are never evicted, so that grows the registry and the
+/// `/metrics` payload without bound. Cardinality here stays at layout size plus one.
+///
+/// The layout lookup is not new cost on this path: the callers already resolve the same
+/// unvalidated `epoch_id` through the epoch manager for the kickout gate.
+fn shard_id_metric_label(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    shard_id: ShardId,
+) -> String {
+    match epoch_manager.get_shard_layout(epoch_id) {
+        Ok(layout) if layout.shard_ids().contains(&shard_id) => shard_id.to_string(),
+        _ => UNKNOWN_SHARD_LABEL.to_string(),
+    }
+}
 
 pub struct PartialWitnessActor {
     /// Adapter to send messages to the network.
@@ -175,8 +225,10 @@ impl PartialWitnessActor {
         witness_creation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let partial_witness_tracker = Arc::new(PartialEncodedStateWitnessTracker::new(
+            clock.clone(),
             chunk_validation_sender,
             epoch_manager.clone(),
+            runtime.store().clone(),
         ));
         Self {
             network_adapter,
@@ -234,6 +286,15 @@ impl PartialWitnessActor {
             .expect("Chunk validators must be defined")
             .ordered_chunk_validators();
 
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        // Parent and grandparent anchor for V2 messages. The producer has already
+        // processed the parent, since it built this chunk on top of it, so the anchor
+        // lookup will not miss. We compute them once here and share them with the
+        // contract-accesses and contract-deploys messages and the witness parts below.
+        let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
+        let prev_prev_block_hash =
+            self.epoch_manager.grandparent_anchor(&prev_block_hash)?.unwrap_or_default();
+
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
                 key.clone(),
@@ -242,7 +303,10 @@ impl PartialWitnessActor {
                     block_hash: state_witness.main_state_transition().block_hash,
                     shard_id: main_transition_shard_id,
                 },
+                prev_block_hash,
+                prev_prev_block_hash,
                 &chunk_validators,
+                protocol_version,
                 &signer,
             );
         }
@@ -256,29 +320,39 @@ impl PartialWitnessActor {
         self.witness_creation_spawner.spawn("compress_and_distribute_witness", move || {
             if let Err(err) = Self::compress_and_distribute_witness(
                 state_witness,
+                prev_prev_block_hash,
                 chunk_validators,
                 (*signer).clone(),
                 network_adapter,
                 state_witness_tracker,
                 encoder,
+                protocol_version,
             ) {
                 tracing::error!(target: "client", ?err, "failed to compress and distribute chunk state witness");
             }
         });
 
         if !contract_deploys.is_empty() {
-            self.send_chunk_contract_deploys_parts(key, contract_deploys)?;
+            self.send_chunk_contract_deploys_parts(
+                key,
+                contract_deploys,
+                prev_block_hash,
+                prev_prev_block_hash,
+                protocol_version,
+            )?;
         }
         Ok(())
     }
 
     fn compress_and_distribute_witness(
         state_witness: ChunkStateWitness,
+        prev_prev_block_hash: CryptoHash,
         chunk_validators: Vec<AccountId>,
         signer: ValidatorSigner,
         network_adapter: PeerManagerAdapter,
         state_witness_tracker: Arc<Mutex<ChunkStateWitnessTracker>>,
         encoder: Arc<ReedSolomonEncoder>,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let witness_bytes = compress_witness(&state_witness)?;
 
@@ -286,11 +360,13 @@ impl PartialWitnessActor {
             encoder,
             *state_witness.epoch_id(),
             state_witness.chunk_header(),
+            prev_prev_block_hash,
             witness_bytes,
             &chunk_validators,
             &signer,
             &network_adapter,
             &state_witness_tracker,
+            protocol_version,
         );
 
         Ok(())
@@ -300,6 +376,9 @@ impl PartialWitnessActor {
         &mut self,
         key: &ChunkProductionKey,
         deploys: ChunkContractDeploys,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
     ) -> Result<Vec<(AccountId, PartialEncodedContractDeploys)>, Error> {
         let part_owners = self.ordered_contract_deploys_part_owners(key)?;
         // Note that target validators do not include the chunk producers, and thus in some case
@@ -324,7 +403,10 @@ impl PartialWitnessActor {
                         data: part.unwrap(),
                         encoded_length,
                     },
+                    prev_block_hash,
+                    prev_prev_block_hash,
                     &signer,
+                    protocol_version,
                 );
                 (validator, partial_deploys)
             })
@@ -338,11 +420,13 @@ impl PartialWitnessActor {
         encoder: Arc<ReedSolomonEncoder>,
         epoch_id: EpochId,
         chunk_header: &ShardChunkHeader,
+        prev_prev_block_hash: CryptoHash,
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
         network_adapter: &PeerManagerAdapter,
         state_witness_tracker: &Arc<Mutex<ChunkStateWitnessTracker>>,
+        protocol_version: ProtocolVersion,
     ) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -367,11 +451,20 @@ impl PartialWitnessActor {
             encoder,
             epoch_id,
             chunk_header,
+            prev_prev_block_hash,
             witness_bytes,
             chunk_validators,
             signer,
+            protocol_version,
         );
         encode_timer.observe_duration();
+
+        // One emit per (validator, part); all parts in a distribution share one wire version.
+        if let Some((_, first)) = validator_witness_tuple.first() {
+            metrics::PARTIAL_WITNESS_PART_MESSAGES_EMITTED_TOTAL
+                .with_label_values(&[shard_id_label.as_str(), first.version_label()])
+                .inc_by(validator_witness_tuple.len() as u64);
+        }
 
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
@@ -388,9 +481,9 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
-    fn handle_partial_encoded_state_witness(
+    pub(super) fn handle_partial_encoded_state_witness(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -401,25 +494,80 @@ impl PartialWitnessActor {
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness message");
+        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness");
+
+        let ChunkProductionKey { shard_id, epoch_id, height_created } =
+            partial_witness.chunk_production_key();
+
+        let shard_id_label =
+            shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
+        metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+            .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
+            .inc();
+
+        let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
+        if witness_version_mismatch(version, &partial_witness) {
+            tracing::debug!(
+                target: "client",
+                ?epoch_id,
+                version = partial_witness.version_label(),
+                "dropping partial witness: kickout gate",
+            );
+            return Ok(());
+        }
+
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
 
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            partial_witness.chunk_production_key();
+        // V1 resolves via the epoch sampler; V2 via the signed grandparent anchor, reliably
+        // processed even when the part races its parent. Unresolvable anchor (unprocessed, or
+        // missing DB row) => drop; an unprocessed anchor means the node is 2+ blocks behind.
+        let chunk_producer_info = match &partial_witness {
+            VersionedPartialEncodedStateWitness::V1(_) => {
+                self.epoch_manager.get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created,
+                    shard_id,
+                })
+            }
+            VersionedPartialEncodedStateWitness::V2(v2) => {
+                self.epoch_manager.get_chunk_producer_info_anchored(
+                    Some(v2.prev_prev_block_hash()),
+                    &epoch_id,
+                    height_created,
+                    shard_id,
+                )
+            }
+        };
+        let chunk_producer = match chunk_producer_info {
+            Ok(info) => info.take_account_id(),
+            Err(err @ (EpochError::ChunkProducerNotInDB(_, _) | EpochError::MissingBlock(_)))
+                if partial_witness.prev_prev_block_hash().is_some() =>
+            {
+                tracing::debug!(
+                    target: "client",
+                    ?err,
+                    chunk_production_key = ?partial_witness.chunk_production_key(),
+                    "dropping partial witness: anchor not resolvable, node is behind",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err.into()),
+        };
 
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created, shard_id })?
-            .take_account_id();
-
-        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
-        let target_chunk_validators = self
+        let ordered_chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?
-            .ordered_chunk_validators()
+            .ordered_chunk_validators();
+        // `generate_state_witness_parts` assigns part `i` to `ordered_chunk_validators[i]`, so
+        // this is the ordinal of the part we are the designated owner of
+        let my_part_ord = ordered_chunk_validators
+            .iter()
+            .position(|validator| validator == &validator_account_id);
+        // Forward witness part to chunk validators except the validator that produced the chunk and witness.
+        let target_chunk_validators = ordered_chunk_validators
             .into_iter()
             .filter(|validator| validator != &chunk_producer)
             .collect_vec();
@@ -436,19 +584,32 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ) {
                 Ok(ChunkRelevance::Relevant) => {
-                    // Forward to other validators (excluding ourselves to avoid duplicate processing).
-                    let other_validators: Vec<_> = target_chunk_validators
-                        .into_iter()
-                        .filter(|validator| validator != &validator_account_id)
-                        .collect();
+                    // Only the part's designated owner re-broadcasts it. Producer-signed parts for
+                    // other ordinals are still valid and worth storing, but forwarding them would
+                    // let a single injected message fan out across the whole validator set.
+                    if my_part_ord == Some(partial_witness.part_ord()) {
+                        // Forward to other validators (excluding ourselves to avoid duplicate processing).
+                        let other_validators: Vec<_> = target_chunk_validators
+                            .into_iter()
+                            .filter(|validator| validator != &validator_account_id)
+                            .collect();
 
-                    if !other_validators.is_empty() {
-                        network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedStateWitnessForward(
-                                other_validators,
-                                partial_witness.clone(),
-                            ),
-                        ));
+                        if !other_validators.is_empty() {
+                            network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::PartialEncodedStateWitnessForward(
+                                    other_validators,
+                                    partial_witness.clone(),
+                                ),
+                            ));
+                        }
+                    } else {
+                        tracing::debug!(
+                            target: "client",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            part_ord = partial_witness.part_ord(),
+                            ?my_part_ord,
+                            "not forwarding partial witness part we do not own",
+                        );
                     }
                     // Store the part locally (as part owner) to avoid need for self-forwarding.
                     if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
@@ -460,6 +621,15 @@ impl PartialWitnessActor {
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
                         "received irrelevant partial encoded state witness",
+                    );
+                }
+                // Node behind: no retransmit. The chunk recovers via the orphan-witness
+                // path or the producer's endorsement quorum without us.
+                Err(Error::DBNotFoundErr(_)) => {
+                    tracing::debug!(
+                        target: "client",
+                        chunk_production_key = ?partial_witness.chunk_production_key(),
+                        "dropping partial witness: chain data not yet available",
                     );
                 }
                 Err(err) => {
@@ -478,9 +648,9 @@ impl PartialWitnessActor {
     }
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
-    fn handle_partial_encoded_state_witness_forward(
+    pub(super) fn handle_partial_encoded_state_witness_forward(
         &self,
-        partial_witness: PartialEncodedStateWitness,
+        partial_witness: VersionedPartialEncodedStateWitness,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
             target: "client",
@@ -492,6 +662,28 @@ impl PartialWitnessActor {
         )
         .entered();
         tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness forward message");
+
+        {
+            let ChunkProductionKey { shard_id, epoch_id, .. } =
+                partial_witness.chunk_production_key();
+
+            let shard_id_label =
+                shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
+            metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
+                .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
+                .inc();
+
+            let version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).ok();
+            if witness_version_mismatch(version, &partial_witness) {
+                tracing::debug!(
+                    target: "client",
+                    ?epoch_id,
+                    version = partial_witness.version_label(),
+                    "dropping forwarded partial witness: kickout gate",
+                );
+                return Ok(());
+            }
+        }
 
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
@@ -520,6 +712,28 @@ impl PartialWitnessActor {
                             "received irrelevant partial encoded state witness",
                         );
                     }
+                    // Producer or epoch data not yet available locally (node behind).
+                    // No retransmit; we catch up via block sync, not witness parts.
+                    Err(Error::DBNotFoundErr(_)) => {
+                        tracing::debug!(
+                            target: "client",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "dropping forwarded partial witness: chain data not yet available",
+                        );
+                    }
+                    // A node lagging on headers cannot resolve the signed epoch, so this is
+                    // indistinguishable from a forged epoch: drop either way.
+                    Err(Error::EpochOutOfBounds(_))
+                        if partial_witness
+                            .prev_block_hash()
+                            .is_some_and(|prev| epoch_manager.get_block_info(prev).is_err()) =>
+                    {
+                        tracing::debug!(
+                            target: "client",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "dropping forwarded partial witness: signed epoch not resolvable",
+                        );
+                    }
                     Err(err) => {
                         // TODO: ban sending peer
                         tracing::warn!(
@@ -542,19 +756,52 @@ impl PartialWitnessActor {
     /// and encoded into parts using Reed Solomon encoding and each part is sent to one of the validators (part owner).
     /// See `send_chunk_contract_deploys_parts` for the code implementing this. In the second step each validator (part-owner)
     /// forwards the part it receives to other validators.
-    fn handle_partial_encoded_contract_deploys(
+    pub(super) fn handle_partial_encoded_contract_deploys(
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_deploys, "received partial encoded contract deploys");
-        if !validate_partial_encoded_contract_deploys(
+        if self.should_drop_for_version(
+            &partial_deploys.chunk_production_key(),
+            matches!(&partial_deploys, PartialEncodedContractDeploys::V2(_)),
+            "partial encoded contract deploys",
+        ) {
+            return Ok(());
+        }
+        match validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
-            return Ok(());
+        ) {
+            Ok(relevance) if relevance.is_relevant() => {}
+            Ok(_) => return Ok(()),
+            // The anchor is not processed yet (V2), which means this node is two or
+            // more blocks behind. Drop it quietly, the same as the witness path; the
+            // chunk recovers without our help.
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(
+                    target: "client",
+                    key = ?partial_deploys.chunk_production_key(),
+                    "dropping partial encoded contract deploys: chain data not yet available",
+                );
+                return Ok(());
+            }
+            // A node lagging on headers cannot resolve the signed epoch when the parent
+            // block is also missing, so this is node-behind, not a forged epoch (which
+            // would have a known parent and still surface below). Drop quietly.
+            Err(Error::EpochOutOfBounds(_))
+                if partial_deploys
+                    .prev_block_hash()
+                    .is_some_and(|prev| self.epoch_manager.get_block_info(prev).is_err()) =>
+            {
+                tracing::debug!(
+                    target: "client",
+                    key = ?partial_deploys.chunk_production_key(),
+                    "dropping partial encoded contract deploys: signed epoch not resolvable",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err),
         }
         if self.partial_deploys_tracker.already_processed(&partial_deploys) {
             return Ok(());
@@ -643,20 +890,76 @@ impl PartialWitnessActor {
         self.state_witness_tracker.lock().on_witness_ack_received(witness_ack);
     }
 
+    /// Drop a contract-distribution message whose wire version is wrong for its epoch: a V2
+    /// message before EarlyKickout is active, or a V1 message at or after it. Checked here
+    /// because the anchored resolver ignores the anchor when the feature is off, so acceptance
+    /// must be gated by protocol version, the same as the witness path. Returns whether it was
+    /// dropped. `message_type` labels the log.
+    fn should_drop_for_version(
+        &self,
+        key: &ChunkProductionKey,
+        is_v2: bool,
+        message_type: &str,
+    ) -> bool {
+        let version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id).ok();
+        if version_mismatch(version, is_v2) {
+            tracing::debug!(target: "client", ?key, message_type, "dropping message: kickout gate");
+            return true;
+        }
+        false
+    }
+
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the hashes
     /// of the contract code accessed when applying the previous chunk of the witness.
-    fn handle_chunk_contract_accesses(&self, accesses: ChunkContractAccesses) -> Result<(), Error> {
+    pub(super) fn handle_chunk_contract_accesses(
+        &self,
+        accesses: ChunkContractAccesses,
+    ) -> Result<(), Error> {
+        if self.should_drop_for_version(
+            &accesses.chunk_production_key(),
+            matches!(&accesses, ChunkContractAccesses::V2(_)),
+            "chunk contract accesses",
+        ) {
+            return Ok(());
+        }
+
         let signer = self.my_validator_signer()?;
-        if !validate_chunk_contract_accesses(
+        match validate_chunk_contract_accesses(
             self.epoch_manager.as_ref(),
             &accesses,
             &signer,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
-            return Ok(());
+        ) {
+            Ok(relevance) if relevance.is_relevant() => {}
+            Ok(_) => return Ok(()),
+            // The anchor is not processed yet (V2), which means this node is two or
+            // more blocks behind. Drop it quietly, the same as the witness path; the
+            // chunk recovers without our help.
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::debug!(
+                    target: "client",
+                    key = ?accesses.chunk_production_key(),
+                    "dropping chunk contract accesses: chain data not yet available",
+                );
+                return Ok(());
+            }
+            // A node lagging on headers cannot resolve the signed epoch when the parent
+            // block is also missing, so this is node-behind, not a forged epoch (which
+            // would have a known parent and still surface below). Drop quietly.
+            Err(Error::EpochOutOfBounds(_))
+                if accesses
+                    .prev_block_hash()
+                    .is_some_and(|prev| self.epoch_manager.get_block_info(prev).is_err()) =>
+            {
+                tracing::debug!(
+                    target: "client",
+                    key = ?accesses.chunk_production_key(),
+                    "dropping chunk contract accesses: signed epoch not resolvable",
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err),
         }
         let key = accesses.chunk_production_key();
         let contracts_cache = self.runtime.compiled_contract_cache();
@@ -675,8 +978,11 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        self.partial_witness_tracker.store_accessed_contract_hashes(
+            key.clone(),
+            accesses.prev_prev_block_hash(),
+            missing_contract_hashes.clone(),
+        )?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
@@ -703,7 +1009,10 @@ impl PartialWitnessActor {
         key: ChunkProductionKey,
         contract_accesses: HashSet<CodeHash>,
         main_transition: MainTransitionKey,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
         chunk_validators: &[AccountId],
+        protocol_version: ProtocolVersion,
         my_signer: &ValidatorSigner,
     ) {
         let chunk_producers: HashSet<AccountId> = self
@@ -722,7 +1031,15 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, main_transition, my_signer),
+                ChunkContractAccesses::new(
+                    key,
+                    contract_accesses,
+                    main_transition,
+                    prev_block_hash,
+                    prev_prev_block_hash,
+                    my_signer,
+                    protocol_version,
+                ),
             ),
         ));
     }
@@ -737,16 +1054,106 @@ impl PartialWitnessActor {
         &mut self,
         key: ChunkProductionKey,
         contract_codes: Vec<ContractCode>,
+        prev_block_hash: CryptoHash,
+        prev_prev_block_hash: CryptoHash,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), Error> {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
-        let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
+        let validator_parts = self.generate_contract_deploys_parts(
+            &key,
+            compressed_deploys,
+            prev_block_hash,
+            prev_prev_block_hash,
+            protocol_version,
+        )?;
         for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
             ));
         }
         Ok(())
+    }
+
+    /// Derives the `MainTransitionKey` for a `ChunkProductionKey` from chain state,
+    /// mirroring `collect_state_transition_data()` in `state_witness.rs`:
+    /// 1. Walk back from HEAD to the block at `height_created - 1` (the prev block).
+    /// 2. Read the prev chunk header for the shard from that block.
+    /// 3. Walk back to the block where that chunk was included, tracking shard_id
+    ///    changes due to resharding.
+    /// 4. Return the `MainTransitionKey` at that point.
+    ///
+    /// Returns `Ok(None)` when the chain data is not yet available.
+    fn derive_main_transition_key(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<Option<MainTransitionKey>, Error> {
+        let chain_store = ChainStoreAdapter::new(self.runtime.store().clone());
+
+        let target_height = key
+            .height_created
+            .checked_sub(1)
+            .ok_or_else(|| Error::Other("height_created is 0".to_owned()))?;
+
+        let Ok(head) = chain_store.head() else {
+            return Ok(None);
+        };
+        if head.height < target_height {
+            return Ok(None);
+        }
+
+        // Walk back from HEAD to the canonical block at target_height (fork-safe via prev_hash;
+        // bounded by the finality gap, typically ~2-3 blocks).
+        let mut current_hash = head.last_block_hash;
+        loop {
+            let header = chain_store.get_block_header(&current_hash)?;
+            if header.height() == target_height {
+                break;
+            }
+            if header.height() <= target_height {
+                // Walked past target_height: prev block was on a non-canonical fork.
+                return Ok(None);
+            }
+            current_hash = *header.prev_hash();
+        }
+        let prev_block_hash = current_hash;
+
+        // Block body may not be available yet even when the header is.
+        let Ok(prev_block) = chain_store.get_block(&prev_block_hash) else {
+            return Ok(None);
+        };
+
+        let prev_chunk_header =
+            self.epoch_manager.get_prev_chunk_header(&prev_block, key.shard_id)?;
+        let prev_chunk_height_included = prev_chunk_header.height_included();
+
+        // Walk back to the block where the prev chunk was included, tracking shard_id
+        // changes due to resharding (mirrors collect_state_transition_data).
+        let mut current_block_hash = prev_block_hash;
+        let mut next_shard_id = key.shard_id;
+        loop {
+            let header = chain_store.get_block_header(&current_block_hash)?;
+            if header.height() < prev_chunk_height_included {
+                return Err(Error::Other(format!(
+                    "derive_main_transition_key walked past target height {} to {}",
+                    prev_chunk_height_included,
+                    header.height(),
+                )));
+            }
+
+            let current_shard_id = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
+                .1;
+            next_shard_id = current_shard_id;
+
+            if header.height() == prev_chunk_height_included {
+                break;
+            }
+            current_block_hash = *header.prev_hash();
+        }
+
+        Ok(Some(MainTransitionKey { block_hash: current_block_hash, shard_id: next_shard_id }))
     }
 
     /// Handles contract code requests message from chunk validators.
@@ -775,11 +1182,23 @@ impl PartialWitnessActor {
         }
         self.processed_contract_code_requests.push(processed_requests_key, ());
 
+        if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
+            return Ok(());
+        }
+
         let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
             .with_label_values(&[&key.shard_id.to_string()])
             .start_timer();
 
-        let main_transition_key = request.main_transition();
+        let main_transition_key = match self.derive_main_transition_key(key)? {
+            Some(derived) => {
+                if derived != *request.main_transition() {
+                    return Ok(());
+                }
+                derived
+            }
+            None => return Ok(()),
+        };
         let Some(transition_data) = self.runtime.store().get_ser::<StoredChunkStateTransitionData>(
             DBCol::StateTransitionData,
             &near_primitives::utils::get_block_shard_id(
@@ -806,7 +1225,7 @@ impl PartialWitnessActor {
                 &self.epoch_manager.get_epoch_id(&main_transition_key.block_hash)?,
             )?,
         );
-        let mut contracts = Vec::new();
+        let mut contracts = BoundedContractCodes::default();
         for contract_hash in request.contracts() {
             if !valid_accesses.contains(contract_hash) {
                 tracing::warn!(
@@ -818,7 +1237,20 @@ impl PartialWitnessActor {
                 return Ok(());
             }
             match storage.retrieve_raw_bytes(&contract_hash.0) {
-                Ok(bytes) => contracts.push(CodeBytes(bytes)),
+                Ok(bytes) => {
+                    // Bounds what one request can make us send; the requester gives up on a set
+                    // past this anyway.
+                    if !contracts.push(CodeBytes(bytes)) {
+                        tracing::warn!(
+                            target: "client",
+                            ?key,
+                            requester = ?request.requester(),
+                            total_size = contracts.total_size(),
+                            "requested contract code exceeds the per-request cap, not serving"
+                        );
+                        return Ok(());
+                    }
+                }
                 Err(StorageError::MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "client",
@@ -831,15 +1263,30 @@ impl PartialWitnessActor {
                 Err(err) => return Err(err.into()),
             }
         }
-        let response = ContractCodeResponse::encode(key.clone(), &contracts)?;
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
-        ));
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        let signer = self.my_validator_signer()?;
+        // The set may not fit one response; the requester reassembles the groups.
+        for group in split_contracts_for_response(contracts.into_codes()) {
+            let response =
+                ContractCodeResponse::encode(key.clone(), &group, &signer, protocol_version)?;
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ContractCodeResponse(request.requester().clone(), response),
+            ));
+        }
         Ok(())
     }
 
     /// Handles contract code responses message from chunk producer.
     fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
+        if !validate_contract_code_response(
+            self.epoch_manager.as_ref(),
+            &response,
+            self.runtime.store(),
+        )?
+        .is_relevant()
+        {
+            return Ok(());
+        }
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
@@ -886,10 +1333,12 @@ pub fn generate_state_witness_parts(
     encoder: Arc<ReedSolomonEncoder>,
     epoch_id: EpochId,
     chunk_header: &ShardChunkHeader,
+    prev_prev_block_hash: CryptoHash,
     witness_bytes: EncodedChunkStateWitness,
     chunk_validators: &[AccountId],
     signer: &ValidatorSigner,
-) -> Vec<(AccountId, PartialEncodedStateWitness)> {
+    protocol_version: ProtocolVersion,
+) -> Vec<(AccountId, VersionedPartialEncodedStateWitness)> {
     let _span = tracing::debug_span!(
         target: "client",
         "generate_state_witness_parts",
@@ -911,13 +1360,15 @@ pub fn generate_state_witness_parts(
         .map(|(part_ord, (chunk_validator, part))| {
             // It's fine to unwrap part here as we just constructed the parts above and we expect
             // all of them to be present.
-            let partial_witness = PartialEncodedStateWitness::new(
+            let partial_witness = VersionedPartialEncodedStateWitness::new(
                 epoch_id,
                 chunk_header.clone(),
+                prev_prev_block_hash,
                 part_ord,
                 part.unwrap().into_vec(),
                 encoded_length,
                 signer,
+                protocol_version,
             );
             (chunk_validator.clone(), partial_witness)
         })

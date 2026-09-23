@@ -342,7 +342,7 @@ impl GenesisBuilder {
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
-        let testing_init_balance = Balance::from_near(1_000_000);
+        let testing_init_balance = Balance::from_near(1_000_000_000);
         let testing_init_stake = Balance::ZERO;
         let shard_id = self.genesis.config.shard_layout.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
@@ -359,11 +359,11 @@ impl GenesisBuilder {
         set_account(&mut state_update, account_id.clone(), &account);
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };
         records.push(account_record);
-        let access_key_record = StateRecord::AccessKey {
-            account_id: account_id.clone(),
-            public_key: signer.public_key(),
-            access_key: AccessKey::full_access(),
-        };
+        let access_key_record = StateRecord::access_key(
+            account_id.clone(),
+            &signer.public_key(),
+            AccessKey::full_access(),
+        );
         set_access_key(
             &mut state_update,
             account_id.clone(),

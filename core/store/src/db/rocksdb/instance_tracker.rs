@@ -44,25 +44,32 @@ impl State {
         Self { inner: Mutex::new(inner), zero_cvar: Condvar::new() }
     }
 
-    /// Registers a new RocksDB instance and checks if limits are enough for
-    /// given max_open_files configuration option.
+    /// Reserves capacity for a new RocksDB instance and checks if limits are
+    /// enough for given max_open_files configuration option.
     ///
     /// Returns an error if process’ resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.
-    fn try_new_instance(&self, max_open_files: u32) -> Result<(), String> {
-        let num_instances = {
-            let mut inner = self.inner.lock();
-            let max_open_files = inner.max_open_files + u64::from(max_open_files);
-            ensure_max_open_files_limit(RealNoFile, max_open_files)?;
-            inner.max_open_files = max_open_files;
-            inner.count += 1;
-            inner.count
-        };
-        tracing::info!(target: "db", num_instances, "opened a new rocksdb instance");
+    ///
+    /// This intentionally does not log.  The "opened a new rocksdb instance"
+    /// message is emitted separately via [`Self::log_opened`] once the RocksDB
+    /// open actually succeeds, so that a failed open (which reserves then
+    /// immediately releases) doesn't produce a misleading "opened"/"closed" pair.
+    fn reserve_instance(&self, max_open_files: u32) -> Result<(), String> {
+        let mut inner = self.inner.lock();
+        let max_open_files = inner.max_open_files + u64::from(max_open_files);
+        ensure_max_open_files_limit(RealNoFile, max_open_files)?;
+        inner.max_open_files = max_open_files;
+        inner.count += 1;
         Ok(())
     }
 
-    fn close_instance(&self, max_open_files: u32) {
+    /// Logs that a reserved instance has finished opening successfully.
+    fn log_opened(&self) {
+        let num_instances = self.inner.lock().count;
+        tracing::info!(target: "db", num_instances, "opened a new rocksdb instance");
+    }
+
+    fn close_instance(&self, max_open_files: u32, opened: bool) {
         let num_instances = {
             let mut inner = self.inner.lock();
             inner.max_open_files = inner.max_open_files.saturating_sub(max_open_files.into());
@@ -72,7 +79,11 @@ impl State {
             }
             inner.count
         };
-        tracing::info!(target: "db", num_instances, "closed a rocksdb instance");
+        // Only announce the close for instances whose open we announced, so a
+        // failed open (reserved then dropped) stays silent on both sides.
+        if opened {
+            tracing::info!(target: "db", num_instances, "closed a rocksdb instance");
+        }
     }
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
@@ -103,11 +114,16 @@ pub(super) fn block_until_all_instances_are_closed() {
 pub(super) struct InstanceTracker {
     /// max_open_files configuration of given RocksDB instance.
     max_open_files: u32,
+
+    /// Whether the RocksDB open succeeded.  Open and close are only logged for
+    /// instances that actually opened, so a failed open doesn't emit a
+    /// misleading "opened"/"closed" pair.
+    opened: bool,
 }
 
 impl InstanceTracker {
-    /// Registers a new RocksDB instance and checks if limits are enough for
-    /// given max_open_files configuration option.
+    /// Reserves capacity for a new RocksDB instance and checks if limits are
+    /// enough for given max_open_files configuration option.
     ///
     /// Returns an error if process’ resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.  On
@@ -115,22 +131,27 @@ impl InstanceTracker {
     /// that creating more instances will take into account the sum of all the
     /// max_open_files options.
     ///
-    /// The instance is unregistered once this object is dropped.
+    /// Call [`Self::mark_opened`] once the RocksDB open succeeds so the instance
+    /// is logged.  The reservation is released once this object is dropped.
     pub(super) fn try_new(max_open_files: u32) -> Result<Self, String> {
-        STATE.try_new_instance(max_open_files)?;
-        Ok(Self { max_open_files })
+        STATE.reserve_instance(max_open_files)?;
+        Ok(Self { max_open_files, opened: false })
+    }
+
+    /// Marks the instance as successfully opened and logs it.  Call once the
+    /// RocksDB open returns successfully.
+    pub(super) fn mark_opened(&mut self) {
+        self.opened = true;
+        STATE.log_opened();
     }
 }
 
 impl Drop for InstanceTracker {
     /// Deregisters a RocksDB instance and frees its reserved NOFILE limit.
     ///
-    /// Returns an error if process’ resource limits are too low to allow
-    /// max_open_files open file descriptors for the new database instance.
-    ///
     /// The instance is unregistered once this object is dropped.
     fn drop(&mut self) {
-        STATE.close_instance(self.max_open_files);
+        STATE.close_instance(self.max_open_files, self.opened);
     }
 }
 

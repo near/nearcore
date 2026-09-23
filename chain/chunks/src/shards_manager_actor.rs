@@ -68,7 +68,7 @@
 //! Before `process_partial_encoded_chunk` returns HaveAllPartsAndReceipts, it will perform
 //! the validation steps and return error if validation fails.
 //! 1) validate the chunk header is signed by the correct chunk producer and the chunk producer
-//!    is not slashed (see `validate_chunk_header`)
+//!    is not slashed (see `validate_chunk_header_preliminary` and `validate_chunk_header_full`)
 //! 2) validate the merkle proofs of the parts and receipts with regarding to the parts root and
 //!    receipts root in the chunk header (see the beginning of `process_partial_encoded_chunk`)
 //! 3) after the full chunk is reconstructed, validate chunk's proofs in the header matches the body
@@ -80,10 +80,11 @@
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use crate::client::{ShardsManagerResponse, ShardsManagerResponseSender};
+use crate::client::{DecodedChunk, ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
-    make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
+    make_partial_encoded_chunk, make_partial_encoded_chunk_from_owned_parts_and_needed_receipts,
+    need_part, need_receipt,
 };
 use crate::metrics;
 use ::time::ext::InstantExt as _;
@@ -96,8 +97,9 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::signature_verification::{
+    resolve_and_verify_anchored_producer, verify_chunk_header_signature_by_hash,
+    verify_chunk_header_signature_by_hash_and_parts,
     verify_chunk_header_signature_with_epoch_manager,
-    verify_chunk_header_signature_with_epoch_manager_and_parts,
 };
 use near_chain::types::EpochManagerAdapter;
 use near_chain::validate::validate_chunk_proofs;
@@ -116,7 +118,9 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::receipt::Receipt;
-use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
+use near_primitives::reed_solomon::{
+    reed_solomon_decode, reed_solomon_encode, reed_solomon_part_length,
+};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
@@ -128,6 +132,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -143,19 +148,29 @@ pub const CHUNK_REQUEST_RETRY: time::Duration = time::Duration::milliseconds(100
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS: time::Duration = time::Duration::milliseconds(400);
 pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH: time::Duration = time::Duration::seconds(3);
 const CHUNK_REQUEST_RETRY_MAX: time::Duration = time::Duration::seconds(1000);
-const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
+/// Maximum number of chunks held in `chunk_forwards_cache` at once. Sized
+/// roughly to the mainnet shard count so one height's worth of legitimate
+/// forwards fits, while keeping the cache's worst-case memory footprint limited.
+const CHUNK_FORWARD_CACHE_SIZE: usize = 10;
 // Only request chunks from peers whose latest height >= chunk_height - CHUNK_REQUEST_PEER_HORIZON
 const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
-#[derive(PartialEq, Eq)]
-pub enum ChunkStatus {
-    Complete(Vec<MerklePath>),
-    Incomplete,
-    Invalid,
+/// Maximum size of a partial encoded chunk (serialized).
+/// 20MB should be plenty to fit 4MB of transactions and 4.5MB of outgoing receipts, with some extra
+/// safety margin.
+const MAX_CHUNK_SIZE_BYTES: usize = 20 * 1024 * 1024;
+
+/// Result of attempting to decode and validate a complete encoded chunk.
+#[allow(clippy::large_enum_variant)]
+enum ChunkDecodeResult {
+    /// Chunk decoded and passed validation.
+    Decoded(ShardChunk, PartialEncodedChunk),
+    /// Chunk failed validation (malicious chunk producer).
+    Invalid(EncodedShardChunk),
 }
 
 #[derive(Debug)]
-pub enum ProcessPartialEncodedChunkResult {
+enum ProcessPartialEncodedChunkResult {
     /// The information included in the partial encoded chunk is already known, no processing is needed
     Known,
     /// All parts and receipts in the chunk are received and the chunk has been processed
@@ -172,6 +187,9 @@ pub enum ProcessPartialEncodedChunkResult {
     /// The PartialEncodedChunk is not within the horizon of the chain head.
     /// The chunk has been dropped without processing any part of it.
     OutsideHorizon,
+    /// Chunk body is invalid (malicious chunk producer). The cache entry has
+    /// been poisoned and the encoded chunk sent to the client as evidence.
+    DecodeFailed,
 }
 
 #[derive(Clone, Debug)]
@@ -458,6 +476,7 @@ impl ShardsManagerActor {
     fn request_partial_encoded_chunk(
         &self,
         height: BlockHeight,
+        prev_block_hash: &CryptoHash,
         ancestor_hash: &CryptoHash,
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
@@ -472,6 +491,7 @@ impl ShardsManagerActor {
             ?chunk_hash,
             ?height,
             %shard_id,
+            ?prev_block_hash,
             ?request_from_archival)
         .entered();
         let mut bp_to_parts = HashMap::<_, Vec<u64>>::new();
@@ -481,14 +501,19 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id = self
+        let chunk_producer_account_id = match self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
-                height_created: height,
-                shard_id,
-            })?
-            .take_account_id();
+            .get_chunk_producer_info_from_prev_block(prev_block_hash, shard_id)
+        {
+            Ok(info) => Some(info.take_account_id()),
+            Err(EpochError::MissingBlock(_) | EpochError::ChunkProducerSelectionError(_)) => {
+                // Orphan (prev_block unprocessed) or invalid shard selection. Target
+                // selection falls through to a random shard tracker; for orphans
+                // old_block = true forces request_own_parts_from_others, bypassing this.
+                None
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -507,11 +532,10 @@ impl ShardsManagerActor {
 
         // A account that is either the original chunk producer or a random block producer tracking
         // the shard
-        let shard_representative_target = if !request_own_parts_from_others
-            && !request_from_archival
-            && Some(&chunk_producer_account_id) != me
+        let shard_representative_target = if let Some(cp) = chunk_producer_account_id
+            .filter(|cp| !request_own_parts_from_others && !request_from_archival && Some(cp) != me)
         {
-            Some(chunk_producer_account_id)
+            Some(cp)
         } else {
             self.get_random_target_tracking_shard(ancestor_hash, shard_id, me)?
         };
@@ -649,16 +673,18 @@ impl ShardsManagerActor {
             .collect::<HashSet<_>>()
     }
 
-    /// Check whether the node should wait for chunk parts being forwarded to it
-    /// The node will wait if it's a block producer or a chunk producer that is responsible
-    /// for producing the next chunk in this shard.
-    /// `prev_hash`: previous block hash of the chunk that we are requesting
-    /// `next_chunk_height`: height of the next chunk of the chunk that we are requesting
+    /// Check whether the node should wait for chunk parts being forwarded to it.
+    /// The node will wait if it's a block producer or the chunk producer responsible
+    /// for producing the *next* chunk in this shard (at `height_created + 1`),
+    /// because `send_partial_encoded_chunk_to_chunk_trackers` forwards parts to
+    /// that producer.
+    /// `ancestor_hash`: a processed ancestor block hash (for epoch resolution)
+    /// `height_created`: the height of the chunk being requested
     fn should_wait_for_chunk_forwarding(
         &self,
-        prev_hash: &CryptoHash,
+        ancestor_hash: &CryptoHash,
+        height_created: BlockHeight,
         shard_id: ShardId,
-        next_chunk_height: BlockHeight,
         me: Option<&AccountId>,
     ) -> Result<bool, EpochError> {
         // chunks will not be forwarded to non-validators
@@ -666,22 +692,25 @@ impl ShardsManagerActor {
             None => return Ok(false),
             Some(it) => it,
         };
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
         let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         for bp in block_producers {
             if bp.account_id() == me {
                 return Ok(true);
             }
         }
-        let chunk_producer = self
+        // Check if we are the *next* chunk producer (height_created + 1), since
+        // that's who forwarded parts are sent to. This is a speculative lookup
+        // (no block hash for the next height), so use height-based computation.
+        let next_chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
-                height_created: next_chunk_height,
+                height_created: height_created + 1,
                 shard_id,
             })?
             .take_account_id();
-        if &chunk_producer == me {
+        if &next_chunk_producer == me {
             return Ok(true);
         }
         Ok(false)
@@ -769,14 +798,23 @@ impl ShardsManagerActor {
         let old_block = self.chain_header_head.last_block_hash != prev_block_hash
             && self.chain_header_head.prev_block_hash != prev_block_hash;
 
-        let should_wait_for_chunk_forwarding =
-                self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1, me).unwrap_or_else(|_| {
-                    // ancestor_hash must be accepted because we don't request missing chunks through this
-                    // this function for orphans
-                    debug_assert!(false, "{:?} must be accepted", ancestor_hash);
-                    tracing::error!(target: "chunks", ?ancestor_hash, "requesting chunk whose ancestor_hash is not accepted");
-                    false
-                });
+        let should_wait_for_chunk_forwarding = self
+            .should_wait_for_chunk_forwarding(
+                &ancestor_hash,
+                chunk_header.height_created(),
+                chunk_header.shard_id(),
+                me,
+            )
+            .unwrap_or_else(|err| {
+                tracing::error!(
+                    target: "chunks",
+                    ?err,
+                    ?ancestor_hash,
+                    ?prev_block_hash,
+                    "failed to determine chunk forwarding, defaulting to no wait"
+                );
+                false
+            });
 
         // If chunks forwarding is enabled,
         // we purposely do not send chunk request messages right away for new blocks. Such requests
@@ -787,6 +825,7 @@ impl ShardsManagerActor {
             tracing::debug!(target: "chunks", height, %shard_id, ?chunk_hash, "requesting");
             let request_result = self.request_partial_encoded_chunk(
                 height,
+                &prev_block_hash,
                 &ancestor_hash,
                 shard_id,
                 &chunk_hash,
@@ -881,6 +920,7 @@ impl ShardsManagerActor {
 
             match self.request_partial_encoded_chunk(
                 chunk_request.height,
+                &chunk_request.prev_block_hash,
                 &chunk_request.ancestor_hash,
                 chunk_request.shard_id,
                 &chunk_hash,
@@ -1171,20 +1211,18 @@ impl ShardsManagerActor {
         }
     }
 
-    fn check_chunk_complete(&self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
+    fn decode_encoded_chunk_if_complete(
+        &mut self,
+        mut chunk: EncodedShardChunk,
+        me: Option<&AccountId>,
+    ) -> Result<ChunkDecodeResult, Error> {
         let _span = debug_span!(
             target: "chunks",
-            "check_chunk_complete",
+            "decode_encoded_chunk_if_complete",
             height_included = chunk.cloned_header().height_included(),
             shard_id = %chunk.cloned_header().shard_id(),
             chunk_hash = ?chunk.chunk_hash())
         .entered();
-
-        let data_parts = self.epoch_manager.num_data_parts();
-        if chunk.content().num_fetched_parts() < data_parts {
-            tracing::debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "incomplete");
-            return ChunkStatus::Incomplete;
-        }
 
         let encoded_length = chunk.encoded_length();
         if let Err(err) = reed_solomon_decode::<TransactionReceipt>(
@@ -1193,16 +1231,45 @@ impl ShardsManagerActor {
             encoded_length as usize,
         ) {
             tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
-            return ChunkStatus::Invalid;
+            return Ok(ChunkDecodeResult::Invalid(chunk));
         }
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
             tracing::debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "invalid, wrong merkle root");
-            return ChunkStatus::Invalid;
+            return Ok(ChunkDecodeResult::Invalid(chunk));
         }
 
-        ChunkStatus::Complete(merkle_paths)
+        let chunk = match ShardChunkWithEncoding::from_encoded_shard_chunk(chunk) {
+            Ok(chunk) => chunk,
+            Err((err, chunk)) => {
+                // Not expected to be reachable because reed_solomon_decode above already
+                // deserializes the content as TransactionReceipt.
+                tracing::error!(target: "chunks", ?err, "invalid, failed to decode");
+                return Ok(ChunkDecodeResult::Invalid(*chunk));
+            }
+        };
+
+        if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
+            return Ok(ChunkDecodeResult::Invalid(chunk.into_parts().1));
+        }
+
+        self.requested_partial_encoded_chunks.remove(&chunk.to_encoded_shard_chunk().chunk_hash());
+        match create_partial_chunk(
+            &chunk,
+            merkle_paths,
+            me,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+        ) {
+            Ok(partial_encoded_chunk) => {
+                Ok(ChunkDecodeResult::Decoded(chunk.into_parts().0, partial_encoded_chunk))
+            }
+            Err(err) => {
+                self.encoded_chunks.remove(&chunk.to_encoded_shard_chunk().chunk_hash());
+                Err(err)
+            }
+        }
     }
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
@@ -1211,64 +1278,35 @@ impl ShardsManagerActor {
         merkle_root: MerkleHash,
         part: &PartialEncodedChunkPart,
         num_total_parts: usize,
+        num_data_parts: usize,
     ) -> Result<(), Error> {
-        if (part.part_ord as usize) < num_total_parts {
-            if !verify_path_with_index(
-                merkle_root,
-                &part.merkle_proof,
-                &part.part,
-                part.part_ord,
-                num_total_parts as u64,
-            ) {
-                return Err(Error::InvalidMerkleProof);
-            }
-
-            Ok(())
-        } else {
-            Err(Error::InvalidChunkPartId)
+        if (part.part_ord as usize) >= num_total_parts {
+            return Err(Error::InvalidChunkPartId);
         }
-    }
 
-    fn decode_encoded_chunk_if_complete(
-        &mut self,
-        mut encoded_chunk: EncodedShardChunk,
-        me: Option<&AccountId>,
-    ) -> Result<Option<(ShardChunk, PartialEncodedChunk)>, Error> {
-        match self.check_chunk_complete(&mut encoded_chunk) {
-            ChunkStatus::Complete(merkle_paths) => {
-                self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
-                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)?;
-                if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
-                    return Err(Error::InvalidChunk);
-                }
-                match create_partial_chunk(
-                    &chunk,
-                    merkle_paths,
-                    me,
-                    self.epoch_manager.as_ref(),
-                    &self.shard_tracker,
-                ) {
-                    Ok(partial_encoded_chunk) => {
-                        Ok(Some((chunk.into_parts().0, partial_encoded_chunk)))
-                    }
-                    Err(err) => {
-                        self.encoded_chunks.remove(&chunk.to_encoded_shard_chunk().chunk_hash());
-                        Err(err)
-                    }
-                }
-            }
-            ChunkStatus::Incomplete => Ok(None),
-            ChunkStatus::Invalid => {
-                let chunk_hash = encoded_chunk.chunk_hash();
-                self.encoded_chunks.remove(&chunk_hash);
-                Err(Error::InvalidChunk)
-            }
+        let max_part_length = reed_solomon_part_length(MAX_CHUNK_SIZE_BYTES, num_data_parts);
+        if part.part.len() > max_part_length {
+            return Err(Error::InvalidChunkPartSize);
         }
+
+        if !verify_path_with_index(
+            merkle_root,
+            &part.merkle_proof,
+            &part.part,
+            part.part_ord,
+            num_total_parts as u64,
+        ) {
+            return Err(Error::InvalidMerkleProof);
+        }
+
+        Ok(())
     }
 
     fn validate_partial_encoded_chunk_forward(
         &self,
         forward: &PartialEncodedChunkForwardMsg,
+        num_total_parts: usize,
+        num_data_parts: usize,
     ) -> Result<(), Error> {
         let valid_hash = forward.is_valid_hash(); // check hash
 
@@ -1277,19 +1315,19 @@ impl ShardsManagerActor {
         }
 
         // check part merkle proofs
-        let num_total_parts = self.epoch_manager.num_total_parts();
+        if forward.parts.len() > self.epoch_manager.num_total_parts() {
+            return Err(Error::TooManyChunkParts);
+        }
         for part_info in &forward.parts {
-            self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
+            self.validate_part(forward.merkle_root, part_info, num_total_parts, num_data_parts)?;
         }
 
         // check signature
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
-        let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
+        let valid_signature = verify_chunk_header_signature_by_hash_and_parts(
             self.epoch_manager.as_ref(),
             &forward.chunk_hash,
             &forward.signature,
-            epoch_id,
-            forward.height_created,
+            &forward.prev_block_hash,
             forward.shard_id,
         )?;
 
@@ -1358,8 +1396,17 @@ impl ShardsManagerActor {
         forward: PartialEncodedChunkForwardMsg,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
+        let chunk_requested =
+            self.requested_partial_encoded_chunks.contains_key(&forward.chunk_hash);
+        if !chunk_requested && !self.encoded_chunks.height_within_horizon(forward.height_created) {
+            metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
+            return Ok(());
+        }
+
+        let num_total_parts = self.epoch_manager.num_total_parts();
+        let num_data_parts = self.epoch_manager.num_data_parts();
         let maybe_header = self
-            .validate_partial_encoded_chunk_forward(&forward)
+            .validate_partial_encoded_chunk_forward(&forward, num_total_parts, num_data_parts)
             .and_then(|_| self.get_partial_encoded_chunk_header(&forward.chunk_hash));
 
         let header = match maybe_header {
@@ -1374,10 +1421,8 @@ impl ShardsManagerActor {
             Err(Error::ChainError(chain_error)) => {
                 match chain_error {
                     near_chain::Error::DBNotFoundErr(_) => {
-                        // We can't check if this chunk came from a valid chunk producer because
-                        // we don't know `prev_block`, however the signature is checked when
-                        // forwarded parts are later processed as partial encoded chunks, so we
-                        // can mark it as unknown for now.
+                        // prev_block unknown or ChunkProducers DB not populated yet —
+                        // cache the forward for later validation.
                         self.insert_forwarded_chunk(forward);
                         metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.inc();
                         return Ok(()); // a normal and expected case, not error
@@ -1388,6 +1433,7 @@ impl ShardsManagerActor {
             }
             Err(err) => Err(err),
         }?;
+        // A V2 envelope is fine here even under EarlyKickout: it  is destructured right after validation, never persisted or sent.
         let partial_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header,
             parts: forward.parts,
@@ -1397,38 +1443,31 @@ impl ShardsManagerActor {
         Ok(())
     }
 
-    /// Validate a chunk header
-    /// 1) check that the chunk header is signed by the correct chunk producer for the chunk at
-    ///    the height for the shard
-    /// 2) check that the chunk header is compatible with the current protocol version
+    /// Preliminary chunk header validation. Checks shard_id and protocol_version
+    /// using epoch-based resolution, and verifies the producer signature at arrival:
+    /// under `EarlyKickout` via the anchored producer lookup, otherwise
+    /// via epoch-based producer resolution. This drops an unauthenticated
+    /// chunk before it is cached, so it cannot claim the dedup slot.
     ///
-    // Note that this function only does partial validation. Full validation is only possible
-    // after the previous block of the chunk is processed. To be able to process partial encoded
-    // chunk messages in advance, this function tries to verify with other accepted block hash in
-    // the chain if the previous block hash is not accepted. Validation is only partially done
-    // in those cases. Full validation can be achieved by calling this function after
-    // the previous block hash is accepted.
-    //
-    // To achieve full validation, this function is called twice for each chunk entry
-    // first when the chunk entry is inserted in `encoded_chunks`
-    // then in `process_partial_encoded_chunk` after checking the previous block is ready
-    fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
+    // The epoch_id is resolved via a three-layer fallback:
+    // 1) if prev_block_hash is processed, we use that
+    // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
+    //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
+    //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
+    //    from ancestor_hash
+    // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
+    //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
+    //    And if the validation fails in this case, we actually can't say if the chunk is actually
+    //    invalid. So we must return chain_error instead of return error
+    fn validate_chunk_header_preliminary(
+        &self,
+        header: &ShardChunkHeader,
+        anchor: Option<(CryptoHash, EpochId)>,
+    ) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
-        let _span = debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
-        // 1.  check signature
-        // Ideally, validating the chunk header needs the previous block to be accepted already.
-        // However, we want to be able to validate chunk header in advance so we can save
-        // the corresponding parts and receipts before the previous block is processed
-        // We do this three layered check
-        // 1) if prev_block_hash is processed, we use that
-        // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
-        //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
-        //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
-        //    from ancestor_hash
-        // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
-        //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
-        //    And if the validation fails in this case, we actually can't say if the chunk is actually
-        //    invalid. So we must return chain_error instead of return error
+        let _span = debug_span!(target: "chunks", "validate_chunk_header_preliminary", ?chunk_hash)
+            .entered();
+
         let (epoch_id, epoch_id_confirmed) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
@@ -1461,9 +1500,51 @@ impl ShardsManagerActor {
             }
         };
 
-        self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_shard_id(header, epoch_id).map_err(err_mapper)?;
         self.verify_chunk_protocol_version(header, epoch_id).map_err(err_mapper)?;
+
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .map_err(|err| err_mapper(err.into()))?;
+        if ProtocolFeature::EarlyKickout.enabled(protocol_version) {
+            let Some((prev_prev_block_hash, header_epoch_id)) = anchor else {
+                return Err(err_mapper(Error::InvalidChunkHeader));
+            };
+            if epoch_id_confirmed {
+                if header_epoch_id != epoch_id {
+                    return Err(err_mapper(Error::InvalidChunkHeader));
+                }
+            } else {
+                let possible_epochs = self
+                    .epoch_manager
+                    .possible_epochs_of_height_around_tip(&self.chain_head, header.height_created())
+                    .map_err(|err| err_mapper(err.into()))?;
+                if !possible_epochs.contains(&header_epoch_id) {
+                    return Err(err_mapper(Error::InvalidChunkHeader));
+                }
+            }
+            let key = ChunkProductionKey {
+                epoch_id: header_epoch_id,
+                shard_id: header.shard_id(),
+                height_created: header.height_created(),
+            };
+            let producer = resolve_and_verify_anchored_producer(
+                self.epoch_manager.as_ref(),
+                &key,
+                header.prev_block_hash(),
+                &prev_prev_block_hash,
+                self.store.store_ref(),
+                "chunk",
+            )?;
+            if !header.signature().verify(chunk_hash.as_ref(), producer.public_key()) {
+                return Err(Error::InvalidChunkSignature);
+            }
+        } else {
+            // Pre-`EarlyKickout` path: no producer reassignment exists, so the
+            // producer resolved epoch-based from `epoch_id` is authoritative.
+            self.verify_chunk_header_signature(header, epoch_id).map_err(err_mapper)?;
+        }
 
         Ok(())
     }
@@ -1481,6 +1562,30 @@ impl ShardsManagerActor {
         if !sig_valid {
             return Err(Error::InvalidChunkSignature);
         }
+        Ok(())
+    }
+
+    /// Full chunk header validation when prev_block_hash is known to be processed.
+    /// Uses hash-based chunk producer lookup for signature verification (DB-backed
+    /// when EarlyKickout is enabled), plus epoch-based shard_id and protocol_version.
+    fn validate_chunk_header_full(
+        &self,
+        header: &ShardChunkHeader,
+        epoch_id: EpochId,
+    ) -> Result<(), Error> {
+        let chunk_hash = header.chunk_hash();
+        let _span =
+            debug_span!(target: "chunks", "validate_chunk_header_full", ?chunk_hash).entered();
+
+        let sig_valid = verify_chunk_header_signature_by_hash(self.epoch_manager.as_ref(), header)?;
+        if !sig_valid {
+            byzantine_assert!(false);
+            return Err(Error::InvalidChunkSignature);
+        }
+
+        self.verify_chunk_shard_id(header, epoch_id)?;
+        self.verify_chunk_protocol_version(header, epoch_id)?;
+
         Ok(())
     }
 
@@ -1581,46 +1686,56 @@ impl ShardsManagerActor {
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
         me: Option<&AccountId>,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
-        let partial_encoded_chunk =
-            partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
-        let chunk_hash = partial_encoded_chunk.header.chunk_hash();
+        let anchor = {
+            let pec = partial_encoded_chunk.get_inner();
+            match (pec.prev_prev_block_hash(), pec.epoch_id()) {
+                (Some(prev_prev_block_hash), Some(epoch_id)) => {
+                    Some((*prev_prev_block_hash, *epoch_id))
+                }
+                _ => None,
+            }
+        };
+        let chunk = partial_encoded_chunk.get_inner();
+        let chunk_hash = chunk.chunk_hash().clone();
         tracing::debug!(
             target: "chunks",
-            parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+            parts = ?chunk.parts().iter().map(|p| p.part_ord).collect::<Vec<_>>(),
             "process partial encoded chunk");
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
+        let num_data_parts = self.epoch_manager.num_data_parts();
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
-            tracing::debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
+            if entry.decode_failed {
+                return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
+            }
+            tracing::debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = num_data_parts, tag_chunk_distribution = true);
         } else {
-            tracing::debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts(), tag_chunk_distribution = true);
+            tracing::debug!(target: "chunks", num_parts_in_cache = 0, total_needed = num_data_parts, tag_chunk_distribution = true);
         }
 
         // 1.b Checking chunk height
         let chunk_requested = self.requested_partial_encoded_chunks.contains_key(&chunk_hash);
         if !chunk_requested {
-            if !self
-                .encoded_chunks
-                .height_within_horizon(partial_encoded_chunk.header.height_created())
-            {
+            let height_created = chunk.height_created();
+            if !self.encoded_chunks.height_within_horizon(height_created) {
                 metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
-                tracing::debug!(target: "chunks", ?chunk_hash, height_created=partial_encoded_chunk.header.height_created(), "Dropping a chunk outside of the horizon");
+                tracing::debug!(target: "chunks", ?chunk_hash, height_created, "Dropping a chunk outside of the horizon");
                 return Ok(ProcessPartialEncodedChunkResult::OutsideHorizon);
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
-            if let Some(hash) = self.encoded_chunks.get_chunk_hash_by_height_and_shard(
-                partial_encoded_chunk.header.height_created(),
-                partial_encoded_chunk.header.shard_id(),
-            ) {
-                if hash != chunk_hash {
+            if let Some(hash) = self
+                .encoded_chunks
+                .get_chunk_hash_by_height_and_shard(height_created, chunk.shard_id())
+            {
+                if *hash != chunk_hash {
                     tracing::warn!(
                         target: "client",
                         ?chunk_hash,
-                        height_created = %partial_encoded_chunk.header.height_created(),
-                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        height_created,
+                        shard_id = %chunk.shard_id(),
                         ?hash,
                         "rejecting un-requested chunk because mismatched hash"
                     );
@@ -1629,23 +1744,26 @@ impl ShardsManagerActor {
             }
         }
 
-        // 1.c checking header validity
-        match partial_encoded_chunk
-            .validate_with(|pec| self.validate_chunk_header(&pec.header).map(|()| true))
-        {
+        // 1.c checking header validity (preliminary: shard_id + protocol_version only,
+        // signature is checked later in validate_chunk_header_full when prev_block is ready)
+        match partial_encoded_chunk.validate_with(|pec| {
+            let header = pec.cloned_header();
+            self.validate_chunk_header_preliminary(&header, anchor).map(|()| true)
+        }) {
             Err(Error::ChainError(chain_error)) => match chain_error {
-                // validate_chunk_header returns DBNotFoundError if the previous block is not ready
-                // in this case, we still return valid result instead of error.
+                // validate_chunk_header_preliminary returns DBNotFoundError if the previous
+                // block (or the anchor) is not ready. In this case, we still return a valid
+                // result instead of an error so the chunk is retried later.
                 near_chain::Error::DBNotFoundErr(_) => {
                     tracing::debug!(
                         target: "client",
-                        chunk_hash = ?partial_encoded_chunk.header.chunk_hash(),
-                        height_created = %partial_encoded_chunk.header.height_created(),
-                        shard_id = %partial_encoded_chunk.header.shard_id(),
+                        ?chunk_hash,
+                        height_created = %partial_encoded_chunk.get_inner().height_created(),
+                        shard_id = %partial_encoded_chunk.get_inner().shard_id(),
                         "dropping partial encoded chunk because we don't have enough information to validate it"
                     );
                     return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(Box::new(
-                        PartialEncodedChunk::V2(partial_encoded_chunk.into_inner()),
+                        partial_encoded_chunk.into_inner(),
                     )));
                 }
                 _ => return Err(chain_error.into()),
@@ -1654,14 +1772,22 @@ impl ShardsManagerActor {
             Ok(_) => (),
         }
         let PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts } =
-            partial_encoded_chunk.into_inner();
+            partial_encoded_chunk.into_inner().into();
 
         // 1.d Checking part_ords' validity
         let num_total_parts = self.epoch_manager.num_total_parts();
+        if parts.len() > num_total_parts {
+            return Err(Error::TooManyChunkParts);
+        }
         for part_info in &parts {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
-            self.validate_part(*header.encoded_merkle_root(), part_info, num_total_parts)?;
+            self.validate_part(
+                *header.encoded_merkle_root(),
+                part_info,
+                num_total_parts,
+                num_data_parts,
+            )?;
         }
 
         // 1.e Checking receipts validity
@@ -1670,7 +1796,12 @@ impl ShardsManagerActor {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            if !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root()) {
+            //
+            // from_shard_id is not covered by the receipts merkle root, so it must be checked
+            // explicitly.
+            if proof.1.from_shard_id != header.shard_id()
+                || !proof.verify_against_receipt_root(*header.prev_outgoing_receipts_root())
+            {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -1700,6 +1831,9 @@ impl ShardsManagerActor {
                 new_part_ords,
                 &epoch_id,
                 header.prev_block_hash(),
+                // Parent is processed: anchor the next producer on it so an active
+                // blacklist forwards to the real (reassigned) producer.
+                Some(header.prev_block_hash()),
                 me,
             )?;
         } else {
@@ -1712,6 +1846,8 @@ impl ShardsManagerActor {
                 new_part_ords,
                 &epoch_id,
                 &self.chain_head.last_block_hash.clone(),
+                // Parent not processed: no anchor, keep the static sampler.
+                None,
                 me,
             )?;
         };
@@ -1739,6 +1875,7 @@ impl ShardsManagerActor {
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let header = self.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        // A V2 envelope is fine here even under EarlyKickout: it  is destructured right after validation, never persisted or sent.
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
         // shard manager.
@@ -1786,11 +1923,12 @@ impl ShardsManagerActor {
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
-        // check the header exists in encoded_chunks and validate it again (full validation)
-        // now that prev_block is processed
+        // Full validation (including signature via hash-based DB lookup) now that
+        // prev_block is processed. Preliminary validation only checks structural fields
+        // (shard_id, protocol_version) — the signature is deferred to here.
         if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
             if !chunk_entry.header_fully_validated {
-                let res = self.validate_chunk_header(header);
+                let res = self.validate_chunk_header_full(header, epoch_id);
                 match res {
                     Ok(()) => {
                         self.encoded_chunks.mark_entry_validated(&chunk_hash);
@@ -1826,7 +1964,8 @@ impl ShardsManagerActor {
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry)?;
-        let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
+        let num_data_parts = self.epoch_manager.num_data_parts();
+        let can_reconstruct = entry.parts.len() >= num_data_parts;
 
         if can_reconstruct {
             self.encoded_chunks.mark_can_reconstruct(&chunk_hash);
@@ -1838,11 +1977,7 @@ impl ShardsManagerActor {
 
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: header.height_created(),
-                shard_id: header.shard_id(),
-            })?
+            .get_chunk_producer_info_from_prev_block(&prev_block_hash, header.shard_id())?
             .take_account_id();
 
         if have_all_parts {
@@ -1851,7 +1986,7 @@ impl ShardsManagerActor {
                 self.client_adapter.send(
                     ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                         chunk_header: header.clone(),
-                        chunk_producer,
+                        chunk_producer: chunk_producer.clone(),
                     }
                     .span_wrap(),
                 );
@@ -1875,7 +2010,7 @@ impl ShardsManagerActor {
                 me,
                 self.epoch_manager.as_ref(),
                 &self.shard_tracker,
-            );
+            )?;
 
             self.complete_chunk(partial_chunk, None);
             return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
@@ -1893,20 +2028,61 @@ impl ShardsManagerActor {
                 encoded_chunk.content_mut().parts[*part_ord as usize] =
                     Some(part_entry.part.clone());
             }
+            let num_fetched_parts = encoded_chunk.content().num_fetched_parts();
+            assert!(
+                num_fetched_parts >= num_data_parts,
+                "expected enough parts to reconstruct chunk, got {num_fetched_parts}/{num_data_parts}",
+            );
 
-            let (shard_chunk, partial_chunk) = self
-                .decode_encoded_chunk_if_complete(encoded_chunk, me)?
-                .expect("decoding shouldn't fail");
-
-            // For consistency, only persist shard_chunk if we actually care about the shard.
-            // Don't persist if we don't care about the shard, even if we accidentally got enough
-            // parts to reconstruct the full shard.
-            if cares_about_shard {
-                self.complete_chunk(partial_chunk, Some(shard_chunk));
-            } else {
-                self.complete_chunk(partial_chunk, None);
+            match self.decode_encoded_chunk_if_complete(encoded_chunk, me)? {
+                ChunkDecodeResult::Decoded(shard_chunk, partial_chunk) => {
+                    // For consistency, only persist shard_chunk if we actually care about the
+                    // shard. Don't persist if we don't care about the shard, even if we
+                    // accidentally got enough parts to reconstruct the full shard.
+                    if cares_about_shard {
+                        self.complete_chunk(partial_chunk, Some(shard_chunk));
+                    } else {
+                        self.complete_chunk(partial_chunk, None);
+                    }
+                    return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
+                }
+                ChunkDecodeResult::Invalid(encoded_chunk) => {
+                    tracing::warn!(
+                        target: "chunks",
+                        ?chunk_hash,
+                        height = header.height_created(),
+                        shard_id = %header.shard_id(),
+                        %chunk_producer,
+                        "chunk decode failed, poisoning cache entry",
+                    );
+                    metrics::CHUNK_DECODE_FAILED_TOTAL
+                        .with_label_values(&[&header.shard_id().to_string()])
+                        .inc();
+                    // Build a PartialEncodedChunk from the cache entry's parts
+                    // (which include merkle proofs) for persisting to
+                    // DBCol::PartialChunks so block-syncing peers can fetch them.
+                    let entry = self
+                        .encoded_chunks
+                        .get(&chunk_hash)
+                        .expect("cache entry must exist; we just decoded from it");
+                    let partial_chunk = make_partial_encoded_chunk(
+                        header.clone(),
+                        entry.parts.values().cloned().collect(),
+                        entry.receipts.values().cloned().collect(),
+                        self.epoch_manager.as_ref(),
+                    )?;
+                    self.encoded_chunks.mark_decode_failed(&chunk_hash);
+                    self.requested_partial_encoded_chunks.remove(&chunk_hash);
+                    self.client_adapter.send(
+                        ShardsManagerResponse::ChunkCompleted {
+                            partial_chunk,
+                            decoded_chunk: DecodedChunk::Invalid(encoded_chunk),
+                        }
+                        .span_wrap(),
+                    );
+                    return Ok(ProcessPartialEncodedChunkResult::DecodeFailed);
+                }
             }
-            return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
         }
         Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)
     }
@@ -1923,8 +2099,13 @@ impl ShardsManagerActor {
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         tracing::debug!(target: "chunks", ?chunk_hash, "completed chunk");
-        self.client_adapter
-            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }.span_wrap());
+        let decoded_chunk = match shard_chunk {
+            Some(chunk) => DecodedChunk::Valid(chunk),
+            None => DecodedChunk::None,
+        };
+        self.client_adapter.send(
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk }.span_wrap(),
+        );
     }
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
@@ -1965,6 +2146,10 @@ impl ShardsManagerActor {
         part_ords: HashSet<u64>,
         epoch_id: &EpochId,
         latest_block_hash: &CryptoHash,
+        // Grandparent anchor for resolving the next chunk's producer. `Some` only
+        // when the current chunk's parent is processed (so its ChunkProducers row
+        // exists); `None` on the orphan/fallback path routes to the static sampler.
+        anchor: Option<&CryptoHash>,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
         let me = match me {
@@ -2007,11 +2192,7 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: current_chunk_height + 1,
-                shard_id,
-            })?
+            .get_chunk_producer_info_anchored(anchor, epoch_id, current_chunk_height + 1, shard_id)?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();
@@ -2109,6 +2290,10 @@ impl ShardsManagerActor {
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+
+        let anchor =
+            partial_chunk.prev_prev_block_hash().copied().zip(partial_chunk.epoch_id().copied());
+
         for part_ord in 0..self.epoch_manager.num_total_parts() {
             let part_ord = part_ord as u64;
             let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
@@ -2155,6 +2340,7 @@ impl ShardsManagerActor {
                     part_ords,
                     part_receipt_proofs,
                     &merkle_paths,
+                    anchor,
                 );
 
             if Some(&to_whom) != me {
@@ -2275,19 +2461,20 @@ impl ShardsManagerActor {
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let me = me.as_ref();
         match request {
-            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk, recv_permit) => {
                 match self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me) {
                     Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(chunk)) => {
                         const RETRY_CHUNK_PROCESSING_DELAY: Duration = Duration::milliseconds(10);
                         return HandleNetworkRequestResult::RetryProcessing(
-                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
+                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk, recv_permit)),
                             RETRY_CHUNK_PROCESSING_DELAY);
                     },
                     Ok(ProcessPartialEncodedChunkResult::Known) |
                     Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedBlock) |
-                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) => { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) |
+                    Ok(ProcessPartialEncodedChunkResult::DecodeFailed) => { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         tracing::debug!(target: "chunks", ?e, "error processing partial encoded chunk");
                         return HandleNetworkRequestResult::Err;
@@ -2296,6 +2483,7 @@ impl ShardsManagerActor {
             }
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                 partial_encoded_chunk_forward,
+                _recv_permit,
             ) => {
                 self.process_partial_encoded_chunk_forward(partial_encoded_chunk_forward, me)
                     .map_or_else(
@@ -2309,6 +2497,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                 partial_encoded_chunk_response,
                 received_time,
+                recv_permit: _recv_permit,
             } => {
                 metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(
                     (self.clock.now().signed_duration_since(received_time)).as_seconds_f64(),
@@ -2325,6 +2514,7 @@ impl ShardsManagerActor {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request,
                 route_back,
+                recv_permit: _recv_permit,
             } => {
                 self.process_partial_encoded_chunk_request(
                     partial_encoded_chunk_request,
@@ -2366,21 +2556,21 @@ impl PartialEncodedChunkResponseSource {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
-    use crate::logic::persist_chunk;
+    use crate::logic::{make_outgoing_receipts_proofs, persist_chunk};
     use crate::test_utils::*;
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
-    use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
-    use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
-    use near_network::test_utils::MockPeerManagerAdapter;
+    use near_chain_configs::MutableConfigValue;
+    use near_chain_configs::default_chunks_cache_height_horizon;
     use near_network::types::NetworkRequests;
-    use near_primitives::block::Tip;
-    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::borsh::{self, BorshDeserialize};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::sharding::ShardChunkHeaderInner;
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
-    use near_store::test_utils::create_test_store;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
     use std::sync::Arc;
 
     fn mutable_validator_signer(account_id: &AccountId) -> MutableValidatorSigner {
@@ -2393,57 +2583,45 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
-        let epoch_id = EpochId::default();
-        let next_epoch_id = EpochId::default();
-        let mock_tip = Tip {
-            height: 0,
-            last_block_hash: CryptoHash::default(),
-            prev_block_hash: CryptoHash::default(),
-            epoch_id,
-            next_epoch_id,
-        };
-        let store = create_test_store();
-        let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
-            store.clone(),
-            vec!["test".parse().unwrap()],
-            vec![],
-            1,
-            2,
-        );
-        let epoch_manager = Arc::new(epoch_manager.into_handle());
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let shard_id = shard_layout.shard_ids().next().unwrap();
-        let validator_signer = mutable_validator_signer(&"test".parse().unwrap());
-        let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::AllShards,
-            epoch_manager.clone(),
-            validator_signer.clone(),
-        );
-        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-        let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
+        let fixture = ChunkTestFixture::default();
         let clock = FakeClock::default();
+
+        // `me` = chunk producer for the mock chunk's shard and height.
+        // The point of the test: requests for that chunk's parts must never
+        // target self; fallback selection should pick a different BP target.
+        let me = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: EpochId::default(),
+                height_created: fixture.mock_chunk_header.height_created(),
+                shard_id: fixture.mock_chunk_header.shard_id(),
+            })
+            .unwrap()
+            .take_account_id();
+
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
-            validator_signer,
-            epoch_manager.clone(),
-            epoch_manager,
-            shard_tracker,
-            network_adapter.as_sender(),
-            client_adapter.as_sender(),
-            store.chunk_store(),
-            mock_tip.clone(),
-            mock_tip,
+            mutable_validator_signer(&me),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
+
         let added = clock.now().into();
         shards_manager.requested_partial_encoded_chunks.insert(
-            ChunkHash(hash(&[1])),
+            fixture.mock_chunk_header.chunk_hash().clone(),
             ChunkRequestInfo {
-                height: 0,
-                ancestor_hash: Default::default(),
-                prev_block_hash: Default::default(),
-                shard_id,
+                height: fixture.mock_chunk_header.height_created(),
+                ancestor_hash: *fixture.mock_chunk_header.prev_block_hash(),
+                prev_block_hash: *fixture.mock_chunk_header.prev_block_hash(),
+                shard_id: fixture.mock_chunk_header.shard_id(),
                 added,
                 last_requested: added,
             },
@@ -2451,22 +2629,37 @@ mod test {
         clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
 
-        // For the chunks that would otherwise be requested from self we expect a request to be
-        // sent to any peer tracking shard
-
-        let msg = network_adapter.requests.read()[0].as_network_requests_ref().clone();
-        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
-            assert!(target.account_id == None);
-        } else {
-            println!("{:?}", network_adapter.requests.read());
-            assert!(false);
-        };
+        // Inspect ALL emitted PartialEncodedChunkRequest messages: none should
+        // target `me`, and at least one should have a non-None targeted
+        // account (proving the BP-fallback path fired).
+        let mut request_count = 0;
+        let mut had_targeted_account = false;
+        while let Some(msg) = fixture.mock_network.pop() {
+            if let NetworkRequests::PartialEncodedChunkRequest { target, .. } =
+                msg.as_network_requests_ref()
+            {
+                request_count += 1;
+                assert_ne!(
+                    target.account_id.as_ref(),
+                    Some(&me),
+                    "should not request chunk parts from self"
+                );
+                if target.account_id.is_some() {
+                    had_targeted_account = true;
+                }
+            }
+        }
+        assert!(request_count > 0, "expected at least one PartialEncodedChunkRequest");
+        assert!(
+            had_targeted_account,
+            "expected at least one request to target a non-self block producer (fallback path)"
+        );
     }
 
     #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
-        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true);
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 1, true, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -2480,7 +2673,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         // process chunk part 0
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
@@ -2562,13 +2755,16 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
 
         // part id > num parts
         let mut partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
-        if let PartialEncodedChunk::V2(ref mut chunk) = partial_encoded_chunk {
-            chunk.parts[0].part_ord = fixture.mock_chunk_parts.len() as u64;
+        let bad_part_ord = fixture.mock_chunk_parts.len() as u64;
+        match &mut partial_encoded_chunk {
+            PartialEncodedChunk::V1(chunk) => chunk.parts[0].part_ord = bad_part_ord,
+            PartialEncodedChunk::V2(chunk) => chunk.parts[0].part_ord = bad_part_ord,
+            PartialEncodedChunk::V3(chunk) => chunk.parts[0].part_ord = bad_part_ord,
         }
         let result = shards_manager.process_partial_encoded_chunk(
             MaybeValidated::from(partial_encoded_chunk),
@@ -2595,7 +2791,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let count_num_forward_msgs = |fixture: &ChunkTestFixture| {
             fixture
@@ -2678,7 +2874,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         shards_manager.insert_header_if_not_exists_and_process_cached_chunk_forwards(
             &fixture.mock_chunk_header,
@@ -2716,7 +2912,7 @@ mod test {
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
         // A non-validator that tracks all shards should request immediately.
-        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true);
+        let mut fixture = ChunkTestFixture::new(false, 3, 12, 12, true, PROTOCOL_VERSION);
         assert_eq!(
             run_request_chunks_with_account(&mut fixture, None),
             RequestChunksResult {
@@ -2756,7 +2952,7 @@ mod test {
         // Here we test the case when the chunk is received, its previous block is not processed yet
         // We want to verify that the chunk forward can be stored and wait to be processed in this
         // case too
-        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false);
+        let fixture = ChunkTestFixture::new(true, 2, 4, 4, false, pre_early_kickout_version());
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManagerActor::new(
             clock.clock(),
@@ -2770,7 +2966,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let (most_parts, other_parts) = {
             let mut most_parts = fixture.mock_chunk_parts.clone();
@@ -2788,11 +2984,11 @@ mod test {
                 .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
                 .is_ok()
         );
-        let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header: fixture.mock_chunk_header.clone(),
-            parts: other_parts,
-            prev_outgoing_receipts: Vec::new(),
-        });
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(
+            fixture.mock_chunk_header.clone(),
+            other_parts,
+            Vec::new(),
+        );
         // The validator receives a chunk header with the rest of the parts it needed
         let result = shards_manager
             .process_partial_encoded_chunk(
@@ -2851,7 +3047,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &fixture.mock_chunk_header,
@@ -2924,7 +3120,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
 
         shards_manager
@@ -2962,7 +3158,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
 
         shards_manager
@@ -2983,6 +3179,58 @@ mod test {
     }
 
     #[test]
+    fn test_mismatched_height_rejected_at_arrival() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let epoch_id = fixture.mock_epoch_id;
+        let shard_id = fixture.mock_chunk_header.shard_id();
+        let bad_height = fixture.mock_chunk_header.height_created() + 3;
+        let producer = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                shard_id,
+                height_created: bad_height,
+            })
+            .unwrap()
+            .take_account_id();
+        let signer = create_test_signer(producer.as_str());
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let ShardChunkHeaderInner::V5(ref mut inner) = v3.inner else {
+            panic!("fixture must produce a V5 inner");
+        };
+        inner.height_created = bad_height;
+        v3.init(); // recompute the chunk_hash for the modified inner
+        v3.signature = signer.sign_bytes(v3.hash.as_ref());
+
+        let chunk_hash = header.chunk_hash().clone();
+        let partial = fixture.wrap_partial_encoded_chunk(
+            header,
+            fixture.mock_chunk_parts.clone(),
+            Vec::new(),
+        );
+
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(
+            result,
+            Err(Error::ChainError(near_chain::Error::InvalidPartialChunkStateWitness(_)))
+        );
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "a header whose height does not match its anchor must not be cached at arrival"
+        );
+    }
+
+    #[test]
     fn test_chunk_response_for_uncached_partial_chunk() {
         let mut fixture = ChunkTestFixture::default();
         let shards_manager = ShardsManagerActor::new(
@@ -2997,7 +3245,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
 
         persist_chunk(
@@ -3032,7 +3280,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
 
         let mut update = fixture.chain_store.store_update();
@@ -3065,7 +3313,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         // Split the part ords into two groups.
         assert!(fixture.all_part_ords.len() >= 2);
@@ -3110,7 +3358,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         // Only add half of the parts to the cache.
         assert!(fixture.all_part_ords.len() >= 2);
@@ -3156,7 +3404,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         // Split the part ords into three groups; put one in cache, the second in partial
         // and the third is missing. We should return the first two groups.
@@ -3203,7 +3451,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
@@ -3230,7 +3478,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
@@ -3257,7 +3505,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
@@ -3291,7 +3539,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
@@ -3323,7 +3571,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
-            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
+            default_chunks_cache_height_horizon(),
         );
         let part = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         shards_manager
@@ -3339,5 +3587,458 @@ mod test {
             .process_partial_encoded_chunk(part.into(), Some(&fixture.mock_chunk_part_owner))
             .unwrap();
         assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
+    }
+
+    /// Drain all messages from the client adapter, returning all
+    /// `ShardsManagerResponse` variants except
+    /// `ChunkHeaderReadyForInclusion`.
+    fn drain_client_messages(fixture: &ChunkTestFixture) -> Vec<ShardsManagerResponse> {
+        let mut messages = vec![];
+        while let Some(msg) = fixture.mock_client_adapter.pop() {
+            match msg.span_unwrap() {
+                ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } => {}
+                other => messages.push(other),
+            }
+        }
+        messages
+    }
+
+    /// Helper: create a ShardsManager from the fixture with all shards tracked.
+    fn make_shards_manager(fixture: &ChunkTestFixture) -> ShardsManagerActor {
+        ShardsManagerActor::new(
+            FakeClock::default().clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            default_chunks_cache_height_horizon(),
+        )
+    }
+
+    fn early_kickout_fixture() -> ChunkTestFixture {
+        ChunkTestFixture::new(
+            false,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        )
+    }
+
+    fn pre_early_kickout_version() -> ProtocolVersion {
+        ProtocolFeature::EarlyKickout.protocol_version() - 1
+    }
+
+    #[test]
+    fn test_orphan_chunk_request_graceful_degradation() {
+        // Orphan request path: prev_block_hash is unknown to the epoch manager (parent
+        // unprocessed). Verify it executes without panic and still emits network requests
+        // across request_partial_encoded_chunk, should_wait_for_chunk_forwarding and
+        // resend_chunk_requests.
+        let mut fixture = ChunkTestFixture::new(true, 3, 6, 6, true, pre_early_kickout_version());
+        let clock = FakeClock::default();
+        let mut shards_manager = ShardsManagerActor::new(
+            clock.clock(),
+            mutable_validator_signer(&fixture.mock_shard_tracker),
+            Arc::new(fixture.epoch_manager.clone()),
+            Arc::new(fixture.epoch_manager.clone()),
+            fixture.shard_tracker.clone(),
+            fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
+            fixture.store.clone(),
+            fixture.mock_chain_head.clone(),
+            fixture.mock_chain_head.clone(),
+            Duration::hours(1),
+            default_chunks_cache_height_horizon(),
+        );
+
+        // Orphan fixture: prev_block_hash is unknown, ancestor_hash is known (genesis).
+        let prev_block_hash = *fixture.mock_chunk_header.prev_block_hash();
+        let ancestor_hash = CryptoHash::default();
+        assert_ne!(
+            prev_block_hash, ancestor_hash,
+            "orphan fixture should have different prev_block_hash and ancestor_hash"
+        );
+
+        // Verify should_wait_for_chunk_forwarding returns Ok(false) when `me` isn't the
+        // next chunk producer. Use a chunk-only producer as `me` so the block-producer
+        // short-circuit doesn't fire, and the next-chunk-producer CPK lookup is exercised.
+        let chunk_only_producer: AccountId = "test_cp_0".parse().unwrap();
+        let epoch_id = EpochId::default();
+        let bps = fixture.epoch_manager.get_epoch_block_producers_ordered(&epoch_id).unwrap();
+        assert!(
+            !bps.iter().any(|bp| bp.account_id() == &chunk_only_producer),
+            "test_cp_0 must not be a block producer for this test to exercise the next-producer lookup path"
+        );
+        let result = shards_manager.should_wait_for_chunk_forwarding(
+            &ancestor_hash,
+            fixture.mock_chunk_header.height_created(),
+            fixture.mock_chunk_header.shard_id(),
+            Some(&chunk_only_producer),
+        );
+        assert_eq!(
+            result,
+            Ok(false),
+            "should return false when `me` isn't the next chunk producer"
+        );
+
+        // Symmetric positive case: when `me` IS the next chunk producer, returns Ok(true).
+        let next_chunk_producer = fixture
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: fixture.mock_chunk_header.height_created() + 1,
+                shard_id: fixture.mock_chunk_header.shard_id(),
+            })
+            .unwrap()
+            .take_account_id();
+        // Sanity: next chunk producer must be chunk-only, otherwise the BP
+        // short-circuit fires first and Ok(true) doesn't prove the CPK lookup ran.
+        assert!(
+            !bps.iter().any(|bp| bp.account_id() == &next_chunk_producer),
+            "next chunk producer must be chunk-only to exercise the CPK lookup; got {next_chunk_producer}"
+        );
+        let result = shards_manager.should_wait_for_chunk_forwarding(
+            &ancestor_hash,
+            fixture.mock_chunk_header.height_created(),
+            fixture.mock_chunk_header.shard_id(),
+            Some(&next_chunk_producer),
+        );
+        assert_eq!(result, Ok(true), "next chunk producer should wait for forwarding");
+
+        // Process a partial chunk first to insert the header into the cache. Without this,
+        // request_chunk_single returns early ("already complete and GC-ed").
+        let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
+
+        // Request chunks for orphan — exercises request_partial_encoded_chunk with unknown
+        // prev_block_hash. chunk_producer_account_id is None (MissingBlock), and the
+        // old_block = true path picks a random shard-tracking target.
+        shards_manager.request_chunks_for_orphan(
+            vec![fixture.mock_chunk_header.clone()],
+            &EpochId::default(),
+            ancestor_hash,
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        // Verify requests were actually sent (didn't error out or get suppressed).
+        let collect_request_parts = |fixture: &mut ChunkTestFixture| -> HashSet<u64> {
+            let mut parts = HashSet::new();
+            while let Some(r) = fixture.mock_network.pop() {
+                match r.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                        for part_ord in &request.part_ords {
+                            parts.insert(*part_ord);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            parts
+        };
+        let requested_parts = collect_request_parts(&mut fixture);
+        assert!(
+            !requested_parts.is_empty(),
+            "chunk part requests should be sent despite unknown prev_block_hash"
+        );
+
+        // Verify resend also works — the stored ChunkRequestInfo has the unknown
+        // prev_block_hash, and request_partial_encoded_chunk should degrade gracefully again.
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
+        shards_manager.resend_chunk_requests();
+        let resent_parts = collect_request_parts(&mut fixture);
+        assert!(
+            !resent_parts.is_empty(),
+            "resent chunk requests should also work with unknown prev_block_hash"
+        );
+    }
+
+    #[test]
+    fn test_decode_failure_poisons_cache_and_sends_invalid_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_encoded_chunk();
+        let chunk_hash = header.chunk_hash();
+
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), parts, vec![]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        let entry = shards_manager.encoded_chunks.get(chunk_hash).unwrap();
+        assert!(entry.decode_failed);
+
+        let messages = drain_client_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
+    }
+
+    #[test]
+    fn test_late_parts_rejected_after_decode_failure() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_encoded_chunk();
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), parts, vec![]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+        drain_client_messages(&fixture);
+
+        // Send more parts for the same chunk hash. Should be rejected immediately.
+        let late_part = fixture.wrap_partial_encoded_chunk(header, vec![], vec![]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(late_part),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        // No additional ChunkCompleted messages should be sent.
+        let messages = drain_client_messages(&fixture);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_bad_chunk_proofs_sends_invalid_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let (header, parts) = fixture.make_malicious_chunk_bad_proofs();
+        let chunk_hash = header.chunk_hash().clone();
+
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(header, parts, vec![]);
+        let result = shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(partial_encoded_chunk),
+                Some(&fixture.mock_shard_tracker),
+            )
+            .unwrap();
+        assert_matches!(result, ProcessPartialEncodedChunkResult::DecodeFailed);
+
+        let entry = shards_manager.encoded_chunks.get(&chunk_hash).unwrap();
+        assert!(entry.decode_failed);
+
+        let messages = drain_client_messages(&fixture);
+        assert_eq!(messages.len(), 1);
+        assert_matches!(
+            messages[0],
+            ShardsManagerResponse::ChunkCompleted { decoded_chunk: DecodedChunk::Invalid(_), .. }
+        );
+    }
+
+    #[test]
+    fn test_receipt_proof_with_mismatched_from_shard_id_rejected() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let header = &fixture.mock_chunk_header;
+        let mut proof = make_outgoing_receipts_proofs(header, vec![], &fixture.epoch_manager)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(proof.1.from_shard_id, header.shard_id());
+        proof.1.from_shard_id = fixture
+            .epoch_manager
+            .get_shard_layout(&EpochId::default())
+            .unwrap()
+            .shard_ids()
+            .find(|shard_id| *shard_id != header.shard_id())
+            .unwrap();
+
+        let partial_encoded_chunk =
+            fixture.wrap_partial_encoded_chunk(header.clone(), vec![], vec![proof]);
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Some(&fixture.mock_shard_tracker),
+        );
+        assert_matches!(result, Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof)));
+
+        assert!(
+            shards_manager.encoded_chunks.get(fixture.mock_chunk_header.chunk_hash()).is_none()
+        );
+    }
+
+    /// An orphan chunk forward (unprocessed prev block) is cached, not rejected,
+    /// via the MissingBlock -> DBNotFoundErr mapping.
+    #[test]
+    fn test_forward_cached_on_unprocessed_prev_block() {
+        let fixture = ChunkTestFixture::new(
+            true,
+            3,
+            6,
+            6,
+            true,
+            ProtocolFeature::EarlyKickout.protocol_version(),
+        );
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
+            &fixture.mock_chunk_header,
+            fixture.mock_chunk_parts.clone(),
+        );
+        let chunk_hash = forward.chunk_hash.clone();
+
+        let metric_before =
+            metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.get() as u64;
+
+        // The forward should be accepted (Ok) and cached, not rejected.
+        assert!(
+            shards_manager
+                .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
+                .is_ok(),
+            "forward should be cached, not rejected"
+        );
+
+        // Verify the forward was inserted into the cache.
+        assert!(
+            shards_manager.chunk_forwards_cache.peek(&chunk_hash).is_some(),
+            "forward should be in chunk_forwards_cache"
+        );
+        assert!(
+            metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.get() as u64
+                > metric_before,
+            "PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK metric should increment"
+        );
+    }
+
+    #[test]
+    fn test_bad_signature_chunk_rejected_at_arrival() {
+        let fixture = early_kickout_fixture();
+
+        // Re-sign the chunk header with a key that does not belong to the
+        // resolved chunk producer, so the hash-based signature check fails
+        // during full validation.
+        let mut bad_header = fixture.mock_chunk_header.clone();
+        {
+            let ShardChunkHeader::V3(ref mut v3) = bad_header else {
+                panic!("fixture must produce a V3 chunk header");
+            };
+            let bogus_signer = create_test_signer("bogus_producer");
+            v3.signature = bogus_signer.sign_bytes(v3.hash.as_ref());
+        }
+
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let chunk_hash = bad_header.chunk_hash().clone();
+        let partial_encoded_chunk = fixture.wrap_partial_encoded_chunk(
+            bad_header,
+            fixture.mock_chunk_parts.clone(),
+            Vec::new(),
+        );
+
+        // preliminary validation resolves the producer from the anchor
+        // and verifies the signature, so the bad signature is caught before the chunk is cached.
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(result, Err(Error::InvalidChunkSignature));
+
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "a header with an invalid producer signature must not be cached at arrival"
+        );
+    }
+
+    #[test]
+    fn test_cached_bad_chunk_evicted_by_full_validation() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let mut header = fixture.mock_chunk_header.clone();
+        let ShardChunkHeader::V3(ref mut v3) = header else {
+            panic!("fixture must produce a V3 chunk header");
+        };
+        let wrong_producer = create_test_signer("not_the_real_producer");
+        v3.signature = wrong_producer.sign_bytes(v3.hash.as_ref());
+        let chunk_hash = header.chunk_hash().clone();
+
+        // Deposit the chunk directly into the cache, bypassing arrival verification, and confirm
+        // it is there — this is the state a chunk reaches when it slips past arrival.
+        shards_manager.encoded_chunks.get_or_insert_from_header(&header);
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_some(),
+            "chunk should be deposited in the cache before validation"
+        );
+
+        // Full validation (the parent is genesis, already processed) re-resolves the real producer
+        // from the parent, rejects the bad signature, and evicts the entry.
+        let result = shards_manager
+            .try_process_chunk_parts_and_receipts(&header, Some(&fixture.mock_shard_tracker));
+
+        assert_matches!(result, Err(Error::InvalidChunkSignature));
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "an invalid chunk must be evicted from the cache by full validation"
+        );
+    }
+
+    #[test]
+    fn test_v2_message_on_early_kickout_epoch_rejected() {
+        let fixture = early_kickout_fixture();
+        let mut shards_manager = make_shards_manager(&fixture);
+
+        let chunk_hash = fixture.mock_chunk_header.chunk_hash().clone();
+        let partial = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: fixture.mock_chunk_header.clone(),
+            parts: fixture.mock_chunk_parts.clone(),
+            prev_outgoing_receipts: Vec::new(),
+        });
+
+        let result = shards_manager.process_partial_encoded_chunk(
+            MaybeValidated::from(partial),
+            Some(&fixture.mock_shard_tracker),
+        );
+
+        assert_matches!(result, Err(Error::InvalidChunkHeader));
+        assert!(
+            shards_manager.encoded_chunks.get(&chunk_hash).is_none(),
+            "an anchorless V2 chunk on an EarlyKickout epoch must not be cached"
+        );
+    }
+
+    #[test]
+    fn test_v3_borsh_round_trip() {
+        let fixture = early_kickout_fixture();
+        let chunk = fixture.make_partial_encoded_chunk(&fixture.all_part_ords);
+        assert_matches!(chunk, PartialEncodedChunk::V3(_));
+
+        let bytes = borsh::to_vec(&chunk).unwrap();
+        let decoded = PartialEncodedChunk::try_from_slice(&bytes).unwrap();
+
+        assert_eq!(chunk, decoded);
+        assert_eq!(decoded.prev_prev_block_hash(), Some(&fixture.mock_grandparent_hash));
+        assert_eq!(decoded.epoch_id(), Some(&fixture.mock_epoch_id));
     }
 }

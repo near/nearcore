@@ -6,7 +6,7 @@ use crate::{
     default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
     default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
     default_produce_chunk_add_transactions_time_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks,
+    default_transaction_pool_strict_nonce_ttl_blocks, default_view_access_keys_limit,
 };
 use chrono::{DateTime, Utc};
 use near_crypto::{InMemorySigner, PublicKey};
@@ -128,8 +128,6 @@ impl Genesis {
 
             // epoch config parameters
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             epoch_length: epoch_config.epoch_length,
             block_producer_kickout_threshold: epoch_config.block_producer_kickout_threshold,
@@ -170,9 +168,8 @@ impl Genesis {
         clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             clock,
             accounts,
@@ -184,9 +181,8 @@ impl Genesis {
     pub fn test_sharded_new_version(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
+        num_shards: NumShards,
     ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::from_accounts(
             Clock::real(),
             accounts,
@@ -220,11 +216,7 @@ pub fn add_account_with_key(
         account_id: account_id.clone(),
         account: Account::new(amount, staked, AccountContract::from_local_code_hash(code_hash), 0),
     });
-    records.push(StateRecord::AccessKey {
-        account_id,
-        public_key: public_key.clone(),
-        access_key: AccessKey::full_access(),
-    });
+    records.push(StateRecord::access_key(account_id, public_key, AccessKey::full_access()));
 }
 
 pub fn random_chain_id() -> String {
@@ -250,7 +242,7 @@ pub struct TestClientConfigParams {
     pub max_block_prod_time: u64,
     pub num_block_producer_seats: NumSeats,
     pub archive: bool,
-    pub state_sync_enabled: bool,
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 impl ClientConfig {
@@ -261,7 +253,7 @@ impl ClientConfig {
             max_block_prod_time,
             num_block_producer_seats,
             archive,
-            state_sync_enabled,
+            transaction_pool_size_limit,
         } = params;
 
         ClientConfig {
@@ -269,14 +261,23 @@ impl ClientConfig {
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
             expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
-                10,
-                min_block_prod_time / 5,
-            ) as i64),
-            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
-            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
-            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 6),
+            block_production_tracking_delay: MutableConfigValue::new(
+                Duration::milliseconds(std::cmp::max(10, min_block_prod_time / 5) as i64),
+                "block_production_tracking_delay",
+            ),
+            min_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(min_block_prod_time as i64),
+                "min_block_production_delay",
+            ),
+            max_block_production_delay: MutableConfigValue::new(
+                Duration::milliseconds(max_block_prod_time as i64),
+                "max_block_production_delay",
+            ),
+            max_block_wait_delay: MutableConfigValue::new(
+                Duration::milliseconds(3 * min_block_prod_time as i64),
+                "max_block_wait_delay",
+            ),
+            chunk_wait_mult: MutableConfigValue::new(Rational32::new(1, 6), "chunk_wait_mult"),
             skip_sync_wait,
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
@@ -285,10 +286,9 @@ impl ClientConfig {
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            block_request_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::seconds(10),
@@ -296,13 +296,15 @@ impl ClientConfig {
             epoch_length: 10,
             num_block_producer_seats,
             ttl_account_id_router: Duration::seconds(60 * 60),
-            block_fetch_horizon: 50,
             catchup_step_period: Duration::milliseconds(100),
             chunk_request_retry_period: min(
                 Duration::milliseconds(100),
                 Duration::milliseconds(min_block_prod_time as i64 / 5),
             ),
-            doomslug_step_period: Duration::milliseconds(100),
+            doomslug_step_period: MutableConfigValue::new(
+                Duration::milliseconds(100),
+                "doomslug_step_period",
+            ),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_shards_config: TrackedShardsConfig::NoShards,
@@ -312,6 +314,9 @@ impl ClientConfig {
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
             save_receipt_to_tx: true,
+            receipt_to_tx_max_hint_window: 20,
+            receipt_to_tx_max_hop_distance: 20,
+            receipt_to_tx_max_outcomes_per_request: 20_000,
             save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
@@ -320,13 +325,13 @@ impl ClientConfig {
             state_requests_per_throttle_period: 30,
             state_request_server_threads: 1,
             trie_viewer_state_size_limit: None,
+            view_access_keys_limit: default_view_access_keys_limit(),
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),
-            transaction_pool_size_limit: None,
+            transaction_pool_size_limit,
             transaction_pool_strict_nonce_ttl_blocks:
                 default_transaction_pool_strict_nonce_ttl_blocks(),
             enable_multiline_logging: false,
@@ -349,6 +354,8 @@ impl ClientConfig {
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
             disable_tx_routing: false,
+            #[cfg(feature = "protocol_feature_spice")]
+            spice_pending_transaction_queue_enabled: false,
         }
     }
 }

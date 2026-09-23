@@ -3,8 +3,10 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::{Balance, ProtocolVersion};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+#[cfg(feature = "calimero_zero_storage")]
+use near_primitives_core::types::Balance;
+use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -22,45 +24,11 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
-    (42, include_config!("42.yaml")),
-    (46, include_config!("46.yaml")),
-    (48, include_config!("48.yaml")),
-    (49, include_config!("49.yaml")),
-    (50, include_config!("50.yaml")),
-    // max_gas_burnt increased to 300 TGas
-    (52, include_config!("52.yaml")),
-    // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
-    // set read_cached_trie_node cost, decrease storage key limit
-    (53, include_config!("53.yaml")),
-    (55, include_config!("55.yaml")),
-    (57, include_config!("57.yaml")),
-    // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
-    (59, include_config!("59.yaml")),
-    (61, include_config!("61.yaml")),
-    (62, include_config!("62.yaml")),
-    (63, include_config!("63.yaml")),
-    (64, include_config!("64.yaml")),
-    (66, include_config!("66.yaml")),
-    (67, include_config!("67.yaml")),
-    // Congestion Control.
-    (68, include_config!("68.yaml")),
-    // Stateless Validation.
-    (69, include_config!("69.yaml")),
-    // Introduce ETH-implicit accounts.
-    (70, include_config!("70.yaml")),
-    // Increase main_storage_proof_size_soft_limit and introduces StateStoredReceipt
-    (72, include_config!("72.yaml")),
-    // Fix wasm_yield_resume_byte and relax congestion control.
-    (73, include_config!("73.yaml")),
-    (74, include_config!("74.yaml")),
-    (77, include_config!("77.yaml")),
-    (78, include_config!("78.yaml")),
-    (79, include_config!("79.yaml")),
-    (82, include_config!("82.yaml")),
-    (83, include_config!("83.yaml")),
-    (84, include_config!("84.yaml")),
+    (85, include_config!("85.yaml")),
+    (87, include_config!("87.yaml")),
+    (88, include_config!("88.yaml")),
     (129, include_config!("129.yaml")),
-    (149, include_config!("149.yaml")),
+    (155, include_config!("155.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -76,10 +44,9 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If genesis_runtime_config is Some, configs for protocol versions 0 and 42 are overridden by
-    /// this config and config with lowered storage cost, respectively.
-    /// This is done to preserve compatibility with previous implementation, where we updated
-    /// runtime config by sequential modifications to the genesis runtime config.
+    /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
+    /// this config. This is done to preserve compatibility with previous implementation, where
+    /// we updated runtime config by sequential modifications to the genesis runtime config.
     /// calimero_zero_storage flag sets all storages fees to zero by setting
     /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
     /// protocol upgrades this is done for all protocol versions
@@ -107,6 +74,7 @@ impl RuntimeConfigStore {
                      Error: {err:?}"
                 )
             });
+            initial_config.account_creation_charge = Balance::ZERO;
             let fees = Arc::make_mut(&mut initial_config.fees);
             fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
             store.insert(0, Arc::new(initial_config));
@@ -143,6 +111,7 @@ impl RuntimeConfigStore {
                          version {protocol_version}. Error: {err:?}"
                     )
                 });
+                runtime_config.account_creation_charge = Balance::ZERO;
                 let fees = Arc::make_mut(&mut runtime_config.fees);
                 fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
                 store.insert(*protocol_version, Arc::new(runtime_config));
@@ -150,21 +119,6 @@ impl RuntimeConfigStore {
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
-            let mut fees = crate::RuntimeFeesConfig::clone(&runtime_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte =
-                Balance::from_yoctonear(10u128.pow(19));
-            store.insert(
-                42,
-                Arc::new(RuntimeConfig {
-                    fees: Arc::new(fees),
-                    wasm_config: Arc::clone(&runtime_config.wasm_config),
-                    account_creation_config: runtime_config.account_creation_config.clone(),
-                    congestion_control_config: runtime_config.congestion_control_config,
-                    witness_config: runtime_config.witness_config,
-                    bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-                    use_state_stored_receipt: runtime_config.use_state_stored_receipt,
-                }),
-            );
             store.insert(0, Arc::new(runtime_config.clone()));
         }
 
@@ -203,15 +157,9 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
                 let mut config_store = Self::new(None);
 
-                // TODO(limited_replayability): Move tests to use config from latest protocol version.
-                // Get the original congestion control config. The nayduck tests are tuned to this config.
-                #[allow(deprecated)]
-                let source_protocol_version =
-                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
-                let source_runtime_config = config_store.get_config(source_protocol_version);
-
+                // The nayduck tests are tuned to the original congestion control config.
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
-                config.congestion_control_config = source_runtime_config.congestion_control_config;
+                config.congestion_control_config = CongestionControlConfig::test_original();
 
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
@@ -274,8 +222,9 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::ActionCosts;
+    use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
+    use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -310,10 +259,10 @@ mod tests {
 
     #[test]
     fn test_override_account_length() {
-        // Check that default value is 32.
+        // Check that default value is 65.
         let base_store = RuntimeConfigStore::new(None);
         let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 32);
+        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 65);
 
         let mut cfg = base_cfg.as_ref().clone();
         cfg.account_creation_config.min_allowed_top_level_account_length = 0;
@@ -330,7 +279,7 @@ mod tests {
         let base_config = RuntimeConfig::new(&base_params).unwrap();
 
         let mock_diff_str = r#"
-        max_length_storage_key: { old: 4_194_304, new: 42 }
+        max_length_storage_key: { old: 2_048, new: 42 }
         action_receipt_creation: {
           old: {
             send_sir: 108_059_500_000,
@@ -353,12 +302,34 @@ mod tests {
         assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
         assert_eq!(
             modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir,
-            Gas::from_gas(100000000)
+            FeeComponent::Gas(Gas::from_gas(100000000)),
         );
 
         assert_eq!(
             base_config.storage_amount_per_byte(),
             modified_config.storage_amount_per_byte()
+        );
+    }
+
+    /// The signature-verification cost accepts the `{gas, compute}` form, so
+    /// its compute cost can be set independently of the gas cost.
+    #[test]
+    fn test_signature_verification_compute_cost_override() {
+        use crate::cost::{ParameterCost, SignatureKind};
+
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let mock_diff_str = r#"
+        ml_dsa_65_verification_cost: {
+          old: 0,
+          new: { gas: 100_000_000_000, compute: 300_000_000_000 },
+        }
+        "#;
+        base_params.apply_diff(mock_diff_str.parse().unwrap()).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(
+            modified_config.fees.signature_verification_costs[SignatureKind::MlDsa65],
+            ParameterCost::new(Gas::from_gas(100_000_000_000), 300_000_000_000),
         );
     }
 
@@ -416,7 +387,8 @@ mod tests {
 
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
-            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            let config_view =
+                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
                 insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })
@@ -433,6 +405,7 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         for (_, config) in &store.store {
             assert!(config.storage_amount_per_byte().is_zero());
+            assert!(config.account_creation_charge.is_zero());
         }
     }
 
@@ -441,5 +414,29 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
+    }
+
+    /// Make sure that protocol feature flag and runtime config are in sync for universal accounts.
+    #[test]
+    fn test_universal_accounts_enabled() {
+        let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        let version = ProtocolFeature::UniversalAccounts.protocol_version();
+        assert!(store.get_config(version).wasm_config.universal_accounts);
+        // Checking the version before is what actually pins the two together. Diffs
+        // accumulate, so if the feature moved to a later version and the diff stayed
+        // put, the flag would still read as on at the feature's own version.
+        assert!(!store.get_config(version - 1).wasm_config.universal_accounts);
+    }
+
+    /// Makes sure yaml files are properly cleaned up for the no longer supported protocol versions
+    #[test]
+    fn test_no_deprecated_config() {
+        let min_config_protocol_version = CONFIG_DIFFS[0].0;
+        assert!(
+            min_config_protocol_version > MIN_SUPPORTED_PROTOCOL_VERSION,
+            "CONFIG_DIFFS includes protocol version {} ≤ MIN_SUPPORTED_PROTOCOL_VERSION ({})",
+            min_config_protocol_version,
+            MIN_SUPPORTED_PROTOCOL_VERSION
+        );
     }
 }

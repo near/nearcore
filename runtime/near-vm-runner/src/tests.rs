@@ -1,12 +1,17 @@
 mod cache;
+mod chain_id_integration;
 mod compile_errors;
 #[cfg(feature = "prepare")]
 mod fuzzers;
+mod ml_dsa_verify_integration;
+mod p256_verify_integration;
 mod regression_tests;
 mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;
 mod ts_contract;
+mod universal_state_init_to_account_id_integration;
+mod view_call_gas_limit;
 mod wasm_validation;
 
 use crate::logic::VMContext;
@@ -39,9 +44,6 @@ pub(crate) fn with_vm_variants(runner: impl Fn(VMKind) -> ()) {
 
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
-
-    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    run(VMKind::NearVm);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

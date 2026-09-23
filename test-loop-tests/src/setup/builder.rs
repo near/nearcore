@@ -1,10 +1,10 @@
 use super::env::TestLoopEnv;
 use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{
-    archival_account_id, create_validators_spec, validators_spec_clients,
-    validators_spec_clients_with_rpc,
+    archival_account_id, create_validators_spec, rpc_account_id, validators_spec_clients,
 };
 use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
@@ -13,11 +13,9 @@ use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{
-    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig, TrackedShardsConfig,
-};
-use near_jsonrpc::client::JsonRpcClient;
+use near_chain_configs::{ClientConfig, DumpConfig, Genesis, SyncConfig, TrackedShardsConfig};
+use near_jsonrpc::RpcConfig;
+use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcNode;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -27,9 +25,12 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, NumBlocks, NumShar
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolVersion, get_protocol_upgrade_schedule};
 use near_primitives_core::num_rational::Rational32;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -57,11 +58,33 @@ pub(crate) struct TestLoopBuilder {
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
     load_memtries_for_tracked_shards: bool,
+    /// Whether to give every node a no-op compiled contract cache, forcing
+    /// validators to request contract code rather than reuse a precompiled copy.
+    disable_compiled_contract_cache: bool,
+    /// Whether to add a non-validator RPC node (tracks all shards). Honored by both the auto and
+    /// manual setup APIs.
+    enable_rpc: bool,
+    rpc_config: RpcConfig,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
     /// Accounts whose clients should be configured in an RPC pool.
     rpc_pool: Option<Vec<AccountId>>,
+    /// Archive-wide config for cloud archival clients. Defaults to
+    /// `BucketConfig::canonical()`; tests override to use a batch size
+    /// different from production.
+    bucket_config: BucketConfig,
+    /// Fault handles for pool entries. When a handle is set to `Some(msg)`,
+    /// the corresponding pool entry's transport returns `Err(msg)` instead of
+    /// dispatching the request. Used to simulate unreachable / stale nodes.
+    rpc_pool_fault_handles: HashMap<AccountId, RpcFaultHandle>,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. Returning `None` falls back to the
+    /// test-loop default. Returning `Some(d)` sets the delay for that task.
+    /// Only consulted by the client's `AsyncComputationMultiSpawner` (which
+    /// runs `apply_chunks` and other async client computation); other
+    /// per-node spawners still use the fixed test-loop default.
+    task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
 }
 
 impl TestLoopBuilder {
@@ -77,9 +100,33 @@ impl TestLoopBuilder {
             warmup_mode: WarmupMode::Auto,
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
+            disable_compiled_contract_cache: false,
+            enable_rpc: false,
+            rpc_config: RpcConfig::default(),
             upgrade_schedule: None,
             rpc_pool: None,
+            bucket_config: BucketConfig::canonical(),
+            rpc_pool_fault_handles: HashMap::new(),
+            task_delay_fn: None,
         }
+    }
+
+    /// Override the test-loop spawner's artificial virtual delay per
+    /// `(account, task_name)`. Returning `None` falls back to the test-loop
+    /// default. Used by tests that need to slow specific tasks on specific
+    /// nodes (e.g. delay `"apply_chunks_optimistic"` on one validator to
+    /// repro the optimistic-apply / memtrie GC race).
+    pub(crate) fn task_delay_fn(
+        mut self,
+        delay_fn: impl Fn(&AccountId, &str) -> Option<Duration> + Send + Sync + 'static,
+    ) -> Self {
+        self.task_delay_fn = Some(Arc::new(delay_fn));
+        self
+    }
+
+    pub(crate) fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
+        self.bucket_config = bucket_config;
+        self
     }
 
     // Creates TestLoop-compatible genesis builder
@@ -135,9 +182,8 @@ impl TestLoopBuilder {
     }
 
     pub(crate) fn enable_rpc(mut self) -> Self {
-        let auto = self.setup_config.ensure_auto();
-        assert!(!auto.enable_rpc, "enable_rpc is already set");
-        auto.enable_rpc = true;
+        assert!(!self.enable_rpc, "enable_rpc is already set");
+        self.enable_rpc = true;
         self
     }
 
@@ -319,6 +365,20 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Register a fault handle for a pool entry. Returns the shared handle the
+    /// caller can flip at runtime; setting it to `Some(msg)` makes every pool
+    /// caller receive `Err(msg)` when trying to reach `account`.
+    pub(crate) fn rpc_pool_fault_handle(&mut self, account: AccountId) -> RpcFaultHandle {
+        let handle = Arc::new(parking_lot::RwLock::new(None));
+        self.rpc_pool_fault_handles.insert(account, handle.clone());
+        handle
+    }
+
+    pub(crate) fn rpc_config(mut self, config: RpcConfig) -> Self {
+        self.rpc_config = config;
+        self
+    }
+
     /// Custom function to change the configs before constructing each client.
     pub fn config_modifier(
         mut self,
@@ -357,6 +417,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn disable_compiled_contract_cache(mut self) -> Self {
+        self.disable_compiled_contract_cache = true;
+        self
+    }
+
     pub fn protocol_upgrade_schedule(mut self, schedule: ProtocolUpgradeVotingSchedule) -> Self {
         self.upgrade_schedule = Some(schedule);
         self
@@ -378,7 +443,16 @@ impl TestLoopBuilder {
 
     fn resolve_setup_config(&mut self) -> (Genesis, Vec<ClientSpec>) {
         let setup_config = std::mem::replace(&mut self.setup_config, SetupConfig::Undecided);
-        setup_config.resolve()
+        let (genesis, mut clients) = setup_config.resolve();
+        if self.enable_rpc {
+            let account_id = rpc_account_id();
+            assert!(
+                !clients.iter().any(|client| client.account_id == account_id),
+                "enable_rpc but rpc client already present",
+            );
+            clients.push(ClientSpec { account_id, client_type: ClientType::Regular });
+        }
+        (genesis, clients)
     }
 
     fn ensure_epoch_config_store(&mut self, genesis: &Genesis) {
@@ -403,6 +477,7 @@ impl TestLoopBuilder {
         }
 
         let rpc_pool = self.rpc_pool.take();
+        let rpc_pool_fault_handles = std::mem::take(&mut self.rpc_pool_fault_handles);
         let node_states = (0..clients.len())
             .map(|idx| self.setup_node_state(idx, &genesis, &clients))
             .collect_vec();
@@ -415,7 +490,7 @@ impl TestLoopBuilder {
             })
             .collect_vec();
 
-        Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref());
+        Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref(), &rpc_pool_fault_handles);
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
@@ -423,9 +498,12 @@ impl TestLoopBuilder {
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.
     /// When `rpc_pool_accounts` is provided, only those accounts are included
     /// as remote nodes in the pool. Otherwise all nodes are included.
+    /// Pool entries with a registered fault handle have their transport wrapped
+    /// so tests can inject failures at runtime.
     fn setup_sharded_rpc_pools(
         datas: &[NodeExecutionData],
         rpc_pool_accounts: Option<&[AccountId]>,
+        fault_handles: &HashMap<AccountId, RpcFaultHandle>,
     ) {
         let pool_nodes: Vec<ShardedRpcNode> = datas
             .iter()
@@ -433,8 +511,14 @@ impl TestLoopBuilder {
                 rpc_pool_accounts.map_or(true, |accounts| accounts.contains(&data.account_id))
             })
             .map(|data| {
-                let client =
-                    Arc::new(JsonRpcClient::new_with_transport(data.jsonrpc_transport.clone()));
+                let transport: Arc<dyn RpcTransport> = match fault_handles.get(&data.account_id) {
+                    Some(handle) => Arc::new(FaultyRpcTransport::new(
+                        data.jsonrpc_transport.clone(),
+                        handle.clone(),
+                    )),
+                    None => data.jsonrpc_transport.clone(),
+                };
+                let client = Arc::new(JsonRpcClient::new_with_transport(transport));
                 let pool = data.sharded_rpc_pool.read();
                 // TODO(sharded-rpc): find the right shard_ids in TestLoop.
                 let tracked_shards = match pool.shard_tracker.tracked_shards_config() {
@@ -465,6 +549,7 @@ impl TestLoopBuilder {
             .unwrap_or_else(|| get_protocol_upgrade_schedule(&genesis.config.chain_id));
         let shared_state = SharedState {
             genesis,
+            rpc_config: self.rpc_config,
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
@@ -473,7 +558,12 @@ impl TestLoopBuilder {
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
+            disable_compiled_contract_cache: self.disable_compiled_contract_cache,
             warmup_pending,
+            bucket_config: self.bucket_config.clone(),
+            task_delay_fn: self.task_delay_fn.clone(),
+            spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
+            spice_partial_data_faults: Default::default(),
         };
         (self.test_loop, shared_state)
     }
@@ -516,6 +606,7 @@ impl TestLoopBuilder {
             .account_id(&account_id)
             .cold_storage(enable_cold_storage)
             .cloud_storage(enable_cloud_storage)
+            .bucket_config(self.bucket_config.clone())
             .config_modifier(config_modifier)
             .build()
     }
@@ -528,6 +619,7 @@ pub struct NodeStateBuilder<'a> {
     account_id: Option<AccountId>,
     enable_cold_storage: bool,
     enable_cloud_storage: bool,
+    bucket_config: BucketConfig,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
 }
 
@@ -539,6 +631,7 @@ impl<'a> NodeStateBuilder<'a> {
             account_id: None,
             enable_cold_storage: false,
             enable_cloud_storage: false,
+            bucket_config: BucketConfig::canonical(),
             config_modifier: None,
         }
     }
@@ -558,6 +651,11 @@ impl<'a> NodeStateBuilder<'a> {
         self
     }
 
+    pub fn bucket_config(mut self, bucket_config: BucketConfig) -> Self {
+        self.bucket_config = bucket_config;
+        self
+    }
+
     pub fn config_modifier(mut self, modifier: impl Fn(&mut ClientConfig) + 'a) -> Self {
         self.config_modifier = Some(Box::new(modifier));
         self
@@ -567,7 +665,7 @@ impl<'a> NodeStateBuilder<'a> {
         let client_config = self.create_client_config();
         let storage = self.setup_storage(client_config.chain_id.clone());
         let account_id = self.account_id.unwrap();
-        NodeSetupState { account_id, client_config, storage }
+        NodeSetupState { account_id, client_config, storage, validator_signer: None }
     }
 
     fn create_client_config(&self) -> ClientConfig {
@@ -579,20 +677,16 @@ impl<'a> NodeStateBuilder<'a> {
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
             archive,
-            state_sync_enabled: false,
+            transaction_pool_size_limit: None,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
-        client_config.max_block_wait_delay = Duration::seconds(6);
-        client_config.state_sync_external_timeout = Duration::milliseconds(100);
+        client_config.max_block_wait_delay.update(Duration::seconds(6));
+        client_config.block_request_timeout = Duration::milliseconds(100);
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
-        client_config.state_sync_external_backoff = Duration::milliseconds(100);
 
         if !archive {
-            client_config.state_sync_enabled = true;
-            // Testloop does not handle decentralized state sync network messages.
-            // Instead, parts are dumped into a tempdir that mocks a centralized state sync bucket.
-            client_config.state_sync = default_testloop_state_sync_config(&self.tempdir_path);
+            client_config.state_sync.sync = SyncConfig::Peers;
         }
 
         if let Some(config_modifier) = &self.config_modifier {
@@ -600,7 +694,6 @@ impl<'a> NodeStateBuilder<'a> {
         }
 
         if client_config.cloud_archival_writer.is_some() {
-            client_config.state_sync_enabled = true;
             let cloud_archival_config = test_cloud_archival_config(&self.tempdir_path);
             let mut dump_config: DumpConfig = cloud_archival_config.into_default_dump_config();
             dump_config.iteration_delay = Some(Duration::seconds(1));
@@ -616,6 +709,7 @@ impl<'a> NodeStateBuilder<'a> {
             self.enable_cloud_storage,
             home_dir,
             Some(chain_id),
+            self.bucket_config.clone(),
         );
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
@@ -636,7 +730,6 @@ enum SetupConfig {
 /// Data for auto-derived setup (new API).
 struct AutoSetupConfig {
     validators_spec: Option<ValidatorsSpec>,
-    enable_rpc: bool,
     archival_node: Option<ArchivalKind>,
     shard_layout: Option<ShardLayout>,
     user_accounts: Vec<(AccountId, Balance)>,
@@ -699,7 +792,6 @@ impl AutoSetupConfig {
     fn new() -> Self {
         Self {
             validators_spec: None,
-            enable_rpc: false,
             archival_node: None,
             shard_layout: None,
             user_accounts: vec![],
@@ -751,12 +843,7 @@ impl AutoSetupConfig {
             genesis_builder = genesis_builder.add_user_account_simple(account_id, balance);
         }
         let genesis = genesis_builder.build();
-        let account_ids = if self.enable_rpc {
-            validators_spec_clients_with_rpc(&validators_spec)
-        } else {
-            validators_spec_clients(&validators_spec)
-        };
-        let mut clients: Vec<ClientSpec> = account_ids
+        let mut clients: Vec<ClientSpec> = validators_spec_clients(&validators_spec)
             .into_iter()
             .map(|account_id| ClientSpec { account_id, client_type: ClientType::Regular })
             .collect();
@@ -815,29 +902,4 @@ enum WarmupMode {
     Skip,
     /// Do not auto-warmup, but the caller is expected to call `warmup()` manually.
     Manual,
-}
-
-fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {
-    let external_storage_location =
-        ExternalStorageLocation::Filesystem { root_dir: tempdir.join("state_sync") };
-    StateSyncConfig {
-        dump: Some(DumpConfig {
-            iteration_delay: Some(Duration::seconds(1)),
-            location: external_storage_location.clone(),
-            credentials_file: None,
-            restart_dump_for_shards: None,
-        }),
-        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-            location: external_storage_location,
-            num_concurrent_requests: 1,
-            num_concurrent_requests_during_catchup: 1,
-            // We go straight to storage here because the network layer basically
-            // doesn't exist in testloop. We could mock a bunch of stuff to make
-            // the clients transfer state parts "peer to peer" but we wouldn't really
-            // gain anything over having them dump parts to a tempdir.
-            external_storage_fallback_threshold: 0,
-        }),
-        concurrency: Default::default(),
-        parts_compression_lvl: Default::default(),
-    }
 }

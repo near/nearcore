@@ -4,12 +4,13 @@ use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockHeightDelta, BlockReference, EpochId, EpochReference,
+    MaybeBlockId, ShardId, SpiceChunkId, TransactionOrReceiptId,
 };
 use near_primitives::views::{
-    EpochSyncStatusView, ExecutionOutcomeWithIdView, LightClientBlockLiteView, QueryRequest,
-    StateChangesRequestView, StateSyncStatusView, SyncStatusView,
+    ChunkExecutionProofView, EpochSyncStatusView, ExecutionOutcomeWithIdView,
+    LightClientBlockLiteView, QueryRequest, StateChangesRequestView, StateProofTarget,
+    StateProofView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
@@ -141,13 +142,11 @@ pub enum SyncStatus {
         start_height: BlockHeight,
         /// Current header head height.
         current_height: BlockHeight,
-        /// Highest height of our peers.
+        /// Height a peer advertises. Nothing proves it.
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatus),
-    /// Sync state across all shards is done.
-    StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
         /// Header head height at the beginning.
@@ -155,7 +154,7 @@ pub enum SyncStatus {
         start_height: BlockHeight,
         /// Current head height.
         current_height: BlockHeight,
-        /// Highest height of our peers.
+        /// Height a peer advertises. Nothing proves it.
         highest_height: BlockHeight,
     },
 }
@@ -186,7 +185,6 @@ impl SyncStatus {
             SyncStatus::EpochSync(_) => 2,
             SyncStatus::HeaderSync { .. } => 4,
             SyncStatus::StateSync(_) => 5,
-            SyncStatus::StateSyncDone => 6,
             SyncStatus::BlockSync { .. } => 7,
         }
     }
@@ -248,7 +246,6 @@ impl From<SyncStatus> for SyncStatusView {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
             SyncStatus::StateSync(status) => SyncStatusView::StateSync(status.into()),
-            SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }
             }
@@ -428,6 +425,15 @@ pub enum QueryError {
     )]
     UnknownGasKey {
         public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Account {requested_account_id} has more than {limit} access keys while viewing at block #{block_height}; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys {
+        requested_account_id: near_primitives::types::AccountId,
+        limit: u32,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -630,12 +636,24 @@ pub struct TxStatus {
     pub fetch_receipt: bool,
 }
 
+/// Outcome of the transaction status lookup, including either the status or
+/// full context on why the status is unavailable.
+#[derive(Debug)]
+pub enum TxStatusOutcome {
+    /// The node tracks the transaction's shard and observed it.
+    /// Boxed to keep the enum small (`TxStatusView` is large; the other variants are tiny).
+    Observed(Box<TxStatusView>),
+    /// The node tracks the shard but has not seen the transaction on chain.
+    NotObserved,
+    /// The node does not track the transaction's shard; the query was forwarded
+    /// to a chunk producer that does, and no answer is available yet.
+    DoesNotTrackShard { shard_id: ShardId },
+}
+
 #[derive(Debug)]
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
-    MissingTransaction(CryptoHash),
     InternalError(String),
-    TimeoutError,
 }
 
 impl From<near_chain_primitives::Error> for TxStatusError {
@@ -728,6 +746,15 @@ pub struct GetStateChangesInBlock {
     pub block_hash: CryptoHash,
 }
 
+/// Probe whether the given shard's chunk at `block_hash` was applied on this
+/// node (i.e. `ChunkExtra` exists). Used by the sharded RPC coordinator to
+/// verify a peer actually has the data before trusting its response.
+#[derive(Debug)]
+pub struct GetChunkExtraExists {
+    pub block_hash: CryptoHash,
+    pub shard_uid: near_primitives::shard_layout::ShardUId,
+}
+
 #[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlock {
     pub block_hash: CryptoHash,
@@ -815,6 +842,39 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 #[derive(Debug)]
+pub struct GetProcessedReceiptIds {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetProcessedReceiptIdsError {
+    #[error("IO Error: {error_message}")]
+    IOError { error_message: String },
+    #[error("Block or shard data not found: {error_message}")]
+    UnknownBlock { error_message: String },
+    #[error(
+        "It is a bug if you receive this error type, please, report this incident: \
+         https://github.com/near/nearcore/issues/new/choose. Details: {error_message}"
+    )]
+    Unreachable { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetProcessedReceiptIdsError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
+            }
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            _ => Self::Unreachable { error_message: error.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -858,6 +918,90 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
 }
 
 #[derive(Debug)]
+pub struct GetLightClientChunkExecutionProof {
+    pub chunk_id: SpiceChunkId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProof {
+    pub id: TransactionOrReceiptId,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientExecutionOutcomeProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub outcome_proof: ExecutionOutcomeWithIdView,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProof {
+    pub chunk_id: SpiceChunkId,
+    pub target: StateProofTarget,
+    pub light_client_head: CryptoHash,
+}
+
+#[derive(Debug)]
+pub struct GetLightClientStateProofResponse {
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    pub state_proof: StateProofView,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetLightClientProofError {
+    #[error("Chunk {chunk_id:?} is not yet certified")]
+    ChunkNotCertified { chunk_id: SpiceChunkId },
+    #[error(
+        "Light client head height {head_height} must be greater than height \
+         {certifying_block_height} of the block certifying chunk {chunk_id:?}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: SpiceChunkId,
+        certifying_block_height: BlockHeight,
+        head_height: BlockHeight,
+    },
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: \
+         {error_message}"
+    )]
+    UnknownBlock { error_message: String },
+    #[error("{transaction_or_receipt_id} does not exist")]
+    UnknownTransactionOrReceipt { transaction_or_receipt_id: CryptoHash },
+    #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
+    UnavailableShard { transaction_or_receipt_id: CryptoHash, shard_id: ShardId },
+    #[error("Node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: ShardId },
+    #[error(
+        "Account {account_id} is in shard {account_shard_id}, not the requested shard \
+         {requested_shard_id}"
+    )]
+    TargetShardMismatch {
+        account_id: AccountId,
+        account_shard_id: ShardId,
+        requested_shard_id: ShardId,
+    },
+    #[error("State for chunk {chunk_id:?} is not available on this node")]
+    StateNotAvailable { chunk_id: SpiceChunkId },
+    #[error("Internal error: {error_message}")]
+    InternalError { error_message: String },
+}
+
+impl From<near_chain_primitives::error::Error> for GetLightClientProofError {
+    fn from(error: near_chain_primitives::error::Error) -> Self {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
+                Self::UnknownBlock { error_message }
+            }
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
+            }
+            err => Self::InternalError { error_message: err.to_string() },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GetReceipt {
     pub receipt_id: CryptoHash,
 }
@@ -885,6 +1029,44 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTx {
+    pub receipt_id: CryptoHash,
+    /// Block height near where receipt was created. Enables hint mode:
+    /// handler falls back to `±window` scan when local `ReceiptToTx` column
+    /// misses mid-walk. `shard_id` narrows first scan; omit → all tracked
+    /// shards at hint height. `window` overrides default scan range.
+    pub block_height: Option<BlockHeight>,
+    pub shard_id: Option<ShardId>,
+    pub window: Option<BlockHeightDelta>,
+}
+
+#[derive(Debug)]
+pub struct GetReceiptToTxResponse {
+    pub transaction_hash: CryptoHash,
+    pub sender_account_id: AccountId,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetReceiptToTxError {
+    #[error("Receipt with id {0} has never been observed on this node")]
+    UnknownReceipt(CryptoHash),
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded { receipt_id: CryptoHash, limit: u32 },
+    #[error("this node does not support receipt-to-tx lookup: {0}")]
+    Unsupported(String),
+    #[error("execution outcomes are not stored on this node (save_tx_outcomes=false)")]
+    OutcomesNotStored,
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge { requested: BlockHeightDelta, maximum: BlockHeightDelta },
+    #[error("malformed hint: {0}")]
+    MalformedHint(String),
+    #[error("hint-scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded { scanned: u64, limit: u64 },
+    #[error("internal error: {0}")]
+    InternalError(String),
 }
 
 #[derive(Debug)]

@@ -45,8 +45,9 @@ use crate::{SignedValidPeriodTransactions, metrics};
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
+use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
-use near_primitives::transaction::Action;
+use near_primitives::transaction::{Action, TransactionNonce};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
@@ -104,33 +105,52 @@ impl TriePrefetcher {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
                 if is_refund {
-                    let trie_key = TrieKey::AccessKey {
-                        account_id: account_id.clone(),
-                        public_key: action_receipt.signer_public_key().clone(),
-                    };
+                    let trie_key =
+                        TrieKey::access_key(account_id.clone(), action_receipt.signer_public_key());
                     self.prefetch_trie_key(trie_key)?;
                 }
                 for action in action_receipt.actions() {
                     match action {
                         Action::Delegate(delegate_action) => {
-                            let trie_key = TrieKey::AccessKey {
-                                account_id: delegate_action.delegate_action.sender_id.clone(),
-                                public_key: delegate_action.delegate_action.public_key.clone(),
-                            };
+                            let trie_key = TrieKey::access_key(
+                                delegate_action.delegate_action.sender_id.clone(),
+                                &delegate_action.delegate_action.public_key,
+                            );
                             self.prefetch_trie_key(trie_key)?;
                         }
+                        Action::DelegateV2(signed_delegate_action) => {
+                            let delegate_action = VersionedDelegateActionRef::from(
+                                &signed_delegate_action.delegate_action,
+                            );
+                            let trie_key = TrieKey::access_key(
+                                delegate_action.sender_id().clone(),
+                                delegate_action.public_key(),
+                            );
+                            self.prefetch_trie_key(trie_key)?;
+                            // A gas key delegate action also reads the per-index
+                            // nonce row during validation; prefetch it too.
+                            match delegate_action.nonce() {
+                                TransactionNonce::GasKeyNonce { nonce_index, .. } => {
+                                    let trie_key = TrieKey::gas_key_nonce(
+                                        delegate_action.sender_id().clone(),
+                                        delegate_action.public_key(),
+                                        nonce_index,
+                                    );
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                                TransactionNonce::Nonce { .. } => {}
+                            }
+                        }
                         Action::AddKey(add_key_action) => {
-                            let trie_key = TrieKey::AccessKey {
-                                account_id: account_id.clone(),
-                                public_key: add_key_action.public_key.clone(),
-                            };
+                            let trie_key =
+                                TrieKey::access_key(account_id.clone(), &add_key_action.public_key);
                             self.prefetch_trie_key(trie_key)?;
                         }
                         Action::DeleteKey(delete_key_action) => {
-                            let trie_key = TrieKey::AccessKey {
-                                account_id: account_id.clone(),
-                                public_key: delete_key_action.public_key.clone(),
-                            };
+                            let trie_key = TrieKey::access_key(
+                                account_id.clone(),
+                                &delete_key_action.public_key,
+                            );
                             self.prefetch_trie_key(trie_key)?;
                         }
                         _ => {}
@@ -199,10 +219,10 @@ impl TriePrefetcher {
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
 
-                let trie_key = TrieKey::AccessKey {
-                    account_id: t.transaction.signer_id().clone(),
-                    public_key: t.transaction.public_key().clone(),
-                };
+                let trie_key = TrieKey::access_key(
+                    t.transaction.signer_id().clone(),
+                    t.transaction.public_key(),
+                );
                 self.prefetch_trie_key(trie_key)?;
             }
         }

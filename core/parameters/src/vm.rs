@@ -44,6 +44,9 @@ impl VMKind {
     }
 }
 
+// Only kept for `VMConfigView` compatibility: contract storage reads always go
+// through flat storage since the `FlatStorageReads` protocol feature. The doc
+// comment below is the OpenAPI description of this type, so it is left as is.
 /// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -91,6 +94,9 @@ pub struct LimitConfig {
     pub max_total_prepaid_gas: Gas,
     /// Max number of actions per receipt.
     pub max_actions_per_receipt: u64,
+    /// Max number of `DeployContract` and `DeployGlobalContract` actions
+    /// combined within a single receipt.
+    pub max_deploy_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
     /// permission access key.
     pub max_number_bytes_method_names: u64,
@@ -114,18 +120,76 @@ pub struct LimitConfig {
     pub max_promises_per_function_call_action: u64,
     /// Max number of input data dependencies
     pub max_number_input_data_dependencies: u64,
+    /// Max combined size (in bytes) of the resolved promise inputs a single
+    /// receipt may consume.
+    pub max_receipt_total_input_size: u64,
+    /// Max number of access keys the `UniversalStateInit` actions in one receipt
+    /// may commit to, in total.
+    ///
+    /// Each committed key is priced as a full `AddKey`, at the send rate, so the
+    /// whole cost lands when a transaction is converted to a receipt. Without a
+    /// cap one transaction converts for more gas than a chunk has, and since
+    /// conversion happens before anything is charged, transaction selection
+    /// admits it anyway. The bound is per receipt because a receipt can carry
+    /// many byte-identical copies of a state init and pays for each of them.
+    pub max_universal_state_init_keys: u64,
+    /// Max number of storage entries the `DeterministicStateInit` and
+    /// `UniversalStateInit` actions in one receipt may carry, in total.
+    ///
+    /// Each entry costs `..._state_init_per_entry` to execute, which is counted
+    /// into the receipt's congestion gas whether or not it is ever burnt. Without
+    /// a cap one receipt reserves several times `max_congestion_outgoing_gas`,
+    /// pinning the sending shard at full outgoing congestion, which stops it
+    /// accepting transactions.
+    pub max_state_init_entries: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// If present, requires at least this many bytes of contract code per local.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_contract_size_per_local: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_contract: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_params_per_function: Option<u64>,
+    /// If present, stores the max operand stack size (in bytes) at any point
+    /// during the execution of a single function. Per-function: not summed
+    /// across recursion. Computed by `finite_wasm::max_stack`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_operand_stack_bytes_per_function: Option<u64>,
     /// If present, stores max number of tables declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tables_per_contract: Option<u32>,
     /// If present, stores max number of elements in a single contract's table
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_elements_per_contract_table: Option<usize>,
+    /// If present, stores max byte size of a single function body in a contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_function_body_size: Option<u64>,
+    /// If present, stores max byte size of the wasm code after gas instrumentation.
+    /// This prevents Cranelift's 24-bit SSA counter from overflowing on
+    /// pathologically large contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_instrumented_code_size: Option<u64>,
+    /// If present, stores max number of basic blocks (block/loop/if) in a single function.
+    /// This caps per-function compilation time in Cranelift.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_function: Option<u64>,
+    /// If present, stores max total number of basic blocks across all functions in a contract.
+    /// This caps total compilation time for a contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_blocks_per_contract: Option<u64>,
+    /// If present, stores max number of entries in the wasm type section that
+    /// a contract may declare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_types_per_contract: Option<u64>,
+    /// If present, stores max number of globals (entries in the wasm global
+    /// section) a contract may declare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_globals_per_contract: Option<u64>,
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
@@ -165,33 +229,63 @@ pub struct Config {
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
-    /// Set to `StorageGetMode::FlatStorage` in order to enable the `FlatStorageReads` protocol
-    /// feature.
-    pub storage_get_mode: StorageGetMode,
-
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
-    /// Enable the `EthImplicitAccounts` protocol feature.
-    pub eth_implicit_accounts: bool,
+    /// Enable the `FixContractLoadingError` protocol feature: charge the
+    /// contract-loading fee and finalize as a gas-bearing abort (instead of a
+    /// zero-gas nop) when a compiled module fails to load at
+    /// `Module::deserialize`.
+    pub fix_contract_loading_error: bool,
 
-    /// Enable using global contract for ETH implicit accounts.
-    pub eth_implicit_global_contract: bool,
-
-    /// Whether to discard custom sections.
-    pub discard_custom_sections: bool,
-
-    /// Whether to enable global contract related host functions.
-    pub global_contract_host_fns: bool,
-
-    /// Whether to enable saturating reference types and bulk memory wasm extensions.
-    pub reftypes_bulk_memory: bool,
-
-    /// Whether to host functions introduced with deterministic account ids.
-    pub deterministic_account_ids: bool,
+    /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
+    /// implicit so a transfer can fund one before its state init is applied.
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 87, where the feature is enabled.
+    pub universal_accounts: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
+
+    /// Enable the `FixMlDsaCostCharging` protocol feature, which fixes two
+    /// related ML-DSA-65 cost-charging issues:
+    /// - gas keys: price the exec (storage) fee on the on-trie identifier length
+    ///   (`trie_id_len()`) and the send (transmission) fee on the wire length
+    ///   (`len()`), rather than pricing the exec fee on the wire length;
+    /// - meta transactions: meter the inner delegate signature verification
+    ///   compute on the receiver shard (which runs the verify) instead of the
+    ///   signer shard.
+    pub fix_ml_dsa_cost_charging: bool,
+
+    /// Whether to allow attaching exactly 1 yoctoNEAR to a promise function
+    /// call without requiring the calling contract to have sufficient balance.
+    pub one_yocto_on_promise: bool,
+
+    /// Whether to enable the P-256 ECDSA signature verification host function.
+    /// NEP-635: <https://github.com/near/NEPs/pull/635>
+    pub p256_verify_host_fn: bool,
+
+    /// Whether to enable the ML-DSA-65 (FIPS 204) signature verification host
+    /// function.
+    pub ml_dsa_verify_host_fn: bool,
+
+    /// Whether to enable the `sha3_256`, `sha3_384` and `sha3_512` (FIPS-202)
+    /// host functions.
+    pub sha3_host_fns: bool,
+
+    /// Whether to enable the promise_yield_create_with_id and
+    /// promise_yield_resume_with_yield_id host functions.
+    pub yield_with_id_host_fns: bool,
+
+    /// Whether to enable the chain_id host function (NEP-638).
+    pub chain_id_host_fn: bool,
+
+    /// Fix the `(0, ±2)` corner case in BLS12-381 sum and decompress host
+    /// functions. These points lie on the curve but outside the G1/G2
+    /// subgroup; previously the host function returned an error for them,
+    /// now they are handled correctly as required by NEP-488. All other
+    /// inputs were already handled correctly.
+    pub bls12381_not_in_group_fix: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
@@ -221,10 +315,15 @@ impl Config {
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
-        self.eth_implicit_accounts = true;
-        self.eth_implicit_global_contract = true;
-        self.global_contract_host_fns = true;
+        self.universal_accounts = true;
         self.gas_key_host_fns = true;
+        self.fix_ml_dsa_cost_charging = true;
+        self.p256_verify_host_fn = true;
+        self.ml_dsa_verify_host_fn = true;
+        self.sha3_host_fns = true;
+        self.yield_with_id_host_fns = true;
+        self.chain_id_host_fn = true;
+        self.bls12381_not_in_group_fix = true;
     }
 }
 

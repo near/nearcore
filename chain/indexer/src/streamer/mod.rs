@@ -1,320 +1,51 @@
-use self::errors::FailedToFetchData;
-use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-pub use fetchers::{IndexerClientFetcher, IndexerViewClientFetcher};
+pub use fetchers::IndexerClientFetcher;
 use near_async::time::{Clock, Duration};
+pub use near_client::indexer::IndexerViewClientFetcher;
+use near_client::indexer::{self, FailedToFetchData};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_indexer_primitives::{
-    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
-    StreamerMessage,
-};
-use near_parameters::RuntimeConfig;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
-use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
-use parking_lot::RwLock;
+use near_indexer_primitives::StreamerMessage;
+use near_primitives::types::BlockHeight;
+use near_primitives::views::BlockView;
 use rocksdb::DB;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
-mod errors;
 mod fetchers;
 mod metrics;
-mod utils;
-
-static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
-    Arc<RwLock<HashMap<CryptoHash, ReceiptView>>>,
-> = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 const INTERVAL: Duration = Duration::milliseconds(250);
 
-/// This function supposed to return the entire `StreamerMessage`.
-/// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
-/// and returns everything together in one struct
+/// How many consecutive times we retry building a streamer message for the same
+/// height before terminating. In `WaitForFullSync` mode, failures while the node
+/// is still syncing are expected (e.g. epoch data not yet available after a
+/// restart, see #15867) and do not count against this budget. In
+/// `StreamWhileSyncing` mode the node is ~always syncing, so every failure is
+/// counted - otherwise the budget would never be enforced.
+const MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS: u32 = 10;
+const LAST_SYNCED_BLOCK_HEIGHT_KEY: &[u8] = b"last_synced_block_height";
+
+/// Fetches a block's chunks, outcomes, receipts and state changes into a streamer message.
 pub async fn build_streamer_message(
     client: &IndexerViewClientFetcher,
     block: BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
-
-    let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
-    let protocol_version = protocol_config_view.protocol_version;
-    let shard_ids = protocol_config_view.shard_layout.shard_ids();
-    let gas_price = if block.header.prev_hash == CryptoHash::default() {
-        block.header.gas_price
-    } else {
-        let prev_block = client.fetch_block(block.header.prev_hash).await?;
-        prev_block.header.gas_price
-    };
-    let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
-    let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
-
-    let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
-    let mut state_changes = client
-        .fetch_state_changes(
-            block.header.hash,
-            near_primitives::types::EpochId(block.header.epoch_id),
-        )
-        .await?;
-    let mut indexer_shards = shard_ids
-        .map(|shard_id| IndexerShard {
-            shard_id,
-            chunk: None,
-            receipt_execution_outcomes: vec![],
-            state_changes: state_changes.remove(&shard_id).unwrap_or_default(),
-        })
-        .collect::<Vec<_>>();
-
-    // TODO(spice): Add indexer support for spice.
-    if ProtocolFeature::Spice.enabled(protocol_version) {
-        return Ok(StreamerMessage { block, shards: indexer_shards });
-    }
-
-    for chunk in chunks {
-        let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
-            chunk;
-
-        let outcomes = shards_outcomes
-            .remove(&header.shard_id)
-            .expect("execution outcomes for given shard should be present");
-        let outcome_count = outcomes.len();
-        let outcome_order: Vec<CryptoHash> =
-            outcomes.iter().map(|o| o.execution_outcome.id).collect();
-        let mut outcomes: HashMap<_, _> =
-            outcomes.into_iter().map(|outcome| (outcome.execution_outcome.id, outcome)).collect();
-        debug_assert_eq!(outcomes.len(), outcome_count);
-        let indexer_transactions = transactions
-            .into_iter()
-            .filter_map(|transaction| {
-                let outcome = outcomes.remove(&transaction.hash);
-                if outcome.is_none()
-                    && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
-                {
-                    tracing::error!(
-                        target: INDEXER,
-                        tx_hash = %transaction.hash,
-                        shard_id = %header.shard_id,
-                        block_hash = %block.header.hash,
-                        "unexpected missing transaction outcome"
-                    );
-                }
-                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
-            })
-            .collect::<Vec<IndexerTransactionWithOutcome>>();
-        // All transaction outcomes have been removed.
-        let mut receipt_outcomes = outcomes;
-
-        let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            indexer_transactions
-                .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
-            &runtime_config,
-            gas_price,
-        );
-
-        // Add local receipts to corresponding outcomes
-        for receipt in &chunk_local_receipts {
-            if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
-                if outcome.receipt.is_none() {
-                    outcome.receipt = Some(receipt.clone());
-                }
-            } else {
-                DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
-            }
-        }
-
-        let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome_id in outcome_order {
-            let Some(outcome) = receipt_outcomes.remove(&outcome_id) else {
-                // outcome_id corresponds to a transaction, already handled above
-                continue;
-            };
-
-            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
-            let receipt = if let Some(receipt) = receipt {
-                receipt
-            } else {
-                // Attempt to extract the receipt or decide to fetch it based on cache access success
-                let maybe_receipt =
-                    DELAYED_LOCAL_RECEIPTS_CACHE.write().remove(&execution_outcome.id);
-
-                // Depending on whether you got the receipt from the cache, proceed
-                if let Some(receipt) = maybe_receipt {
-                    // Receipt was found in cache
-                    receipt
-                } else {
-                    // Receipt not found in cache or failed to acquire lock, proceed to look it up
-                    // in the history of blocks (up to 1000 blocks back)
-                    tracing::warn!(
-                        target: INDEXER,
-                        receipt_id = ?execution_outcome.id,
-                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                    );
-                    lookup_delayed_local_receipt_in_previous_blocks(
-                        &client,
-                        &runtime_config,
-                        block.clone(),
-                        execution_outcome.id,
-                        shard_tracker,
-                    )
-                    .await?
-                }
-            };
-            receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
-        }
-
-        // Find the shard index for the chunk by shard_id
-        let shard_index = protocol_config_view
-            .shard_layout
-            .get_shard_index(header.shard_id)
-            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
-
-        // Add receipt_execution_outcomes into corresponding indexer shard
-        indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
-        // Put the chunk into corresponding indexer shard
-        indexer_shards[shard_index].chunk = Some(IndexerChunkView {
-            author,
-            header,
-            transactions: indexer_transactions,
-            receipts: chunk_prev_outgoing_receipts,
-            local_receipts: chunk_local_receipts,
-        });
-    }
-
-    // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
-    // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
-    // That might happen before the fix https://github.com/near/nearcore/pull/4228
-    for (shard_id, outcomes) in shards_outcomes {
-        // The chunk may be missing and if that happens in the first block after
-        // resharding the shard id would no longer be valid in the new shard
-        // layout. In this case we can skip the chunk.
-        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
-        let Ok(shard_index) = shard_index else {
-            continue;
-        };
-
-        indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
-            |outcome| IndexerExecutionOutcomeWithReceipt {
-                execution_outcome: outcome.execution_outcome,
-                receipt: outcome.receipt.expect("`receipt` must be present at this moment"),
-            },
-        ))
-    }
-
-    Ok(StreamerMessage { block, shards: indexer_shards })
+    indexer::build_streamer_message(client, block, shard_tracker).await
 }
 
-// Receipt might be missing only in case of delayed local receipt
-// that appeared in some of the previous blocks
-// we will be iterating over previous blocks until we found the receipt
-// or panic if we didn't find it in 1000 blocks
-async fn lookup_delayed_local_receipt_in_previous_blocks(
-    client: &IndexerViewClientFetcher,
-    runtime_config: &RuntimeConfig,
-    source_block: BlockView,
-    receipt_id: CryptoHash,
-    shard_tracker: &ShardTracker,
-) -> Result<ReceiptView, FailedToFetchData> {
-    let mut block = client.fetch_block(source_block.header.prev_hash).await?;
-    for prev_block_tried in 0..1000 {
-        if prev_block_tried % 100 == 99 {
-            tracing::warn!(
-                target: INDEXER,
-                block_hash = %source_block.header.hash,
-                %receipt_id,
-                prev_block_tried,
-                "still looking for receipt in previous blocks",
-            );
+/// Whether the node reports it is fully synced and in a steady state. A failed
+/// status fetch is treated as "not ready" so we don't prematurely give up while
+/// the node is not in a steady state.
+async fn node_is_ready(client: &IndexerClientFetcher) -> bool {
+    match client.fetch_status().await {
+        Ok(status) => !status.sync_info.syncing,
+        Err(err) => {
+            tracing::warn!(target: INDEXER, ?err, "failed to fetch node status, assuming the node is not ready");
+            false
         }
-        let (prev_block, gas_price) = if block.header.prev_hash == CryptoHash::default() {
-            (None, block.header.gas_price)
-        } else {
-            let prev_block = client.fetch_block(block.header.prev_hash).await?;
-            let gas_price = prev_block.header.gas_price;
-            (Some(prev_block), gas_price)
-        };
-
-        if let Some(receipt) = find_local_receipt_by_id_in_block(
-            receipt_id,
-            &block,
-            client,
-            &runtime_config,
-            shard_tracker,
-            gas_price,
-        )
-        .await?
-        {
-            tracing::debug!(
-                target: INDEXER,
-                %receipt_id,
-                prev_block_tried,
-                "found receipt in previous block",
-            );
-            metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK.set(prev_block_tried as i64);
-            return Ok(receipt);
-        }
-        block = prev_block.unwrap_or_else(|| {
-            panic!("reached genesis and failed to find local receipt {receipt_id}")
-        });
     }
-    panic!("failed to find local receipt {receipt_id} in 1000 prev blocks");
-}
-
-async fn find_local_receipt_by_id_in_block(
-    receipt_id: CryptoHash,
-    block: &BlockView,
-    client: &IndexerViewClientFetcher,
-    runtime_config: &RuntimeConfig,
-    shard_tracker: &ShardTracker,
-    gas_price: Balance,
-) -> Result<Option<ReceiptView>, FailedToFetchData> {
-    let new_chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
-    let mut outcomes = client.fetch_outcomes(block.header.hash).await?;
-
-    for chunk in new_chunks {
-        let ChunkView { header, transactions, .. } = chunk;
-        let shard_outcomes = outcomes
-            .remove(&header.shard_id)
-            .expect("execution outcomes for given shard should be present");
-
-        let Some(tx_outcome) = shard_outcomes.into_iter().find(|outcome| {
-            if let ExecutionStatusView::SuccessReceiptId(outcome_receipt_id) =
-                outcome.outcome.status
-            {
-                outcome_receipt_id == receipt_id
-            } else {
-                false
-            }
-        }) else {
-            continue;
-        };
-        let tx_hash = tx_outcome.id;
-        let tx = transactions.into_iter().find(|tx| tx.hash == tx_hash)
-            .unwrap_or_else(|| panic!(
-                "failed to find transaction {} that generated local receipt {} in block {} shard {}",
-                tx_hash, receipt_id, block.header.hash, header.shard_id
-            ));
-        let indexer_tx = IndexerTransactionWithOutcome {
-            transaction: tx,
-            outcome: IndexerExecutionOutcomeWithOptionalReceipt {
-                execution_outcome: tx_outcome,
-                receipt: None,
-            },
-        };
-
-        let local_receipts =
-            convert_transactions_sir_into_local_receipts([&indexer_tx], &runtime_config, gas_price);
-        assert_eq!(local_receipts.len(), 1);
-        return Ok(local_receipts.into_iter().next());
-    }
-    Ok(None)
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
@@ -339,7 +70,11 @@ pub async fn start(
         Err(err) => panic!("Unable to open indexer db: {:?}", err),
     };
 
-    let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
+    let mut last_synced_block_height: Option<BlockHeight> = None;
+    // Consecutive failed attempts to build a streamer message; reset on success.
+    // In `WaitForFullSync` mode it is also reset while the node is syncing (see
+    // `MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS`).
+    let mut build_streamer_message_attempts: u32 = 0;
 
     'main: loop {
         clock.sleep(INTERVAL).await;
@@ -398,9 +133,53 @@ pub async fn start(
 
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
-            let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
-                continue;
+            let streamer_message = match streamer_message {
+                Ok(streamer_message) => {
+                    build_streamer_message_attempts = 0;
+                    streamer_message
+                }
+                Err(err) => {
+                    // When waiting for full sync, a build failure while the node
+                    // is not yet ready is expected (e.g. epoch data not available
+                    // after a restart, see #15867): retry the same height forever
+                    // without counting it against the budget. When streaming while
+                    // syncing the node is ~always "syncing", so that gate would
+                    // make the budget unreachable; there we count every failure so
+                    // a genuinely stuck height eventually surfaces.
+                    let transient_while_syncing = matches!(
+                        indexer_config.await_for_node_synced,
+                        AwaitForNodeSyncedEnum::WaitForFullSync
+                    ) && !node_is_ready(&client).await;
+                    if transient_while_syncing {
+                        build_streamer_message_attempts = 0;
+                        tracing::warn!(target: INDEXER, ?block_height, ?err, "failed to build streamer message while the node is syncing, retrying the same height");
+                    } else {
+                        build_streamer_message_attempts += 1;
+                        if build_streamer_message_attempts >= MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS {
+                            // Failed to build the block
+                            if indexer_config.skip_broken_blocks {
+                                build_streamer_message_attempts = 0;
+                                tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to build streamer message");
+                                // Record the skipped height as synced so the next outer iteration resumes right after it
+                                record_synced_block_height(
+                                    &db,
+                                    &mut last_synced_block_height,
+                                    block_height,
+                                );
+                                // break the inner loop, the next outer iteration resumes from `last_synced_block_height + 1`.
+                                break;
+                            }
+                            panic!(
+                                "failed to build streamer message at height {block_height} after {MAX_BUILD_STREAMER_MESSAGE_ATTEMPTS} attempts: {err:?}"
+                            )
+                        }
+                    }
+
+                    // Retry the same height on the next outer iteration instead of
+                    // advancing `last_synced_block_height`.
+                    tracing::error!(target: INDEXER, ?block_height, ?err, attempts = build_streamer_message_attempts, "failed to build streamer message, retrying the same height");
+                    break;
+                }
             };
 
             tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
@@ -416,10 +195,19 @@ pub async fn start(
             };
 
             metrics::NUM_STREAMER_MESSAGES_SENT.inc();
-            db.put(b"last_synced_block_height", &block_height.to_string()).unwrap();
-            last_synced_block_height = Some(block_height);
+            record_synced_block_height(&db, &mut last_synced_block_height, block_height);
         }
     }
+}
+
+/// Persists the synced block height to the indexer db and updates the in-memory copy.
+fn record_synced_block_height(
+    db: &rocksdb::DB,
+    last_synced_block_height: &mut Option<BlockHeight>,
+    block_height: BlockHeight,
+) {
+    db.put(LAST_SYNCED_BLOCK_HEIGHT_KEY, &block_height.to_string()).unwrap();
+    *last_synced_block_height = Some(block_height);
 }
 
 fn get_start_syncing_block_height(
@@ -436,7 +224,7 @@ fn get_start_syncing_block_height(
     // Otherwise determine the start height based on the sync mode
     match indexer_config.sync_mode {
         crate::SyncModeEnum::FromInterruption => {
-            match db.get(b"last_synced_block_height").unwrap() {
+            match db.get(LAST_SYNCED_BLOCK_HEIGHT_KEY).unwrap() {
                 Some(value) => String::from_utf8(value).unwrap().parse::<u64>().unwrap(),
                 None => latest_block_height,
             }

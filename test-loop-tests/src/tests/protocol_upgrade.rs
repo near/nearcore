@@ -228,3 +228,12 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
 }
+
+/// Test protocol upgrade that skips a version, jumping straight from
+/// `PROTOCOL_VERSION - 2` to `PROTOCOL_VERSION` in a single epoch transition.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_protocol_upgrade_skip_version() {
+    test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION, HashMap::new());
+}

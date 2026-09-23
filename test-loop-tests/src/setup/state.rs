@@ -5,25 +5,27 @@ use super::peer_manager_actor::{
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
+use super::spice_partial_data_faults::SpicePartialDataFaultState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
 };
-use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_jsonrpc::{RpcConfig, ViewClientSenderForRpc};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -33,23 +35,26 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::test_utils::TestNodeStorage;
 use nearcore::state_sync::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
 pub struct SharedState {
     pub genesis: Genesis,
+    pub rpc_config: RpcConfig,
     /// Directory of the current test. This is automatically deleted once tempdir goes out of scope.
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,
@@ -63,8 +68,31 @@ pub struct SharedState {
     /// List of drop conditions that apply to all nodes in the network.
     pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
+    /// When set, every node uses a no-op compiled contract cache so validators
+    /// must request contract code instead of reusing a precompiled copy.
+    pub disable_compiled_contract_cache: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
+    /// Archive-wide config for cloud archival nodes. Defaults to
+    /// `BucketConfig::canonical()`; tests may override.
+    pub bucket_config: BucketConfig,
+    /// Optional per-`(account, task_name)` override of the spawner's
+    /// artificial virtual delay. `None` for a given pair falls back to the
+    /// test-loop default. Used by tests that need to slow specific tasks on
+    /// specific nodes.
+    pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
+    /// Per-node installation state for the spice endorsement-delay handler.
+    pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// Fault injection for spice data distribution, armed by tests.
+    pub spice_partial_data_faults: SpicePartialDataFaultState,
+}
+
+/// Shared state for the spice endorsement-delay network handler installed by
+/// `TestLoopEnv::delay_endorsements_propagation`.
+#[derive(Default)]
+pub struct SpiceEndorsementDelayState {
+    pub installed_for: HashSet<String>,
+    pub senders: HashMap<AccountId, TestLoopSender<SpiceCoreWriterActor>>,
 }
 
 /// This is the state associated with each node in the test loop environment before being built.
@@ -73,6 +101,7 @@ pub struct NodeSetupState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
     pub storage: TestNodeStorage,
+    pub validator_signer: Option<Arc<ValidatorSigner>>,
 }
 
 /// This is the state associated with each node in the test loop environment after being built.
@@ -94,6 +123,7 @@ pub struct NodeExecutionData {
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
+    pub spice_chunk_validator_sender: TestLoopSender<SpiceChunkValidatorActor>,
     pub spice_core_writer_sender: TestLoopSender<SpiceCoreWriterActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
@@ -116,6 +146,13 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    /// Returns a clone of the shared atomic backing `expected_execution_delay`,
+    /// so the endorsement-delay network handler can read the same value that
+    /// timeouts do without extra plumbing.
+    pub fn expected_execution_delay_handle(&self) -> Arc<AtomicU64> {
+        self.expected_execution_delay.clone()
     }
 
     pub fn jsonrpc_client(&self) -> JsonRpcClient {

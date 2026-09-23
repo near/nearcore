@@ -3,6 +3,7 @@ This script is used to define release tests for forknet.
 """
 
 import copy
+import os
 import pathlib
 import sys
 import tempfile
@@ -15,7 +16,7 @@ from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
                     run_remote_cmd, run_remote_download_file,
                     run_remote_upload_file, start_nodes_cmd, start_traffic_cmd,
-                    stop_nodes_cmd, update_config_cmd)
+                    stop_nodes_cmd, update_config_cmd, upload_local_neard)
 from utils import ScheduleMode, PartitionSelector
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -80,6 +81,11 @@ class TestSetup:
         self.start_height = args.start_height
         # The unique id of the forknet.
         self.unique_id = args.unique_id
+        # The new chain id for the forknet genesis.
+        # We set the chain id to "mocknet" to trigger neard code paths restricted by the chain id.
+        # You can change this value to any other string but chain id bound features may change the behavior of the test.
+        # "mainnet" checks are too restrictive and will break the test.
+        self.new_chain_id = "mocknet"
         # The genesis protocol version.
         self.genesis_protocol_version = getattr(args,
                                                 'genesis_protocol_version',
@@ -119,12 +125,38 @@ class TestSetup:
         """
         return self.neard_upgrade_binary_url is not None and self.neard_upgrade_binary_url != ''
 
+    # Remote root for binaries shipped from the workflow runner. Each slot
+    # lives in its own subdir so two artifacts named `neard` don't collide.
+    _LOCAL_BINARY_REMOTE_ROOT = '/home/ubuntu/forknet-binaries'
+
+    def _materialize_local_binary(self, url, slot):
+        """If `url` points to a local file on this runner, scp it to every
+        targeted node under a per-slot subdir and return the remote path the
+        neard-runner should symlink. Otherwise return `url` unchanged."""
+        if not url or not os.path.isfile(url):
+            return url
+        remote_dir = f'{self._LOCAL_BINARY_REMOTE_ROOT}/{slot}'
+        logger.info(
+            f"local neard detected for slot '{slot}' at {url}; uploading to {remote_dir} on all nodes"
+        )
+        remote_path = upload_local_neard(self.args, url, remote_dir)
+        logger.info(f"slot '{slot}' neard remote path: {remote_path}")
+        return remote_path
+
     def init_env(self):
         """
         Setup the forknet environment for the test.
         """
         logger.info(
             f"Initializing environment for test case {self.args.test_case}")
+        # When the workflow ships a freshly-built binary as a GHA artifact, the
+        # URL is actually a path on the runner. Push it to the nodes first so
+        # the neard-runner's local-path branch (os.path.isfile → symlink) picks
+        # it up at hard_reset time.
+        self.neard_binary_url = self._materialize_local_binary(
+            self.neard_binary_url, 'start')
+        self.neard_upgrade_binary_url = self._materialize_local_binary(
+            self.neard_upgrade_binary_url, 'upgrade')
         # Load test state orchestrator
         init_args = copy.deepcopy(self.args)
         init_args.neard_binary_url = self.neard_binary_url
@@ -179,7 +211,7 @@ class TestSetup:
         new_test_args.num_validators = self.node_hardware_config.num_chunk_validator_seats
         # Set all seats to the lower value. This will be increased later in epoch config.
         new_test_args.num_seats = self.node_hardware_config.num_chunk_producer_seats
-        new_test_args.new_chain_id = self.unique_id
+        new_test_args.new_chain_id = self.new_chain_id
         new_test_args.yes = True
         new_test_args.gcs_state_sync = self.has_state_dumper
         new_test_args.state_source = 'dump'

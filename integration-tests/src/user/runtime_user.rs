@@ -28,6 +28,7 @@ use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -37,6 +38,7 @@ pub struct MockClient {
     pub state_root: MerkleHash,
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
+    pub cumulative_subsidized: Balance,
 }
 
 impl MockClient {
@@ -132,6 +134,10 @@ impl RuntimeUser {
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
                 })?;
+            client.cumulative_subsidized = client
+                .cumulative_subsidized
+                .checked_add(apply_result.stats.balance.subsidized_amount)
+                .expect("cumulative_subsidized overflow");
             for outcome_with_id in apply_result.outcomes {
                 self.transaction_results
                     .borrow_mut()
@@ -201,6 +207,7 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -289,7 +296,12 @@ impl User for RuntimeUser {
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_account_contract_code(&state_update, account_id)
+            .view_account_contract_code(
+                &state_update,
+                account_id,
+                near_primitives::version::PROTOCOL_VERSION,
+                near_primitives_core::chains::MAINNET,
+            )
             .map(|contract_code| {
                 let hash = *contract_code.hash();
                 ContractCodeView { hash, code: contract_code.into_code() }
@@ -300,15 +312,15 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix, false)
+            .view_state(&state_update, account_id, prefix, None, None, false)
             .map_err(|err| err.to_string())
     }
 
     fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_access_keys(&state_update, account_id)
-            .map(|access_keys| access_keys.is_empty())
+            .view_access_keys(&state_update.trie, account_id, None, NonZeroU32::new(1))
+            .map(|(access_keys, _last_key)| access_keys.is_empty())
             .map_err(|err| err.to_string())
     }
 

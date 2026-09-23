@@ -2,7 +2,7 @@ use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, EpochHeight, NumSeats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeightDelta, NonZeroEpochHeight, NumSeats,
     NumShards, ProtocolVersion, ShardId, ValidatorKickoutReason,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -31,8 +31,11 @@ pub struct DynamicReshardingConfig {
     /// resharding will be scheduled.
     pub max_number_of_shards: NumShards,
     /// Minimum number of epochs until next resharding can be scheduled.
-    /// The value of `0` means that resharding can happen every epoch.
-    pub min_epochs_between_resharding: EpochHeight,
+    /// Must be greater than `0`: allowing back-to-back reshardings is unsafe because
+    /// a child shard would inherit `proposed_split` from its parent's final chunk
+    /// while the child's first chunk freshly computes `proposed_split = None`,
+    /// producing an `InvalidChunkHeaderShardSplit` mismatch.
+    pub min_epochs_between_resharding: NonZeroEpochHeight,
     /// Shards that should be split even when they don't meet the regular split criteria
     /// (i.e. `memory_usage_threshold` and `min_child_memory_usage`).
     /// Keep in mind that `max_number_of_shards` still applies here.
@@ -49,7 +52,7 @@ impl Default for DynamicReshardingConfig {
             memory_usage_threshold: 999_999_999_999_999,
             min_child_memory_usage: 999_999_999_999_999,
             max_number_of_shards: 999_999_999_999_999,
-            min_epochs_between_resharding: 999_999_999_999_999,
+            min_epochs_between_resharding: NonZeroEpochHeight::new(999_999_999_999_999).unwrap(),
             force_split_shards: vec![],
             block_split_shards: vec![],
         }
@@ -102,10 +105,6 @@ pub struct EpochConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of seats for block producers.
     pub num_block_producer_seats: NumSeats,
-    /// Number of seats of block producers per each shard.
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of hidden validator seats per each shard.
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     /// Threshold for kicking out block producers.
     pub block_producer_kickout_threshold: u8,
     /// Threshold for kicking out chunk producers.
@@ -137,10 +136,6 @@ pub struct EpochConfig {
     pub num_chunk_producer_seats: NumSeats,
     // #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    // #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
     // #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     // #[default(Rational32::new(160, 1_000_000))]
@@ -177,6 +172,15 @@ impl EpochConfig {
     pub fn with_shard_layout(mut self, shard_layout: ShardLayout) -> Self {
         self.shard_layout_config = ShardLayoutConfig::Static { shard_layout };
         self
+    }
+
+    pub fn max_num_shards(&self) -> NumShards {
+        match &self.shard_layout_config {
+            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
+            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
+                dynamic_resharding_config.max_number_of_shards
+            }
+        }
     }
 }
 
@@ -219,11 +223,6 @@ impl EpochConfig {
         Self {
             epoch_length,
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![
-                num_block_producer_seats;
-                shard_layout.shard_ids().count()
-            ],
-            avg_hidden_validator_seats_per_shard: vec![],
             target_validator_mandates_per_shard: 68,
             validator_max_kickout_stake_perc: 100,
             online_min_threshold: Rational32::new(90, 100),
@@ -237,7 +236,6 @@ impl EpochConfig {
             shard_layout_config: ShardLayoutConfig::Static { shard_layout },
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -252,8 +250,6 @@ impl EpochConfig {
         builder
             .epoch_length(0)
             .num_block_producer_seats(0)
-            .num_block_producer_seats_per_shard(vec![])
-            .avg_hidden_validator_seats_per_shard(vec![])
             .block_producer_kickout_threshold(0)
             .chunk_producer_kickout_threshold(0)
             .chunk_validator_only_kickout_threshold(0)
@@ -267,7 +263,6 @@ impl EpochConfig {
             .shard_layout(ShardLayout::single_shard())
             .num_chunk_producer_seats(100)
             .num_chunk_validator_seats(300)
-            .num_chunk_only_producer_seats(300)
             .minimum_validators_per_shard(1)
             .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
             .chunk_producer_assignment_changes_limit(5)
@@ -281,8 +276,6 @@ impl EpochConfig {
         builder
             .epoch_length(epoch_length)
             .num_block_producer_seats(2)
-            .num_block_producer_seats_per_shard(vec![1, 1])
-            .avg_hidden_validator_seats_per_shard(vec![1, 1])
             .block_producer_kickout_threshold(0)
             .chunk_producer_kickout_threshold(0)
             .chunk_validator_only_kickout_threshold(0)
@@ -296,30 +289,12 @@ impl EpochConfig {
             .shard_layout(shard_layout)
             .num_chunk_producer_seats(100)
             .num_chunk_validator_seats(300)
-            .num_chunk_only_producer_seats(300)
             .minimum_validators_per_shard(1)
             .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
             .chunk_producer_assignment_changes_limit(5)
             .shuffle_shard_assignment_for_chunk_producers(false)
             .max_inflation_rate(Rational32::new(1, 40));
         builder
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ShardConfig {
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    pub shard_layout: ShardLayout,
-}
-
-impl ShardConfig {
-    pub fn new(epoch_config: EpochConfig, shard_layout: ShardLayout) -> Self {
-        Self {
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
-            shard_layout,
-        }
     }
 }
 
@@ -343,6 +318,8 @@ pub struct AllEpochConfig {
     chain_id: String,
     epoch_length: BlockHeightDelta,
     genesis_protocol_version: ProtocolVersion,
+    /// Shard layout of the genesis epoch, as declared in the genesis config.
+    genesis_shard_layout: ShardLayout,
 }
 
 impl AllEpochConfig {
@@ -351,12 +328,14 @@ impl AllEpochConfig {
         epoch_length: BlockHeightDelta,
         config_store: EpochConfigStore,
         genesis_protocol_version: ProtocolVersion,
+        genesis_shard_layout: ShardLayout,
     ) -> Self {
         Self {
             config_store,
             chain_id: chain_id.to_string(),
             epoch_length,
             genesis_protocol_version,
+            genesis_shard_layout,
         }
     }
 
@@ -376,9 +355,21 @@ impl AllEpochConfig {
     pub fn genesis_protocol_version(&self) -> ProtocolVersion {
         self.genesis_protocol_version
     }
+
+    /// Shard layout of the genesis epoch.
+    ///
+    /// For a genesis protocol version with a static shard layout the layout from the epoch config
+    /// is authoritative. Once dynamic resharding is enabled the epoch config no longer defines a
+    /// layout, so the layout declared in the genesis config is used instead.
+    pub fn genesis_shard_layout(&self) -> ShardLayout {
+        self.config_store
+            .get_config(self.genesis_protocol_version)
+            .static_shard_layout()
+            .unwrap_or_else(|| self.genesis_shard_layout.clone())
+    }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, ProtocolSchema)]
 pub struct EpochSummary {
     pub prev_epoch_last_block_hash: CryptoHash,
     /// Proposals from the epoch, only the latest one per account
@@ -425,6 +416,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 78, "78.json"),
     include_config!("mainnet", 80, "80.json"),
     include_config!("mainnet", 81, "81.json"),
+    include_config!("mainnet", 85, "85.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -441,6 +433,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 78, "78.json"),
     include_config!("testnet", 80, "80.json"),
     include_config!("testnet", 81, "81.json"),
+    include_config!("testnet", 85, "85.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
@@ -666,6 +659,32 @@ mod tests {
             let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             let epoch_config = epoch_configs.get_config(81);
             assert_eq!(epoch_config.max_inflation_rate, Rational32::new(1, 40));
+        }
+    }
+
+    /// There must be enough chunk producer seats to assign
+    /// `minimum_validators_per_shard` producers to every shard without repeats,
+    /// even after the shard count grows to its maximum (via dynamic resharding).
+    /// Otherwise validator selection falls back to an assignment strategy that is
+    /// unsuitable for production: it is not sticky as validators join and leave,
+    /// and it may assign the same chunk producer to more than one shard.
+    #[test]
+    fn test_enough_chunk_producer_seats() {
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            for (protocol_version, epoch_config) in epoch_configs.iter() {
+                let max_num_shards = epoch_config.max_num_shards();
+                let required = epoch_config.minimum_validators_per_shard * max_num_shards;
+                assert!(
+                    required <= epoch_config.num_chunk_producer_seats,
+                    "{chain_id} v{protocol_version}: minimum_validators_per_shard ({}) * \
+                     max_num_shards ({}) = {} exceeds num_chunk_producer_seats ({})",
+                    epoch_config.minimum_validators_per_shard,
+                    max_num_shards,
+                    required,
+                    epoch_config.num_chunk_producer_seats,
+                );
+            }
         }
     }
 

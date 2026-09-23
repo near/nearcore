@@ -1,3 +1,4 @@
+use crate::metrics::DYNAMIC_RESHARDING_VALIDATION_FAILURES;
 use crate::stateless_validation::metrics::VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME;
 use crate::{Chain, byzantine_assert};
 use crate::{ChainStore, Error};
@@ -5,6 +6,7 @@ use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::BlockHeader;
+use near_primitives::block_body::SpiceCoreStatements;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -14,11 +16,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId, compute_chunk_execution_root};
 use reed_solomon_erasure::galois_8::ReedSolomon;
-
-/// Gas limit cannot be adjusted for more than 0.1% at a time.
-const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
@@ -169,14 +168,6 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidReceiptsProof);
     }
 
-    let gas_limit = prev_chunk_extra.gas_limit();
-    let adjustment = gas_limit.checked_div(GAS_LIMIT_ADJUSTMENT_FACTOR).unwrap();
-    if chunk_header.gas_limit() < gas_limit.checked_sub(adjustment).unwrap()
-        || chunk_header.gas_limit() > gas_limit.checked_add(adjustment).unwrap()
-    {
-        return Err(Error::InvalidGasLimit);
-    }
-
     validate_congestion_info(prev_chunk_extra.congestion_info(), chunk_header.congestion_info())?;
     validate_bandwidth_requests(
         prev_chunk_extra.bandwidth_requests(),
@@ -184,6 +175,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     )?;
 
     if prev_chunk_extra.proposed_split() != chunk_header.proposed_split() {
+        DYNAMIC_RESHARDING_VALIDATION_FAILURES.with_label_values(&["chunk_header"]).inc();
         return Err(Error::InvalidChunkHeaderShardSplit(format!(
             "header has {:?}, expected {:?} (prev block hash: {:?} height created: {:?})",
             chunk_header.proposed_split(),
@@ -223,6 +215,7 @@ pub fn validate_block_shard_split(
 
     let header_shard_split = header.shard_split();
     if header_shard_split != expected_shard_split.as_ref() {
+        DYNAMIC_RESHARDING_VALIDATION_FAILURES.with_label_values(&["block_header"]).inc();
         return Err(Error::InvalidBlockHeaderShardSplit(format!(
             "header has {:?}, expected {:?} (block hash: {:?} height: {:?})",
             header_shard_split,
@@ -232,6 +225,28 @@ pub fn validate_block_shard_split(
         )));
     }
 
+    Ok(())
+}
+
+/// Verify that a spice block header's `chunk_execution_root` matches the merkle
+/// root recomputed from the block's certified chunk execution results. Called
+/// only for spice blocks, whose headers must carry the root; a missing root is
+/// rejected.
+pub fn validate_spice_chunk_execution_root(
+    header_chunk_execution_root: Option<CryptoHash>,
+    core_statements: &SpiceCoreStatements,
+) -> Result<(), Error> {
+    let Some(header_root) = header_chunk_execution_root else {
+        return Err(Error::InvalidChunkExecutionRoot(
+            "spice block header is missing chunk_execution_root".to_string(),
+        ));
+    };
+    let body_root = compute_chunk_execution_root(core_statements.iter_execution_results());
+    if header_root != body_root {
+        return Err(Error::InvalidChunkExecutionRoot(format!(
+            "header {header_root} does not match body {body_root}"
+        )));
+    }
     Ok(())
 }
 

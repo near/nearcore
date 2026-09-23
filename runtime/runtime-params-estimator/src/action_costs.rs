@@ -10,7 +10,7 @@ use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
-use near_crypto::{KeyType, PublicKey};
+use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
@@ -21,9 +21,16 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptV0};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::derive_near_deterministic_account_id;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::iter;
+
+/// Protocol `max_transaction_size` limit (1.5 MiB).
+const MAX_TRANSACTION_SIZE: u64 = 1_572_864;
+
+/// Borsh wire-size of a max-size deploy-contract transaction excluding its
+/// contract code and signature: account ids, public key, nonce, block hash,
+/// and action/enum tags.
+const MAX_DEPLOY_CONTRACT_TX_OVERHEAD: u64 = 182;
 
 const GAS_1_MICROSECOND: Gas = Gas::from_gigagas(1);
 const GAS_1_NANOSECOND: Gas = Gas::from_gas(1_000_000);
@@ -691,9 +698,6 @@ pub(crate) fn delegate_exec(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost: Send with a 0 byte initial state
 pub(crate) fn deterministic_state_init_base_send(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     // This framework doesn't really allow dynamic actions :S
     // One single measurement has to be enough. (Better than nothing.)
     let seed = 0;
@@ -709,9 +713,6 @@ pub(crate) fn deterministic_state_init_base_send(ctx: &mut EstimatorContext) -> 
 
 /// Base cost: Execute with a 0 byte initial state
 pub(crate) fn deterministic_state_init_base_exec(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     let seed = 0;
     let (receiver, action) = det_state_init_action(seed, 0, 0, 0);
     ActionEstimation::new(ctx)
@@ -723,9 +724,6 @@ pub(crate) fn deterministic_state_init_base_exec(ctx: &mut EstimatorContext) -> 
         .apply_cost(&mut ctx.testbed())
 }
 pub(crate) fn deterministic_state_init_entry_send(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     let seed = 0;
     let num_entries = 100_000;
     let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
@@ -739,9 +737,6 @@ pub(crate) fn deterministic_state_init_entry_send(ctx: &mut EstimatorContext) ->
         / num_entries as u64
 }
 pub(crate) fn deterministic_state_init_entry_exec(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     let seed = 0;
     let num_entries = 100_000;
     let (receiver, action) = det_state_init_action(seed, num_entries, 7, 0);
@@ -755,9 +750,6 @@ pub(crate) fn deterministic_state_init_entry_exec(ctx: &mut EstimatorContext) ->
         / num_entries as u64
 }
 pub(crate) fn deterministic_state_init_byte_send(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     let seed = 0;
     let bytes = 1_000_000;
     let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
@@ -771,9 +763,6 @@ pub(crate) fn deterministic_state_init_byte_send(ctx: &mut EstimatorContext) -> 
         / bytes as u64
 }
 pub(crate) fn deterministic_state_init_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
-    if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        return GasCost::zero();
-    }
     let seed = 0;
     let bytes = 1_000_000;
     let (receiver, action) = det_state_init_action(seed, 1, 1, bytes);
@@ -948,26 +937,31 @@ impl ActionSize {
         match self {
             // small number that still allows to generate a valid contract
             ActionSize::Min => 120,
-            // max_number_bytes_method_names: 2000
-            // This size exactly touches tx limit with 1 deploy action. If this suddenly
-            // fails with `InvalidTxError(TransactionSizeExceeded`, it could be a
+            // This size exactly touches tx limit with 1 deploy action, where the
+            // limit counts the full wire size including the ed25519 signature
+            // (`SignedTransaction::size_for_limits`). If this suddenly fails
+            // with `InvalidTxError::TransactionSizeExceeded`, it could be a
             // protocol change due to the TX limit computation changing.
             // The test `test_deploy_contract_tx_max_size` checks this.
-            ActionSize::Max => 1_572_864 - 182,
+            ActionSize::Max => {
+                let signature_size = borsh::object_length(&Signature::empty(KeyType::ED25519))
+                    .expect("borsh signature length") as u64;
+                MAX_TRANSACTION_SIZE - MAX_DEPLOY_CONTRACT_TX_OVERHEAD - signature_size
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ActionSize, deploy_action};
+    use super::{ActionSize, MAX_TRANSACTION_SIZE, deploy_action};
     use genesis_populate::get_account_id;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_deploy_contract_tx_max_size() {
         // The size of a transaction constructed from this must be exactly at the limit.
         let deploy_action = deploy_action(ActionSize::Max);
-        let limit = 1_572_864;
 
         // We also need some account IDs constructed the same way as in the estimator.
         // Let's try multiple index sizes to ensure this does not affect the length.
@@ -980,10 +974,10 @@ mod tests {
         let mut tb = crate::TransactionBuilder::new(test_accounts);
 
         let tx_0 = tb.transaction_from_actions(sender_0, receiver_0, vec![deploy_action.clone()]);
-        assert_eq!(tx_0.get_size(), limit, "TX size changed");
+        assert_eq!(tx_0.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
 
         let tx_1 = tb.transaction_from_actions(sender_1, receiver_1, vec![deploy_action]);
-        assert_eq!(tx_1.get_size(), limit, "TX size changed");
+        assert_eq!(tx_1.size_for_limits(PROTOCOL_VERSION), MAX_TRANSACTION_SIZE, "TX size changed");
     }
 }
 

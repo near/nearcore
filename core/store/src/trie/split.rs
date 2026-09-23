@@ -390,7 +390,7 @@ where
         // The split path needs to be convertible into an account ID, which means an even number
         // of nibbles is required. If we ended with an odd number of nibbles, we can try descending
         // into the first child.
-        if self.nibbles.len() % 2 != 0 {
+        if !self.nibbles.len().is_multiple_of(2) {
             self.force_next_step()?;
             if let Some(current_split) = self.best_split_at_current_path()? {
                 if current_split.mem_diff() < best_split.mem_diff() {
@@ -572,7 +572,7 @@ fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
 }
 
 fn nibbles_to_account_id(nibbles: &[u8]) -> Option<AccountId> {
-    if nibbles.len() % 2 != 0 {
+    if !nibbles.len().is_multiple_of(2) {
         return None;
     }
     let bytes = nibbles_to_bytes(nibbles);

@@ -255,6 +255,22 @@ pub(crate) static EDGE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
         .unwrap()
 });
 
+pub(crate) static EDGE_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_edge_dropped",
+        "Number of edges rejected due to routing graph limits",
+    )
+    .unwrap()
+});
+
+pub(crate) static ACCOUNT_ANNOUNCEMENT_DROPPED: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_account_announcement_dropped",
+        "Number of AnnounceAccount entries rejected due to per-message limits",
+    )
+    .unwrap()
+});
+
 pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_edge_tombstone_sending_skip",
@@ -398,18 +414,6 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: LazyLock<IntCounterVec> = LazyLock::n
     .unwrap()
 });
 
-pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "near_network_routed_msg_distances",
-        "compares routing distance by protocol (V1 vs V2)",
-        // Compares the routing distances for the V1 and V2 routing protocols.
-        // We are currently running both while validating performance of V2.
-        // Eventually we want to deprecate V1 and run only V2.
-        &["cmp"],
-    )
-    .unwrap()
-});
-
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
 /// `fastest` indicates whether this message is the first copy of `msg` received -
@@ -469,9 +473,11 @@ pub(crate) enum MessageDropped {
     NoRouteFound,
     UnknownAccount,
     InputTooLong,
+    TooLargeForType,
     MaxCapacityExceeded,
     TransactionsPerBlockExceeded,
     Duplicate,
+    OutgoingQueueLimitExceeded,
 }
 
 impl MessageDropped {
@@ -483,7 +489,7 @@ impl MessageDropped {
         self.inc_msg_type("unknown")
     }
 
-    fn inc_msg_type(self, msg_type: &str) {
+    pub fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
     }

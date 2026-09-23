@@ -68,7 +68,9 @@ fn compute_function_call_cost(
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
-    let vm_config = runtime_config.wasm_config.clone();
+    let mut vm_config = runtime_config.wasm_config.as_ref().clone();
+    vm_config.vm_kind = vm_kind;
+    let vm_config = Arc::new(vm_config);
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::with_code(contract.clone_for_tests());
     let fake_context = create_context(vec![]);

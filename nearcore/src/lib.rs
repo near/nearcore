@@ -6,20 +6,20 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::thread_pool::{
+    PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
+};
 use near_async::time::Clock;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
-use near_chain::spice_core::SpiceCoreReader;
-use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::chunk_application::ChunkPersistenceConfig;
+use near_chain::spice::core::SpiceCoreReader;
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{
-    ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
-    WitnessCreationThreadPool,
-};
+use near_chain::{ApplyChunksSpawner, Chain, ChainGenesis};
 use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
@@ -27,11 +27,11 @@ use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
-use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
-use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
+use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
+use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
@@ -99,7 +99,7 @@ pub fn get_default_home() -> PathBuf {
 // TODO(cloud_archival) There seems to be some legacy complexity around the
 // `archive` config option and `DbKind` — maybe it can be simplified.
 pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
-    let migrator = migrations::Migrator::new(near_config);
+    let migrator = migrations::Migrator::new(near_config, home_dir);
     let opener = NodeStorage::opener(
         home_dir,
         &near_config.config.store,
@@ -262,7 +262,7 @@ fn spawn_spice_actors(
     shard_tracker: ShardTracker,
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
-    chunk_executor_config: ChunkExecutorConfig,
+    chunk_persistence_config: ChunkPersistenceConfig,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -280,6 +280,7 @@ fn spawn_spice_actors(
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        validator_signer.clone(),
         spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -314,11 +315,10 @@ fn spawn_spice_actors(
             let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
-        Default::default(),
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        chunk_executor_config,
+        chunk_persistence_config,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -394,6 +394,13 @@ pub async fn start_with_config_and_synchronization_impl(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
+    // Before any actor is spawned, so the GC actor never starts on this store.
+    if storage.get_hot_store().cloud_archival_store().reader_head().is_some() {
+        anyhow::bail!(
+            "this store was written by a cloud-archive reader and cannot be used by a running \
+             node; point the cloud-archive tool at it instead"
+        );
+    }
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
@@ -406,14 +413,17 @@ pub async fn start_with_config_and_synchronization_impl(
     );
 
     let epoch_id = EpochId::default();
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
+    // Take the layout from the genesis EpochInfo the EpochManager just wrote rather than
+    // re-deriving it, so genesis state can never be built under a different layout than the
+    // one the epoch manager recorded.
+    let genesis_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_sharded_genesis_state(
         storage.get_hot_store(),
         &config.genesis,
-        &genesis_epoch_config,
+        &genesis_shard_layout,
         Some(home_dir),
     );
 
@@ -479,7 +489,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
         actor_system.new_future_spawner("cloud archival").into(),
-        config.config.cloud_archival_writer,
+        config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),
@@ -567,7 +577,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
-        Arc::new(RayonAsyncComputationSpawner),
+        contract_compilation_pool().clone(),
         Arc::new(PartialWitnessValidationThreadPool::new()),
         Arc::new(WitnessCreationThreadPool::new()),
     ));
@@ -610,6 +620,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let StartClientResult {
         client_actor,
         tx_pool,
+        pending_transaction_queue,
         chunk_endorsement_tracker,
         chunk_validation_actor,
     } = start_client(
@@ -637,6 +648,21 @@ pub async fn start_with_config_and_synchronization_impl(
         block_notification_watch_sender,
         spice_client_config,
     );
+
+    let head = storage.get_hot_store().chain_store().head()?;
+    let epoch_info = epoch_manager.get_epoch_info(&head.epoch_id)?;
+    let epoch_start_height = epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
+    tracing::info!(
+        target: "near",
+        block_height = head.height,
+        block_hash = %head.last_block_hash,
+        epoch_id = ?head.epoch_id,
+        epoch_height = epoch_info.epoch_height(),
+        epoch_start_height,
+        protocol_version = epoch_info.protocol_version(),
+        "starting from chain head",
+    );
+
     // Spawn after start_client so that Chain::new has initialized FINAL_HEAD_KEY in the store.
     spawn_trie_metrics_loop(
         actor_system.clone(),
@@ -659,7 +685,7 @@ pub async fn start_with_config_and_synchronization_impl(
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
-            ChunkExecutorConfig {
+            ChunkPersistenceConfig {
                 save_trie_changes: config.client_config.save_trie_changes,
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
@@ -692,12 +718,16 @@ pub async fn start_with_config_and_synchronization_impl(
         disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
+        spice_pending_transaction_queue_enabled: config
+            .client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),
@@ -722,7 +752,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
-    let network_actor = PeerManagerActor::spawn(
+    let (network_actor, _tcp) = PeerManagerActor::spawn(
         Clock::real(),
         actor_system.clone(),
         storage.into_inner(near_store::Temperature::Hot),

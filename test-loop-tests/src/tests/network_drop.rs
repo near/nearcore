@@ -1,5 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::peer_manager_actor::HandlerResult;
 use near_async::time::Duration;
+use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use parking_lot::RwLock;
 use rand::{Rng, SeedableRng};
@@ -30,9 +32,9 @@ fn network_drop_random_messages() {
         peer_actor.register_override_handler(Box::new(move |request| {
             let mut rng = rng.write();
             if rng.gen_ratio(DROP_RATIO_NUMERATOR, DROP_RATIO_DENOMINATOR) {
-                return None;
+                return HandlerResult::Handled(NetworkResponses::NoResponse);
             }
-            Some(request)
+            HandlerResult::Unhandled(request)
         }));
     }
 

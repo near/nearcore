@@ -22,7 +22,6 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
-parking_lot.workspace = true
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -36,7 +35,6 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 bencher.workspace = true
 itoa.workspace = true
-smartstring.workspace = true
 
 [features]
 nightly = [

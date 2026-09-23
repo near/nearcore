@@ -43,7 +43,6 @@ cleanup_remote_nodes_atexit_registered = False
 Config = typing.Dict[str, typing.Any]
 
 # Example value: [
-#   ("num_block_producer_seats_per_shard", [100]),
 #   ("epoch_length", 100)
 # ]
 # Note that we also support using list instead of a tuple here, but that
@@ -314,6 +313,16 @@ class BaseNode(object):
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
 
+    def get_final_block_id(self, **kw) -> BlockId:
+        """
+        Get the hash and height of the latest final block.
+        Prefer this over `.get_latest_block()` as the base block of a
+        transaction: the latest block may not have reached the node that the
+        transaction is forwarded to, which drops it as expired.
+        """
+        return BlockId.from_header(
+            self.get_final_block(**kw)['result']['header'])
+
     def get_all_heights(self):
 
         # Helper function to check if the block response is a "block not found" error.
@@ -417,8 +426,11 @@ class BaseNode(object):
             time.sleep(0.2)
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
-        for access_key in self.get_access_key_list(acc,
-                                                   finality)['result']['keys']:
+        resp = self.get_access_key_list(acc, finality)
+        if resp.get('error', {}).get('cause',
+                                     {}).get('name') == 'UNKNOWN_ACCOUNT':
+            return None
+        for access_key in resp['result']['keys']:
             if access_key['public_key'] == pk:
                 return access_key['access_key']['nonce']
         return None
@@ -430,7 +442,7 @@ class BaseNode(object):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_final_block(self, **kwargs):
-        return self.get_block_by_finality('final')
+        return self.get_block_by_finality('final', **kwargs)
 
     def get_block_by_finality(self, finality, **kwargs):
         assert finality in ('final', 'optimistic'), \
@@ -638,21 +650,28 @@ class LocalNode(BaseNode):
                                              stdin=subprocess.DEVNULL,
                                              stdout=stdout,
                                              stderr=stderr,
-                                             env=env)
+                                             env=env,
+                                             start_new_session=True)
         self._pid = self._process.pid
 
     def kill(self, *, gentle=False):
+        """Kills the process and its entire process group."""
         logger.info(f"Killing node {self.ordinal}.")
-        """Kills the process.  If `gentle` sends SIGINT before killing."""
         if self._process and gentle:
-            self._process.send_signal(signal.SIGINT)
+            try:
+                os.killpg(self._process.pid, signal.SIGINT)
+            except OSError:
+                pass
             try:
                 self._process.wait(5)
                 self._process = None
             except subprocess.TimeoutExpired:
                 pass
         if self._process:
-            self._process.kill()
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except OSError:
+                pass
             self._process.wait(5)
             self._process = None
 
@@ -1047,10 +1066,10 @@ def init_cluster(
 
     logger.info("Search for stdout and stderr in %s" % node_dirs)
 
-    # if extra_state_dumper is True, we added 1 to num_observers above and we will enable
-    # state dumping to a local tmp dir on the last node in node_dirs. The other nodes will have their
-    # state_sync configs point to this tmp dir
-    # TODO: remove this extra_state_dumper option when centralized state sync is no longer used
+    # if extra_state_dumper is True, we added 1 to num_observers above and we
+    # designate the last node in node_dirs as a state-part server: it tracks all
+    # shards and takes state snapshots so the other nodes can sync state from it
+    # over the peer-to-peer network.
     if extra_state_dumper:
         (node_config_dump,
          node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
@@ -1106,10 +1125,6 @@ def configure_cold_storage_for_archival_node(node_dir: str):
     if "split_storage" not in config_json:
         config_json["split_storage"] = {
             "enable_split_storage_view_client": True,
-            "cold_store_initial_migration_loop_sleep_duration": {
-                "secs": 0,
-                "nanos": 100000000
-            },
             "cold_store_loop_sleep_duration": {
                 "secs": 0,
                 "nanos": 100000000
@@ -1165,13 +1180,11 @@ def apply_config_changes(node_dir: str,
     # when None.
     allowed_missing_configs = (
         'archive',
-        'consensus.block_fetch_horizon',
         'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',
         'consensus.max_block_wait_delay',
-        'consensus.state_sync_external_timeout',
-        'consensus.state_sync_external_backoff',
+        'consensus.block_request_timeout',
         'consensus.state_sync_p2p_timeout',
         'expected_shutdown',
         'log_summary_period',
@@ -1181,8 +1194,6 @@ def apply_config_changes(node_dir: str,
         'save_tx_outcomes',
         'split_storage',
         'state_sync',
-        'state_sync_enabled',
-        'store.state_snapshot_config.state_snapshot_type',
         'tracked_shard_schedule',
         'tracked_shards_config.Schedule',
         'tracked_shards_config.ShadowValidator',

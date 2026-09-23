@@ -1,9 +1,9 @@
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
@@ -49,13 +49,13 @@ pub(crate) type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
-fn setup_network_node(
+fn setup_network_node_with_tcp(
     actor_system: ActorSystem,
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-) -> TokioRuntimeHandle<PeerManagerActor> {
+) -> (TokioRuntimeHandle<PeerManagerActor>, Arc<near_network::TcpTransport>) {
     let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
@@ -88,7 +88,7 @@ fn setup_network_node(
         max_block_prod_time: 200,
         num_block_producer_seats: num_validators,
         archive: config.archive,
-        state_sync_enabled: true,
+        transaction_pool_size_limit: None,
     });
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let state_roots = near_store::get_genesis_state_roots(runtime.store())
@@ -109,7 +109,13 @@ fn setup_network_node(
     let (block_notification_watch_sender, _block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
     let adv = near_client::adversarial::Controls::default();
-    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
+    let StartClientResult {
+        client_actor,
+        tx_pool,
+        pending_transaction_queue,
+        chunk_endorsement_tracker,
+        ..
+    } = start_client(
         Clock::real(),
         actor_system.clone(),
         client_config.clone(),
@@ -165,11 +171,14 @@ fn setup_network_node(
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
         disable_tx_routing: client_config.disable_tx_routing,
+        spice_pending_transaction_queue_enabled: client_config
+            .spice_pending_transaction_queue_enabled(),
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         tx_pool,
+        pending_transaction_queue,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
@@ -219,7 +228,7 @@ fn setup_network_node(
         Arc::new(RayonAsyncComputationSpawner),
     ));
     shards_manager_adapter.bind(shards_manager_actor);
-    let peer_manager = PeerManagerActor::spawn(
+    let (peer_manager, tcp) = PeerManagerActor::spawn(
         time::Clock::real(),
         actor_system,
         db.clone(),
@@ -240,7 +249,7 @@ fn setup_network_node(
     )
     .unwrap();
     network_adapter.bind(peer_manager.clone());
-    peer_manager
+    (peer_manager, tcp)
 }
 
 // TODO: Deprecate this in favor of separate functions.
@@ -304,11 +313,13 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
-                    let pm = info.get_node(from)?.actor.clone();
+                    let node = info.get_node(from)?;
+                    let pm = node.actor.clone();
+                    let tcp_transport = node.tcp.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
                         Ok(stream) => {
-                            let _: PeerManagerMessageResponse = pm.send_async(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?;
+                            let _ = tcp_transport.spawn_outbound_from_stream(stream);
                         },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
@@ -408,6 +419,7 @@ pub(crate) struct Runner {
 
 struct NodeHandle {
     actor: AutoStopActor<PeerManagerActor>,
+    tcp: Arc<near_network::TcpTransport>,
 }
 
 impl Runner {
@@ -546,15 +558,14 @@ impl Runner {
         let validators = self.validators.clone();
         let chain_genesis = self.chain_genesis.clone();
 
-        Ok(NodeHandle {
-            actor: AutoStopActor(setup_network_node(
-                self.actor_system.clone(),
-                account_id,
-                validators,
-                chain_genesis,
-                network_config,
-            )),
-        })
+        let (actor, tcp) = setup_network_node_with_tcp(
+            self.actor_system.clone(),
+            account_id,
+            validators,
+            chain_genesis,
+            network_config,
+        );
+        Ok(NodeHandle { actor: AutoStopActor(actor), tcp })
     }
 
     fn build(self) -> anyhow::Result<RunningInfo> {

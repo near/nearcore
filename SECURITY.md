@@ -9,6 +9,8 @@ If you have any suggestions or comments about the security policy, please email 
 
 All security issues should be submitted on [hackenproof](https://hackenproof.com/near/near-protocol). The team will review the submissions and decide whether they are eligible for bounty payouts. For more details, please check out the program description on the hackenproof website.
 
+To prove your finding, use the one-click localnet at [`tools/bounty-localnet/`](tools/bounty-localnet/). Including the `.env` you used and a script that runs against the local RPC speeds up triage significantly.
+
 ## Handling & disclosure process
 
 1. Security report is received and assigned to an owner. This person will coordinate the process of evaluating, fixing, releasing and disclosing the issue.

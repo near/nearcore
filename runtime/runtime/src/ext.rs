@@ -1,20 +1,23 @@
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::receipt_manager::ReceiptManager;
-use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, YieldId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
+};
+use near_primitives::universal_state_init::{
+    RawStateInit, UniversalStateInitCounts, state_init_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
-    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt,
-    has_promise_yield_status, set_promise_yield_status,
+    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, get_data_id_for_yield_id,
+    has_promise_yield_receipt, has_promise_yield_status, has_yield_id_mapping,
+    set_promise_yield_status, set_yield_id_mapping,
 };
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
@@ -39,8 +42,8 @@ pub struct RuntimeExt<'a> {
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
-    storage_access_mode: StorageGetMode,
     trie_access_tracker: AccountingAccessTracker,
+    storage_proof_size_before_receipt: Option<usize>,
 }
 
 /// Error used by `RuntimeExt`.
@@ -94,8 +97,8 @@ impl<'a> RuntimeExt<'a> {
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        storage_access_mode: StorageGetMode,
         trie_access_tracker_state: Arc<AccountingState>,
+        storage_proof_size_before_receipt: Option<usize>,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -108,8 +111,8 @@ impl<'a> RuntimeExt<'a> {
             block_height,
             epoch_info_provider,
             current_protocol_version,
-            storage_access_mode,
             trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
+            storage_proof_size_before_receipt,
         }
     }
 
@@ -130,10 +133,6 @@ impl<'a> RuntimeExt<'a> {
     #[inline]
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
-    }
-
-    pub fn chain_id(&self) -> String {
-        self.epoch_info_provider.chain_id()
     }
 }
 
@@ -193,10 +192,7 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let start_ttn = self.trie_access_tracker.state.get_counts();
         let storage_key = self.create_storage_key(key);
-        let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
-            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
-        };
+        let mode = KeyLookupMode::MemOrFlatOrTrie;
         let deref_options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
@@ -278,10 +274,7 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> ExtResult<bool> {
         let start_ttn = self.trie_access_tracker.state.get_counts();
         let storage_key = self.create_storage_key(key);
-        let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
-            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
-        };
+        let mode = KeyLookupMode::MemOrFlatOrTrie;
         let result = self
             .trie_update
             .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
@@ -319,6 +312,10 @@ impl<'a> External for RuntimeExt<'a> {
         self.trie_update.trie().recorded_storage_size_upper_bound()
     }
 
+    fn storage_proof_size_before_receipt(&self) -> usize {
+        self.storage_proof_size_before_receipt.unwrap_or_else(|| self.get_recorded_storage_size())
+    }
+
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
             .validator_stake(&self.epoch_id, account_id)
@@ -329,6 +326,10 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(&self.epoch_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn chain_id(&self) -> String {
+        self.epoch_info_provider.chain_id()
     }
 
     fn create_action_receipt(
@@ -349,18 +350,46 @@ impl<'a> External for RuntimeExt<'a> {
         let input_data_id = self.generate_data_id();
         let receipt_index =
             self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
-        let receipt_index = (receipt_index, input_data_id);
 
-        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
-            set_promise_yield_status(
-                &mut self.trie_update,
-                &receiver_id,
-                input_data_id,
-                PromiseYieldStatus::Yielded,
-            );
+        set_promise_yield_status(
+            &mut self.trie_update,
+            &receiver_id,
+            input_data_id,
+            PromiseYieldStatus::Yielded,
+        );
+
+        Ok((receipt_index, input_data_id))
+    }
+
+    fn create_promise_yield_receipt_with_id(
+        &mut self,
+        receiver_id: AccountId,
+        user_yield_id: YieldId,
+    ) -> Result<Option<(ReceiptIndex, CryptoHash)>, VMLogicError> {
+        // Check for duplicate yield_id in trie. TrieUpdate also reflects writes from earlier
+        // calls within the same function call, so this also catches in-transaction duplicates.
+        if has_yield_id_mapping(self.trie_update, &receiver_id, user_yield_id)
+            .map_err(wrap_storage_error)?
+        {
+            return Ok(None);
         }
 
-        Ok(receipt_index)
+        let input_data_id = self.generate_data_id();
+
+        // Store bidirectional yield_id <-> data_id mappings
+        set_yield_id_mapping(&mut self.trie_update, &receiver_id, user_yield_id, input_data_id);
+
+        let receipt_index =
+            self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
+
+        set_promise_yield_status(
+            &mut self.trie_update,
+            &receiver_id,
+            input_data_id,
+            PromiseYieldStatus::Yielded,
+        );
+
+        Ok(Some((receipt_index, input_data_id)))
     }
 
     fn submit_promise_resume_data(
@@ -371,34 +400,36 @@ impl<'a> External for RuntimeExt<'a> {
         let has_yield_receipt_in_state =
             has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
                 .map_err(wrap_storage_error)?;
+        let has_yield_status_in_state =
+            has_promise_yield_status(self.trie_update, &self.account_id, data_id)
+                .map_err(wrap_storage_error)?;
 
-        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
-            let has_yield_status_in_state =
-                has_promise_yield_status(self.trie_update, &self.account_id, data_id)
-                    .map_err(wrap_storage_error)?;
-
-            if has_yield_receipt_in_state || has_yield_status_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data);
-                set_promise_yield_status(
-                    &mut self.trie_update,
-                    &self.account_id,
-                    data_id,
-                    PromiseYieldStatus::ResumeInitiated,
-                );
-                return Ok(true);
-            }
-
-            Ok(false)
-        } else {
-            if has_yield_receipt_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data);
-                return Ok(true);
-            }
-
-            // If the yielded promise was created by the current transaction, we'll find it in the
-            // receipt manager.
-            Ok(self.receipt_manager.checked_resolve_promise_yield(data_id, data))
+        if has_yield_receipt_in_state || has_yield_status_in_state {
+            self.receipt_manager.create_promise_resume_receipt(data_id, data);
+            set_promise_yield_status(
+                &mut self.trie_update,
+                &self.account_id,
+                data_id,
+                PromiseYieldStatus::ResumeInitiated,
+            );
+            return Ok(true);
         }
+
+        Ok(false)
+    }
+
+    fn submit_promise_resume_data_with_yield_id(
+        &mut self,
+        user_yield_id: YieldId,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError> {
+        let Some(data_id) =
+            get_data_id_for_yield_id(self.trie_update, &self.account_id, user_yield_id)
+                .map_err(wrap_storage_error)?
+        else {
+            return Ok(false);
+        };
+        self.submit_promise_resume_data(data_id, data)
     }
 
     fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
@@ -433,6 +464,19 @@ impl<'a> External for RuntimeExt<'a> {
         amount: Balance,
     ) -> u64 {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
+    }
+
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
+        state_init_counts(state_init)
+    }
+
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    ) {
+        self.receipt_manager.append_universal_state_init(receipt_index, state_init, amount)
     }
 
     fn append_action_function_call_weight(
@@ -578,6 +622,10 @@ impl<'a> External for RuntimeExt<'a> {
             value,
         )
     }
+
+    fn post_quantum_keys_enabled(&self) -> bool {
+        ProtocolFeature::PostQuantumSignatures.enabled(self.protocol_version())
+    }
 }
 
 pub(crate) struct RuntimeContractExt {
@@ -593,12 +641,10 @@ impl Contract for RuntimeContractExt {
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         match &self.identifier {
             RuntimeContractIdentifier::None => Option::None,
-            RuntimeContractIdentifier::AccountLocal(h)
-            | RuntimeContractIdentifier::Global(h)
-            | RuntimeContractIdentifier::GlobalEthWallet { global_contract_hash: h, .. } => {
-                self.storage.get(*h).map(Arc::new)
+            RuntimeContractIdentifier::AccountLocal { code_hash, .. }
+            | RuntimeContractIdentifier::Global { code_hash, .. } => {
+                self.storage.get(*code_hash).map(Arc::new)
             }
-            RuntimeContractIdentifier::LegacyEthWallet(legacy) => Some(legacy.contract()),
         }
     }
 }

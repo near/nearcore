@@ -119,14 +119,14 @@ impl Edge {
 
     /// Next nonce of valid addition edge.
     pub fn next_nonce(nonce: u64) -> u64 {
-        if nonce % 2 == 1 { nonce + 2 } else { nonce + 1 }
+        if nonce.is_multiple_of(2) { nonce + 1 } else { nonce + 2 }
     }
 
     /// Create a fresh nonce (based on the current time).
     pub fn create_fresh_nonce(clock: &time::Clock) -> u64 {
         let mut nonce = clock.now_utc().unix_timestamp() as u64;
         // Even nonce means that the edge should be removed, so if the timestamp is even, add one to get the odd value.
-        if nonce % 2 == 0 {
+        if nonce.is_multiple_of(2) {
             nonce += 1;
         }
         nonce

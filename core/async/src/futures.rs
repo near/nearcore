@@ -150,10 +150,27 @@ impl AsyncComputationSpawnerExt for dyn AsyncComputationSpawner + '_ {
     }
 }
 
-pub struct StdThreadAsyncComputationSpawnerForTest;
+/// Spawns each computation on a new OS thread. Suitable for infrequent,
+/// long-running tasks (e.g. memtrie loading).
+pub struct StdThreadAsyncComputationSpawner;
 
-impl AsyncComputationSpawner for StdThreadAsyncComputationSpawnerForTest {
+impl AsyncComputationSpawner for StdThreadAsyncComputationSpawner {
+    fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
+        std::thread::Builder::new().name(name.to_owned()).spawn(f).expect("failed to spawn thread");
+    }
+}
+
+/// `AsyncComputationSpawner` backed by the global rayon thread pool. Used in
+/// production; testloop substitutes a spawner that runs the closure on the
+/// testloop event thread instead.
+///
+/// Preserves the caller's `tracing::dispatcher` across the rayon hop so spans
+/// don't disappear from spawned work.
+pub struct RayonAsyncComputationSpawner;
+
+impl AsyncComputationSpawner for RayonAsyncComputationSpawner {
     fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
-        std::thread::spawn(f);
+        let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+        rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
     }
 }

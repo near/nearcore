@@ -9,6 +9,7 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
+use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::private_messages::SendMessage;
 use crate::store;
 use crate::tcp;
@@ -35,6 +36,7 @@ impl PeerConfig {
 
 pub(crate) struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
+    pub network_state: Arc<NetworkState>,
     actor: AutoStopActor<PeerActor>,
     pub events: broadcast::Receiver<Event>,
     pub edge: Option<Edge>,
@@ -43,7 +45,9 @@ pub(crate) struct PeerHandle {
 impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actor
-            .send_async(SendMessage { message: Arc::new(message) }.span_wrap())
+            .send_async(
+                SendMessage { message: Arc::new(message), reserved_permit: None }.span_wrap(),
+            )
             .await
             .unwrap();
     }
@@ -92,7 +96,6 @@ impl PeerHandle {
         });
         let network_state = Arc::new(NetworkState::new(
             &clock,
-            &*actor_system.new_future_spawner("network demux"),
             store,
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
@@ -106,8 +109,15 @@ impl PeerHandle {
             noop().into_multi_sender(),
             noop().into_sender(),
         ));
-        let actor =
-            AutoStopActor(PeerActor::spawn(clock, actor_system, stream, network_state).unwrap().0);
-        Self { actor, cfg, events: recv, edge: None }
+        let tcp = TcpTransport::new_with_spawner(
+            network_state.clone(),
+            clock.clone(),
+            actor_system.clone(),
+            actor_system.new_future_spawner("peer testonly"),
+        );
+        let actor = AutoStopActor(
+            PeerActor::spawn(clock, actor_system, stream, network_state.clone(), tcp).unwrap().0,
+        );
+        Self { actor, cfg, network_state, events: recv, edge: None }
     }
 }

@@ -87,6 +87,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         random_seed: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        next_wasm_config: None,
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,
         save_receipt_to_tx: false,
@@ -189,8 +190,12 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     let combined_partial_state = PartialState::TrieValues(all_trie_values);
 
     // Create a chunk header
-    let chunk_header =
-        ShardChunkHeader::new_dummy(100, shard_uid.shard_id(), CryptoHash::default());
+    let chunk_header = ShardChunkHeader::new_dummy(
+        100,
+        shard_uid.shard_id(),
+        CryptoHash::default(),
+        PROTOCOL_VERSION,
+    );
 
     // Create main state transition
     let main_state_transition = ChunkStateTransition {

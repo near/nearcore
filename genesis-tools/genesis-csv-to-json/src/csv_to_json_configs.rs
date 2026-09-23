@@ -6,8 +6,7 @@ use near_chain_configs::{
     PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
     TrackedShardsConfig,
 };
-use near_primitives::types::{Balance, NumShards, ShardId};
-use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::types::{Balance, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{CONFIG_FILENAME, Config, NODE_KEY_FILE};
 use std::collections::HashSet;
@@ -76,11 +75,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         genesis_time,
         chain_id: chain_id.clone(),
         num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
-        num_block_producer_seats_per_shard: get_num_seats_per_shard(
-            SHARDS.len() as NumShards,
-            NUM_BLOCK_PRODUCER_SEATS,
-        ),
-        avg_hidden_validator_seats_per_shard: SHARDS.iter().map(|_| 0).collect(),
         dynamic_resharding: false,
         protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
         epoch_length: EXPECTED_EPOCH_LENGTH,

@@ -157,7 +157,7 @@ impl RotatingValidatorsRunner {
         }
 
         let epoch_length = client.epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
-        let max_block_production_delay = client.config.max_block_production_delay;
+        let max_block_production_delay = client.config.max_block_production_delay.get();
         env.test_loop.run_until(
             |test_loop_data| {
                 if condition(test_loop_data) {

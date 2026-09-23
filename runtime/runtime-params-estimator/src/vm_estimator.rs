@@ -1,15 +1,17 @@
 use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{REAL_CONTRACTS_SAMPLE, utils::read_resource};
-use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
+use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
-    ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, NoContractRuntimeCache,
+    ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
+    NoContractRuntimeCache,
 };
+use std::sync::Arc;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -156,4 +158,138 @@ pub(crate) fn compute_compile_cost_vm(
         );
     }
     (a, b)
+}
+
+pub(crate) fn adversarial_compile_max_blocks(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::max_blocks_contract(10, 4_999);
+    compile_single_contract_cost(metric, vm_kind, &code)
+}
+
+pub(crate) fn adversarial_load_many_globals(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::contract_with_num_globals(50_000);
+    measure_instantiation_overhead(metric, vm_kind, &code)
+}
+
+pub(crate) fn adversarial_load_many_data_segments(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::many_data_segments_contract(50_000);
+    measure_instantiation_overhead(metric, vm_kind, &code)
+}
+
+pub(crate) fn adversarial_load_many_element_segments(
+    metric: GasMetric,
+    vm_kind: VMKind,
+) -> GasCost {
+    let code = near_test_contracts::many_element_segments_contract(10_000);
+    measure_instantiation_overhead(metric, vm_kind, &code)
+}
+
+/// Warm the compile cache, then measure N invocations (instantiation + trivial execution).
+/// The function body is a bare `end`, so execution cost is negligible.
+fn measure_instantiation_overhead(
+    metric: GasMetric,
+    vm_kind: VMKind,
+    contract_bytes: &[u8],
+) -> GasCost {
+    let config_store = RuntimeConfigStore::new(None);
+    let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
+    config.vm_kind = vm_kind;
+    let config = Arc::new(config);
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let code = ContractCode::new(contract_bytes.to_vec(), None);
+    let cache = MockContractRuntimeCache::default();
+    let mut fake_external = near_vm_runner::logic::mocks::mock_external::MockedExternal::with_code(
+        code.clone_for_tests(),
+    );
+
+    let mut run_once = || {
+        let context = create_context(vec![]);
+        let gas_counter = context.make_gas_counter(&config);
+        vm_kind
+            .runtime(config.clone())
+            .unwrap()
+            .prepare(&fake_external, Some(&cache), gas_counter, "main")
+            .run(&mut fake_external, &context, Arc::clone(&fees))
+            .expect("fatal_error")
+    };
+
+    // Warm: compiles and caches the module; subsequent calls only instantiate + execute.
+    run_once();
+
+    let n = 10_usize;
+    let start = GasCost::measure(metric);
+    for _ in 0..n {
+        run_once();
+    }
+    start.elapsed() / n as u64
+}
+
+pub(crate) fn op_float_nan_canonicalization(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::float_nan_loop_contract();
+    measure_op_loop(metric, vm_kind, &code)
+}
+
+pub(crate) fn op_int_baseline(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::int_baseline_loop_contract();
+    measure_op_loop(metric, vm_kind, &code)
+}
+
+pub(crate) fn op_wide_arithmetic(metric: GasMetric, vm_kind: VMKind) -> GasCost {
+    let code = near_test_contracts::wide_arithmetic_loop_contract();
+    measure_op_loop(metric, vm_kind, &code)
+}
+
+/// Compile + run an infinite loop until gas exhaustion (100 Tgas), return ns
+/// per WASM instruction.
+fn measure_op_loop(metric: GasMetric, vm_kind: VMKind, contract_bytes: &[u8]) -> GasCost {
+    let config_store = RuntimeConfigStore::new(None);
+    let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
+    let gas_limit = Gas::from_teragas(100);
+    config.limit_config.max_gas_burnt = gas_limit;
+    config.vm_kind = vm_kind;
+    let config = Arc::new(config);
+    let fees = Arc::new(RuntimeFeesConfig::test());
+    let code = ContractCode::new(contract_bytes.to_vec(), None);
+    let cache = MockContractRuntimeCache::default();
+    let mut fake_external = near_vm_runner::logic::mocks::mock_external::MockedExternal::with_code(
+        code.clone_for_tests(),
+    );
+
+    let mut run_once = || {
+        let mut context = create_context(vec![]);
+        context.prepaid_gas = gas_limit;
+        let gas_counter = context.make_gas_counter(&config);
+        let result = vm_kind
+            .runtime(config.clone())
+            .unwrap()
+            .prepare(&fake_external, Some(&cache), gas_counter, "main")
+            .run(&mut fake_external, &context, Arc::clone(&fees))
+            .expect("fatal_error");
+        assert!(result.aborted.is_some(), "expected gas exhaustion but contract finished cleanly");
+        result
+    };
+
+    let warmup = run_once();
+    let burnt_gas = warmup.burnt_gas.as_gas();
+    assert!(
+        burnt_gas > 0,
+        "loop burnt 0 gas — method not found or gas budget exhausted before first instruction; \
+         aborted={:?}",
+        warmup.aborted,
+    );
+    let instructions = burnt_gas / u64::from(config.regular_op_cost);
+    assert!(
+        instructions > 0,
+        "gas budget too small: burnt {} gas but regular_op_cost={} gas/op — \
+         increase max_gas_burnt in measure_op_loop",
+        burnt_gas,
+        config.regular_op_cost,
+    );
+
+    let n = 5_usize;
+    let start = GasCost::measure(metric);
+    for _ in 0..n {
+        run_once();
+    }
+    let result = start.elapsed() / (instructions * n as u64);
+    result
 }

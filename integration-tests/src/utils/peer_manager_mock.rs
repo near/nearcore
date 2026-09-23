@@ -43,3 +43,9 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerMock {
 impl messaging::Handler<Tier3Request> for PeerManagerMock {
     fn handle(&mut self, _msg: Tier3Request) {}
 }
+
+impl messaging::Handler<near_network::types::NetworkRequestWithPermit> for PeerManagerMock {
+    fn handle(&mut self, _msg: near_network::types::NetworkRequestWithPermit) {
+        unimplemented!()
+    }
+}

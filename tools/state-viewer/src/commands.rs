@@ -23,7 +23,9 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
+use near_epoch_manager::{
+    AssignmentStrategy, EpochManager, EpochManagerAdapter, proposals_to_epoch_info,
+};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
@@ -102,11 +104,15 @@ pub(crate) fn apply_block(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     on_post_state_ready: None,
+                    memtrie_pin: runtime
+                        .get_tries()
+                        .maybe_pin_memtrie_root(shard_uid, *chunk_inner.prev_state_root())
+                        .expect("failed to pin memtrie root"),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -128,11 +134,15 @@ pub(crate) fn apply_block(
                 storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
-                    shard_id,
+                    shard_uid,
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     on_post_state_ready: None,
+                    memtrie_pin: runtime
+                        .get_tries()
+                        .maybe_pin_memtrie_root(shard_uid, *chunk_extra.state_root())
+                        .expect("failed to pin memtrie root"),
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -441,12 +451,16 @@ pub(crate) fn dump_code(
     let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let protocol_version = epoch_manager.get_epoch_info(epoch_id).unwrap().protocol_version();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
-        if let Ok(contract_code) =
-            runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
-        {
+        if let Ok(contract_code) = runtime.view_contract_code(
+            &shard_uid,
+            *state_root,
+            &account_id.parse().unwrap(),
+            protocol_version,
+        ) {
             let mut file = File::create(output).unwrap();
             file.write_all(contract_code.code()).unwrap();
             println!("Dump contract of account {} into file {}", account_id, output.display());
@@ -1108,6 +1122,20 @@ pub(crate) fn print_epoch_analysis(
             .then_some(next_next_epoch_height)
             .or_else(|| next_epoch_info.last_resharding());
 
+        // Backtest replays historical state under the latest protocol, so
+        // `next_next_shard_layout` (computed against `PROTOCOL_VERSION`) and
+        // the historical `next_shard_layout` will routinely differ even on
+        // non-resharding epochs. Force `CarryOver` to suppress that artifact
+        // — same intent as the historical `has_same_shard_layout = true`
+        // override in this mode.
+        let strategy = match mode {
+            EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
+                next_next_protocol_version,
+                &next_shard_layout,
+                &next_next_shard_layout,
+            ),
+            EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
+        };
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1117,8 +1145,8 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
-            next_next_shard_layout,
-            has_same_shard_layout,
+            next_next_shard_layout.clone(),
+            &strategy,
             last_resharding,
         )
         .unwrap();

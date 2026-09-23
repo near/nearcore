@@ -69,12 +69,12 @@ pub struct AccountDataCacheSnapshot {
     /// rather than with a specific account ID.
     pub keys_by_id: Arc<AccountKeys>,
     /// Set of account keys allowed on TIER1 network.
-    pub keys: im::HashSet<PublicKey>,
+    pub keys: imbl::HashSet<PublicKey>,
     /// Current state of knowledge about an account.
     /// `data.keys()` is a subset of `keys` at all times,
     /// as cache is collecting data only about the accounts from `keys`,
     /// and data about the particular account might be not known at the given moment.
-    pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
+    pub data: imbl::HashMap<PublicKey, Arc<SignedAccountData>>,
 
     pub local: Option<LocalAccountData>,
 }
@@ -197,8 +197,8 @@ impl AccountDataCache {
     pub fn new() -> Self {
         Self(ArcMutex::new(AccountDataCacheSnapshot {
             keys_by_id: Arc::new(AccountKeys::default()),
-            keys: im::HashSet::new(),
-            data: im::HashMap::new(),
+            keys: imbl::HashSet::new(),
+            data: imbl::HashMap::new(),
             local: None,
         }))
     }

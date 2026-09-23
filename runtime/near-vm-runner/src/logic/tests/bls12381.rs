@@ -1,4 +1,4 @@
-// cspell:ignore cofactor, enot, goperations, multipoint
+// cspell:ignore bendian, blst, cofactor, enot, goperations, multipoint
 // cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
     use crate::logic::MemSlice;
@@ -23,21 +23,74 @@ mod tests {
 
     const MAX_N_PAIRING: usize = 15;
 
+    // Runs the host function with `bls12381_not_in_group_fix`. The
+    // optional `bls12381_not_in_group_fix:` selector pins the flag to a
+    // single value; without it, both `true` and `false` are exercised and
+    // asserted to match.
+    //
+    //   run_bls12381_fn!(fn, buf)
+    //       → both flag values, expect success; asserts registers are
+    //         equal across modes, returns the register.
+    //   run_bls12381_fn!(fn, buf, expected)
+    //       → both flag values, expect $expected.
+    //   run_bls12381_fn!(fn, buf, bls12381_not_in_group_fix: f)
+    //       → only with $bls12381_not_in_group_fix=f, expect success,
+    //         returns the register.
+    //   run_bls12381_fn!(fn, buf, bls12381_not_in_group_fix: f, exp)
+    //       → only with $bls12381_not_in_group_fix=f, expect $exp.
     macro_rules! run_bls12381_fn {
-        ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
+        // Single flag, given expected (no register return).
+        ($fn_name:ident, $buffer:expr, bls12381_not_in_group_fix: $flag:expr, $expected_res:expr) => {{
+            let not_in_group_fix: bool = $flag;
             let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
             let mut logic = logic_builder.build();
             let input = logic.internal_mem_write($buffer.concat().as_slice());
             let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, $expected_res);
+            assert_eq!(res, $expected_res, "with bls12381_not_in_group_fix={not_in_group_fix}");
         }};
-        ($fn_name:ident, $buffer:expr) => {{
+        // Single flag, success expected, returns register.
+        ($fn_name:ident, $buffer:expr, bls12381_not_in_group_fix: $flag:expr) => {{
+            let not_in_group_fix: bool = $flag;
             let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
             let mut logic = logic_builder.build();
             let input = logic.internal_mem_write($buffer.concat().as_slice());
             let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
+            assert_eq!(res, 0, "with bls12381_not_in_group_fix={not_in_group_fix}");
             logic.registers().get_for_free(0).unwrap().to_vec()
+        }};
+        // Both flags, common expected (no register return).
+        ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
+            let buffer = $buffer.concat();
+            for not_in_group_fix in [true, false] {
+                let mut logic_builder = VMLogicBuilder::default();
+                logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
+                let mut logic = logic_builder.build();
+                let input = logic.internal_mem_write(buffer.as_slice());
+                let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+                assert_eq!(res, $expected_res, "with bls12381_not_in_group_fix={not_in_group_fix}");
+            }
+        }};
+        // Both flags, success expected, returns register; asserts the
+        // register is identical across flag values.
+        ($fn_name:ident, $buffer:expr) => {{
+            let buffer = $buffer.concat();
+            let mut prev: Option<Vec<u8>> = None;
+            for not_in_group_fix in [true, false] {
+                let mut logic_builder = VMLogicBuilder::default();
+                logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
+                let mut logic = logic_builder.build();
+                let input = logic.internal_mem_write(buffer.as_slice());
+                let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+                assert_eq!(res, 0, "with bls12381_not_in_group_fix={not_in_group_fix}");
+                let reg = logic.registers().get_for_free(0).unwrap().to_vec();
+                if let Some(p) = &prev {
+                    assert_eq!(p, &reg, "register output differs between flag values");
+                }
+                prev = Some(reg);
+            }
+            prev.unwrap()
         }};
     }
 
@@ -646,6 +699,31 @@ mod tests {
         slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
+    /// Input is rejected by the legacy parse path; runs only post-fix and
+    /// checks `P + (0, ±2)` matches the library sum. Legacy rejection is
+    /// covered by `test_bls12381_g1_add_x0_test_vectors`.
+    #[test]
+    fn test_bls12381_sum_x0_fuzzer() {
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+
+        bolero::check!().with_type().for_each(|p: &E1Point| {
+            for q in [zero_x_point, zero_x_point.neg()] {
+                let p_ser = G1Operations::serialize_uncompressed_g(&p.p).to_vec();
+                let q_ser = G1Operations::serialize_uncompressed_g(&q).to_vec();
+                let got = run_bls12381_fn!(
+                    bls12381_p1_sum,
+                    [vec![0u8], p_ser, vec![0u8], q_ser],
+                    bls12381_not_in_group_fix: true
+                );
+                let library_sum =
+                    G1Operations::serialize_uncompressed_g(&p.p.add(&q).into_affine()).to_vec();
+                assert_eq!(got, library_sum);
+            }
+        });
+    }
+
     macro_rules! test_bls12381_memory_limit {
         (
             $namespace_name:ident,
@@ -845,6 +923,88 @@ mod tests {
         test_bls12381_error_g2_encoding
     );
 
+    #[test]
+    fn test_bls12381_mul_x0_fuzzer() {
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        bolero::check!().with_type().for_each(|n: &Scalar| {
+            let mut n_vec: [u8; 32] = [0u8; 32];
+            n.p.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
+            run_bls12381_fn!(bls12381_g1_multiexp, [zero_x_uncompress.clone(), n_vec.to_vec()], 1);
+        });
+    }
+
+    #[test]
+    fn test_bls12381_g1_multiexp_x_0() {
+        let mut zero_x_pos = vec![0u8; 2 * 48];
+        zero_x_pos[2 * 48 - 1] = 2;
+        let zero_x_neg = G1Operations::serialize_uncompressed_g(
+            &G1Operations::deserialize_g(zero_x_pos.clone()).neg(),
+        );
+
+        let mut scalar = vec![0u8; 32];
+        scalar[0] = 1;
+
+        for point in [zero_x_pos, zero_x_neg] {
+            run_bls12381_fn!(bls12381_g1_multiexp, [point, scalar.clone()], 1);
+        }
+    }
+
+    #[test]
+    fn test_blst_p1_in_g1_rejects_x_0() {
+        let mut pos = vec![0u8; 96];
+        pos[95] = 2;
+        let neg =
+            G1Operations::serialize_uncompressed_g(&G1Operations::deserialize_g(pos.clone()).neg());
+
+        for (bytes, neg_bytes) in [(&pos, &neg), (&neg, &pos)] {
+            let mut pk_aff = blst::blst_p1_affine::default();
+            let err = unsafe { blst::blst_p1_deserialize(&mut pk_aff, bytes.as_ptr()) };
+            assert_eq!(err, blst::BLST_ERROR::BLST_POINT_NOT_IN_GROUP);
+
+            // Not infinity.
+            assert!(!unsafe { blst::blst_p1_affine_is_inf(&pk_aff) });
+
+            // Coordinates of the affine point match the input bytes.
+            let mut x_bytes = [0u8; 48];
+            let mut y_bytes = [0u8; 48];
+            unsafe {
+                blst::blst_bendian_from_fp(x_bytes.as_mut_ptr(), &pk_aff.x);
+                blst::blst_bendian_from_fp(y_bytes.as_mut_ptr(), &pk_aff.y);
+            }
+            assert_eq!(x_bytes.as_slice(), &bytes[0..48]);
+            assert_eq!(y_bytes.as_slice(), &bytes[48..96]);
+
+            let mut pk = blst::blst_p1::default();
+            unsafe { blst::blst_p1_from_affine(&mut pk, &pk_aff) };
+
+            // Round-trip: serialize the parsed point back and check that
+            // blst really did store the input point (not e.g. infinity).
+            let mut round_trip_aff = blst::blst_p1_affine::default();
+            unsafe { blst::blst_p1_to_affine(&mut round_trip_aff, &pk) };
+            let mut round_trip = [0u8; 96];
+            unsafe { blst::blst_p1_affine_serialize(round_trip.as_mut_ptr(), &round_trip_aff) };
+            assert_eq!(round_trip.as_slice(), bytes.as_slice());
+
+            let mut double = blst::blst_p1::default();
+            unsafe { blst::blst_p1_add_or_double(&mut double, &pk, &pk) };
+            let mut double_aff = blst::blst_p1_affine::default();
+            unsafe { blst::blst_p1_to_affine(&mut double_aff, &double) };
+            let mut double_bytes = [0u8; 96];
+            unsafe { blst::blst_p1_affine_serialize(double_bytes.as_mut_ptr(), &double_aff) };
+            assert_eq!(double_bytes.as_slice(), neg_bytes.as_slice());
+
+            let mut triple = blst::blst_p1::default();
+            unsafe { blst::blst_p1_add_or_double(&mut triple, &double, &pk) };
+            assert!(unsafe { blst::blst_p1_is_inf(&triple) });
+
+            assert!(
+                !unsafe { blst::blst_p1_in_g1(&pk) },
+                "blst_p1_in_g1 must reject the not-in-group point"
+            );
+        }
+    }
+
     fn add_p_y(point: &G1Affine) -> Vec<u8> {
         let mut ybig: Fq = *point.y().unwrap();
         ybig = ybig.add(&Fq::from_str(P).unwrap());
@@ -959,11 +1119,13 @@ mod tests {
             $GOp:ident,
             $GPoint:ident,
             $EPoint:ident,
+            $EnotGPoint:ident,
             $GAffine:ident,
             $POINT_LEN:expr,
             $bls12381_decompress:ident,
             $add_p:ident,
             $test_bls12381_decompress:ident,
+            $test_bls12381_decompress_not_G:ident,
             $test_bls12381_decompress_many_points:ident,
             $test_bls12381_decompress_incorrect_input:ident
         ) => {
@@ -985,6 +1147,21 @@ mod tests {
                 let res1 = $GOp::decompress_p(vec![zero1.clone()]);
 
                 assert_eq!(res1, $GOp::serialize_uncompressed_g(&zero1));
+            }
+
+            #[test]
+            fn $test_bls12381_decompress_not_G() {
+                bolero::check!().with_type().for_each(|p1: &$EnotGPoint| {
+                    let res1 = $GOp::decompress_p(vec![p1.p.clone()]);
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1.p));
+
+                    let p1_neg = p1.p.neg();
+                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
+
+                    assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
+                    assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
+                    assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
+                });
             }
 
             #[test]
@@ -1047,15 +1224,39 @@ mod tests {
         };
     }
 
+    #[test]
+    fn test_bls12381_decompress_x_0() {
+        let mut zero_x = vec![0u8; 48];
+        zero_x[0] = 0x80;
+
+        run_bls12381_fn!(
+            bls12381_p1_decompress,
+            [zero_x.clone()],
+            bls12381_not_in_group_fix: false,
+            1
+        );
+
+        let res = run_bls12381_fn!(
+            bls12381_p1_decompress,
+            [zero_x],
+            bls12381_not_in_group_fix: true
+        );
+        let mut zero_x_uncompress = vec![0u8; 2 * 48];
+        zero_x_uncompress[2 * 48 - 1] = 2;
+        assert_eq!(res, zero_x_uncompress);
+    }
+
     test_bls12381_decompress!(
         G1Operations,
         G1Point,
         E1Point,
+        EnotG1Point,
         G1Affine,
         48,
         bls12381_p1_decompress,
         add_p_x,
         slow_test_bls12381_p1_decompress_fuzzer,
+        slow_test_bls12381_p1_decompress_not_g1_fuzzer,
         slow_test_bls12381_p1_decompress_many_points_fuzzer,
         slow_test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
@@ -1064,11 +1265,13 @@ mod tests {
         G2Operations,
         G2Point,
         E2Point,
+        EnotG2Point,
         G2Affine,
         96,
         bls12381_p2_decompress,
         add2_p_x,
         slow_test_bls12381_p2_decompress_fuzzer,
+        slow_test_bls12381_p2_decompress_not_g2_fuzzer,
         slow_test_bls12381_p2_decompress_many_points_fuzzer,
         slow_test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
@@ -1083,6 +1286,27 @@ mod tests {
         let mut p_ser = G2Operations::serialize_g(&point);
         p_ser[0] |= 0x1f;
         p_ser
+    }
+
+    /// `(0, 2)` is on `E(Fp)` but outside the `G1` subgroup. Pairing has
+    /// its own explicit `in_g1` check (independent of the parse path that
+    /// this PR relaxes), so feeding such a point yields the same rejection
+    /// (`1`) regardless of `bls12381_not_in_group_fix`.
+    #[test]
+    fn test_bls12381_pairing_x_0() {
+        let mut zero_x_g1 = vec![0u8; 96];
+        zero_x_g1[95] = 2;
+        let g2 = G2Operations::serialize_uncompressed_g(&G2Affine::generator()).to_vec();
+        let buffer = [zero_x_g1, g2].concat();
+
+        for bls12381_not_in_group_fix in [false, true] {
+            let mut logic_builder = VMLogicBuilder::default();
+            logic_builder.config.bls12381_not_in_group_fix = bls12381_not_in_group_fix;
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write(buffer.as_slice());
+            let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+            assert_eq!(res, 1, "with bls12381_not_in_group_fix={bls12381_not_in_group_fix}");
+        }
     }
 
     #[test]
@@ -1197,6 +1421,11 @@ mod tests {
                 assert_eq!(pairing_check(vec![p1_not_from_g1.p], vec![p2.p]), 1);
                 assert_eq!(pairing_check(vec![p1.p], vec![p2_not_from_g2.p]), 1);
 
+                let mut zero_x_uncompress = vec![0u8; 2 * 48];
+                zero_x_uncompress[2 * 48 - 1] = 2;
+                let zero_x_point = G1Operations::deserialize_g(zero_x_uncompress);
+                assert_eq!(pairing_check(vec![zero_x_point], vec![p2.p]), 1);
+
                 let p1_ser = G1Operations::serialize_uncompressed_g(&p1.p).to_vec();
                 let p2_ser = G2Operations::serialize_uncompressed_g(&p2.p).to_vec();
                 let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points(curve_p1);
@@ -1260,9 +1489,6 @@ mod tests {
                 for record in reader.records() {
                     let record = record.unwrap();
 
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
                     let bytes_input = hex::decode(&record[0]).unwrap();
                     let k = bytes_input.len() / $item_size;
                     let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
@@ -1272,9 +1498,15 @@ mod tests {
                         ));
                     }
 
-                    let input = logic.internal_mem_write(&bytes_input_fix.concat());
-                    let res = $run_bls_fn(input, &mut logic);
-                    $check_res(&record[1], res);
+                    for not_in_group_fix in [true, false] {
+                        let mut logic_builder = VMLogicBuilder::default();
+                        logic_builder.config.bls12381_not_in_group_fix = not_in_group_fix;
+                        let mut logic = logic_builder.build();
+
+                        let input = logic.internal_mem_write(&bytes_input_fix.concat());
+                        let res = $run_bls_fn(input, &mut logic);
+                        $check_res(&record[1], res);
+                    }
                 }
             }
         };
@@ -1432,6 +1664,42 @@ mod tests {
         run_sum_g1,
         cmp_output_g1
     );
+
+    /// Addition vectors that involve `(0, ±2)` — a point on `E(Fp)` outside
+    /// the G1 subgroup. blst's `blst_p1_deserialize` returns
+    /// `BLST_POINT_NOT_IN_GROUP` for it.
+    ///
+    /// - With `bls12381_not_in_group_fix = false` (legacy): parse rejects the
+    ///   input, so the host function returns 1 (failure).
+    /// - With `bls12381_not_in_group_fix = true` (NEP-488): parse accepts it
+    ///   and the sum matches the expected result encoded in the CSV.
+    #[test]
+    fn test_bls12381_g1_add_x0_test_vectors() {
+        let input_csv = fs::read("src/logic/tests/bls12381_test_vectors/g1_add_x0.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(input_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len() / 256;
+            let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fix
+                    .push(fix_eip2537_sum_g1_input(bytes_input[i * 256..(i + 1) * 256].to_vec()));
+            }
+            let got = run_bls12381_fn!(
+                bls12381_p1_sum,
+                bytes_input_fix,
+                bls12381_not_in_group_fix: true
+            );
+            cmp_output_g1(&record[1], got);
+            run_bls12381_fn!(
+                bls12381_p1_sum,
+                bytes_input_fix,
+                bls12381_not_in_group_fix: false,
+                1
+            );
+        }
+    }
 
     eip2537_tests!(
         "src/logic/tests/bls12381_test_vectors/g2_add.csv",

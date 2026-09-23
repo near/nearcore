@@ -23,6 +23,12 @@ pub enum Parameter {
     GasRefundPenalty,
     /// Minimum gas refund tax.
     MinGasRefundPenalty,
+    /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
+    /// burned might be lower, in which case the difference is refunded after execution.
+    MinGasPurchasePrice,
+    /// How much creating an account should cost in NEAR. Taken into account when burning gas for
+    /// account creation.
+    AccountCreationCharge,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.
@@ -77,6 +83,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerEntry,
+    ActionUniversalStateInitPerByte,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -108,11 +117,29 @@ pub enum Parameter {
     WasmKeccak256Byte,
     WasmKeccak512Base,
     WasmKeccak512Byte,
+    #[strum(serialize = "wasm_sha3_256_base")]
+    WasmSha3256Base,
+    #[strum(serialize = "wasm_sha3_256_byte")]
+    WasmSha3256Byte,
+    #[strum(serialize = "wasm_sha3_384_base")]
+    WasmSha3384Base,
+    #[strum(serialize = "wasm_sha3_384_byte")]
+    WasmSha3384Byte,
+    #[strum(serialize = "wasm_sha3_512_base")]
+    WasmSha3512Base,
+    #[strum(serialize = "wasm_sha3_512_byte")]
+    WasmSha3512Byte,
     WasmRipemd160Base,
     WasmRipemd160Block,
     WasmEcrecoverBase,
     WasmEd25519VerifyBase,
     WasmEd25519VerifyByte,
+    WasmP256VerifyBase,
+    WasmP256VerifyByte,
+    WasmMlDsaVerifyBase,
+    WasmMlDsaVerifyByte,
+    WasmUniversalStateInitToAccountIdBase,
+    WasmUniversalStateInitToAccountIdByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -152,6 +179,7 @@ pub enum Parameter {
     WasmAltBn128G1SumElement,
     WasmYieldCreateBase,
     WasmYieldCreateByte,
+    WasmYieldCreateWithIdBase,
     WasmYieldResumeBase,
     WasmYieldResumeByte,
     WasmBls12381P1SumBase,
@@ -186,6 +214,7 @@ pub enum Parameter {
     MaxTotalLogLength,
     MaxTotalPrepaidGas,
     MaxActionsPerReceipt,
+    MaxDeployActionsPerReceipt,
     MaxNumberBytesMethodNames,
     MaxLengthMethodName,
     MaxArgumentsLength,
@@ -197,22 +226,37 @@ pub enum Parameter {
     MaxLengthStorageValue,
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
+    MaxReceiptTotalInputSize,
+    /// Max number of access keys the state-init actions in one receipt may commit to, in total.
+    MaxUniversalStateInitKeys,
+    /// Max number of storage entries the state-init actions in one receipt may carry, in total.
+    MaxStateInitEntries,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
+    MinContractSizePerLocal,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
     MaxTablesPerContract,
     MaxElementsPerContractTable,
+    MaxFunctionBodySize,
+    MaxInstrumentedCodeSize,
+    MaxBlocksPerFunction,
+    MaxBlocksPerContract,
+    MaxTypesPerContract,
+    MaxParamsPerFunction,
+    MaxParamsPerContract,
+    MaxOperandStackBytesPerFunction,
+    MaxGlobalsPerContract,
 
     // Contract runtime features
-    FlatStorageReads,
     FixContractLoadingCost,
+    FixContractLoadingError,
     VmKind,
-    EthImplicitAccounts,
-    EthImplicitGlobalContract,
-    DiscardCustomSections,
-    ReftypesBulkMemory,
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 87, where the feature is enabled.
+    UniversalAccounts,
+    FixMlDsaCostCharging,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -227,9 +271,6 @@ pub enum Parameter {
     MinTxGas,
     RejectTxCongestionThreshold,
 
-    // Use the StateStoredReceipt structure when storing receipts in State.
-    UseStateStoredReceipt,
-
     // Bandwidth scheduler
     MaxShardBandwidth,
     MaxSingleGrant,
@@ -240,16 +281,54 @@ pub enum Parameter {
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
     GlobalContractStorageAmountPerByte,
+    /// Compute cost charged when applying a `GlobalContractDistribution`
+    /// receipt on the receiver shard (covers precompilation overhead).
+    DeployGlobalContractExecutionBase,
+    /// Per-byte compute cost charged when applying a
+    /// `GlobalContractDistribution` receipt, scaled by deployed code size.
+    DeployGlobalContractExecutionPerByte,
+    /// Gas charged at transaction conversion for each ML-DSA-65 signature the
+    /// transaction triggers verification of: its own signature (if signed with
+    /// an ML-DSA-65 key) plus each `Delegate` action carrying an ML-DSA-65
+    /// inner signer. ML-DSA-65 verification is materially slower than the
+    /// classical schemes, so this charges its extra cost; the signer pays for
+    /// that work as part of buying the transaction. Accepts the
+    /// `{gas: ..., compute: ...}` form to set the compute cost independently
+    /// of the gas cost. 0 before `PostQuantumSignatures`.
+    #[strum(serialize = "ml_dsa_65_verification_cost")]
+    MlDsa65VerificationCost,
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    GlobalContractHostFns,
-
-    // Flag to enabled deterministic account ids
-    DeterministicAccountIds,
 
     // Flag to enable gas key host functions
     GasKeyHostFns,
+
+    // Flag to allow 1 yoctoNEAR on promise function calls without balance
+    OneYoctoOnPromise,
+
+    // Flag to enable the P-256 verification host function
+    P256VerifyHostFn,
+
+    // Flag to enable the ML-DSA-65 verification host function
+    MlDsaVerifyHostFn,
+
+    // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
+    #[strum(serialize = "sha3_host_fns")]
+    Sha3HostFns,
+
+    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
+    YieldWithIdHostFns,
+
+    // Flag to enable chain_id host function (NEP-638)
+    ChainIdHostFn,
+
+    // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
+    // functions (NEP-488). These points lie on the curve but outside the G1/G2
+    // subgroup; previously the host function returned an error for them, now
+    // they are handled correctly. All other inputs were already handled
+    // correctly.
+    Bls12381NotInGroupFix,
 }
 
 #[derive(
@@ -289,6 +368,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerByte,
+    ActionUniversalStateInitPerEntry,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -310,6 +392,7 @@ impl Parameter {
             Parameter::MaxTotalLogLength,
             Parameter::MaxTotalPrepaidGas,
             Parameter::MaxActionsPerReceipt,
+            Parameter::MaxDeployActionsPerReceipt,
             Parameter::MaxNumberBytesMethodNames,
             Parameter::MaxLengthMethodName,
             Parameter::MaxArgumentsLength,
@@ -321,14 +404,27 @@ impl Parameter {
             Parameter::MaxLengthStorageValue,
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
+            Parameter::MaxReceiptTotalInputSize,
+            Parameter::MaxUniversalStateInitKeys,
+            Parameter::MaxStateInitEntries,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
+            Parameter::MinContractSizePerLocal,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
             Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::MaxTablesPerContract,
             Parameter::MaxElementsPerContractTable,
+            Parameter::MaxFunctionBodySize,
+            Parameter::MaxInstrumentedCodeSize,
+            Parameter::MaxBlocksPerFunction,
+            Parameter::MaxBlocksPerContract,
+            Parameter::MaxTypesPerContract,
+            Parameter::MaxParamsPerFunction,
+            Parameter::MaxParamsPerContract,
+            Parameter::MaxOperandStackBytesPerFunction,
+            Parameter::MaxGlobalsPerContract,
         ]
         .iter()
     }
@@ -364,6 +460,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::universal_state_init_base => Self::ActionUniversalStateInit,
+            ActionCosts::universal_state_init_byte => Self::ActionUniversalStateInitPerByte,
+            ActionCosts::universal_state_init_entry => Self::ActionUniversalStateInitPerEntry,
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,

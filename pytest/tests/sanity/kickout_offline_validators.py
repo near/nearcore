@@ -80,21 +80,20 @@ def get_epoch_info(node, block_hash):
 
 
 nodes = start_cluster(
-    8, 0, 1,
-    None, [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 4],
-           ["num_block_producer_seats_per_shard", [4]],
-           ["num_chunk_producer_seats", 4], ["num_chunk_validator_seats", 8],
-           ["block_producer_kickout_threshold", KICKOUT_THRESHOLD],
-           ["chunk_producer_kickout_threshold", KICKOUT_THRESHOLD],
-           ["chunk_validator_only_kickout_threshold", KICKOUT_THRESHOLD],
-           ["minimum_validators_per_shard", 1],
-           ["total_supply", "8604040000000000000000000000000000"]] + [[
-               "validators", i, "amount",
-               BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
-           ] for i in range(8)] + [[
-               "records", 2 * i, "Account", "account", "locked",
-               BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
-           ] for i in range(8)], {i: node_config for i in range(8)})
+    8, 0, 1, None,
+    [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 4],
+     ["num_chunk_producer_seats", 4], ["num_chunk_validator_seats", 8],
+     ["block_producer_kickout_threshold", KICKOUT_THRESHOLD],
+     ["chunk_producer_kickout_threshold", KICKOUT_THRESHOLD],
+     ["chunk_validator_only_kickout_threshold", KICKOUT_THRESHOLD],
+     ["minimum_validators_per_shard", 1],
+     ["total_supply", "8604040000000000000000000000000000"]] + [[
+         "validators", i, "amount",
+         BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
+     ] for i in range(8)] + [[
+         "records", 2 * i, "Account", "account", "locked",
+         BLOCK_PRODUCER_BALANCE if i < 4 else CHUNK_VALIDATOR_BALANCE
+     ] for i in range(8)], {i: node_config for i in range(8)})
 
 rpc_node = nodes[0]
 

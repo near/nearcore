@@ -6,6 +6,8 @@ mod shadow_validate;
 mod state_witness_producer;
 pub mod state_witness_tracker;
 mod validate;
+#[cfg(test)]
+mod validate_tests;
 
 use near_parameters::RuntimeConfig;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;

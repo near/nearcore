@@ -1,10 +1,10 @@
 #[cfg(unix)]
 use anyhow::Context;
-use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_client::client_actor::ShutdownReason;
+use near_cloud_archive_tool::CloudArchiveCommand;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
@@ -23,8 +23,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
+use near_replay_tool::ReplayCommand;
 use near_state_parts::cli::StatePartsCommand;
-use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::{Mode, ShardUId};
@@ -130,8 +130,8 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
-            NeardSubCommand::AmendGenesis(cmd) => {
-                cmd.run()?;
+            NeardSubCommand::CloudArchive(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
@@ -159,10 +159,10 @@ impl NeardCmd {
                     &neard_cmd.opts.o11y,
                 )?;
             }
-            NeardSubCommand::StatePartsDumpCheck(cmd) => {
-                cmd.run()?;
-            }
             NeardSubCommand::ReplayArchive(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
+            NeardSubCommand::Replay(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
             #[cfg(feature = "dump-test-contract")]
@@ -250,8 +250,9 @@ pub(super) enum NeardSubCommand {
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
 
-    /// Amend a genesis/records file created by `dump-state`.
-    AmendGenesis(AmendGenesisCommand),
+    /// Cloud archive reader tools.
+    #[clap(name = "cloud-archive")]
+    CloudArchive(CloudArchiveCommand),
 
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
@@ -274,11 +275,11 @@ pub(super) enum NeardSubCommand {
     /// Resets the network into a forked network at the given block height and state.
     ForkNetwork(ForkNetworkCommand),
 
-    /// Check completeness of dumped state parts of an epoch
-    StatePartsDumpCheck(StatePartsDumpCheckCommand),
-
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
+
+    /// Replay chunks from a database snapshot and verify results.
+    Replay(ReplayCommand),
 
     #[cfg(feature = "dump-test-contract")]
     /// Placeholder for test contracts subcommand
@@ -355,9 +356,6 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Specify the cloud bucket to use for state sync.
-    #[clap(long)]
-    state_sync_bucket: Option<String>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -380,6 +378,26 @@ fn check_release_build(chain: &str) {
                 "running a debug or nightly neard build on this chain is not recommended, ",
                 "consider recompiling with `cargo build -p neard --release`",
             ),
+        );
+    }
+}
+
+/// Panics when attempting to run a mainnet or testnet validator on an
+/// unsupported CPU architecture.
+///
+/// x86_64 is currently the only supported platform for mainnet or testnet
+/// validators. Running a validator on any other architecture (e.g. aarch64/ARM)
+/// risks diverging from the rest of the network, so we refuse to start rather
+/// than risk producing invalid blocks.
+fn check_validator_arch(chain: &str, is_validator: bool) {
+    if !cfg!(target_arch = "x86_64")
+        && is_validator
+        && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
+    {
+        panic!(
+            "running a {chain} validator on the {} architecture is not supported; \
+             validators must run on x86_64",
+            std::env::consts::ARCH
         );
     }
 }
@@ -417,7 +435,6 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-            self.state_sync_bucket.as_deref(),
         )
         .context("Failed to initialize configs")
     }
@@ -484,6 +501,10 @@ impl RunCmd {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
+        check_validator_arch(
+            &near_config.client_config.chain_id,
+            near_config.validator_signer.get().is_some(),
+        );
         check_kernel_params();
 
         // Set current version in client config.
@@ -518,11 +539,11 @@ impl RunCmd {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).addr =
                     tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                near_config.rpc_config.get_or_insert_with(Default::default).prometheus_addr =
                     Some(rpc_prometheus_addr);
             }
         }
@@ -608,7 +629,9 @@ impl RunCmd {
             };
 
             // Write marker if this is an epoch sync data reset shutdown.
-            if let ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset) = &sig {
+            let needs_restart =
+                matches!(&sig, ShutdownSignal::ClientShutdown(ShutdownReason::EpochSyncDataReset));
+            if needs_restart {
                 write_epoch_sync_data_reset_marker(&hot_store_path);
             }
 
@@ -620,6 +643,12 @@ impl RunCmd {
             near_async::shutdown_all_actors();
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
+
+            // Re-exec after shutting down actors. We skip RocksDB shutdown since
+            // the data directory will be wiped on the next startup anyway.
+            if needs_restart {
+                exec_restart();
+            }
         });
         tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
@@ -630,7 +659,7 @@ impl RunCmd {
 /// Archival nodes skip deletion to prevent accidental data loss.
 fn check_epoch_sync_data_reset_marker(hot_store_path: &Path, is_archival: bool) {
     let marker_path = hot_store_path.join(EPOCH_SYNC_DATA_RESET_MARKER_FILE_NAME);
-    if !near_client::sync::SYNC_V2_ENABLED || !marker_path.exists() {
+    if !marker_path.exists() {
         return;
     }
     if is_archival {
@@ -650,10 +679,44 @@ fn write_epoch_sync_data_reset_marker(hot_store_path: &Path) {
     std::fs::create_dir_all(hot_store_path)
         .expect("failed to create data directory for reset marker");
     std::fs::write(&marker_path, b"").expect("failed to write epoch sync reset marker");
+    // Fsync the marker file and the parent directory to ensure the directory
+    // entry is durably persisted (fsync on the file alone is not sufficient
+    // on all filesystems).
     std::fs::File::open(&marker_path)
         .and_then(|f| f.sync_all())
         .expect("failed to fsync reset marker file");
+    std::fs::File::open(hot_store_path)
+        .and_then(|d| d.sync_all())
+        .expect("failed to fsync hot store directory");
     tracing::info!(target: "neard", ?marker_path, "epoch sync data reset marker written");
+}
+
+/// On non-unix platforms, exec is not available.
+#[cfg(not(unix))]
+fn exec_restart() {
+    tracing::warn!(
+        target: "neard",
+        "automatic restart after epoch sync data reset is not supported on this platform, \
+         please restart manually"
+    );
+}
+
+/// Re-execs the current process with the same arguments.
+/// On success, this function never returns (the process image is replaced).
+#[cfg(unix)]
+fn exec_restart() {
+    use std::env::{args_os, current_exe};
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    let binary = current_exe().expect("failed to determine current executable path");
+    let args: Vec<_> = args_os().skip(1).collect();
+
+    tracing::info!(target: "neard", ?binary, ?args, "restarting process after epoch sync data reset");
+
+    // exec() replaces the process image. If it returns, it failed.
+    let err = Command::new(&binary).args(&args).exec();
+    panic!("failed to exec {:?}: {}", binary, err);
 }
 
 #[cfg(not(unix))]

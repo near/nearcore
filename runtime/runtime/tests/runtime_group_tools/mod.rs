@@ -1,18 +1,20 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
+use near_parameters::parameter_table::FeeComponent;
 use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::action::Action;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
@@ -58,10 +60,12 @@ impl StandaloneRuntime {
         // Bumping costs to avoid inflation overflows.
         wasm_config.limit_config.max_total_prepaid_gas = Gas::from_teragas(1000);
         let fees = Arc::make_mut(&mut runtime_config.fees);
-        fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
-        fees.action_fees[ActionCosts::new_data_receipt_base].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap();
+        fees.action_fees[ActionCosts::new_action_receipt].execution = FeeComponent::Gas(
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap(),
+        );
+        fees.action_fees[ActionCosts::new_data_receipt_base].execution = FeeComponent::Gas(
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.checked_div(64).unwrap(),
+        );
 
         let runtime = Runtime::new();
         let genesis = Genesis::new(
@@ -111,6 +115,7 @@ impl StandaloneRuntime {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
+            next_wasm_config: None,
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -267,11 +272,11 @@ impl RuntimeGroup {
                         0,
                     ),
                 });
-                state_records.push(StateRecord::AccessKey {
-                    account_id: account_id.clone(),
-                    public_key: signer.public_key(),
-                    access_key: AccessKey::full_access(),
-                });
+                state_records.push(StateRecord::access_key(
+                    account_id.clone(),
+                    &signer.public_key(),
+                    AccessKey::full_access(),
+                ));
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
                 validators.push(AccountInfo {
@@ -410,6 +415,32 @@ impl RuntimeGroup {
             }
         }
         unimplemented!()
+    }
+
+    /// On stable: the list of refunds should be empty
+    /// With ProtocolFeature::AccountCostIncrease: assert that the list of receipts contains only gas refunds
+    pub fn assert_gas_refunds(&self, receipt_ids: &[CryptoHash]) {
+        if !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
+            assert_eq!(receipt_ids, &[], "Expected zero refund receipts");
+        }
+
+        for id in receipt_ids {
+            let (_, receipt) = self.get_receipt_debug(id);
+            assert!(
+                receipt.predecessor_id().is_system(),
+                "expected a system refund receipt, got {receipt:?}",
+            );
+            match receipt.receipt() {
+                ReceiptEnum::Action(ActionReceipt { actions, .. })
+                | ReceiptEnum::ActionV2(ActionReceiptV2 { actions, .. }) => {
+                    assert!(
+                        matches!(actions.as_slice(), [Action::Transfer(_)]),
+                        "expected a single transfer refund, got {actions:?}",
+                    );
+                }
+                other => panic!("expected an action receipt refund, got {other:?}"),
+            }
+        }
     }
 }
 

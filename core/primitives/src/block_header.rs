@@ -4,7 +4,10 @@ use crate::merkle::combine_hash;
 use crate::network::PeerId;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ShardId};
+use crate::types::{
+    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ShardId,
+    SpiceChunkEndorsementStats,
+};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -41,6 +44,39 @@ pub struct BlockHeaderInnerLite {
     pub next_bp_hash: CryptoHash,
     /// Merkle root of block hashes up to the current block.
     pub block_merkle_root: CryptoHash,
+}
+
+/// Light-client-readable inner-lite for spice headers.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
+pub struct BlockHeaderInnerLiteV2 {
+    /// Height of this block.
+    pub height: BlockHeight,
+    /// Epoch start hash of this block's epoch.
+    /// Used for retrieving validator information
+    pub epoch_id: EpochId,
+    pub next_epoch_id: EpochId,
+    /// Root hash of the state at the previous block.
+    pub prev_state_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts from the previous chunks.
+    pub prev_outcome_root: MerkleHash,
+    /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub timestamp: u64,
+    /// Hash of the next epoch block producers set
+    pub next_bp_hash: CryptoHash,
+    /// Merkle root of block hashes up to the current block.
+    pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results.
+    pub chunk_execution_root: CryptoHash,
 }
 
 #[derive(
@@ -348,6 +384,72 @@ pub struct BlockHeaderInnerRestV6 {
     pub shard_split: Option<(ShardId, AccountId)>,
 }
 
+/// Add spice fields
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
+pub struct BlockHeaderInnerRestV7 {
+    /// Hash of block body
+    pub block_body_hash: CryptoHash,
+    /// Root hash of the previous chunks' outgoing receipts in the given block.
+    pub prev_chunk_outgoing_receipts_root: MerkleHash,
+    /// Root hash of the chunk headers in the given block.
+    pub chunk_headers_root: MerkleHash,
+    /// Root hash of the chunk transactions in the given block.
+    pub chunk_tx_root: MerkleHash,
+    /// The output of the randomness beacon
+    pub random_value: CryptoHash,
+    /// Validator proposals from the previous chunks.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
+    /// Mask for new chunks included in the block
+    pub chunk_mask: Vec<bool>,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
+    /// Total supply of tokens in the system
+    pub total_supply: Balance,
+
+    /// Last block that has full BFT finality
+    pub last_final_block: CryptoHash,
+    /// Last block that has doomslug finality
+    pub last_ds_final_block: CryptoHash,
+
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
+
+    pub prev_height: BlockHeight,
+
+    pub epoch_sync_data_hash: Option<CryptoHash>,
+
+    /// All the approvals included in this block
+    pub approvals: Vec<Option<Box<Signature>>>,
+
+    /// Latest protocol version that this block producer has.
+    pub latest_protocol_version: ProtocolVersion,
+
+    pub chunk_endorsements: ChunkEndorsementsBitmap,
+
+    /// Shard ID and boundary account for the upcoming resharding.
+    /// This field may be set only for the last block of an epoch.
+    /// Split proposed at the end of epoch N will be executed in epoch N+2.
+    pub shard_split: Option<(ShardId, AccountId)>,
+
+    /// Epoch ID of the last block whose spice execution results are certified.
+    pub prev_last_certified_block_epoch_id: EpochId,
+
+    /// Per-validator chunk endorsement stats accumulated over the epoch,
+    /// indexed by the current epoch's validator id. Set only on the last block
+    /// of an epoch (empty otherwise); consumed by reward and kickout.
+    pub spice_chunk_endorsement_stats: Vec<SpiceChunkEndorsementStats>,
+}
+
 /// The part of the block approval that is different for endorsements and skips
 #[derive(
     BorshSerialize,
@@ -592,6 +694,36 @@ pub struct BlockHeaderV6 {
     pub hash: CryptoHash,
 }
 
+/// V6 -> V7: Add spice fields
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    ProtocolSchema,
+)]
+#[borsh(init=init)]
+pub struct BlockHeaderV7 {
+    pub prev_hash: CryptoHash,
+
+    /// Inner part of the block header that gets hashed.
+    /// It's split into two parts: one that is sent to light clients,
+    /// and the other which contains the rest of information.
+    pub inner_lite: BlockHeaderInnerLiteV2,
+    pub inner_rest: BlockHeaderInnerRestV7,
+
+    /// Signature of the block producer.
+    pub signature: Signature,
+
+    /// Cached value of hash for this block.
+    #[borsh(skip)]
+    pub hash: CryptoHash,
+}
+
 impl BlockHeaderV2 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
@@ -642,6 +774,16 @@ impl BlockHeaderV6 {
     }
 }
 
+impl BlockHeaderV7 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
+        );
+    }
+}
+
 /// Used in the BlockHeader::new_impl to specify the source of the block header signature.
 enum SignatureSource<'a> {
     /// Use the given signer to sign a new block header.
@@ -665,6 +807,7 @@ pub enum BlockHeader {
     BlockHeaderV4(BlockHeaderV4),
     BlockHeaderV5(BlockHeaderV5),
     BlockHeaderV6(BlockHeaderV6),
+    BlockHeaderV7(BlockHeaderV7),
 }
 
 impl BlockHeader {
@@ -711,6 +854,9 @@ impl BlockHeader {
         prev_height: BlockHeight,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
+        prev_last_certified_block_epoch_id: Option<EpochId>,
+        spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         Self::new_impl(
             current_protocol_version,
@@ -742,6 +888,9 @@ impl BlockHeader {
             prev_height,
             chunk_endorsements,
             shard_split,
+            prev_last_certified_block_epoch_id,
+            spice_chunk_endorsement_stats,
+            chunk_execution_root,
         )
     }
 
@@ -776,6 +925,9 @@ impl BlockHeader {
         prev_height: BlockHeight,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
+        prev_last_certified_block_epoch_id: Option<EpochId>,
+        spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
@@ -807,6 +959,9 @@ impl BlockHeader {
             prev_height,
             chunk_endorsements,
             shard_split,
+            prev_last_certified_block_epoch_id,
+            spice_chunk_endorsement_stats,
+            chunk_execution_root,
         );
         // Note: We do not panic but only log if the hash of the created header does not match the expected hash (From the view)
         // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
@@ -848,6 +1003,9 @@ impl BlockHeader {
         prev_height: BlockHeight,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
         shard_split: Option<(ShardId, AccountId)>,
+        prev_last_certified_block_epoch_id: Option<EpochId>,
+        spice_chunk_endorsement_stats: Option<Vec<SpiceChunkEndorsementStats>>,
+        chunk_execution_root: Option<CryptoHash>,
     ) -> Self {
         let inner_lite = BlockHeaderInnerLite {
             height,
@@ -866,7 +1024,58 @@ impl BlockHeader {
             )
         });
 
-        if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
+        if ProtocolFeature::Spice.enabled(current_protocol_version) {
+            let prev_last_certified_block_epoch_id = prev_last_certified_block_epoch_id.expect(
+                "BlockHeaderV7 requires prev_last_certified_block_epoch_id when Spice is enabled",
+            );
+            let spice_chunk_endorsement_stats = spice_chunk_endorsement_stats.expect(
+                "BlockHeaderV7 requires spice_chunk_endorsement_stats when Spice is enabled",
+            );
+            let chunk_execution_root = chunk_execution_root
+                .expect("BlockHeaderV7 requires chunk_execution_root when Spice is enabled");
+            let inner_lite = BlockHeaderInnerLiteV2 {
+                height,
+                epoch_id,
+                next_epoch_id,
+                prev_state_root,
+                prev_outcome_root: outcome_root,
+                timestamp,
+                next_bp_hash,
+                block_merkle_root,
+                chunk_execution_root,
+            };
+            let inner_rest = BlockHeaderInnerRestV7 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                total_supply,
+                last_final_block,
+                last_ds_final_block,
+                block_ordinal,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version,
+                chunk_endorsements,
+                shard_split,
+                prev_last_certified_block_epoch_id,
+                spice_chunk_endorsement_stats,
+            };
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
+            Self::BlockHeaderV7(BlockHeaderV7 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            })
+        } else if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV6 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -935,13 +1144,14 @@ impl BlockHeader {
     /// Exactly one of the `signer` and `signature` must be provided.
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
     /// If `signature` is given, uses the signature as is and only computes the hash.
-    fn compute_hash_and_sign<T>(
+    fn compute_hash_and_sign<L, T>(
         signature_source: SignatureSource,
         prev_hash: CryptoHash,
-        inner_lite: &BlockHeaderInnerLite,
+        inner_lite: &L,
         inner_rest: &T,
     ) -> (CryptoHash, Signature)
     where
+        L: BorshSerialize + ?Sized,
         T: BorshSerialize + ?Sized,
     {
         let hash = BlockHeader::compute_hash(
@@ -970,6 +1180,24 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
+        let genesis_prev_last_certified_block_epoch_id =
+            if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+                Some(EpochId::default())
+            } else {
+                None
+            };
+        let genesis_spice_chunk_endorsement_stats =
+            if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+                Some(Vec::new())
+            } else {
+                None
+            };
+        let genesis_chunk_execution_root =
+            if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+                Some(CryptoHash::default())
+            } else {
+                None
+            };
         Self::new_impl(
             genesis_protocol_version,
             genesis_protocol_version,
@@ -1000,6 +1228,9 @@ impl BlockHeader {
             0,                     // prev_height
             Some(ChunkEndorsementsBitmap::genesis()),
             None, // shard_split
+            genesis_prev_last_certified_block_epoch_id,
+            genesis_spice_chunk_endorsement_stats,
+            genesis_chunk_execution_root,
         )
     }
 
@@ -1017,6 +1248,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.hash,
             BlockHeader::BlockHeaderV5(header) => &header.hash,
             BlockHeader::BlockHeaderV6(header) => &header.hash,
+            BlockHeader::BlockHeaderV7(header) => &header.hash,
         }
     }
 
@@ -1029,6 +1261,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.prev_hash,
             BlockHeader::BlockHeaderV5(header) => &header.prev_hash,
             BlockHeader::BlockHeaderV6(header) => &header.prev_hash,
+            BlockHeader::BlockHeaderV7(header) => &header.prev_hash,
         }
     }
 
@@ -1041,6 +1274,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.signature,
             BlockHeader::BlockHeaderV5(header) => &header.signature,
             BlockHeader::BlockHeaderV6(header) => &header.signature,
+            BlockHeader::BlockHeaderV7(header) => &header.signature,
         }
     }
 
@@ -1053,6 +1287,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.height,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.height,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.height,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.height,
         }
     }
 
@@ -1065,6 +1300,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => Some(header.inner_rest.prev_height),
             BlockHeader::BlockHeaderV5(header) => Some(header.inner_rest.prev_height),
             BlockHeader::BlockHeaderV6(header) => Some(header.inner_rest.prev_height),
+            BlockHeader::BlockHeaderV7(header) => Some(header.inner_rest.prev_height),
         }
     }
 
@@ -1077,6 +1313,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.epoch_id,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.epoch_id,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.epoch_id,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.epoch_id,
         }
     }
 
@@ -1089,6 +1326,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.next_epoch_id,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.next_epoch_id,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.next_epoch_id,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.next_epoch_id,
         }
     }
 
@@ -1101,6 +1339,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.prev_state_root,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.prev_state_root,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.prev_state_root,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.prev_state_root,
         }
     }
 
@@ -1125,6 +1364,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 &header.inner_rest.prev_chunk_outgoing_receipts_root
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                &header.inner_rest.prev_chunk_outgoing_receipts_root
+            }
         }
     }
 
@@ -1137,6 +1379,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_headers_root,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.chunk_headers_root,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.chunk_headers_root,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.chunk_headers_root,
         }
     }
 
@@ -1149,6 +1392,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_tx_root,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.chunk_tx_root,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.chunk_tx_root,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.chunk_tx_root,
         }
     }
 
@@ -1160,6 +1404,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.chunk_mask,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.chunk_mask,
         };
         mask.iter().map(|&x| u64::from(x)).sum::<u64>()
     }
@@ -1173,6 +1418,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.prev_outcome_root,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.prev_outcome_root,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.prev_outcome_root,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.prev_outcome_root,
         }
     }
 
@@ -1185,6 +1431,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => Some(header.inner_rest.block_body_hash),
             BlockHeader::BlockHeaderV5(header) => Some(header.inner_rest.block_body_hash),
             BlockHeader::BlockHeaderV6(header) => Some(header.inner_rest.block_body_hash),
+            BlockHeader::BlockHeaderV7(header) => Some(header.inner_rest.block_body_hash),
         }
     }
 
@@ -1197,11 +1444,12 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.timestamp,
             BlockHeader::BlockHeaderV6(header) => header.inner_lite.timestamp,
+            BlockHeader::BlockHeaderV7(header) => header.inner_lite.timestamp,
         }
     }
 
     #[inline]
-    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter<'_> {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
                 ValidatorStakeIter::v1(&header.inner_rest.prev_validator_proposals)
@@ -1221,6 +1469,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 ValidatorStakeIter::new(&header.inner_rest.prev_validator_proposals)
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                ValidatorStakeIter::new(&header.inner_rest.prev_validator_proposals)
+            }
         }
     }
 
@@ -1233,6 +1484,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.chunk_mask,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.chunk_mask,
         }
     }
 
@@ -1245,6 +1497,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_ordinal,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_ordinal,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.block_ordinal,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.block_ordinal,
         }
     }
 
@@ -1257,6 +1510,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.next_gas_price,
         }
     }
 
@@ -1269,6 +1523,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.total_supply,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.total_supply,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.total_supply,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.total_supply,
         }
     }
 
@@ -1281,6 +1536,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.random_value,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.random_value,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.random_value,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.random_value,
         }
     }
 
@@ -1293,6 +1549,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_final_block,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.last_final_block,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.last_final_block,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.last_final_block,
         }
     }
 
@@ -1316,6 +1573,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.last_ds_final_block,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.last_ds_final_block,
         }
     }
 
@@ -1328,6 +1586,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.next_bp_hash,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.next_bp_hash,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.next_bp_hash,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.next_bp_hash,
         }
     }
 
@@ -1340,6 +1599,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite.block_merkle_root,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite.block_merkle_root,
             BlockHeader::BlockHeaderV6(header) => &header.inner_lite.block_merkle_root,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_lite.block_merkle_root,
         }
     }
 
@@ -1352,6 +1612,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.epoch_sync_data_hash,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.epoch_sync_data_hash,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.epoch_sync_data_hash,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.epoch_sync_data_hash,
         }
     }
 
@@ -1364,6 +1625,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV6(header) => &header.inner_rest.approvals,
+            BlockHeader::BlockHeaderV7(header) => &header.inner_rest.approvals,
         }
     }
 
@@ -1391,6 +1653,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(_header) => true,
             BlockHeader::BlockHeaderV5(_header) => true,
             BlockHeader::BlockHeaderV6(_header) => true,
+            BlockHeader::BlockHeaderV7(_header) => true,
         }
     }
 
@@ -1403,6 +1666,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.latest_protocol_version,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.latest_protocol_version,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.latest_protocol_version,
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.latest_protocol_version,
         }
     }
 
@@ -1424,6 +1688,9 @@ impl BlockHeader {
                 borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV6(header) => {
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
+            }
+            BlockHeader::BlockHeaderV7(header) => {
                 borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
         }
@@ -1449,6 +1716,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV6(header) => {
                 borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
+            BlockHeader::BlockHeaderV7(header) => {
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
+            }
         }
     }
 
@@ -1461,18 +1731,22 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(_) => None,
             BlockHeader::BlockHeaderV5(header) => Some(&header.inner_rest.chunk_endorsements),
             BlockHeader::BlockHeaderV6(header) => Some(&header.inner_rest.chunk_endorsements),
+            BlockHeader::BlockHeaderV7(header) => Some(&header.inner_rest.chunk_endorsements),
         }
     }
 
+    /// Merkle root over the block's certified chunk execution results.
+    /// `None` for non-spice headers.
     #[inline]
-    pub fn inner_lite(&self) -> &BlockHeaderInnerLite {
+    pub fn chunk_execution_root(&self) -> Option<CryptoHash> {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV6(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => None,
+            BlockHeader::BlockHeaderV7(header) => Some(header.inner_lite.chunk_execution_root),
         }
     }
 
@@ -1497,6 +1771,7 @@ impl BlockHeader {
                 (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
             }
             Self::BlockHeaderV6(_) => return false,
+            Self::BlockHeaderV7(_) => return false,
         };
 
         !challenges_result.is_empty() || challenges_root != &MerkleHash::default()
@@ -1514,6 +1789,55 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(_) => None,
             BlockHeader::BlockHeaderV5(_) => None,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.shard_split.as_ref(),
+            BlockHeader::BlockHeaderV7(header) => header.inner_rest.shard_split.as_ref(),
+        }
+    }
+
+    /// Epoch ID of the last block whose spice execution results are certified.
+    /// Returns `None` for header versions prior to V7.
+    #[inline]
+    pub fn prev_last_certified_block_epoch_id(&self) -> Option<&EpochId> {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => None,
+            BlockHeader::BlockHeaderV7(header) => {
+                Some(&header.inner_rest.prev_last_certified_block_epoch_id)
+            }
+        }
+    }
+
+    /// Set only on the last block of an epoch; `None` before header V7.
+    /// See `SpiceChunkEndorsementStats`.
+    #[inline]
+    pub fn spice_chunk_endorsement_stats(&self) -> Option<&[SpiceChunkEndorsementStats]> {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => None,
+            BlockHeader::BlockHeaderV7(header) => {
+                Some(&header.inner_rest.spice_chunk_endorsement_stats)
+            }
+        }
+    }
+
+    /// Returns true if the header is a spice-protocol header (V7 or later).
+    #[inline]
+    pub fn is_spice(&self) -> bool {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => false,
+            BlockHeader::BlockHeaderV7(_) => true,
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
-use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
+use crate::vm::StorageGetMode;
+use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
@@ -23,6 +24,14 @@ pub struct RuntimeConfigView {
     pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
+    /// Minimum price at which the gas attached to a receipt is purchased. The price at which it is
+    /// burned might be lower, in which case the difference is refunded after execution.
+    #[serde(default)]
+    pub min_gas_purchase_price: Balance,
+    /// How much creating an account should cost in NEAR. Taken into account when burning gas for
+    /// account creation.
+    #[serde(default)]
+    pub account_creation_charge: Balance,
 }
 
 /// Describes different fees for the runtime
@@ -34,7 +43,7 @@ pub struct RuntimeFeesConfigView {
     /// - `send` cost is burned when a receipt is created using `promise_create` or
     ///     `promise_batch_create`
     /// - `exec` cost is burned when the receipt is being executed.
-    pub action_receipt_creation_config: Fee,
+    pub action_receipt_creation_config: FeeView,
     /// Describes the cost of creating a data receipt, `DataReceipt`.
     pub data_receipt_creation_config: DataReceiptCreationConfigView,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
@@ -49,6 +58,10 @@ pub struct RuntimeFeesConfigView {
     /// Pessimistic gas price inflation ratio.
     #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// Describes the extra cost of verifying an ML-DSA-65 signature above the
+    /// cost of verifying the standard signature types.
+    pub ml_dsa_65_verification_cost: Gas,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -73,12 +86,12 @@ pub struct DataReceiptCreationConfigView {
     /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
     /// Even if the last action is not a function call (in case of success it will return empty
     /// value).
-    pub base_cost: Fee,
+    pub base_cost: FeeView,
     /// Additional cost per byte sent.
     /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
     /// `N` bytes of data to every output dependency. For each output dependency the cost is
     /// `(send(sir) + exec()) * N`.
-    pub cost_per_byte: Fee,
+    pub cost_per_byte: FeeView,
 }
 
 /// Describes the cost of creating a specific action, `Action`. Includes all variants.
@@ -86,37 +99,37 @@ pub struct DataReceiptCreationConfigView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ActionCreationConfigView {
     /// Base cost of creating an account.
-    pub create_account_cost: Fee,
+    pub create_account_cost: FeeView,
 
     /// Base cost of deploying a contract.
-    pub deploy_contract_cost: Fee,
+    pub deploy_contract_cost: FeeView,
     /// Cost per byte of deploying a contract.
-    pub deploy_contract_cost_per_byte: Fee,
+    pub deploy_contract_cost_per_byte: FeeView,
 
     /// Base cost of calling a function.
-    pub function_call_cost: Fee,
+    pub function_call_cost: FeeView,
     /// Cost per byte of method name and arguments of calling a function.
-    pub function_call_cost_per_byte: Fee,
+    pub function_call_cost_per_byte: FeeView,
 
     /// Base cost of making a transfer.
-    pub transfer_cost: Fee,
+    pub transfer_cost: FeeView,
 
     /// Base cost of staking.
-    pub stake_cost: Fee,
+    pub stake_cost: FeeView,
 
     /// Base cost of adding a key.
     pub add_key_cost: AccessKeyCreationConfigView,
 
     /// Base cost of deleting a key.
-    pub delete_key_cost: Fee,
+    pub delete_key_cost: FeeView,
 
     /// Base cost of deleting an account.
-    pub delete_account_cost: Fee,
+    pub delete_account_cost: FeeView,
 
     /// Base cost for processing a delegate action.
     ///
     /// This is on top of the costs for the actions inside the delegate action.
-    pub delegate_cost: Fee,
+    pub delegate_cost: FeeView,
 }
 
 /// Describes the cost of creating an access key.
@@ -124,11 +137,11 @@ pub struct ActionCreationConfigView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyCreationConfigView {
     /// Base cost of creating a full access access-key.
-    pub full_access_cost: Fee,
+    pub full_access_cost: FeeView,
     /// Base cost of creating an access-key restricted to specific functions.
-    pub function_call_cost: Fee,
+    pub function_call_cost: FeeView,
     /// Cost per byte of method_names of creating a restricted access-key.
-    pub function_call_cost_per_byte: Fee,
+    pub function_call_cost_per_byte: FeeView,
 }
 
 /// Describes cost of storage per block
@@ -149,42 +162,39 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 action_receipt_creation_config: config
                     .fees
                     .fee(ActionCosts::new_action_receipt)
-                    .clone(),
+                    .into(),
                 data_receipt_creation_config: DataReceiptCreationConfigView {
-                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).clone(),
-                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).clone(),
+                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).into(),
+                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).into(),
                 },
                 action_creation_config: ActionCreationConfigView {
-                    create_account_cost: config.fees.fee(ActionCosts::create_account).clone(),
-                    deploy_contract_cost: config
-                        .fees
-                        .fee(ActionCosts::deploy_contract_base)
-                        .clone(),
+                    create_account_cost: config.fees.fee(ActionCosts::create_account).into(),
+                    deploy_contract_cost: config.fees.fee(ActionCosts::deploy_contract_base).into(),
                     deploy_contract_cost_per_byte: config
                         .fees
                         .fee(ActionCosts::deploy_contract_byte)
-                        .clone(),
-                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).clone(),
+                        .into(),
+                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).into(),
                     function_call_cost_per_byte: config
                         .fees
                         .fee(ActionCosts::function_call_byte)
-                        .clone(),
-                    transfer_cost: config.fees.fee(ActionCosts::transfer).clone(),
-                    stake_cost: config.fees.fee(ActionCosts::stake).clone(),
+                        .into(),
+                    transfer_cost: config.fees.fee(ActionCosts::transfer).into(),
+                    stake_cost: config.fees.fee(ActionCosts::stake).into(),
                     add_key_cost: AccessKeyCreationConfigView {
-                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).clone(),
+                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).into(),
                         function_call_cost: config
                             .fees
                             .fee(ActionCosts::add_function_call_key_base)
-                            .clone(),
+                            .into(),
                         function_call_cost_per_byte: config
                             .fees
                             .fee(ActionCosts::add_function_call_key_byte)
-                            .clone(),
+                            .into(),
                     },
-                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
-                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
-                    delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
+                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).into(),
+                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).into(),
+                    delegate_cost: config.fees.fee(ActionCosts::delegate).into(),
                 },
                 storage_usage_config: StorageUsageConfigView {
                     num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
@@ -194,6 +204,9 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                ml_dsa_65_verification_cost: config.fees.signature_verification_costs
+                    [SignatureKind::MlDsa65]
+                    .gas,
             },
             wasm_config: VMConfigView::from(crate::vm::Config::clone(&config.wasm_config)),
             account_creation_config: AccountCreationConfigView {
@@ -206,6 +219,8 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 config.congestion_control_config,
             ),
             witness_config: WitnessConfigView::from(config.witness_config),
+            min_gas_purchase_price: config.min_gas_purchase_price,
+            account_creation_charge: config.account_creation_charge,
         }
     }
 }
@@ -227,27 +242,42 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
+    /// Deprecated: custom sections are always discarded, so this is always `true`.
     pub discard_custom_sections: bool,
-    /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
+    /// Deprecated: the global contract host functions are always enabled, so this is
+    /// always `true`.
     pub global_contract_host_fns: bool,
-    /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
+    /// Deprecated: reference types and bulk memory wasm extensions are always
+    /// enabled, so this is always `true`.
     pub reftypes_bulk_memory: bool,
-    /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
-    pub deterministic_account_ids: bool,
     /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
     pub gas_key_host_fns: bool,
+    /// See [VMConfig::one_yocto_on_promise](crate::vm::Config::one_yocto_on_promise).
+    pub one_yocto_on_promise: bool,
+    /// See [VMConfig::p256_verify_host_fn](crate::vm::Config::p256_verify_host_fn).
+    pub p256_verify_host_fn: bool,
+    /// See [VMConfig::ml_dsa_verify_host_fn](crate::vm::Config::ml_dsa_verify_host_fn).
+    pub ml_dsa_verify_host_fn: bool,
+    /// See [VMConfig::sha3_host_fns](crate::vm::Config::sha3_host_fns).
+    pub sha3_host_fns: bool,
+    /// See [VMConfig::yield_with_id_host_fns](crate::vm::Config::yield_with_id_host_fns).
+    pub yield_with_id_host_fns: bool,
+    /// See [VMConfig::chain_id_host_fn](crate::vm::Config::chain_id_host_fn).
+    pub chain_id_host_fn: bool,
+    /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
+    pub bls12381_not_in_group_fix: bool,
 
-    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
-    pub storage_get_mode: crate::vm::StorageGetMode,
+    /// Deprecated: contract storage is always read through flat storage, so this is
+    /// always `FlatStorage`.
+    pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
     /// Deprecated
     pub implicit_account_creation: bool,
-    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
+    /// Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).
-    pub eth_implicit_global_contract: bool,
+    /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
+    pub universal_accounts: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -264,41 +294,24 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: config.discard_custom_sections,
+            discard_custom_sections: true,
             limit_config: config.limit_config,
-            storage_get_mode: config.storage_get_mode,
+            storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
-            eth_implicit_accounts: config.eth_implicit_accounts,
-            eth_implicit_global_contract: config.eth_implicit_global_contract,
-            global_contract_host_fns: config.global_contract_host_fns,
-            reftypes_bulk_memory: config.reftypes_bulk_memory,
-            deterministic_account_ids: config.deterministic_account_ids,
+            eth_implicit_accounts: true,
+            universal_accounts: config.universal_accounts,
+            global_contract_host_fns: true,
+            reftypes_bulk_memory: true,
             gas_key_host_fns: config.gas_key_host_fns,
-        }
-    }
-}
-
-impl From<VMConfigView> for crate::vm::Config {
-    fn from(view: VMConfigView) -> Self {
-        Self {
-            ext_costs: crate::ExtCostsConfig::from(view.ext_costs),
-            grow_mem_cost: view.grow_mem_cost,
-            regular_op_cost: view.regular_op_cost,
-            linear_op_base_cost: view.linear_op_base_cost,
-            linear_op_unit_cost: view.linear_op_unit_cost,
-            discard_custom_sections: view.discard_custom_sections,
-            limit_config: view.limit_config,
-            storage_get_mode: view.storage_get_mode,
-            fix_contract_loading_cost: view.fix_contract_loading_cost,
-            vm_kind: view.vm_kind,
-            eth_implicit_accounts: view.eth_implicit_accounts,
-            eth_implicit_global_contract: view.eth_implicit_global_contract,
-            global_contract_host_fns: view.global_contract_host_fns,
-            reftypes_bulk_memory: view.reftypes_bulk_memory,
-            deterministic_account_ids: view.deterministic_account_ids,
-            gas_key_host_fns: view.gas_key_host_fns,
+            one_yocto_on_promise: config.one_yocto_on_promise,
+            p256_verify_host_fn: config.p256_verify_host_fn,
+            ml_dsa_verify_host_fn: config.ml_dsa_verify_host_fn,
+            sha3_host_fns: config.sha3_host_fns,
+            yield_with_id_host_fns: config.yield_with_id_host_fns,
+            chain_id_host_fn: config.chain_id_host_fn,
+            bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
         }
     }
 }
@@ -362,6 +375,21 @@ pub struct ExtCostsConfigView {
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
 
+    /// Cost of getting sha3-256 base
+    pub sha3_256_base: Gas,
+    /// Cost of getting sha3-256 per byte
+    pub sha3_256_byte: Gas,
+
+    /// Cost of getting sha3-384 base
+    pub sha3_384_base: Gas,
+    /// Cost of getting sha3-384 per byte
+    pub sha3_384_byte: Gas,
+
+    /// Cost of getting sha3-512 base
+    pub sha3_512_base: Gas,
+    /// Cost of getting sha3-512 per byte
+    pub sha3_512_byte: Gas,
+
     /// Cost of getting ripemd160 base
     pub ripemd160_base: Gas,
     /// Cost of getting ripemd160 per message block
@@ -374,6 +402,15 @@ pub struct ExtCostsConfigView {
 
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
+
+    /// Cost of P-256 ECDSA signature verification base
+    pub p256_verify_base: Gas,
+    /// Cost of P-256 ECDSA signature verification per byte
+    pub p256_verify_byte: Gas,
+    /// Cost of ML-DSA-65 signature verification base
+    pub ml_dsa_verify_base: Gas,
+    /// Cost of ML-DSA-65 signature verification per byte
+    pub ml_dsa_verify_byte: Gas,
 
     /// Cost for calling logging.
     pub log_base: Gas,
@@ -481,6 +518,9 @@ pub struct ExtCostsConfigView {
     pub yield_create_base: Gas,
     /// Per byte cost of arguments and method name.
     pub yield_create_byte: Gas,
+    /// Base cost for creating a yield promise with a user-provided yield ID
+    /// (covers the additional trie writes for the yield_id<->data_id mapping).
+    pub yield_create_with_id_base: Gas,
     /// Base cost for resuming a yield receipt.
     pub yield_resume_base: Gas,
     /// Per byte cost of resume payload.
@@ -503,6 +543,14 @@ pub struct ExtCostsConfigView {
     pub bls12381_p1_decompress_element: Gas,
     pub bls12381_p2_decompress_base: Gas,
     pub bls12381_p2_decompress_element: Gas,
+
+    // ######################
+    // # Universal accounts #
+    // ######################
+    /// Base cost of deriving a `0u` account id from a raw state init.
+    pub universal_state_init_to_account_id_base: Gas,
+    /// Per byte of the raw state init.
+    pub universal_state_init_to_account_id_byte: Gas,
 }
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
@@ -529,11 +577,25 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             keccak256_byte: config.gas_cost(ExtCosts::keccak256_byte),
             keccak512_base: config.gas_cost(ExtCosts::keccak512_base),
             keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
+            sha3_256_base: config.gas_cost(ExtCosts::sha3_256_base),
+            sha3_256_byte: config.gas_cost(ExtCosts::sha3_256_byte),
+            sha3_384_base: config.gas_cost(ExtCosts::sha3_384_base),
+            sha3_384_byte: config.gas_cost(ExtCosts::sha3_384_byte),
+            sha3_512_base: config.gas_cost(ExtCosts::sha3_512_base),
+            sha3_512_byte: config.gas_cost(ExtCosts::sha3_512_byte),
             ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
             ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
             ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
             ed25519_verify_byte: config.gas_cost(ExtCosts::ed25519_verify_byte),
             ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
+            p256_verify_base: config.gas_cost(ExtCosts::p256_verify_base),
+            p256_verify_byte: config.gas_cost(ExtCosts::p256_verify_byte),
+            ml_dsa_verify_base: config.gas_cost(ExtCosts::ml_dsa_verify_base),
+            ml_dsa_verify_byte: config.gas_cost(ExtCosts::ml_dsa_verify_byte),
+            universal_state_init_to_account_id_base: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_base),
+            universal_state_init_to_account_id_byte: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_byte),
             log_base: config.gas_cost(ExtCosts::log_base),
             log_byte: config.gas_cost(ExtCosts::log_byte),
             storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
@@ -579,6 +641,7 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
                 .gas_cost(ExtCosts::alt_bn128_pairing_check_element),
             yield_create_base: config.gas_cost(ExtCosts::yield_create_base),
             yield_create_byte: config.gas_cost(ExtCosts::yield_create_byte),
+            yield_create_with_id_base: config.gas_cost(ExtCosts::yield_create_with_id_base),
             yield_resume_base: config.gas_cost(ExtCosts::yield_resume_base),
             yield_resume_byte: config.gas_cost(ExtCosts::yield_resume_byte),
             bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
@@ -633,11 +696,27 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::keccak256_byte => view.keccak256_byte,
                 ExtCosts::keccak512_base => view.keccak512_base,
                 ExtCosts::keccak512_byte => view.keccak512_byte,
+                ExtCosts::sha3_256_base => view.sha3_256_base,
+                ExtCosts::sha3_256_byte => view.sha3_256_byte,
+                ExtCosts::sha3_384_base => view.sha3_384_base,
+                ExtCosts::sha3_384_byte => view.sha3_384_byte,
+                ExtCosts::sha3_512_base => view.sha3_512_base,
+                ExtCosts::sha3_512_byte => view.sha3_512_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
+                ExtCosts::p256_verify_base => view.p256_verify_base,
+                ExtCosts::p256_verify_byte => view.p256_verify_byte,
+                ExtCosts::ml_dsa_verify_base => view.ml_dsa_verify_base,
+                ExtCosts::ml_dsa_verify_byte => view.ml_dsa_verify_byte,
+                ExtCosts::universal_state_init_to_account_id_base => {
+                    view.universal_state_init_to_account_id_base
+                }
+                ExtCosts::universal_state_init_to_account_id_byte => {
+                    view.universal_state_init_to_account_id_byte
+                }
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
                 ExtCosts::storage_write_base => view.storage_write_base,
@@ -677,6 +756,7 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
                 ExtCosts::yield_create_base => view.yield_create_base,
                 ExtCosts::yield_create_byte => view.yield_create_byte,
+                ExtCosts::yield_create_with_id_base => view.yield_create_with_id_base,
                 ExtCosts::yield_resume_base => view.yield_resume_base,
                 ExtCosts::yield_resume_byte => view.yield_resume_byte,
                 ExtCosts::bls12381_p1_sum_base => view.bls12381_p1_sum_base,
@@ -831,6 +911,33 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
+    }
+}
+
+/// Costs associated with an object that can only be sent over the network (and executed
+/// by the receiver).
+/// NOTE: `send_sir` or `send_not_sir` fees are usually burned when the item is being created.
+/// And `execution` fee is burned when the item is being executed.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename = "Fee")]
+pub struct FeeView {
+    /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
+    /// the shard.
+    pub send_sir: Gas,
+    /// Fee for sending an object potentially across the shards.
+    pub send_not_sir: Gas,
+    /// Fee for executing the object.
+    pub execution: Gas,
+}
+
+impl From<&Fee> for FeeView {
+    fn from(other: &Fee) -> Self {
+        Self {
+            send_sir: other.send_sir.gas(),
+            send_not_sir: other.send_not_sir.gas(),
+            execution: other.execution.gas(),
         }
     }
 }

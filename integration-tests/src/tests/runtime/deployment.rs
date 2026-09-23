@@ -3,8 +3,13 @@ use near_chain_configs::Genesis;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
+
+// AccountCostIncrease adds a refund for the purchase/burn price difference.
+const fn extra_refund_outcomes() -> usize {
+    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+}
 
 /// Tests if the maximum allowed contract can be deployed with current gas limits
 #[test]
@@ -29,7 +34,10 @@ fn test_deploy_max_size_contract() {
         vec![Action::DeployContract(DeployContractAction { code: vec![0u8] })],
         block_hash,
     );
-    let tx_overhead = signed_transaction.get_size();
+    // Size the contract against the same measure the `max_transaction_size`
+    // gate enforces: from `PostQuantumSignatures` onward that is the full wire
+    // size (signature included), so the overhead must account for it too.
+    let tx_overhead = signed_transaction.size_for_limits(PROTOCOL_VERSION);
 
     // Testable max contract size is limited by both `max_contract_size` and by `max_transaction_size`
     let max_contract_size = config.wasm_config.limit_config.max_contract_size;
@@ -53,7 +61,7 @@ fn test_deploy_max_size_contract() {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);
@@ -67,7 +75,7 @@ fn test_deploy_max_size_contract() {
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    assert_eq!(transaction_result.receipts_outcome.len(), 1 + extra_refund_outcomes());
 
     // Check total TX gas is in limit
     let tx_conversion_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt;

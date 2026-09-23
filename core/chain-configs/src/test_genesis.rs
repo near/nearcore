@@ -9,8 +9,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    ProtocolVersion,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, Nonce, NonceIndex,
+    NumBlocks, NumSeats, ProtocolVersion,
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -26,7 +26,6 @@ pub struct TestEpochConfigBuilder {
     num_chunk_producer_seats: NumSeats,
     num_chunk_validator_seats: NumSeats,
     target_validator_mandates_per_shard: NumSeats,
-    avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     minimum_validators_per_shard: NumSeats,
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
@@ -42,8 +41,6 @@ pub struct TestEpochConfigBuilder {
     shuffle_shard_assignment_for_chunk_producers: bool,
     max_inflation_rate: Rational32,
 
-    // not used anymore
-    num_block_producer_seats_per_shard: Vec<NumSeats>,
     genesis_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -109,6 +106,13 @@ struct UserAccount {
     account_id: AccountId,
     balance: Balance,
     access_keys: Vec<PublicKey>,
+    gas_keys: Vec<GasKey>,
+}
+
+#[derive(Debug, Clone)]
+struct GasKey {
+    public_key: PublicKey,
+    nonces: Vec<Nonce>,
 }
 
 impl Default for TestEpochConfigBuilder {
@@ -123,7 +127,6 @@ impl Default for TestEpochConfigBuilder {
             num_chunk_producer_seats: 1,
             num_chunk_validator_seats: 1,
             target_validator_mandates_per_shard: 68,
-            avg_hidden_validator_seats_per_shard: vec![],
             minimum_validators_per_shard: 1,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
@@ -138,8 +141,6 @@ impl Default for TestEpochConfigBuilder {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
-            // consider them ineffective
-            num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
         }
     }
@@ -237,9 +238,7 @@ impl TestEpochConfigBuilder {
             .num_block_producer_seats(self.num_block_producer_seats)
             .num_chunk_producer_seats(self.num_chunk_producer_seats)
             .num_chunk_validator_seats(self.num_chunk_validator_seats)
-            .num_chunk_only_producer_seats(300)
             .target_validator_mandates_per_shard(self.target_validator_mandates_per_shard)
-            .avg_hidden_validator_seats_per_shard(self.avg_hidden_validator_seats_per_shard)
             .minimum_validators_per_shard(self.minimum_validators_per_shard)
             .block_producer_kickout_threshold(self.block_producer_kickout_threshold)
             .chunk_producer_kickout_threshold(self.chunk_producer_kickout_threshold)
@@ -255,7 +254,6 @@ impl TestEpochConfigBuilder {
             .shuffle_shard_assignment_for_chunk_producers(
                 self.shuffle_shard_assignment_for_chunk_producers,
             )
-            .num_block_producer_seats_per_shard(self.num_block_producer_seats_per_shard)
             .max_inflation_rate(self.max_inflation_rate)
             .build()
             .expect("field init missing");
@@ -418,6 +416,7 @@ impl TestGenesisBuilder {
         self.user_accounts.push(UserAccount {
             balance: initial_balance,
             access_keys: vec![create_user_test_signer(&account_id).public_key()],
+            gas_keys: vec![],
             account_id,
         });
         self
@@ -432,8 +431,26 @@ impl TestGenesisBuilder {
             self.user_accounts.push(UserAccount {
                 balance: initial_balance,
                 access_keys: vec![create_user_test_signer(account_id).public_key()],
+                gas_keys: vec![],
                 account_id: account_id.clone(),
             });
+        }
+        self
+    }
+
+    /// Plant gas keys on accounts directly in genesis. For each
+    /// `(account_id, public_key, nonces)`, slot `i` is initialized to
+    /// `nonces[i]`. Each account must already be added.
+    pub fn add_gas_keys(mut self, gas_keys: &[(AccountId, PublicKey, Vec<Nonce>)]) -> Self {
+        for (account_id, public_key, nonces) in gas_keys {
+            let account = self
+                .user_accounts
+                .iter_mut()
+                .find(|a| &a.account_id == account_id)
+                .unwrap_or_else(|| panic!("add_gas_keys: unknown account {account_id}"));
+            account
+                .gas_keys
+                .push(GasKey { public_key: public_key.clone(), nonces: nonces.clone() });
         }
         self
     }
@@ -467,6 +484,7 @@ impl TestGenesisBuilder {
                 account_id: protocol_treasury_account.clone(),
                 balance: Balance::ZERO,
                 access_keys: vec![],
+                gas_keys: vec![],
             });
         }
 
@@ -496,14 +514,31 @@ impl TestGenesisBuilder {
                 ),
             });
             for access_key in &user_account.access_keys {
-                records.push(StateRecord::AccessKey {
-                    account_id: user_account.account_id.clone(),
-                    public_key: access_key.clone(),
-                    access_key: AccessKey {
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    access_key,
+                    AccessKey {
                         nonce: 0,
                         permission: near_primitives::account::AccessKeyPermission::FullAccess,
                     },
-                });
+                ));
+            }
+            for gas_key in &user_account.gas_keys {
+                let num_nonces =
+                    u16::try_from(gas_key.nonces.len()).expect("too many gas-key nonces");
+                records.push(StateRecord::access_key(
+                    user_account.account_id.clone(),
+                    &gas_key.public_key,
+                    AccessKey::gas_key_full_access(num_nonces),
+                ));
+                for (slot, nonce) in gas_key.nonces.iter().enumerate() {
+                    records.push(StateRecord::gas_key_nonce(
+                        user_account.account_id.clone(),
+                        &gas_key.public_key,
+                        slot as NonceIndex,
+                        *nonce,
+                    ));
+                }
             }
         }
         for (account_id, balance) in validator_stake {
@@ -538,11 +573,6 @@ impl TestGenesisBuilder {
             validators,
             shard_layout: self.shard_layout.clone(),
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: self
-                .shard_layout
-                .shard_ids()
-                .map(|_| num_block_producer_seats)
-                .collect(),
             minimum_stake_divisor: self.minimum_stake_divisor,
             minimum_stake_ratio: self.minimum_stake_ratio,
             max_inflation_rate: self.max_inflation_rate,
@@ -619,7 +649,7 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                 let account_info = AccountInfo {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
-                    amount: Balance::from_near((10000 - i).try_into().unwrap()),
+                    amount: Balance::from_near((11_000 - i).try_into().unwrap()),
                 };
                 validators.push(account_info);
             }
@@ -628,7 +658,7 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
                     public_key: create_test_signer(account_id.as_str()).public_key(),
                     account_id,
                     amount: Balance::from_near(
-                        10000 - i as u128 - num_block_and_chunk_producer_seats as u128,
+                        10_000 - i as u128 - num_block_and_chunk_producer_seats as u128,
                     ),
                 };
                 validators.push(account_info);

@@ -1,13 +1,14 @@
 use crate::block_processing_utils::BlockNotInPoolError;
-use crate::chain::{ApplyChunksIterationMode, Chain};
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use crate::chain::Chain;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::futures::RayonAsyncComputationSpawner;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -20,7 +21,9 @@ use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ProtocolVersion, ShardId,
+};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -52,7 +55,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         clock.clone(),
         vec!["test1".parse::<AccountId>().unwrap()],
         1,
-        vec![1; num_shards as usize],
+        num_shards,
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
@@ -64,7 +67,12 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+        store.clone(),
+        &genesis.config,
+        epoch_config_store,
+    );
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
         NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -78,7 +86,7 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
-        ApplyChunksIterationMode::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,
@@ -137,13 +145,27 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
     epoch_length: u64,
 ) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
+    setup_with_tx_validity_period_at_version(
+        clock,
+        tx_validity_period,
+        epoch_length,
+        PROTOCOL_VERSION,
+    )
+}
+
+/// `setup_with_tx_validity_period` with the genesis protocol version pinned to
+/// `protocol_version` instead of `PROTOCOL_VERSION`, so features stabilized above it stay
+/// disabled. Only holds while the chain stays inside the genesis epoch: blocks built by
+/// `TestBlockBuilder` vote for `PROTOCOL_VERSION`.
+pub fn setup_with_tx_validity_period_at_version(
+    clock: Clock,
+    tx_validity_period: NumBlocks,
+    epoch_length: u64,
+    protocol_version: ProtocolVersion,
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<ValidatorSigner>) {
     let store = create_test_store();
-    let mut genesis = Genesis::test_sharded(
-        clock.clone(),
-        vec!["test".parse::<AccountId>().unwrap()],
-        1,
-        vec![1; 1],
-    );
+    let mut genesis =
+        Genesis::test_sharded(clock.clone(), vec!["test".parse::<AccountId>().unwrap()], 1, 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = tx_validity_period;
     genesis.config.gas_limit = Gas::from_gas(1_000_000);
@@ -151,7 +173,7 @@ pub fn setup_with_tx_validity_period(
     genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000_000);
     genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
-    genesis.config.protocol_version = PROTOCOL_VERSION;
+    genesis.config.protocol_version = protocol_version;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -168,7 +190,7 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         ApplyChunksSpawner::Custom(Arc::new(RayonAsyncComputationSpawner)),
-        ApplyChunksIterationMode::Sequential,
+        Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
         None,

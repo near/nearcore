@@ -84,6 +84,10 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
                 requested_account_id,
             } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
+            err @ (node_runtime::state_viewer::errors::ViewStateError::ProofUnsupportedWithPagination
+            | node_runtime::state_viewer::errors::ViewStateError::AfterKeyOutsidePrefix) => {
+                Self::InternalError { error_message: err.to_string(), block_height, block_hash }
+            }
         }
     }
 
@@ -96,9 +100,16 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::UnknownAccessKey { public_key, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccessKeyError::TooManyAccessKeys {
+                requested_account_id,
+                limit,
+            } => Self::TooManyAccessKeys { requested_account_id, limit, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },

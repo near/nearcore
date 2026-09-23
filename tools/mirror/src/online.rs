@@ -1,3 +1,4 @@
+use crate::key_util::ACCESS_KEY_PAGE_SIZE;
 use crate::{ChainError, SourceBlock, SourceChunk};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -8,8 +9,9 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
+    QueryError,
 };
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -28,12 +30,15 @@ pub(crate) struct ChainAccess {
 }
 
 impl ChainAccess {
-    pub(crate) async fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
+    pub(crate) async fn new<P: AsRef<Path>>(
+        home: P,
+        actor_system: ActorSystem,
+    ) -> anyhow::Result<Self> {
         let config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config, ActorSystem::new())
+        let node = nearcore::start_with_config(home.as_ref(), config, actor_system)
             .await
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
@@ -205,27 +210,39 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError> {
+    ) -> Result<Vec<PublicKeyHandle>, ChainError> {
         let mut ret = Vec::new();
-        match self
-            .view_client
-            .send_async(Query {
-                block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
-                request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
-            })
-            .await
-            .unwrap()?
-            .kind
-        {
-            QueryResponseKind::AccessKeyList(l) => {
-                for k in l.keys {
-                    if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                        ret.push(k.public_key);
-                    }
+        let mut after_key = None;
+        loop {
+            let response = match self
+                .view_client
+                .send_async(Query {
+                    block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
+                    request: QueryRequest::ViewAccessKeyList {
+                        account_id: account_id.clone(),
+                        after_key,
+                        limit: ACCESS_KEY_PAGE_SIZE,
+                    },
+                })
+                .await
+                .unwrap()
+            {
+                Ok(response) => response,
+                Err(QueryError::UnknownAccount { .. }) => return Ok(ret),
+                Err(e) => return Err(e.into()),
+            };
+            let QueryResponseKind::AccessKeyList(l) = response.kind else {
+                unreachable!();
+            };
+            for k in l.keys {
+                if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                    ret.push(k.public_key);
                 }
             }
-            _ => unreachable!(),
-        };
-        Ok(ret)
+            match l.last_key {
+                Some(cursor) => after_key = Some(cursor),
+                None => return Ok(ret),
+            }
+        }
     }
 }

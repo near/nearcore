@@ -167,16 +167,22 @@ pub fn apply_chunk(
 
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
+    let target_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &target_epoch_id)?;
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
-                shard_id,
+                shard_uid,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_new_chunk: true,
                 on_post_state_ready: None,
+                memtrie_pin: runtime
+                    .get_tries()
+                    .maybe_pin_memtrie_root(shard_uid, prev_state_root)
+                    .expect("failed to pin memtrie root"),
             },
             ApplyChunkBlockContext {
                 block_type: BlockType::Normal,

@@ -116,11 +116,11 @@ pub enum DBCol {
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
     /// Contains State parts that we've received.
-    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || StatePartIndex)
     /// - *Content type*: state part (bytes)
     StateParts,
     /// Contains information about which state parts we've applied.
-    /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
+    /// - *Rows*: StatePartKey (BlockHash || ShardId || StatePartIndex)
     /// - *Content type*: bool (just a marker that we've applied this part)
     StatePartsApplied,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
@@ -207,9 +207,10 @@ pub enum DBCol {
     /// - *Rows*: BlockHash
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
     BlockMerkleTree,
-    /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
+    /// Mapping from height to the set of Chunk Hashes created at that height. Note: a chunk may be
+    /// included in a block with `height >= chunk.height_created()`.
     /// - *Rows*: height (u64)
-    /// - *Column type*: Vec<ChunkHash (CryptoHash)>
+    /// - *Column type*: HashSet<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
     /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
@@ -349,9 +350,9 @@ pub enum DBCol {
     /// - *Content type*: `near_primitives::sharding::ReceiptProof`
     #[cfg(feature = "protocol_feature_spice")]
     ReceiptProofs,
-    /// Stores produces witnesses by spice executor.
+    /// Stores witnesses produced by the SPICE executor.
     /// - *Rows*: (BlockHash || ShardId)
-    /// - *Content type*: [near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness]
+    /// - *Content type*: [near_primitives::spice::state_witness::SpiceChunkStateWitness]
     #[cfg(feature = "protocol_feature_spice")]
     Witnesses,
     /// All known processed next block hashes regardless of canonical chain.
@@ -361,7 +362,7 @@ pub enum DBCol {
     AllNextBlockHashes,
     /// For spice contains execution results endorsements.
     /// - *Rows*: SpiceEndorsementKey (BlockHash || ShardId || AccountId)
-    /// - *Content type*: [near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement]
+    /// - *Content type*: [near_primitives::spice::chunk_endorsement::SpiceStoredVerifiedEndorsement]
     #[cfg(feature = "protocol_feature_spice")]
     Endorsements,
     /// For spice contains execution results of applying the chunk.
@@ -381,6 +382,17 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// For spice, the running per-epoch accumulated chunk endorsement stats as
+    /// of this block, indexed by the current epoch's validator id. Reset at
+    /// each epoch boundary. The epoch's last block snapshots this into its
+    /// header for reward and kickout.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: Vec<[near_primitives::types::SpiceChunkEndorsementStats]>
+    // TODO(spice): each block's value is derived from its parent's, so this must
+    // be seeded at the state-sync boundary block (same as UncertifiedChunks) once
+    // spice state sync exists, otherwise the first post-sync block can't compute it.
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceEndorsementStats,
     /// Stores contract accesses (code hashes) per SPICE chunk.
     /// Used to validate the contract code requests and accompany the witness in the catch-up
     /// dataflow. Written atomically together with the witness.
@@ -388,6 +400,27 @@ pub enum DBCol {
     /// - *Content type*: `Vec<CodeHash>`
     #[cfg(feature = "protocol_feature_spice")]
     ContractAccesses,
+    /// For spice, the block that certified a chunk's execution result. Written
+    /// once, when the certifying block becomes final.
+    /// - *Rows*: SpiceChunkId (BlockHash || ShardId)
+    /// - *Content type*: [near_primitives::hash::CryptoHash] (certifying block hash)
+    #[cfg(feature = "protocol_feature_spice")]
+    ChunkCertifyingBlock,
+    /// For spice, chunks that failed to decode or verify. Unlike [`DBCol::InvalidChunks`], the
+    /// height prefix lets garbage collection reach these rows: an invalid chunk gets no
+    /// [`DBCol::Chunks`] row, so [`DBCol::ChunkHashesByHeight`] does not list it.
+    /// - *Rows*: BlockHeight || ChunkHash (height_created, chunk_hash)
+    /// - *Content type*: [near_primitives::sharding::EncodedShardChunk]
+    #[cfg(feature = "protocol_feature_spice")]
+    SpiceInvalidChunks,
+    /// Pre-computed chunk producer for the chunk anchored at the given block (its
+    /// grandparent), sampled at height `anchor.height+2` in the anchor's own epoch.
+    /// The column family exists on every build, but rows are only populated (during
+    /// header sync and block processing) once the `EarlyKickout` protocol feature is
+    /// active. Authoritative source for historical chunk producer lookups.
+    /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
+    /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
+    ChunkProducers,
 }
 
 /// Defines different logical parts of a db key.
@@ -429,6 +462,21 @@ pub enum DBKeyType {
     ChunkExecutionResultHash,
 }
 
+/// Garbage-collection policy of a column.
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+pub enum GcPolicy {
+    /// Deletes the key.
+    Delete,
+    /// Decrements the key's refcount.
+    DecrementRefcount,
+    /// Never collected; kept for the node's lifetime as canonical chain data.
+    Permanent,
+    /// Neither generically collected nor permanent: either collected through a
+    /// dedicated path (e.g. state, flat storage), or node-local / operational /
+    /// legacy data (networking, caches, deprecated).
+    Other,
+}
+
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
@@ -457,7 +505,11 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
-            | DBCol::UncertifiedExecutionResults => true,
+            | DBCol::UncertifiedExecutionResults
+            | DBCol::SpiceEndorsementStats
+            | DBCol::SpiceInvalidChunks
+            | DBCol::ChunkCertifyingBlock => true,
+            DBCol::ChunkProducers => true,
             _ => false,
         }
     }
@@ -558,7 +610,13 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
             #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceEndorsementStats => false,
+            #[cfg(feature = "protocol_feature_spice")]
             | DBCol::ContractAccesses => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::ChunkCertifyingBlock => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::SpiceInvalidChunks => true,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -590,7 +648,9 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
-            // Only needed to properly GC Receipts column
+            // Only needed to properly GC Receipts column.
+            // TODO(#15465): the indexer reads this column too, so a split-storage
+            // archival node loses it to gc and cannot serve it past the horizon.
             DBCol::ProcessedReceiptIds => false,
             // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
             DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
@@ -623,7 +683,105 @@ impl DBCol {
             | DBCol::FlatStorageStatus
             | DBCol::EpochSyncProof
             | DBCol::StateSyncHashes
-            | DBCol::StateSyncNewChunks => false,
+            | DBCol::StateSyncNewChunks
+            => false,
+            DBCol::ChunkProducers => true,
+        }
+    }
+
+    /// This column's garbage-collection policy.
+    pub const fn gc_policy(&self) -> GcPolicy {
+        match self {
+            DBCol::Block
+            | DBCol::BlockHeader
+            | DBCol::BlockInfo
+            | DBCol::BlockRefCount
+            | DBCol::BlocksToCatchup
+            | DBCol::ChallengedBlocks
+            | DBCol::ChunkApplyStats
+            | DBCol::ChunkExtra
+            | DBCol::ChunkHashesByHeight
+            | DBCol::Chunks
+            | DBCol::HeaderHashesByHeight
+            | DBCol::IncomingReceipts
+            | DBCol::InvalidChunks
+            | DBCol::InvalidChunkStateWitnesses
+            | DBCol::InvalidWitnessesByIndex
+            | DBCol::LatestChunkStateWitnesses
+            | DBCol::LatestWitnessesByIndex
+            | DBCol::NextBlockHashes
+            | DBCol::OutcomeIds
+            | DBCol::PartialChunks
+            | DBCol::ProcessedBlockHeights
+            | DBCol::ProcessedReceiptIds
+            | DBCol::ReceiptToTx
+            | DBCol::StateChanges
+            | DBCol::StateDlInfos
+            | DBCol::StateHeaders
+            | DBCol::StateParts
+            | DBCol::StatePartsApplied
+            | DBCol::StateSyncNewChunks
+            | DBCol::StateTransitionData
+            | DBCol::TransactionResultForBlock
+            | DBCol::TrieChanges => GcPolicy::Delete,
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::AllNextBlockHashes
+            | DBCol::ChunkCertifyingBlock
+            | DBCol::ContractAccesses
+            | DBCol::Endorsements
+            | DBCol::ExecutionResults
+            | DBCol::ReceiptProofs
+            | DBCol::SpiceEndorsementStats
+            | DBCol::UncertifiedChunks
+            | DBCol::SpiceInvalidChunks
+            | DBCol::UncertifiedExecutionResults
+            | DBCol::Witnesses => GcPolicy::Delete,
+
+            DBCol::Receipts | DBCol::Transactions => GcPolicy::DecrementRefcount,
+
+            DBCol::BlockHeight  // block sync needs it + genesis should be accessible
+            | DBCol::BlockMerkleTree
+            | DBCol::BlockOrdinal
+            // https://github.com/nearprotocol/nearcore/pull/2952
+            | DBCol::EpochInfo
+            | DBCol::EpochLightClientBlocks
+            | DBCol::EpochStart
+            | DBCol::EpochSyncProof
+            | DBCol::EpochValidatorInfo => GcPolicy::Permanent,
+
+            DBCol::AccountAnnouncements
+            | DBCol::_BlockExtra
+            | DBCol::BlockMisc
+            | DBCol::BlockPerHeight  // gc_col_block_per_height
+            | DBCol::CachedContractCode
+            | DBCol::_ChunkPerHeightShard
+            | DBCol::ComponentEdges
+            | DBCol::DbVersion
+            | DBCol::FlatState
+            | DBCol::FlatStateChanges
+            | DBCol::FlatStateDeltaMetadata
+            | DBCol::FlatStorageStatus
+            | DBCol::_GCCount
+            | DBCol::_LastBlockWithNewChunk
+            | DBCol::LastComponentNonce
+            | DBCol::Misc
+            | DBCol::_NextBlockWithNewChunk
+            | DBCol::OutgoingReceipts  // gc_outgoing_receipts
+            | DBCol::PeerComponent
+            | DBCol::_Peers
+            | DBCol::_ReceiptIdToShardId
+            | DBCol::RecentOutboundConnections
+            | DBCol::State
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateShardUIdMapping
+            // Unneeded keys are removed as new ones are added.
+            | DBCol::StateSyncHashes
+            | DBCol::_TransactionRefCount
+            | DBCol::_TransactionResult => GcPolicy::Other,
+            // GC'd with the anchor block/header it belongs to: a row for anchor A is dropped
+            // once A falls below the GC boundary, far below the near-head consensus read
+            // horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
+            DBCol::ChunkProducers => GcPolicy::Delete,
         }
     }
 
@@ -721,8 +879,22 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceEndorsementStats => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
             DBCol::ContractAccesses => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::ChunkCertifyingBlock => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::SpiceInvalidChunks => &[DBKeyType::BlockHeight, DBKeyType::ChunkHash],
+            DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
+    }
+
+    pub fn spice_invalid_chunks() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceInvalidChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
     }
 
     pub fn witnesses() -> DBCol {
@@ -774,9 +946,23 @@ impl DBCol {
         panic!("Expected protocol_feature_spice to be enabled")
     }
 
+    pub fn spice_endorsement_stats() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::SpiceEndorsementStats;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
     pub fn contract_accesses() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::ContractAccesses;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn chunk_certifying_block() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::ChunkCertifyingBlock;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

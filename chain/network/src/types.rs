@@ -1,4 +1,5 @@
 use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
     Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
@@ -10,8 +11,9 @@ pub use crate::network_protocol::{
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
+use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice_data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -23,20 +25,20 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
-use near_primitives::spice_partial_data::SpicePartialData;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::spice::partial_data::SpicePartialData;
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
     PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
     SpiceContractCodeResponse,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
-use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -65,33 +67,22 @@ pub struct KnownProducer {
 }
 
 /// Ban reason.
-#[derive(
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Copy,
-    ProtocolSchema,
-)]
-#[borsh(use_discriminant = false)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
-    None = 0,
-    BadBlock = 1,
-    BadBlockHeader = 2,
-    HeightFraud = 3,
-    BadHandshake = 4,
-    BadBlockApproval = 5,
-    Abusive = 6,
-    InvalidSignature = 7,
-    InvalidPeerId = 8,
-    InvalidHash = 9,
-    InvalidEdge = 10,
-    InvalidDistanceVector = 11,
-    Blacklisted = 14,
-    ProvidedNotEnoughHeaders = 15,
-    BadChunkStateWitness = 16,
+    None,
+    BadBlock,
+    BadBlockHeader,
+    HeightFraud,
+    BadHandshake,
+    BadBlockApproval,
+    Abusive,
+    InvalidSignature,
+    InvalidPeerId,
+    InvalidHash,
+    InvalidEdge,
+    Blacklisted,
+    ProvidedNotEnoughHeaders,
+    BadChunkStateWitness,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -186,10 +177,6 @@ pub enum PeerManagerMessageRequest {
     /// The effect would be accounts data known by this node broadcasted to other tier1 nodes.
     /// That includes info about validator signer of this node.
     AdvertiseTier1Proxies,
-    /// Request PeerManager to connect to the given peer.
-    /// Used in tests and internally by PeerManager.
-    /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
-    OutboundTcpConnect(crate::tcp::Stream),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
@@ -218,8 +205,6 @@ impl PeerManagerMessageRequest {
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     AdvertiseTier1Proxies,
-    /// TEST-ONLY
-    OutboundTcpConnect,
     FetchRoutingTable(RoutingTableInfo),
 }
 
@@ -268,13 +253,13 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
-        part_id: u64,
+        part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
     StateRequestAck {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id_or_header: PartIdOrHeader,
+        part_or_header: PartOrHeader,
         body: StateRequestAckBody,
         peer_id: PeerId,
     },
@@ -309,9 +294,9 @@ pub enum NetworkRequests {
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
     ChunkEndorsement(AccountId, ChunkEndorsement),
     /// Message from chunk producer to set of chunk validators to send state witness part.
-    PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
+    PartialEncodedStateWitness(Vec<(AccountId, VersionedPartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
-    PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(Vec<AccountId>, VersionedPartialEncodedStateWitness),
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request
@@ -333,7 +318,7 @@ pub enum NetworkRequests {
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
-    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    SpiceDataRequest { request: SpiceDataRequest, producer: AccountId },
     /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
     SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
     /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
@@ -344,7 +329,7 @@ pub enum NetworkRequests {
 
 #[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
-    StatePartReceived(ShardId, u64),
+    StatePartReceived(ShardId, StatePartIndex),
 }
 
 /// Combines peer address info, chain.
@@ -352,40 +337,6 @@ pub enum StateSyncEvent {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
-}
-
-/// These are the information needed for highest height peers. For these peers, we guarantee that
-/// the height and hash of the latest block are set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighestHeightPeerInfo {
-    pub peer_info: PeerInfo,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
-    /// Height and hash of the highest block we've ever received from the peer
-    pub highest_block_height: BlockHeight,
-    /// Hash of the latest block
-    pub highest_block_hash: CryptoHash,
-    /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
-    /// Denote if a node is running in archival mode or not.
-    pub archival: bool,
-}
-
-impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
-    fn from(p: FullPeerInfo) -> Self {
-        if p.chain_info.last_block.is_some() {
-            Some(HighestHeightPeerInfo {
-                peer_info: p.peer_info,
-                genesis_id: p.chain_info.genesis_id,
-                highest_block_height: p.chain_info.last_block.unwrap().height,
-                highest_block_hash: p.chain_info.last_block.unwrap().hash,
-                tracked_shards: p.chain_info.tracked_shards,
-                archival: p.chain_info.archival,
-            })
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -435,7 +386,6 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
@@ -460,10 +410,19 @@ pub enum NetworkResponses {
     SelectedDestination(PeerId),
 }
 
+/// `NetworkRequests` plus a pre-acquired outgoing-queue permit. Used when the sender has already
+/// reserved bytes in the `OutgoingQueueLimiter`.
+#[derive(Debug)]
+pub struct NetworkRequestWithPermit {
+    pub request: NetworkRequests,
+    pub permit: OutgoingPermit,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub request_with_permit_sender: Sender<NetworkRequestWithPermit>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
@@ -581,13 +540,14 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
     /// Contents of the request
     pub body: Tier3RequestBody,
+    pub recv_permit: RecvMessagePermit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]
@@ -600,7 +560,7 @@ pub enum Tier3RequestBody {
 pub struct StatePartRequestBody {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_idx: StatePartIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

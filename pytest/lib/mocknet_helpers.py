@@ -43,6 +43,10 @@ def get_nonce_for_pk(account_id,
     )
     logger.info(f'get_nonce_for_pk {account_id}')
     logger.info(access_keys)
+    if access_keys.get('error', {}).get('cause',
+                                        {}).get('name') == 'UNKNOWN_ACCOUNT':
+        raise KeyError(account_id)
+
     if not access_keys['result']['keys']:
         raise KeyError(account_id)
 
@@ -115,8 +119,7 @@ def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
 # Might return None - if transaction is not present and wait_for_success is false.
 def tx_result(txn_id, account_id, wait_for_success=False, **kwargs):
     while True:
-        status = json_rpc("EXPERIMENTAL_tx_status", [txn_id, account_id],
-                          **kwargs)
+        status = json_rpc("tx_status", [txn_id, account_id], **kwargs)
         if 'error' in status:
             print("tx error: tx not ready yet")
             if not wait_for_success:
