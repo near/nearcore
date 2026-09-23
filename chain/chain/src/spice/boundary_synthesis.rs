@@ -5,6 +5,7 @@ use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::sharding::ReceiptProof;
@@ -145,7 +146,8 @@ pub fn get_last_new_chunk_block_and_old_chunk_blocks(
 }
 
 /// The blocks whose incoming receipts the chunk of `shard_id` at
-/// `last_new_chunk_block` consumed.
+/// `last_new_chunk_block` consumed: `last_new_chunk_block` itself and the blocks back
+/// to, excluding, the one that included the shard's previous chunk. Newest first.
 pub fn get_incoming_receipt_blocks_for_shard(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -177,14 +179,17 @@ pub fn get_incoming_receipt_blocks_for_shard(
 /// Consistency check between the two sources of truth at the boundary: a certified
 /// execution result of a pre-spice chunk must match what this node synthesizes from
 /// its own pre-spice apply.
+///
+/// Only a chunk of a shard this node tracked at the block has local artifacts to check
+/// against; for any other shard, learning the result from certification is the point.
 pub fn check_pre_spice_execution_result(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
     chunk_id: &SpiceChunkId,
     execution_result: &ChunkExecutionResult,
 ) -> Result<(), Error> {
-    // A block this node does not hold is nothing to check against, same as a chunk
-    // it never applied below.
+    // A block this node does not hold is nothing to check against.
     let block = match chain_store.get_block(&chunk_id.block_hash) {
         Ok(block) => block,
         Err(Error::DBNotFoundErr(_)) => return Ok(()),
@@ -193,16 +198,15 @@ pub fn check_pre_spice_execution_result(
     if block.is_spice_block() {
         return Ok(());
     }
-    let synthesized = match execution_result_from_pre_spice_apply(
+    if !shard_tracker.cares_about_shard(block.header().prev_hash(), chunk_id.shard_id) {
+        return Ok(());
+    }
+    let synthesized = execution_result_from_pre_spice_apply(
         chain_store,
         epoch_manager,
         &block,
         chunk_id.shard_id,
-    ) {
-        Ok(result) => result,
-        Err(Error::DBNotFoundErr(_)) => return Ok(()),
-        Err(err) => return Err(err),
-    };
+    )?;
     if &synthesized != execution_result {
         byzantine_assert!(false);
         return Err(Error::Other(format!(
@@ -217,13 +221,18 @@ pub fn check_pre_spice_execution_result(
 mod tests {
     use super::{
         check_pre_spice_execution_result, execution_result_from_pre_spice_apply,
-        execution_result_from_pre_spice_child,
+        execution_result_from_pre_spice_child, get_incoming_receipt_blocks_for_shard,
+        get_last_new_chunk_block_and_old_chunk_blocks,
     };
     use crate::Chain;
-    use crate::spice::tests::{add_pre_spice_block, setup_pre_spice_chain};
+    use crate::spice::tests::pre_spice::{add_pre_spice_block, setup_pre_spice_chain};
     use near_async::time::Clock;
+    use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
+    use near_chain_primitives::Error;
     use near_crypto::{KeyType, SecretKey};
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::block::Block;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::gas::Gas;
     use near_primitives::hash::CryptoHash;
@@ -256,8 +265,8 @@ mod tests {
         // headers, so its chunk is missing (last included height stays at the first).
         let block_with_chunk = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
         let block_missing_chunk = add_pre_spice_block(&mut chain, &block_with_chunk, &[]);
-        let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let shard_id = shard_uid.shard_id();
 
         let receipts =
             vec![Receipt::new_balance_refund(&"user".parse().unwrap(), Balance::from_near(1))];
@@ -309,7 +318,8 @@ mod tests {
     }
 
     /// The consistency check accepts a certified pre-spice result equal to the local synthesis,
-    /// rejects one that differs, and skips a shard this node cannot synthesize.
+    /// rejects one that differs, skips a shard this node does not track, and fails on a
+    /// tracked shard it has no artifacts for.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_pre_spice_execution_result_consistency_check() {
@@ -324,8 +334,8 @@ mod tests {
         let applied_block = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
         // Never applied by this node: no chunk extra, synthesis impossible.
         let unapplied_block = add_pre_spice_block(&mut chain, &applied_block, &[]);
-        let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let shard_id = shard_uid.shard_id();
         let mut store_update = chain.chain_store.store_update();
         store_update.save_outgoing_receipt(applied_block.hash(), shard_id, vec![]);
         store_update.save_chunk_extra(
@@ -336,6 +346,12 @@ mod tests {
         store_update.commit().unwrap();
 
         let chain_store = chain.chain_store.store().chain_store();
+        let tracking_all = ShardTracker::new(
+            TrackedShardsConfig::AllShards,
+            epoch_manager.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
+        );
+        let tracking_none = ShardTracker::new_empty(epoch_manager.clone());
         let chunk_id = SpiceChunkId { block_hash: *applied_block.hash(), shard_id };
         let synthesized = execution_result_from_pre_spice_apply(
             &chain_store,
@@ -348,6 +364,7 @@ mod tests {
         check_pre_spice_execution_result(
             &chain_store,
             epoch_manager.as_ref(),
+            &tracking_all,
             &chunk_id,
             &synthesized,
         )
@@ -355,19 +372,38 @@ mod tests {
 
         let mut forged = synthesized;
         forged.outgoing_receipts_root = CryptoHash::hash_bytes(b"forged root");
-        check_pre_spice_execution_result(&chain_store, epoch_manager.as_ref(), &chunk_id, &forged)
-            .unwrap_err();
+        let err = check_pre_spice_execution_result(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &tracking_all,
+            &chunk_id,
+            &forged,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("does not match local synthesis"), "{err}");
 
-        // A forged result for the unapplied block passes: nothing local to check
+        // A forged result for an untracked shard passes: nothing local to check
         // against, and learning untracked results from certification is the point.
-        let unapplied_chunk_id = SpiceChunkId { block_hash: *unapplied_block.hash(), shard_id };
         check_pre_spice_execution_result(
             &chain_store,
             epoch_manager.as_ref(),
-            &unapplied_chunk_id,
+            &tracking_none,
+            &chunk_id,
             &forged,
         )
         .unwrap();
+
+        // A tracked shard whose chunk this node never applied is a local error.
+        let unapplied_chunk_id = SpiceChunkId { block_hash: *unapplied_block.hash(), shard_id };
+        let err = check_pre_spice_execution_result(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &tracking_all,
+            &unapplied_chunk_id,
+            &forged,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::DBNotFoundErr(_)), "{err}");
     }
 
     /// Every field of the reconstructed result must come from the corresponding
@@ -451,6 +487,77 @@ mod tests {
             )
             .unwrap(),
             None,
+        );
+    }
+
+    /// The block walks a boundary witness covers: the old-chunk blocks after the last
+    /// new chunk's block, oldest first, and the incoming receipt sources back to the
+    /// previous chunk's block, newest first.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_last_new_chunk_block_and_incoming_receipt_blocks() {
+        let mut chain = setup_pre_spice_chain(1);
+        let epoch_manager = chain.epoch_manager.clone();
+        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+        let shard_layout =
+            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
+        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
+
+        // A new chunk, two missing ones, then a new chunk again.
+        let new_chunk_block = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
+        let missing_1 = add_pre_spice_block(&mut chain, &new_chunk_block, &[]);
+        let missing_2 = add_pre_spice_block(&mut chain, &missing_1, &[]);
+        let next_new_chunk_block = add_pre_spice_block(&mut chain, &missing_2, &all_shards);
+        let chain_store = chain.chain_store.store().chain_store();
+        let hashes =
+            |blocks: &[Arc<Block>]| blocks.iter().map(|block| *block.hash()).collect::<Vec<_>>();
+
+        // A block carrying its own chunk replays nothing.
+        let blocks = get_last_new_chunk_block_and_old_chunk_blocks(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &new_chunk_block,
+            shard_id,
+        )
+        .unwrap();
+        assert_eq!(blocks.last_new_chunk_block.hash(), new_chunk_block.hash());
+        assert!(blocks.old_chunk_blocks.is_empty());
+
+        // The second missing chunk's witness applies the last new chunk and replays both
+        // missing-chunk blocks after it, oldest first.
+        let blocks = get_last_new_chunk_block_and_old_chunk_blocks(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &missing_2,
+            shard_id,
+        )
+        .unwrap();
+        assert_eq!(blocks.last_new_chunk_block.hash(), new_chunk_block.hash());
+        assert_eq!(hashes(&blocks.old_chunk_blocks), vec![*missing_1.hash(), *missing_2.hash()]);
+
+        // The first chunk after genesis consumed the receipts of its own block only.
+        let sources = get_incoming_receipt_blocks_for_shard(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &new_chunk_block,
+            shard_id,
+        )
+        .unwrap();
+        assert_eq!(hashes(&sources), vec![*new_chunk_block.hash()]);
+
+        // The chunk after the gap consumed the receipts of every block since the
+        // previous chunk's, newest first.
+        let sources = get_incoming_receipt_blocks_for_shard(
+            &chain_store,
+            epoch_manager.as_ref(),
+            &next_new_chunk_block,
+            shard_id,
+        )
+        .unwrap();
+        assert_eq!(
+            hashes(&sources),
+            vec![*next_new_chunk_block.hash(), *missing_2.hash(), *missing_1.hash()]
         );
     }
 }

@@ -4,6 +4,7 @@
 #![cfg(feature = "test_features")] // required for the actors' drop tallies
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::NodeExecutionData;
@@ -12,6 +13,9 @@ use near_async::messaging::CanSend as _;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice::activation::SpiceMessageKind;
+use near_chain::spice::boundary_synthesis::{
+    execution_result_and_receipt_proofs_from_pre_spice_apply, execution_result_from_pre_spice_child,
+};
 use near_client::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
@@ -35,9 +39,10 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{Balance, ChunkExecutionResult, SpiceChunkId};
+use near_primitives::types::{Balance, ChunkExecutionResult, ShardId, SpiceChunkId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -367,6 +372,67 @@ fn test_spice_network_messages_are_dropped_on_pre_spice_chain() {
 
     traffic.assert_no_spice_traffic();
     assert_spice_columns_empty(&env);
+}
+
+/// The boundary rests on two syntheses of a pre-spice chunk's execution result agreeing:
+/// the one read off the artifacts the chunk's apply committed, and the one read off the
+/// chunk header the next block carries. Checked on a real chain, across missing chunks,
+/// where the two read from different blocks.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pre_spice_synthesis_matches_next_block_chunk_header() {
+    init_test_logger();
+
+    // Two missing chunks per epoch, so the synthesis has to find the chunk extra and the
+    // outgoing receipts in different blocks.
+    let chunks_produced_by_height =
+        HashMap::from([(ShardId::new(0), vec![true, true, false, false, true])]);
+    let mut env = setup_pre_spice_chain(2, 3)
+        .drop(DropCondition::ChunksProducedByHeight(chunks_produced_by_height));
+
+    // Real receipts, so the receipts roots are not the empty root throughout.
+    let user = create_account_id("user");
+    let tx =
+        env.node(0).tx_send_money(&user, &create_account_id("validator1"), Balance::from_near(1));
+    env.node_runner(0).run_tx(tx, Duration::seconds(20));
+    env.node_runner(0).run_until_head_height(3 * EPOCH_LENGTH);
+
+    let node = env.node(0);
+    let chain = &node.client().chain;
+    let chain_store = node.store().chain_store();
+    let epoch_manager = chain.epoch_manager.as_ref();
+
+    let mut compared_chunks = 0;
+    let mut saw_missing_chunk = false;
+    // The scan starts an epoch above genesis: a shard whose chunk is still the genesis one
+    // has no outgoing receipts row to synthesize from, and the lowest epoch may be
+    // garbage collected by now.
+    for height in chain.genesis().height() + EPOCH_LENGTH..node.head().height {
+        let (Ok(block), Ok(child)) =
+            (chain.get_block_by_height(height), chain.get_block_by_height(height + 1))
+        else {
+            continue;
+        };
+        saw_missing_chunk |= block.header().chunk_mask().contains(&false);
+        for shard_id in child.chunks().iter_new().map(|chunk| chunk.shard_id()) {
+            let result_from_child =
+                execution_result_from_pre_spice_child(epoch_manager, &child, shard_id)
+                    .unwrap()
+                    .unwrap();
+            let (result_from_apply, _receipt_proofs) =
+                execution_result_and_receipt_proofs_from_pre_spice_apply(
+                    &chain_store,
+                    epoch_manager,
+                    &block,
+                    shard_id,
+                )
+                .unwrap();
+            assert_eq!(result_from_apply, result_from_child, "height {height} shard {shard_id}");
+            compared_chunks += 1;
+        }
+    }
+    assert!(compared_chunks > 0, "no chunk was compared");
+    assert!(saw_missing_chunk, "no missing chunk was covered");
 }
 
 fn new_test_execution_result() -> ChunkExecutionResult {
