@@ -44,6 +44,12 @@ pub(crate) trait ChainView {
     /// Height of the final execution head; the genesis height before the first one is recorded.
     fn final_execution_head_height(&self) -> Result<BlockHeight, Error>;
 
+    /// Height of the chain's final head.
+    fn final_head_height(&self) -> Result<BlockHeight, Error>;
+
+    /// Hash of the canonical block at `height`; `None` when the canonical chain has no block there.
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error>;
+
     /// Per shard, the height of the highest block whose chunk is certified as of `block`.
     fn certified_frontier(
         &self,
