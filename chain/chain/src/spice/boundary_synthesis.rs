@@ -2,7 +2,7 @@
 //! the chunks at the spice activation boundary.
 
 use crate::{Chain, byzantine_assert};
-use near_chain_primitives::Error;
+use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -180,7 +180,7 @@ pub fn get_incoming_receipt_blocks_for_shard(
 /// execution result of a pre-spice chunk must match what this node synthesizes from
 /// its own pre-spice apply.
 ///
-/// Only a chunk of a shard this node tracked at the block has local artifacts to check
+/// Only a chunk of a shard this node applied with the block has local artifacts to check
 /// against; for any other shard, learning the result from certification is the point.
 pub fn check_pre_spice_execution_result(
     chain_store: &ChainStoreAdapter,
@@ -198,7 +198,14 @@ pub fn check_pre_spice_execution_result(
     if block.is_spice_block() {
         return Ok(());
     }
-    if !shard_tracker.cares_about_shard(block.header().prev_hash(), chunk_id.shard_id) {
+    // The shards applied with the block whatever its catch-up status: `NotCaughtUp` is
+    // the lower bound of the apply modes. A shard the node only tracks next epoch and
+    // is still catching up is applied later, so its artifacts cannot be required here.
+    if !shard_tracker.should_apply_chunk(
+        ApplyChunksMode::NotCaughtUp,
+        block.header().prev_hash(),
+        chunk_id.shard_id,
+    ) {
         return Ok(());
     }
     let synthesized = execution_result_from_pre_spice_apply(
