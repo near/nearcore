@@ -405,13 +405,6 @@
         "title": "AccountId",
         "type": "string"
       },
-      "AccountIdValidityRulesVersion": {
-        "format": "uint8",
-        "maximum": 255,
-        "minimum": 0,
-        "title": "AccountIdValidityRulesVersion",
-        "type": "integer"
-      },
       "AccountInfo": {
         "description": "Account info for validators",
         "properties": {
@@ -7238,13 +7231,11 @@
         "description": "Describes limits for VM and Runtime.\nTODO #4139: consider switching to strongly-typed wrappers instead of raw quantities",
         "properties": {
           "account_id_validity_rules_version": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AccountIdValidityRulesVersion"
-              }
-            ],
             "default": 2,
-            "description": "Deprecated: full account id validation is always enforced, so this is\nalways `V2`."
+            "description": "Deprecated: full account id validation is always enforced, so this is\nalways `2`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "initial_memory_pages": {
             "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",

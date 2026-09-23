@@ -1,6 +1,5 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
-use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
@@ -53,6 +52,11 @@ impl VMKind {
 pub enum StorageGetMode {
     FlatStorage,
     Trie,
+}
+
+/// The only value `LimitConfig::account_id_validity_rules_version` takes.
+fn default_account_id_validity_rules_version() -> u64 {
+    2
 }
 
 /// Describes limits for VM and Runtime.
@@ -191,9 +195,9 @@ pub struct LimitConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
     /// Deprecated: full account id validation is always enforced, so this is
-    /// always `V2`.
-    #[serde(default = "AccountIdValidityRulesVersion::v2")]
-    pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
+    /// always `2`.
+    #[serde(default = "default_account_id_validity_rules_version")]
+    pub account_id_validity_rules_version: u64,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
