@@ -42,7 +42,12 @@ fn main() -> anyhow::Result<()> {
     )
     .context("Localnet build failed")?;
 
-    println!("cargo:rerun-if-changed={}", contract_dir);
+    // `implementation` is a nested Cargo workspace, so it is not included in the
+    // packaged crate. Watching a missing path would make the build script rerun
+    // on every build.
+    if Path::new(contract_dir).exists() {
+        println!("cargo:rerun-if-changed={}", contract_dir);
+    }
     println!("cargo:rerun-if-changed={}", "./res");
 
     Ok(())
