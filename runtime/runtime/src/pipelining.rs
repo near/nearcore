@@ -1,6 +1,6 @@
 use crate::cache_warming::{cache_keys_differ, spawn_lazy_cache_warming};
 use crate::contract_code::RuntimeContractIdentifier;
-use crate::ext::RuntimeContractExt;
+use crate::ext::{ContractCodeLength, RuntimeContractExt};
 use crate::metrics::{
     PIPELINING_ACTIONS_FOUND_PREPARED, PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME,
     PIPELINING_ACTIONS_NOT_SUBMITTED, PIPELINING_ACTIONS_PREPARED_IN_MAIN_THREAD,
@@ -8,11 +8,12 @@ use crate::metrics::{
     PIPELINING_ACTIONS_TASK_WORKING_TIME, PIPELINING_ACTIONS_WAITING_TIME,
 };
 use near_async::thread_pool::contract_compilation_pool;
-use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
+use near_parameters::{RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{Account, AccountContract};
-use near_primitives::action::{Action, GlobalContractIdentifier};
+use near_primitives::action::{Action, FunctionCallAction, GlobalContractIdentifier};
 use near_primitives::config::ViewConfig;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::TrieKey;
@@ -20,7 +21,11 @@ use near_primitives::types::{AccountId, Gas, ProtocolVersion, ShardId};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
-use near_vm_runner::logic::GasCounter;
+use near_vm_runner::logic::errors::{CompilationError, FunctionCallError, VMRunnerError};
+use near_vm_runner::logic::{
+    ContractLoadingCharge, ExecutionResultState, External, GasCounter, PreparedContractGasCounter,
+    VMContext, VMOutcome,
+};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -102,6 +107,7 @@ struct PrepareTask {
     /// Defense in depth: if the receiver's code hash unexpectedly changes between
     /// preparation and execution, the stale prepared artifact is discarded.
     expected_hash: CryptoHash,
+    prepaid_gas: Gas,
 }
 
 enum PrepareTaskStatus {
@@ -158,12 +164,11 @@ impl ReceiptPreparationPipeline {
     /// way. Currently `true` is returned for any receipts containing `Action::DeployContract` (in
     /// which case no further processing for the receiver account will be done), and
     /// `Action::FunctionCall` (provided the account has not been blocked.)
-    pub(crate) fn submit(
-        &mut self,
-        receipt: &Receipt,
-        state_update: &TrieUpdate,
-        view_config: Option<ViewConfig>,
-    ) -> bool {
+    ///
+    /// Never use this for view-calls, since gas accounting uses the non-view
+    /// config. This assumes view calls do not use the speculative exeuction, if
+    /// this changes, this needs some refactoring.
+    pub(crate) fn submit(&mut self, receipt: &Receipt, state_update: &TrieUpdate) -> bool {
         let account_id = receipt.receiver_id();
         if self.block_accounts.contains(account_id) {
             return false;
@@ -235,49 +240,51 @@ impl ReceiptPreparationPipeline {
                         }
                         AccountContract::Local(_) => {}
                     }
-                    let Ok(identifier) = RuntimeContractIdentifier::resolve(
-                        &account_id,
-                        account.contract().into_owned(),
-                        state_update,
-                        &self.chain_id,
-                        AccessOptions::NO_SIDE_EFFECTS,
-                        self.current_protocol_version,
-                    ) else {
+                    let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
+                    if self.map.contains_key(&key) {
+                        continue;
+                    }
+                    let Ok(ContractPreparation::Ready { contract: code_ext, gas_counter }) = self
+                        .prepare_contract_metadata(
+                            &account_id,
+                            account.contract().into_owned(),
+                            state_update,
+                            function_call,
+                            None,
+                            AccessOptions::NO_SIDE_EFFECTS,
+                            self.current_protocol_version,
+                        )
+                    else {
+                        // Storage failures and early aborts are handled by demand preparation.
                         continue;
                     };
-                    let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
-                    let entry = match self.map.entry(key) {
-                        std::collections::btree_map::Entry::Vacant(v) => v,
-                        // Already been submitted.
-                        // TODO: Warning?
-                        std::collections::btree_map::Entry::Occupied(_) => continue,
-                    };
-                    let config = Arc::clone(&self.config.wasm_config);
-                    let cache = self.contract_cache.as_ref().map(|c| c.handle());
-                    let storage = self.storage.clone();
-                    let method_name = function_call.method_name.clone();
-                    let status = Mutex::new(PrepareTaskStatus::Pending);
-                    let created = Instant::now();
-                    let expected_hash = identifier.hash();
-                    // Pre-warm the next epoch's compiled-contract cache if an upgrade approaches.
+                    // Reuse successfully prepared metadata for optional next-epoch warming.
+                    // Loading-gas affordability filters scheduling, warming itself is not
+                    // charged to the receipt and does not affect its execution outcome.
                     if let (Some(next_config), Some(cache_for_warming)) =
                         (self.next_wasm_config.as_ref(), self.contract_cache.as_ref())
                     {
                         spawn_lazy_cache_warming(
-                            storage.clone(),
-                            identifier.clone(),
+                            self.storage.clone(),
+                            code_ext.identifier.clone(),
                             Arc::clone(next_config),
                             cache_for_warming.handle(),
                         );
                     }
+                    let config = Arc::clone(&self.config.wasm_config);
+                    let cache = self.contract_cache.as_ref().map(|c| c.handle());
+                    let method_name = function_call.method_name.clone();
+                    let status = Mutex::new(PrepareTaskStatus::Pending);
+                    let created = Instant::now();
+                    let expected_hash = code_ext.identifier.hash();
                     let task = Arc::new(PrepareTask {
                         status,
                         condvar: Condvar::new(),
                         created,
                         expected_hash,
+                        prepaid_gas: function_call.gas,
                     });
-                    entry.insert(Arc::clone(&task));
+                    self.map.insert(key, Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
                     let shard_id = self.shard_id;
                     let priority = self.priority;
@@ -293,11 +300,10 @@ impl ReceiptPreparationPipeline {
                             .inc_by(task.created.elapsed().as_secs_f64());
                         let start = Instant::now();
                         let contract = prepare_function_call(
-                            &storage,
+                            &code_ext,
                             cache.as_deref(),
                             config,
                             gas_counter,
-                            identifier,
                             &method_name,
                             priority,
                         );
@@ -324,6 +330,83 @@ impl ReceiptPreparationPipeline {
         return any_function_calls;
     }
 
+    /// Prepare the contract metadata for executing a function call.
+    ///
+    /// Create a gas counter, pay the loading base, resolve identity/size metadata,
+    /// then pay the byte fee. With FixContractLoadingCost, ready preparations have
+    /// paid the entire loading fee.
+    ///
+    /// Base-charge failures abort before metadata lookup. Byte-charge failures
+    /// abort before loading code. Storage failures propagate separately with the
+    /// caller's witness policy.
+    pub(crate) fn prepare_contract_metadata(
+        &self,
+        account_id: &AccountId,
+        account_contract: AccountContract,
+        state_update: &TrieUpdate,
+        function_call: &FunctionCallAction,
+        view_config: Option<&ViewConfig>,
+        access: AccessOptions,
+        protocol_version: ProtocolVersion,
+    ) -> Result<ContractPreparation, StorageError> {
+        let gas_counter = self.gas_counter(view_config, function_call.gas);
+        let loading_charge = match gas_counter
+            .before_loading_contract(&self.config.wasm_config, &function_call.method_name)
+        {
+            Ok(loading_charge) => loading_charge,
+            Err(abort) => {
+                let (gas_counter, error) = abort.into_parts();
+                return Ok(ContractPreparation::Aborted(AbortedContract {
+                    config: Arc::clone(&self.config.wasm_config),
+                    gas_counter,
+                    error,
+                }));
+            }
+        };
+        let identifier = RuntimeContractIdentifier::resolve(
+            account_id,
+            account_contract,
+            state_update,
+            &self.chain_id,
+            access,
+            protocol_version,
+        )?;
+        let (code_len, gas_counter) = match loading_charge {
+            ContractLoadingCharge::Legacy(gas_counter) => {
+                (ContractCodeLength::NotQueried, gas_counter)
+            }
+            ContractLoadingCharge::ChargeBytes(gas_counter) => {
+                let code_len = ContractCodeLength::from(identifier.resolve_code_len(
+                    state_update,
+                    access,
+                    account_id,
+                    &self.chain_id,
+                )?);
+                let gas_counter = match code_len {
+                    ContractCodeLength::Known(length) => gas_counter.charge_bytes(length),
+                    ContractCodeLength::Absent => Ok(gas_counter.without_code()),
+                    ContractCodeLength::NotQueried => unreachable!(),
+                };
+                let gas_counter = match gas_counter {
+                    Ok(gas_counter) => gas_counter,
+                    Err(abort) => {
+                        let (gas_counter, error) = abort.into_parts();
+                        return Ok(ContractPreparation::Aborted(AbortedContract {
+                            config: Arc::clone(&self.config.wasm_config),
+                            gas_counter,
+                            error,
+                        }));
+                    }
+                };
+                (code_len, gas_counter)
+            }
+        };
+        Ok(ContractPreparation::Ready {
+            contract: RuntimeContractExt { storage: self.storage.clone(), identifier, code_len },
+            gas_counter,
+        })
+    }
+
     /// Obtain the prepared contract for the provided receipt.
     ///
     /// If the contract is currently being prepared this function will block waiting for the
@@ -335,7 +418,8 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn get_contract(
         &self,
         receipt: &Receipt,
-        identifier: RuntimeContractIdentifier,
+        code_ext: RuntimeContractExt,
+        gas_counter: PreparedContractGasCounter,
         action_index: usize,
         view_config: Option<ViewConfig>,
     ) -> Box<dyn PreparedContract> {
@@ -359,10 +443,18 @@ impl ReceiptPreparationPipeline {
             panic!("referenced receipt action is not a function call!");
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
-        // Double-check contract hash matches as defense-in-depth.
-        let Some(task) = self.map.get(&key).filter(|t| t.expected_hash == identifier.hash()) else {
+        // Views never consume speculative preparation, which uses non-view gas accounting.
+        // Other calls may reuse a result only for the same identity and gas budget.
+        // The caller handles early aborts before entering this ready-only path.
+        let Some(task) = self.map.get(&key).filter(|t| {
+            view_config.is_none()
+                // Authoritative absence must not be overridden by a cached preparation.
+                && code_ext.code_len != ContractCodeLength::Absent
+                // Identical code hashes imply identical source bytes and length.
+                && t.expected_hash == code_ext.identifier.hash()
+                && t.prepaid_gas == function_call.gas
+        }) else {
             let start = Instant::now();
-            let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(
                     target: "runtime::pipelining",
@@ -372,11 +464,10 @@ impl ReceiptPreparationPipeline {
                 );
             }
             let result = prepare_function_call(
-                &self.storage,
+                &code_ext,
                 self.contract_cache.as_deref(),
                 Arc::clone(&self.config.wasm_config),
                 gas_counter,
-                identifier,
                 &function_call.method_name,
                 self.priority,
             );
@@ -400,15 +491,13 @@ impl ReceiptPreparationPipeline {
                         receipt=%receipt.get_hash(),
                         action_index
                     );
-                    let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let method_name = function_call.method_name.clone();
                     let contract = prepare_function_call(
-                        &self.storage,
+                        &code_ext,
                         cache.as_deref(),
                         Arc::clone(&self.config.wasm_config),
                         gas_counter,
-                        identifier,
                         &method_name,
                         self.priority,
                     );
@@ -453,21 +542,65 @@ impl ReceiptPreparationPipeline {
 }
 
 fn prepare_function_call(
-    contract_storage: &ContractStorage,
+    code_ext: &RuntimeContractExt,
     cache: Option<&dyn ContractRuntimeCache>,
-    config: Arc<near_parameters::vm::Config>,
-    gas_counter: GasCounter,
-    identifier: RuntimeContractIdentifier,
+    config: Arc<VmConfig>,
+    gas_counter: PreparedContractGasCounter,
     method_name: &str,
     priority: CompilePriority,
 ) -> Box<dyn PreparedContract> {
-    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), identifier };
+    if config.fix_contract_loading_cost && code_ext.code_len == ContractCodeLength::Absent {
+        // Metadata resolution has already distinguished legitimate absence from
+        // corrupt local state or an incomplete witness. No VM work is necessary.
+        let gas_counter = gas_counter.into_inner(&config, None);
+        return Box::new(MissingContract { config, gas_counter });
+    }
     near_vm_runner::prepare_with_priority(
-        &code_ext,
+        code_ext,
         config,
         cache,
         gas_counter,
         method_name,
         priority,
     )
+}
+
+/// Metadata preparation either permits loading or produces an early abort.
+pub(crate) enum ContractPreparation {
+    Ready { contract: RuntimeContractExt, gas_counter: PreparedContractGasCounter },
+    Aborted(AbortedContract),
+}
+
+pub(crate) struct AbortedContract {
+    config: Arc<VmConfig>,
+    gas_counter: GasCounter,
+    error: FunctionCallError,
+}
+
+impl AbortedContract {
+    pub(crate) fn into_outcome(self, context: &VMContext) -> VMOutcome {
+        let Self { config, gas_counter, error } = self;
+        VMOutcome::abort(ExecutionResultState::new(context, gas_counter, config), error)
+    }
+}
+
+/// A runtime-resolved absent contract, finalized when the call context is available.
+struct MissingContract {
+    config: Arc<VmConfig>,
+    gas_counter: GasCounter,
+}
+
+impl PreparedContract for MissingContract {
+    fn run(
+        self: Box<Self>,
+        _ext: &mut dyn External,
+        context: &VMContext,
+        _fees_config: Arc<RuntimeFeesConfig>,
+    ) -> Result<VMOutcome, VMRunnerError> {
+        let Self { config, gas_counter } = *self;
+        let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+            account_id: context.current_account_id.as_str().into(),
+        });
+        Ok(VMOutcome::abort(ExecutionResultState::new(context, gas_counter, config), error))
+    }
 }

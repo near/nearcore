@@ -17,7 +17,10 @@ pub(crate) mod vmstate;
 pub use context::VMContext;
 pub use dependencies::{External, MemSlice, StorageAccessTracker, ValuePtr};
 pub use errors::{HostError, VMLogicError};
-pub use gas_counter::{GasCounter, with_ext_cost_counter};
+pub use gas_counter::{
+    ContractLoadingAbort, ContractLoadingBaseCharged, ContractLoadingCharge, GasCounter,
+    PreparedContractGasCounter, with_ext_cost_counter,
+};
 pub use host::HostCtx;
 pub use logic::{ExecutionResultState, VMOutcome};
 pub use near_parameters::vm::{Config, ContractPrepareVersion, LimitConfig};

@@ -17,8 +17,9 @@ use near_wallet_contract::{
 ///
 /// Constructed via `resolve()` from an `AccountContract` and account context.
 /// All special-case resolution (ETH implicit accounts, global contracts) is
-/// performed at construction time so that `RuntimeContractExt` only needs
-/// storage and identifier to implement `Contract`.
+/// performed at construction time so that `RuntimeContractExt` can implement
+/// `Contract` using this identifier together with contract storage and resolved
+/// source-length metadata.
 #[derive(Clone)]
 pub(crate) enum RuntimeContractIdentifier {
     /// No contract deployed on the account.
@@ -88,6 +89,48 @@ impl RuntimeContractIdentifier {
             code_hash: local_hash,
             account_id: account_id.clone(),
         })
+    }
+
+    /// Resolve exact source size without retrieving the source bytes.
+    ///
+    /// Called only after the FixContractLoadingCost loading base has been paid,
+    /// with the caller's witness policy. Missing code is legitimate only for an
+    /// ETH-implicit account referencing this chain's global wallet contract hash:
+    /// that wallet's code may never have been deployed on this chain.
+    pub(crate) fn resolve_code_len(
+        &self,
+        state_update: &TrieUpdate,
+        access: AccessOptions,
+        account_id: &AccountId,
+        chain_id: &str,
+    ) -> Result<Option<u64>, StorageError> {
+        let key = match self {
+            Self::None => return Ok(None),
+            Self::AccountLocal { account_id, .. } => {
+                TrieKey::ContractCode { account_id: account_id.clone() }
+            }
+            Self::Global { identifier, .. } => {
+                TrieKey::GlobalContractCode { identifier: identifier.clone().into() }
+            }
+        };
+        let length = state_update
+            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, access)?
+            .map(|value| value.len() as u64);
+        if let Some(length) = length {
+            return Ok(Some(length));
+        }
+        if account_id.get_account_type() == AccountType::EthImplicitAccount
+            && matches!(
+                self,
+                Self::Global { code_hash, identifier: GlobalContractIdentifier::CodeHash(hash) }
+                    if code_hash == hash && *hash == eth_wallet_global_contract_hash(chain_id)
+            )
+        {
+            return Ok(None);
+        }
+        Err(StorageError::StorageInconsistentState(
+            "contract metadata is missing for an account with deployed code".into(),
+        ))
     }
 
     /// Returns the code hash for this contract identifier.

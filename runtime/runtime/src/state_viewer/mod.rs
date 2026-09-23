@@ -1,8 +1,8 @@
 use crate::ApplyState;
 use crate::contract_code::{GlobalContractAccessExt, RuntimeContractIdentifier};
 use crate::ext::RuntimeExt;
-use crate::function_call::execute_function_call;
-use crate::pipelining::ReceiptPreparationPipeline;
+use crate::function_call::{execute_function_call, function_call_context};
+use crate::pipelining::{ContractPreparation, ReceiptPreparationPipeline};
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey, PublicKeyHandle};
 use near_parameters::RuntimeConfigStore;
@@ -504,16 +504,15 @@ impl TrieViewer {
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
-        let contract_id_resolved = RuntimeContractIdentifier::resolve(
+        let preparation = pipeline.prepare_contract_metadata(
             contract_id,
             account.contract().into_owned(),
             &state_update,
-            &epoch_info_provider.chain_id(),
+            &function_call,
+            view_config.as_ref(),
             AccessOptions::DEFAULT,
             apply_state.current_protocol_version,
         )?;
-        let contract =
-            pipeline.get_contract(&receipt, contract_id_resolved.clone(), 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -528,21 +527,36 @@ impl TrieViewer {
             Arc::clone(&apply_state.trie_access_tracker_state),
             None,
         );
-        let outcome = execute_function_call(
-            contract,
-            &contract_id_resolved,
+        let context = function_call_context(
             &apply_state,
-            &mut runtime_ext,
+            &runtime_ext,
             originator_id,
             &VersionedActionReceipt::from(action_receipt),
             [].into(),
             &function_call,
             &empty_hash,
-            config,
             true,
-            view_config,
-        )
-        .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
+            view_config.clone(),
+        );
+        let outcome = match preparation {
+            ContractPreparation::Ready { contract: code_ext, gas_counter } => {
+                let contract_id_resolved = code_ext.identifier.clone();
+                let contract =
+                    pipeline.get_contract(&receipt, code_ext, gas_counter, 0, view_config);
+                execute_function_call(
+                    contract,
+                    &contract_id_resolved,
+                    &apply_state,
+                    &mut runtime_ext,
+                    &context,
+                    config,
+                )
+                .map_err(|e| errors::CallFunctionError::InternalError {
+                    error_message: e.to_string(),
+                })?
+            }
+            ContractPreparation::Aborted(abort) => abort.into_outcome(&context),
+        };
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

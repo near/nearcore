@@ -7,7 +7,8 @@ use crate::logic::errors::{
 };
 use crate::logic::host as logic;
 use crate::logic::{
-    Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
+    Config, ExecutionResultState, External, GasCounter, HostCtx, PreparedContractGasCounter,
+    VMContext, VMOutcome,
 };
 use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
 use crate::runner::VMResult;
@@ -760,6 +761,12 @@ impl WasmtimeVM {
         type MemoryCacheType =
             (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
+        let config = Arc::clone(&self.config);
+        // With FixContractLoadingCost the caller has already resolved metadata
+        // and paid both the base and byte fees before entering VM preparation.
+        if config.fix_contract_loading_cost && contract.code_len().is_none() {
+            return Err(VMRunnerError::ContractCodeNotPresent);
+        }
         let mut is_cache_hit = true;
         let mut is_memory_hit = true;
         let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
@@ -813,7 +820,9 @@ impl WasmtimeVM {
                         // Propagate failed contract loading as a cached `FunctionCallError`, mirroring
                         // the memory-export check below, so it flows through the fee-charge points
                         // and finalizes as a gas-bearing abort.
-                        if self.config.fix_contract_loading_error {
+                        if self.config.fix_contract_loading_error
+                            || self.config.fix_contract_loading_cost
+                        {
                             let err = FunctionCallError::LoadingError { msg: err.to_string() };
                             return Ok((
                                 err.size_bytes_approximate() as u64,
@@ -873,10 +882,10 @@ impl WasmtimeVM {
         )?;
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
-        let config = Arc::clone(&self.config);
-        let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
-        if let Err(e) = result {
-            let result = PreparationResult::OutcomeAbort(e);
+        if !config.fix_contract_loading_cost && method.is_empty() {
+            let result = PreparationResult::OutcomeAbort(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ));
             return Ok(PreparedContract { config, gas_counter, result });
         }
         match pre_result {
@@ -957,9 +966,11 @@ impl crate::runner::VM for WasmtimeVM {
         self: Box<Self>,
         code: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
-        gas_counter: GasCounter,
+        gas_counter: PreparedContractGasCounter,
         method: &str,
     ) -> Box<dyn crate::PreparedContract> {
+        let code_len = self.config.fix_contract_loading_cost.then(|| code.code_len()).flatten();
+        let gas_counter = gas_counter.into_inner(&self.config, code_len);
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         let prepd =
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {

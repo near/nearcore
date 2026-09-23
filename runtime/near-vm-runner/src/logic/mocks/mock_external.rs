@@ -567,6 +567,10 @@ impl crate::Contract for MockedExternal {
         self.code_hash
     }
 
+    fn code_len(&self) -> Option<u64> {
+        self.code.as_ref().map(|code| code.code().len() as u64)
+    }
+
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         self.code.clone()
     }

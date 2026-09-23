@@ -1,7 +1,7 @@
 use crate::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
-use crate::logic::{External, VMContext, VMOutcome};
+use crate::logic::{External, PreparedContractGasCounter, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{Config, VMKind};
@@ -44,6 +44,10 @@ pub fn contract_cached(
 /// may occur in preparation will not be reported until an attempt is made to run the prepared
 /// module.
 ///
+/// Callers obtain the required [`PreparedContractGasCounter`] by charging the loading
+/// base, resolving source metadata, and then charging for the resolved source length.
+/// VM preparation validates that the counter matches the active configuration and source.
+///
 /// Contract preparation and execution need not to be executed on the same thread.
 #[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
     code.hash = %contract.hash(),
@@ -56,7 +60,7 @@ pub fn prepare(
     contract: &dyn Contract,
     wasm_config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-    gas_counter: crate::logic::GasCounter,
+    gas_counter: PreparedContractGasCounter,
     method: &str,
 ) -> Box<dyn crate::PreparedContract> {
     prepare_with_priority(
@@ -73,7 +77,7 @@ pub fn prepare_with_priority(
     contract: &dyn Contract,
     wasm_config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-    gas_counter: crate::logic::GasCounter,
+    gas_counter: PreparedContractGasCounter,
     method: &str,
     priority: CompilePriority,
 ) -> Box<dyn crate::PreparedContract> {
@@ -99,8 +103,9 @@ pub fn prepare_with_priority(
 /// The contract will be executed with the default VM implementation for the
 /// current protocol version.
 ///
-/// The gas cost for contract preparation will be subtracted by the VM
-/// implementation.
+/// Contract preparation gas is accounted for in the returned outcome. With
+/// `FixContractLoadingCost`, the caller precharges the loading cost before VM
+/// preparation, otherwise, the VM implementation charges it during preparation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
     method_name,
     burnt_gas = tracing::field::Empty,
@@ -148,6 +153,13 @@ pub trait Contract {
     /// Hash of the contract for the current account.
     fn hash(&self) -> near_primitives_core::hash::CryptoHash;
 
+    /// Code length in bytes.
+    ///
+    /// Reads the source length from metadata without loading code or compiled caches.
+    ///
+    /// `None` means the source is absent.
+    fn code_len(&self) -> Option<u64>;
+
     /// Get the contract code.
     ///
     /// The runtime might not call this if it finds e.g. a compiled contract inside the supplied
@@ -178,6 +190,10 @@ pub trait VM {
 
     /// Prepare a contract for execution.
     ///
+    /// The supplied [`PreparedContractGasCounter`] proves that contract-loading gas
+    /// preparation completed. Implementations must validate it against their configuration
+    /// and the contract source length when extracting the underlying counter.
+    ///
     /// Work that goes into the preparation is runtime implementation specific, and depending on
     /// the runtime may not do anything at all (and instead prepare everything when the contract is
     /// `run`.)
@@ -190,7 +206,7 @@ pub trait VM {
         self: Box<Self>,
         ext: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
-        gas_counter: crate::logic::GasCounter,
+        gas_counter: PreparedContractGasCounter,
         method: &str,
     ) -> Box<dyn PreparedContract>;
 

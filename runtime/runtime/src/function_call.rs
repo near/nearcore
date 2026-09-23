@@ -1,6 +1,7 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::ext::{ExternalError, RuntimeExt};
+use crate::pipelining::{ContractPreparation, ReceiptPreparationPipeline};
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
 use near_parameters::RuntimeConfig;
@@ -25,6 +26,7 @@ use near_vm_runner::PreparedContract;
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
+use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -40,11 +42,12 @@ pub(crate) fn action_function_call(
     account_id: &AccountId,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
-    contract_id: &RuntimeContractIdentifier,
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
-    contract: Box<dyn PreparedContract>,
+    preparation: ContractPreparation,
+    preparation_pipeline: &ReceiptPreparationPipeline,
+    action_index: usize,
     storage_proof_size_before_receipt: Option<usize>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
@@ -53,11 +56,6 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
-
-    record_contract_call(state_update, contract_id, &apply_state.apply_reason)?;
-
-    #[cfg(feature = "test_features")]
-    apply_recorded_storage_garbage(function_call, state_update);
 
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
@@ -73,20 +71,43 @@ pub(crate) fn action_function_call(
         Arc::clone(&apply_state.trie_access_tracker_state),
         storage_proof_size_before_receipt,
     );
-    let outcome = execute_function_call(
-        contract,
-        contract_id,
+    let context = function_call_context(
         apply_state,
-        &mut runtime_ext,
+        &runtime_ext,
         receipt.predecessor_id(),
         action_receipt,
         promise_results,
         function_call,
         action_hash,
-        config,
         is_last_action,
         None,
-    )?;
+    );
+    let outcome = match preparation {
+        ContractPreparation::Ready { contract: code_ext, gas_counter } => {
+            let contract_id = code_ext.identifier.clone();
+            let contract = preparation_pipeline.get_contract(
+                receipt,
+                code_ext,
+                gas_counter,
+                action_index,
+                None,
+            );
+            record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
+
+            #[cfg(feature = "test_features")]
+            apply_recorded_storage_garbage(function_call, runtime_ext.trie_update);
+
+            execute_function_call(
+                contract,
+                &contract_id,
+                apply_state,
+                &mut runtime_ext,
+                &context,
+                config,
+            )?
+        }
+        ContractPreparation::Aborted(abort) => abort.into_outcome(&context),
+    };
 
     match &outcome.aborted {
         None => {
@@ -229,23 +250,18 @@ pub(crate) fn action_function_call(
     Ok(())
 }
 
-/// Runs given function call with given context / apply state.
-pub(crate) fn execute_function_call(
-    contract: Box<dyn near_vm_runner::PreparedContract>,
-    contract_id: &RuntimeContractIdentifier,
+/// Build the context shared by ready execution and early-abort finalization.
+pub(crate) fn function_call_context(
     apply_state: &ApplyState,
-    runtime_ext: &mut RuntimeExt,
+    runtime_ext: &RuntimeExt,
     predecessor_id: &AccountId,
     action_receipt: &VersionedActionReceipt,
-    promise_results: Arc<[near_vm_runner::logic::types::PromiseResult]>,
+    promise_results: Arc<[PromiseResult]>,
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
-    config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> Result<VMOutcome, RuntimeError> {
-    let account_id = runtime_ext.account_id().clone();
-    tracing::debug!(target: "runtime", %account_id, "calling the contract");
+) -> VMContext {
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers().iter().map(|r| r.receiver_id.clone()).collect()
@@ -254,7 +270,7 @@ pub(crate) fn execute_function_call(
     };
     let random_seed =
         near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
-    let context = VMContext {
+    VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id().clone(),
         signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
@@ -275,10 +291,22 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config,
         output_data_receivers,
-    };
+    }
+}
 
+/// Runs given function call with given context / apply state.
+pub(crate) fn execute_function_call(
+    contract: Box<dyn PreparedContract>,
+    contract_id: &RuntimeContractIdentifier,
+    apply_state: &ApplyState,
+    runtime_ext: &mut RuntimeExt,
+    context: &VMContext,
+    config: &RuntimeConfig,
+) -> Result<VMOutcome, RuntimeError> {
+    let account_id = runtime_ext.account_id().clone();
+    tracing::debug!(target: "runtime", %account_id, "calling the contract");
     near_vm_runner::reset_metrics();
-    let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
+    let result = near_vm_runner::run(contract, runtime_ext, context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
     // Most VM runner errors translate to `RuntimeError` and propagate to the
@@ -291,6 +319,23 @@ pub(crate) fn execute_function_call(
     // TODO(spice): check this behavior is still acceptable.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
+            if config.wasm_config.fix_contract_loading_cost {
+                // Legitimate absence was handled at the runtime metadata boundary.
+                // Reaching the VM with no source body now means storage/witness
+                // incompleteness, not a deterministic contract failure.
+                debug_assert!(
+                    apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
+                    "inconsistent state: contract code is missing from the trie, but metadata exists"
+                );
+                return Err(StorageError::MissingTrieValue(MissingTrieValue {
+                    context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                    hash: contract_id.hash(),
+                })
+                .into());
+            }
+            // Legacy handling of `ContractCodeNotPresent`.
+            // TODO: remove it when versions beore `fix_contract_loading_cost`
+            // are no longer supported.
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),
             });
@@ -367,7 +412,7 @@ pub(crate) fn execute_function_call(
     };
 
     if !context.view_config.is_some() {
-        let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
+        let unused_gas = context.prepaid_gas.saturating_sub(outcome.used_gas);
         let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
         outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
     }

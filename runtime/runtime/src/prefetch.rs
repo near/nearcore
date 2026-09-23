@@ -163,6 +163,10 @@ impl TriePrefetcher {
                 let Action::FunctionCall(fn_call) = action else {
                     continue;
                 };
+                // Speculative code prefetch deliberately ignores receipt gas,
+                // including FixContractLoadingCost. The latency penalty for not
+                // loading it would be worse than the unpaid bandwidth for
+                // reading it ahead of time.
                 if !code_prefetch_requested {
                     let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
                     self.prefetch_trie_key(trie_key)?;

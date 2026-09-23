@@ -631,11 +631,22 @@ impl<'a> External for RuntimeExt<'a> {
 pub(crate) struct RuntimeContractExt {
     pub(crate) storage: ContractStorage,
     pub(crate) identifier: RuntimeContractIdentifier,
+    pub(crate) code_len: ContractCodeLength,
 }
 
 impl Contract for RuntimeContractExt {
     fn hash(&self) -> CryptoHash {
         self.identifier.hash()
+    }
+
+    fn code_len(&self) -> Option<u64> {
+        match self.code_len {
+            ContractCodeLength::NotQueried => {
+                panic!("contract source length must be resolved before byte charging")
+            }
+            ContractCodeLength::Absent => None,
+            ContractCodeLength::Known(length) => Some(length),
+        }
     }
 
     fn get_code(&self) -> Option<Arc<ContractCode>> {
@@ -645,6 +656,25 @@ impl Contract for RuntimeContractExt {
             | RuntimeContractIdentifier::Global { code_hash, .. } => {
                 self.storage.get(*code_hash).map(Arc::new)
             }
+        }
+    }
+}
+
+/// Source size metadata for loading-gas accounting, separate from contract identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ContractCodeLength {
+    /// Legacy execution, speculative warming, or base charging skipped the query.
+    NotQueried,
+    /// Metadata was resolved and no source exists.
+    Absent,
+    Known(u64),
+}
+
+impl From<Option<u64>> for ContractCodeLength {
+    fn from(length: Option<u64>) -> Self {
+        match length {
+            Some(length) => Self::Known(length),
+            None => Self::Absent,
         }
     }
 }
