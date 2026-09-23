@@ -1093,7 +1093,7 @@ mod tests {
                 nonce += 1;
                 let size = compute_receipt_size(&receipt).unwrap();
                 let gas = compute_receipt_congestion_gas(&receipt, &RuntimeConfig::test()).unwrap();
-                sink.buffer_receipt(receipt, size, gas, &mut state_update, *shard, true).unwrap();
+                sink.buffer_receipt(receipt, size, gas, &mut state_update, *shard).unwrap();
             }
         }
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
