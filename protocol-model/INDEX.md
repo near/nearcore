@@ -1,7 +1,7 @@
 # Protocol model — index
 
-Entry point for the implementation-derived NEAR protocol model (release **2.13.0**,
-version **86**, commit `499283a`). Each component has a reusable generation plan in
+Entry point for the implementation-derived NEAR protocol model (release **2.14.0-rc.1**,
+version **87**, commit `233252e`). Each component has a reusable generation plan in
 `plans/` and a spec in `spec/`. ✅ = written + verified, ⬜ = planned (not yet written).
 
 ## Components
