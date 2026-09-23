@@ -1096,7 +1096,7 @@ mod tests {
         to_shard: ShardId,
         buffers: &[(ShardId, u64)],
         protocol_version: ProtocolVersion,
-    ) -> (Option<BandwidthRequest>, Option<BandwidthRequest>) {
+    ) -> (BandwidthRequest, BandwidthRequest) {
         let params = BandwidthSchedulerParams::new(
             NonZeroU64::new(layout.num_shards()).unwrap(),
             &RuntimeConfig::test(),
@@ -1137,7 +1137,11 @@ mod tests {
                 &mut stats,
             )
             .unwrap();
-        let actual = requests.requests.into_iter().find(|r| ShardId::from(r.to_shard) == to_shard);
+        let actual = requests
+            .requests
+            .into_iter()
+            .find(|r| ShardId::from(r.to_shard) == to_shard)
+            .expect("the buffered receipts must produce a request");
 
         // The oracle: this shard's own buffer counted once, preceded by a *distinct*
         // parent's buffer if and only if there really is one.
@@ -1166,10 +1170,6 @@ mod tests {
             .collect::<Result<Vec<u64>, _>>()
             .unwrap(),
         );
-        assert!(
-            !own_sizes.is_empty(),
-            "the buffer must be non-empty for this test to mean anything"
-        );
         let expected = BandwidthRequest::make_from_receipt_sizes(
             to_shard,
             own_sizes
@@ -1177,7 +1177,8 @@ mod tests {
                 .map(|s| Ok::<u64, StorageError>(std::cmp::min(s, params.max_receipt_size))),
             &params,
         )
-        .unwrap();
+        .unwrap()
+        .expect("the oracle must produce a request");
 
         (actual, expected)
     }
@@ -1227,8 +1228,7 @@ mod tests {
                 &[(to_shard, NUM_RECEIPTS)],
                 ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version() - 1,
             );
-            let bits = |r: &Option<BandwidthRequest>| {
-                let r = r.as_ref().unwrap();
+            let bits = |r: &BandwidthRequest| {
                 (0..r.requested_values_bitmap.len())
                     .filter(|i| r.requested_values_bitmap.get_bit(*i))
                     .count()
@@ -1270,8 +1270,7 @@ mod tests {
             &[(child, NUM_RECEIPTS)],
             ProtocolFeature::FixSelfMappedShardBandwidthRequest.protocol_version(),
         );
-        let bits = |r: &Option<BandwidthRequest>| {
-            let r = r.as_ref().unwrap();
+        let bits = |r: &BandwidthRequest| {
             (0..r.requested_values_bitmap.len())
                 .filter(|i| r.requested_values_bitmap.get_bit(*i))
                 .count()
