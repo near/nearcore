@@ -33,7 +33,7 @@ rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 rlimit.workspace = true
-rocksdb = { workspace = true, features = [
+rocksdb = { workspace = true, optional = true, features = [
     "snappy",
     "lz4",
     "zstd",
@@ -55,7 +55,7 @@ near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
-near-external-storage.workspace = true
+near-external-storage = { workspace = true, optional = true }
 near-fmt.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -65,7 +65,7 @@ near-time.workspace = true
 near-vm-runner.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-rocksdb = { workspace = true, features = ["bindgen-runtime"] }
+rocksdb = { workspace = true, optional = true, features = ["bindgen-runtime"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -92,7 +92,12 @@ name = "finalize_bench"
 harness = false
 
 [features]
-default = []
+default = ["rocksdb", "cloud_archive"]
+# On-disk RocksDB backend (`RocksDB`, `StoreOpener`, `NodeStorage::opener`,
+# state snapshots). Without it only the in-memory `TestDB` is available.
+rocksdb = ["dep:rocksdb", "cloud_archive"]
+# Cloud archival storage (`archive::cloud_storage`, backed by object_store/S3/GCS).
+cloud_archive = ["dep:near-external-storage"]
 io_trace = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = ["near-vm-runner/test_features"]

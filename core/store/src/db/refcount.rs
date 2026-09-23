@@ -19,7 +19,9 @@
 //! zero RocksDB removes the key from the database.
 
 use crate::DBCol;
+#[cfg(feature = "rocksdb")]
 use crate::db::RocksDB;
+#[cfg(feature = "rocksdb")]
 use rocksdb::compaction_filter::Decision;
 use std::cmp::Ordering;
 use std::io;
@@ -142,6 +144,7 @@ pub(crate) fn iter_with_rc_logic<'a>(
     }
 }
 
+#[cfg(feature = "rocksdb")]
 impl RocksDB {
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
@@ -271,6 +274,7 @@ mod test {
         test(b"foo\x01\0\0\0\0\0\0\0", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_ONE]);
     }
 
+    #[cfg(feature = "rocksdb")]
     #[test]
     fn compaction_filter() {
         use rocksdb::compaction_filter::Decision;

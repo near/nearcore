@@ -17,6 +17,7 @@ enum Inner<'a> {
     Vec(Vec<u8>),
 
     /// Data held as RocksDB-specific pinnable slice.
+    #[cfg_attr(not(feature = "rocksdb"), allow(dead_code))]
     Rocks(RocksSlice<'a>),
 }
 
@@ -40,6 +41,7 @@ impl<'a> DBSlice<'a> {
     ///
     /// This is internal API for the [`crate::db::rocksdb::RocksDB`]
     /// implementation of the database interface.
+    #[cfg(feature = "rocksdb")]
     pub(super) fn from_rocksdb_slice(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
         DBSlice(Inner::Rocks(RocksSlice::new(db_slice)))
     }
@@ -61,6 +63,7 @@ impl<'a> DBSlice<'a> {
 
 /// A slice owned by the RocksDB with RAII mechanism for letting RocksDB know
 /// when it can be freed.
+#[cfg(feature = "rocksdb")]
 struct RocksSlice<'a> {
     /// Pointer at the bytes.
     ///
@@ -78,6 +81,7 @@ struct RocksSlice<'a> {
     db_slice: ::rocksdb::DBPinnableSlice<'a>,
 }
 
+#[cfg(feature = "rocksdb")]
 impl<'a> RocksSlice<'a> {
     pub fn new(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
         let data = &*db_slice as *const [u8];
@@ -93,6 +97,21 @@ impl<'a> RocksSlice<'a> {
         // SAFETY: data references a pinned buffer owned by db_slice which has
         // not been modified since we got the pointer.
         unsafe { &*self.data }
+    }
+}
+
+/// Uninhabited stand-in so `Inner` keeps its shape without the `rocksdb` feature.
+#[cfg(not(feature = "rocksdb"))]
+struct RocksSlice<'a>(std::convert::Infallible, std::marker::PhantomData<&'a ()>);
+
+#[cfg(not(feature = "rocksdb"))]
+impl<'a> RocksSlice<'a> {
+    fn strip_refcount(self) -> Option<Self> {
+        match self.0 {}
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        match self.0 {}
     }
 }
 

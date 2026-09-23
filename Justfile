@@ -69,6 +69,9 @@ check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
     RUSTFLAGS="-D warnings" \
     cargo check -p near-vm-runner --no-default-features
+    # Ensure that near-store builds without RocksDB and cloud archive (in-memory only)
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-store --no-default-features
 
 # check rust formatting
 check-cargo-fmt:

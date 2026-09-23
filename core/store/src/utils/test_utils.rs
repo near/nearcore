@@ -1,14 +1,18 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::bucket_config::BucketConfig;
-use crate::archive::cloud_storage::config::create_test_cloud_storage;
-use crate::db::{ColdDB, Database, TestDB};
+use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
 use crate::trie::AccessOptions;
 use crate::{
     DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, get,
     get_delayed_receipt_indices, get_promise_yield_indices,
+};
+#[cfg(feature = "cloud_archive")]
+use crate::{
+    archive::cloud_storage::{
+        CloudStorage, bucket_config::BucketConfig, config::create_test_cloud_storage,
+    },
+    db::{ColdDB, Database},
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
@@ -22,9 +26,9 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::str::{FromStr, from_utf8};
-use std::sync::Arc;
+#[cfg(feature = "cloud_archive")]
+use std::{path::PathBuf, sync::Arc};
 
 fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
@@ -49,6 +53,7 @@ pub fn create_test_store() -> Store {
 }
 
 /// Parameters for creating a test archival node storage.
+#[cfg(feature = "cloud_archive")]
 pub struct TestArchiveStorageParams {
     pub cold_enabled: bool,
     pub cloud_enabled: bool,
@@ -60,6 +65,7 @@ pub struct TestArchiveStorageParams {
 }
 
 /// Creates a test archival node storage.
+#[cfg(feature = "cloud_archive")]
 fn create_test_node_storage_archive(
     params: TestArchiveStorageParams,
 ) -> (NodeStorage, Arc<TestDB>, Option<Arc<TestDB>>) {
@@ -88,6 +94,7 @@ fn create_test_node_storage_archive(
 }
 
 /// Creates an in-memory node storage with ColdDB
+#[cfg(feature = "cloud_archive")]
 pub fn create_test_node_storage_with_cold(
     version: DbVersion,
     hot_kind: DbKind,
@@ -106,6 +113,7 @@ pub fn create_test_node_storage_with_cold(
 
 /// Provides access to hot store, split store, cold db, and cloud storage.
 /// Note that the split store contains both hot and cold stores.
+#[cfg(feature = "cloud_archive")]
 pub struct TestNodeStorage {
     pub hot_store: Store,
     pub split_store: Option<Store>,
@@ -113,6 +121,7 @@ pub struct TestNodeStorage {
     pub cloud_storage: Option<Arc<CloudStorage>>,
 }
 
+#[cfg(feature = "cloud_archive")]
 pub fn create_test_node_storage(
     cold_enabled: bool,
     cloud_enabled: bool,
