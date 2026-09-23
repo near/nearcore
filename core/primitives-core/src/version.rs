@@ -496,6 +496,10 @@ pub enum ProtocolFeature {
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
     UniversalAccounts,
+    /// Use the new version of the eth-wallet contract.
+    /// If an account references the global contract hash of the old eth-wallet
+    /// contract then it will automatically resolve to the new version instead.
+    UpdatedEthWalletContract,
 }
 
 impl ProtocolFeature {
@@ -636,6 +640,7 @@ impl ProtocolFeature {
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::FailCallToMissingGlobalContract => 88,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 88,
+            ProtocolFeature::UpdatedEthWalletContract => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
