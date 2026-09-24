@@ -1,3 +1,4 @@
+use crate::Contract;
 use crate::logic::{
     ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
@@ -199,7 +200,10 @@ impl TestBuilder {
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-                let gas_counter = context.make_gas_counter(&config);
+                let gas_counter = context
+                    .make_gas_counter(&config)
+                    .prepare_for_contract(&config, &self.method, fake_external.code_len())
+                    .expect("contract loading charge failed");
                 let Some(runtime) = vm_kind.runtime(config) else {
                     panic!("runtime for {:?} has not been compiled", vm_kind);
                 };

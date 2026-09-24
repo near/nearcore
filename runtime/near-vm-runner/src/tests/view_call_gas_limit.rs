@@ -12,6 +12,7 @@
 //! The fix bounds `prepaid_gas` by `max_gas_burnt` in view mode, so the guest
 //! gas global reflects the cap and an unbounded loop aborts promptly.
 
+use crate::Contract;
 use crate::logic::VMContext;
 use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
@@ -58,6 +59,9 @@ fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
 
     let gas_counter = context.make_gas_counter(&config);
     let mut ext = MockedExternal::with_code(ContractCode::new(code.to_vec(), None));
+    let gas_counter = gas_counter
+        .prepare_for_contract(&config, "burn", ext.code_len())
+        .expect("contract loading charge failed");
     let fees = Arc::new(RuntimeFeesConfig::test());
     let runtime = VMKind::Wasmtime.runtime(Arc::clone(&config)).expect("wasmtime not compiled in");
     runtime

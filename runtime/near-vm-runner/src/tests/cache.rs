@@ -1,4 +1,5 @@
 use super::{create_context, test_vm_config, with_vm_variants};
+use crate::Contract;
 use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
@@ -121,7 +122,10 @@ fn make_cached_contract_call_vm(
     let mut context = create_context(vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = near_primitives_core::types::Gas::from_gas(prepaid_gas);
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, method_name, fake_external.code_len())
+        .expect("contract loading charge failed");
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime.prepare(&fake_external, Some(cache), gas_counter, method_name).run(
         &mut fake_external,

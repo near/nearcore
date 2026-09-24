@@ -1,4 +1,5 @@
 use super::test_vm_config;
+use crate::Contract;
 use crate::ContractCode;
 use crate::logic::External;
 use crate::logic::errors::{FunctionCallError, HostError};
@@ -22,7 +23,10 @@ pub fn test_ts_contract() {
 
         // Call method that panics.
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "try_panic", fake_external.code_len())
+            .expect("contract loading charge failed");
         let result = runtime.prepare(&fake_external, None, gas_counter, "try_panic").run(
             &mut fake_external,
             &context,
@@ -39,7 +43,10 @@ pub fn test_ts_contract() {
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "try_storage_write", fake_external.code_len())
+            .expect("contract loading charge failed");
         runtime
             .prepare(&fake_external, None, gas_counter, "try_storage_write")
             .run(&mut fake_external, &context, Arc::clone(&fees))
@@ -56,7 +63,10 @@ pub fn test_ts_contract() {
         // Call method that reads the value from storage using registers.
         let context = create_context(b"foo".to_vec());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "try_storage_read", fake_external.code_len())
+            .expect("contract loading charge failed");
         let outcome = runtime
             .prepare(&fake_external, None, gas_counter, "try_storage_read")
             .run(&mut fake_external, &context, Arc::clone(&fees))
