@@ -1,4 +1,4 @@
-use super::item::{CommitmentState, FetchItem};
+use super::item::{CodedTracker, CommitmentState, FetchItem};
 use super::{ChainView, DataId, DataPolicy, SpiceDataManager};
 use near_async::time::{Duration, Instant};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
@@ -78,47 +78,18 @@ impl ProducerBudget {
     }
 }
 
-/// One outstanding pull request to one source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct InFlightRequest {
-    pub(super) source: AccountId,
-    /// When the request was sent.
-    pub(super) sent_at: Instant,
-}
-
-/// A tracker's pull requests state.
-#[derive(Debug, Default)]
-pub(super) struct PullState {
-    pub(super) in_flight: Option<InFlightRequest>,
-    /// Used to rotate the pool members requested for missing ordinals.
-    pub(super) rotation_cursor: u64,
-}
-
-impl PullState {
-    /// Drops the outstanding request once it has gone unanswered for `request_timeout` as of
-    /// `now`.
-    fn drop_stale(&mut self, now: Instant, request_timeout: Duration) {
-        let stale = self
-            .in_flight
-            .as_ref()
-            .is_some_and(|request| now.signed_duration_since(request.sent_at) >= request_timeout);
-        if stale {
-            self.in_flight = None;
-        }
-    }
-
-    /// If no request is outstanding, records one to the first member of `pool`, in rotation
-    /// order, with a slot in `budget`, and returns it. With no such member the rotation
+impl CodedTracker {
+    /// The first member of `pool`, in rotation order, with a slot in `budget`: takes the
+    /// slot and moves the rotation past that member. With no such member the rotation
     /// stays where it is.
-    pub(super) fn next_source(
+    fn next_source(
         &mut self,
         pool: &[AccountId],
         key: &impl Hash,
         requester: &AccountId,
-        now: Instant,
         budget: &mut ProducerBudget,
     ) -> Option<AccountId> {
-        if self.in_flight.is_some() || pool.is_empty() {
+        if pool.is_empty() {
             return None;
         }
         let start = rotated_source_index(pool.len(), key, requester, self.rotation_cursor);
@@ -126,42 +97,36 @@ impl PullState {
         let offset = (0..pool.len()).find(|offset| budget.has_slot(member(*offset)))?;
         let source = member(offset).clone();
         budget.take(&source);
-        self.in_flight = Some(InFlightRequest { source: source.clone(), sent_at: now });
         // the next rotation starts right after the member asked
         self.rotation_cursor = self.rotation_cursor.wrapping_add(offset as u64 + 1);
         Some(source)
-    }
-
-    /// Forgets the outstanding request if it went to `source`: it answered.
-    fn clear_in_flight_from(&mut self, source: &AccountId) {
-        if self.in_flight.as_ref().is_some_and(|request| &request.source == source) {
-            self.in_flight = None;
-        }
     }
 }
 
 impl FetchItem {
     /// Drops every request unanswered for `request_timeout` as of `now`.
     pub(super) fn drop_stale_requests(&mut self, now: Instant, request_timeout: Duration) {
-        self.requests_to_unbound
-            .retain(|_, sent_at| now.signed_duration_since(*sent_at) < request_timeout);
-        for tracker in self.live_trackers_mut() {
-            tracker.pull.drop_stale(now, request_timeout);
+        for state in self.producers.values_mut() {
+            let stale = state
+                .requested_at
+                .is_some_and(|sent_at| now.signed_duration_since(sent_at) >= request_timeout);
+            if stale {
+                state.requested_at = None;
+            }
         }
     }
 
-    /// The producer of each request this item holds.
+    /// The producers with a request from this item unanswered.
     pub(super) fn outstanding_requests(&self) -> impl Iterator<Item = &AccountId> {
-        let tracker_requests = self.commitments.values().filter_map(|state| match state {
-            CommitmentState::Tracking(tracker) => {
-                tracker.pull.in_flight.as_ref().map(|request| &request.source)
-            }
-            CommitmentState::Settled => None,
-        });
-        self.requests_to_unbound.keys().chain(tracker_requests)
+        self.producers
+            .iter()
+            .filter(|(_, state)| state.requested_at.is_some())
+            .map(|(producer, _)| producer)
     }
 
-    /// Producers to ask at `now`, with the ordinals to ask each.
+    /// Producers to ask at `now`, with the ordinals to ask each. A bound producer is asked
+    /// only by its commitment's tracker, one request at a time; an unbound one only for its
+    /// own ordinal.
     pub(super) fn pull_wants(
         &mut self,
         id: &DataId,
@@ -180,33 +145,38 @@ impl FetchItem {
             let mut pool: Vec<AccountId> =
                 self.contributors(&commitment).into_iter().cloned().collect();
             pool.sort();
+            if pool.iter().any(|member| self.producers[member].requested_at.is_some()) {
+                continue;
+            }
             let tracker = self.tracker_mut(&commitment).expect("live commitment is tracked");
-            let Some(source) =
-                tracker.pull.next_source(&pool, &(id, &commitment), requester, now, budget)
+            let Some(source) = tracker.next_source(&pool, &(id, &commitment), requester, budget)
             else {
                 continue;
             };
-            wants.entry(source).or_default().extend(tracker.missing_ordinals());
+            let missing = tracker.missing_ordinals();
+            self.producers.get_mut(&source).expect("pool member is a producer").requested_at =
+                Some(now);
+            wants.entry(source).or_default().extend(missing);
         }
         for (ordinal, producer) in self.sources.iter().enumerate() {
-            if self.commitment_by_contributor.contains_key(producer)
-                || self.requests_to_unbound.contains_key(producer)
-                || !budget.has_slot(producer)
-            {
+            let engaged = self
+                .producers
+                .get(producer)
+                .is_some_and(|state| state.commitment.is_some() || state.requested_at.is_some());
+            if engaged || !budget.has_slot(producer) {
                 continue;
             }
             budget.take(producer);
-            self.requests_to_unbound.insert(producer.clone(), now);
+            self.producers.entry(producer.clone()).or_default().requested_at = Some(now);
             wants.entry(producer.clone()).or_default().insert(ordinal as u64);
         }
         wants
     }
 
-    /// `sender` answered: forgets every outstanding request to it.
+    /// `sender` answered: forgets the request outstanding to it.
     pub(super) fn note_answer_from(&mut self, sender: &AccountId) {
-        self.requests_to_unbound.remove(sender);
-        for tracker in self.live_trackers_mut() {
-            tracker.pull.clear_in_flight_from(sender);
+        if let Some(state) = self.producers.get_mut(sender) {
+            state.requested_at = None;
         }
     }
 }

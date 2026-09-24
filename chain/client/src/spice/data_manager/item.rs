@@ -1,5 +1,4 @@
 use super::DataId;
-use super::pull::PullState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::Instant;
 use near_primitives::hash::hash;
@@ -37,10 +36,17 @@ pub(crate) struct FetchItem {
     pub(crate) delivered: bool,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-    /// Maps each sender's `AccountId` to the commitment it contributed to.
-    pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
-    /// In-flight requests to producers bound to no commitment, by the time each was sent.
-    pub(super) requests_to_unbound: HashMap<AccountId, Instant>,
+    /// Each producer that sent a verifying part or was asked for one.
+    pub(super) producers: HashMap<AccountId, ProducerState>,
+}
+
+/// One producer's part in fetching this item.
+#[derive(Debug, Default)]
+pub(super) struct ProducerState {
+    /// The commitment this producer backed, once one of its parts verified.
+    pub(super) commitment: Option<SpiceDataCommitment>,
+    /// When this node asked it, while that request is unanswered.
+    pub(super) requested_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -58,17 +64,8 @@ impl FetchItem {
             sources,
             delivered: false,
             commitments: HashMap::new(),
-            commitment_by_contributor: HashMap::new(),
-            requests_to_unbound: HashMap::new(),
+            producers: HashMap::new(),
         }
-    }
-
-    /// The trackers still collecting.
-    pub(super) fn live_trackers_mut(&mut self) -> impl Iterator<Item = &mut CodedTracker> {
-        self.commitments.values_mut().filter_map(|state| match state {
-            CommitmentState::Tracking(tracker) => Some(tracker),
-            CommitmentState::Settled => None,
-        })
     }
 
     /// The tracker still collecting under `commitment`, if any.
@@ -84,10 +81,10 @@ impl FetchItem {
 
     /// Senders contributed to `commitment`.
     pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
-        self.commitment_by_contributor
+        self.producers
             .iter()
-            .filter(|(_, bound)| *bound == commitment)
-            .map(|(contributor, _)| contributor)
+            .filter(|(_, state)| state.commitment.as_ref() == Some(commitment))
+            .map(|(producer, _)| producer)
             .collect()
     }
 
@@ -102,10 +99,11 @@ impl FetchItem {
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        if self.commitment_by_contributor.get(sender).is_some_and(|bound| bound != &commitment) {
+        let producer = self.producers.entry(sender.clone()).or_default();
+        if producer.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
+        producer.commitment = Some(commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
             return PartInsertResult::Settled;
@@ -195,7 +193,8 @@ impl VerifiedCodedPart {
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
     total_parts: usize,
-    pub(super) pull: PullState,
+    /// Rotates the pool members asked for missing ordinals.
+    pub(super) rotation_cursor: u64,
 }
 
 impl fmt::Debug for CodedTracker {
@@ -213,7 +212,7 @@ impl CodedTracker {
         Self {
             total_parts: encoder.total_parts(),
             parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
-            pull: PullState::default(),
+            rotation_cursor: 0,
         }
     }
 

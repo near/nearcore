@@ -1089,8 +1089,7 @@ mod manager {
         // The source chunk is not certified: neither the tracker nor the unbound
         // producers are asked, and nothing is recorded as asked.
         assert_eq!(manager.on_new_block(&blocks[0]), vec![]);
-        assert!(manager.tracker(&id, &commitment).pull.in_flight.is_none());
-        assert!(manager.item(&id).requests_to_unbound.is_empty());
+        assert!(manager.item(&id).outstanding_requests().next().is_none());
 
         manager.certify_up_to(1);
         assert!(!manager.on_new_block(&blocks[0]).is_empty());
@@ -1122,12 +1121,8 @@ mod manager {
             ])
         );
         assert_eq!(
-            manager.tracker(&id, &first).pull.in_flight.as_ref().map(|request| &request.source),
-            Some(&producers[0])
-        );
-        assert_eq!(
-            manager.item(&id).requests_to_unbound.keys().cloned().collect::<HashSet<_>>(),
-            producers[2..].iter().cloned().collect()
+            manager.item(&id).outstanding_requests().cloned().collect::<HashSet<_>>(),
+            producers.iter().cloned().collect()
         );
     }
 
@@ -1429,14 +1424,14 @@ mod manager {
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
         // Height 2, within the timeout: the slots are still held, so the higher item waits.
         assert_eq!(manager.on_new_block(&blocks[1]), vec![]);
-        assert!(manager.item(&high).requests_to_unbound.is_empty());
+        assert!(manager.item(&high).outstanding_requests().next().is_none());
         // Height 3, the timeout elapsed: the requests are stale and dropped; the freed
         // slots go to the lowest item again.
         manager.clock.advance(request_timeout);
         let requests = by_producer(manager.on_new_block(&blocks[2]));
         assert_eq!(requests.len(), TOTAL_PARTS);
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
-        assert!(manager.item(&high).requests_to_unbound.is_empty());
+        assert!(manager.item(&high).outstanding_requests().next().is_none());
     }
 
     #[test]
@@ -1462,8 +1457,8 @@ mod manager {
         // member free and waits without turning the rotation.
         let requests = by_producer(manager.on_new_block(&blocks[0]));
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
-        assert!(manager.tracker(&high, &commitment).pull.in_flight.is_none());
-        assert_eq!(manager.tracker(&high, &commitment).pull.rotation_cursor, 0);
+        assert!(manager.item(&high).outstanding_requests().next().is_none());
+        assert_eq!(manager.tracker(&high, &commitment).rotation_cursor, 0);
 
         // The member the rotation would skip past answers the lowest item with a decoding
         // push, which frees its slot; the tracker takes it over the saturated first choice.
@@ -1569,7 +1564,7 @@ mod manager {
         manager.certify_up_to(1);
         let requests = wants_for(manager.on_new_block(&blocks[0]), &id);
         assert_eq!(requests[&producers[0]], ordinals(&[1, 2, 3, 4]));
-        assert!(manager.item(&id).requests_to_unbound.contains_key(&producers[2]));
+        assert!(manager.item(&id).producers[&producers[2]].requested_at.is_some());
 
         // An own-ordinal answer binds its sender and feeds the tracker its part verifies
         // against; the backer answering, even with a part already held, clears the
@@ -1578,11 +1573,10 @@ mod manager {
         manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
 
         let item = manager.item(&id);
-        assert!(!item.requests_to_unbound.contains_key(&producers[2]));
-        assert_eq!(item.commitment_by_contributor[&producers[2]], commitment);
-        let tracker = manager.tracker(&id, &commitment);
-        assert!(tracker.pull.in_flight.is_none());
-        assert_eq!(tracker.missing_ordinals(), vec![1, 3, 4]);
+        assert!(item.producers[&producers[2]].requested_at.is_none());
+        assert_eq!(item.producers[&producers[2]].commitment.as_ref(), Some(&commitment));
+        assert!(item.producers[&producers[0]].requested_at.is_none());
+        assert_eq!(manager.tracker(&id, &commitment).missing_ordinals(), vec![1, 3, 4]);
         // Once the timeout elapsed, the next block asks one of the two backers for the
         // rest, and again only the producers still unbound for their own ordinal.
         manager.clock.advance(PullConfig::default().request_timeout);
@@ -1667,17 +1661,9 @@ mod manager {
         // Nothing landed, and neither request counts as answered, so within the timeout
         // nothing is re-sent.
         assert_eq!(manager.tracker(&id, &commitment).missing_ordinals(), missing_before);
-        assert_eq!(
-            manager
-                .tracker(&id, &commitment)
-                .pull
-                .in_flight
-                .as_ref()
-                .map(|request| &request.source),
-            Some(&producers[0])
-        );
-        assert!(manager.item(&id).requests_to_unbound.contains_key(&producers[1]));
-        assert!(!manager.item(&id).commitment_by_contributor.contains_key(&producers[1]));
+        assert!(manager.item(&id).producers[&producers[0]].requested_at.is_some());
+        assert!(manager.item(&id).producers[&producers[1]].requested_at.is_some());
+        assert!(manager.item(&id).producers[&producers[1]].commitment.is_none());
         assert_eq!(manager.on_new_block(&blocks[1]), vec![]);
     }
 
@@ -1694,8 +1680,7 @@ mod manager {
 
         assert_eq!(requests, vec![]);
         assert!(manager.manager.is_tracking(&id));
-        assert!(manager.tracker(&id, &commitment).pull.in_flight.is_none());
-        assert!(manager.item(&id).requests_to_unbound.is_empty());
+        assert!(manager.item(&id).outstanding_requests().next().is_none());
         // A requester appearing later is served from the kept state.
         assert!(!manager.on_new_block(&blocks[0]).is_empty());
     }
