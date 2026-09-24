@@ -3,9 +3,7 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::run_for_number_of_blocks;
-use crate::utils::transactions::{
-    TransactionRunner, execute_tx, make_accounts, run_txs_parallel_on,
-};
+use crate::utils::transactions::make_accounts;
 use assert_matches::assert_matches;
 use core::panic;
 use itertools::Itertools;
@@ -105,14 +103,7 @@ fn slow_test_one_shard_congested() {
         &shard1_acc2,
         Balance::from_near(1),
     );
-    let tx_outcome = execute_tx(
-        &mut env.test_loop,
-        &rpc_id,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        block_time * 3,
-    )
-    .unwrap();
+    let tx_outcome = env.runner_for_account(&rpc_id).execute_tx(tx, block_time * 3).unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     // Send transfer from shard 1 to shard 2 – should fail, because shard 2 is congested
@@ -121,14 +112,7 @@ fn slow_test_one_shard_congested() {
         &shard2_acc1,
         Balance::from_near(1),
     );
-    let tx_error = execute_tx(
-        &mut env.test_loop,
-        &rpc_id,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        block_time * 3,
-    )
-    .unwrap_err();
+    let tx_error = env.runner_for_account(&rpc_id).execute_tx(tx, block_time * 3).unwrap_err();
     assert_matches!(tx_error, InvalidTxError::ShardStuck { shard_id, .. } if shard_id == Into::<u32>::into(shard2));
 }
 
@@ -204,5 +188,5 @@ fn do_call_contract(
         .collect_vec();
     // Poll each tx to completion. All calls land on the contract's congested shard
     // and drain slowly through backpressure, hence the generous deadline.
-    run_txs_parallel_on(&mut env.test_loop, rpc_id, txs, &env.node_datas, Duration::seconds(60));
+    env.runner_for_account(rpc_id).run_txs_parallel(txs, Duration::seconds(60));
 }
