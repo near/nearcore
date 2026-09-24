@@ -1,6 +1,7 @@
 use crate::Contract;
 use crate::logic::{
-    ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
+    ExecutionResultState, ProtocolVersion, ReturnData, VMContext, VMOutcome,
+    mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
@@ -200,18 +201,30 @@ impl TestBuilder {
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
                 let context = self.context.clone();
-                let gas_counter = context
-                    .make_gas_counter(&config)
-                    .prepare_for_contract(&config, &self.method, fake_external.code_len())
-                    .expect("contract loading charge failed");
-                let Some(runtime) = vm_kind.runtime(config) else {
-                    panic!("runtime for {:?} has not been compiled", vm_kind);
-                };
+                let loading = context.make_gas_counter(&config).prepare_for_contract(
+                    &config,
+                    &self.method,
+                    fake_external.code_len(),
+                );
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
-                let outcome = runtime
-                    .prepare(&fake_external, None, gas_counter, &self.method)
-                    .run(&mut fake_external, &context, fees)
-                    .expect("execution failed");
+                let outcome = match loading {
+                    Ok(gas_counter) => {
+                        let Some(runtime) = vm_kind.runtime(config) else {
+                            panic!("runtime for {:?} has not been compiled", vm_kind);
+                        };
+                        runtime
+                            .prepare(&fake_external, None, gas_counter, &self.method)
+                            .run(&mut fake_external, &context, fees)
+                            .expect("execution failed")
+                    }
+                    Err(abort) => {
+                        let (gas_counter, error) = abort.into_parts();
+                        VMOutcome::abort(
+                            ExecutionResultState::new(&context, gas_counter, config),
+                            error,
+                        )
+                    }
+                };
 
                 let mut got = String::new();
 
