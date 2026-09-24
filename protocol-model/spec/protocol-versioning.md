@@ -11,7 +11,7 @@ This component defines the *protocol version* — a single `u32` that names the 
 
 - **`ProtocolVersion`** — `core/primitives-core/src/types.rs` (re-exported at `core/primitives/src/version.rs:17`) — a `u32`. There is no enum wrapping; a raw integer *is* the protocol version. Ordering is the whole semantics: a feature is active iff `current_version >= feature_activation_version`.
 
-- **`ProtocolFeature`** — `core/primitives-core/src/version.rs:11` — a `#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]` enum whose variants are the registry of every protocol change that has ever gated behavior. Long-dead variants are kept as `#[deprecated] _Deprecated*` placeholders so the historical version→feature map stays intact; live named variants are the ones code still branches on. Each variant maps to the version at which it activates via `protocol_version()` (`core/primitives-core/src/version.rs:458`).
+- **`ProtocolFeature`** — `core/primitives-core/src/version.rs:11` — a `#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]` enum whose variants are the registry of every protocol change that has ever gated behavior. Each variant maps to the version at which it activates via `protocol_version()` (`core/primitives-core/src/version.rs:458`).
 
 - **`STABLE_PROTOCOL_VERSION`** — `core/primitives-core/src/version.rs:628` — `= 86`. The version a stable (non-nightly) binary runs and ultimately votes for.
 - **`NIGHTLY_PROTOCOL_VERSION`** — `core/primitives-core/src/version.rs:631` — `= 155`. Big enough to enable all nightly-only features.
@@ -36,7 +36,7 @@ Two distinct mechanisms, and only one is authoritative for mainnet consensus:
 2. **Runtime (`ProtocolFeature::enabled(current_version)`)** is authoritative: `protocol_version >= self.protocol_version()` (`core/primitives-core/src/version.rs:591-593`). Consensus code branches on the *epoch's* protocol version, not on cargo features. So the same stable binary changes behavior purely as a function of the number it observes on-chain.
 
 `protocol_version()` (`core/primitives-core/src/version.rs:458`) is a `const fn` giant match returning each variant's activation version. On this 2.13.0 tree the tail of the stable range is:
-- v83: `ExcludeExistingCodeFromWitnessForCodeLen`, `InvalidTxGenerateOutcomes`, `FixAccessKeyAllowanceCharging`, `IncludeDeployGlobalContractOutcomeBurntStorage`, `GlobalContractDistributionNonce`, `EthImplicitGlobalContract` (plus several `_Deprecated*`) — `version.rs:549-557`. These sit at the current `MIN_SUPPORTED` floor.
+- v83: `ExcludeExistingCodeFromWitnessForCodeLen`, `InvalidTxGenerateOutcomes`, `FixAccessKeyAllowanceCharging`, `IncludeDeployGlobalContractOutcomeBurntStorage`, `GlobalContractDistributionNonce`, `EthImplicitGlobalContract` — `version.rs:549-557`. These sit at the current `MIN_SUPPORTED` floor.
 - v84: `Wasmtime` — `version.rs:558`.
 - v85: a large batch including `GasKeys`, `DynamicResharding`, `DelegateV2`, `StrictNonce`, `PostQuantumSignatures`, `ExecutionMetadataV4`, `UniqueChunkTransactions`, `ContinuousEpochSync`, `StickyReshardingValidatorAssignment`, `ClampOutgoingGasAdmission`, `AccountCostIncrease`, `YieldWithId`, `SignedContractCodeResponse`, `ValidateBlockOrdinalAndEpochSyncDataHash`, and the fix features — `version.rs:559-575`.
 - v86 (the PV this release votes in): **`EnforcePerReceiptStorageProofLimit`** — `version.rs:576`. This is the sole named v86 feature on 2.13.0.
@@ -111,7 +111,7 @@ Note (2.13.0-specific): there is **no** `FixContractLoadingError` variant on thi
 
 ## Invariants & failure modes
 
-- **Monotonic activation**: a feature enabled at version V is enabled at all `>= V` (`enabled` uses `>=`, `version.rs:591`). There is no de-activation mechanism; deprecated features remain enabled forever.
+- **Monotonic activation**: a feature enabled at version V is enabled at all `>= V` (`enabled` uses `>=`, `version.rs:591`). There is no de-activation mechanism.
 - **Config lookup must have a floor**: `get_config` panics `"Not found RuntimeConfig for protocol version {}"` if no stored key `<=` version exists (`config_store.rs:244`). Key `0` always exists, so any `version >= 0` is safe.
 - **Diff chain integrity**: `apply_diff` errors (`WrongOldValue` etc., `parameter_table.rs:545`) if a diff's declared `old` value disagrees with the accumulated table — construction panics at startup rather than serving a wrong config (`config_store.rs:124-129`). A test asserts every `CONFIG_DIFFS` version has a matching yaml file and vice-versa (`all_configs_are_specified`, `config_store.rs:272`).
 - **Schedule well-formedness**: the schedule must end at the client version and be strictly monotone in time and +1 in version, else `new_from_env_or_schedule` returns an error that `get_protocol_upgrade_schedule` `.unwrap()`s into a panic at startup (`version.rs:80-85`, `upgrade_schedule.rs:95-120`).
