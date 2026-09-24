@@ -248,13 +248,13 @@ impl GasCounter {
         }
         if method_name.is_empty() {
             return Err(ContractLoadingAbort {
-                gas_counter: self,
+                gas_counter: Box::new(self),
                 error: FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName),
             });
         }
         if self.pay_base(ExtCosts::contract_loading_base).is_err() {
             return Err(ContractLoadingAbort {
-                gas_counter: self,
+                gas_counter: Box::new(self),
                 error: FunctionCallError::HostError(HostError::GasExceeded),
             });
         }
@@ -487,7 +487,7 @@ impl ContractLoadingBaseCharged {
     ) -> StdResult<PreparedContractGasCounter, ContractLoadingAbort> {
         if self.0.pay_per(ExtCosts::contract_loading_bytes, wasm_code_bytes).is_err() {
             return Err(ContractLoadingAbort {
-                gas_counter: self.0,
+                gas_counter: Box::new(self.0),
                 error: FunctionCallError::HostError(HostError::GasExceeded),
             });
         }
@@ -507,7 +507,7 @@ impl ContractLoadingBaseCharged {
 
 /// A loading-charge failure together with the counter containing the gas burnt so far.
 pub struct ContractLoadingAbort {
-    gas_counter: GasCounter,
+    gas_counter: Box<GasCounter>,
     error: FunctionCallError,
 }
 
@@ -519,7 +519,7 @@ impl fmt::Debug for ContractLoadingAbort {
 
 impl ContractLoadingAbort {
     pub fn into_parts(self) -> (GasCounter, FunctionCallError) {
-        (self.gas_counter, self.error)
+        (*self.gas_counter, self.error)
     }
 }
 

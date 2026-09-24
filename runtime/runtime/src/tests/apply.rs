@@ -2150,7 +2150,7 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
 
 /// The wallet contract is never deployed in these tests.
 fn missing_global_contract_hash() -> CryptoHash {
-    eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id())
+    eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id(), PROTOCOL_VERSION)
 }
 
 fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
@@ -2170,7 +2170,7 @@ fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
     );
 }
 
-/// Points an ETH implicit account at its undeployed wallet contract, calls it as
+/// Points an ETH implicit account at its missing wallet contract, calls it as
 /// the chunk producer and replays the recorded witness as a chunk validator
 /// running `validator_protocol_version`. ETH implicit accounts are created this
 /// way, with a hardcoded wallet contract hash and no existence check. The

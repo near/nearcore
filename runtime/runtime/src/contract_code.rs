@@ -103,6 +103,7 @@ impl RuntimeContractIdentifier {
         access: AccessOptions,
         account_id: &AccountId,
         chain_id: &str,
+        protocol_version: ProtocolVersion,
     ) -> Result<Option<u64>, StorageError> {
         let key = match self {
             Self::None => return Ok(None),
@@ -123,7 +124,8 @@ impl RuntimeContractIdentifier {
             && matches!(
                 self,
                 Self::Global { code_hash, identifier: GlobalContractIdentifier::CodeHash(hash) }
-                    if code_hash == hash && *hash == eth_wallet_global_contract_hash(chain_id)
+                    if code_hash == hash
+                        && *hash == eth_wallet_global_contract_hash(chain_id, protocol_version)
             )
         {
             return Ok(None);

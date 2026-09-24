@@ -69,7 +69,7 @@ fn test_contract_loading_gas_protocol_upgrade() {
         let overhead = FeeHelper::new(configs.get_config(protocol).as_ref().clone(), Balance::ZERO)
             .function_call_exec_gas("main".len() as u64);
 
-        // Both base and byte precharge failures are tested on invalid Wasm: on the
+        // Both base and byte loading-charge failures are tested on invalid Wasm: on the
         // old protocol compilation fails for free, on the new one it is never reached.
         for (account, gas) in [
             (&valid, Gas::from_teragas(10)),

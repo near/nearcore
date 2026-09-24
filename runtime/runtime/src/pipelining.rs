@@ -166,7 +166,7 @@ impl ReceiptPreparationPipeline {
     /// `Action::FunctionCall` (provided the account has not been blocked.)
     ///
     /// Never use this for view-calls, since gas accounting uses the non-view
-    /// config. This assumes view calls do not use the speculative exeuction, if
+    /// config. This assumes view calls do not use speculative execution, if
     /// this changes, this needs some refactoring.
     pub(crate) fn submit(&mut self, receipt: &Receipt, state_update: &TrieUpdate) -> bool {
         let account_id = receipt.receiver_id();
@@ -381,6 +381,7 @@ impl ReceiptPreparationPipeline {
                     access,
                     account_id,
                     &self.chain_id,
+                    protocol_version,
                 )?);
                 let gas_counter = match code_len {
                     ContractCodeLength::Known(length) => gas_counter.charge_bytes(length),

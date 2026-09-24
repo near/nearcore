@@ -334,7 +334,7 @@ pub(crate) fn execute_function_call(
                 .into());
             }
             // Legacy handling of `ContractCodeNotPresent`.
-            // TODO: remove it when versions beore `fix_contract_loading_cost`
+            // TODO: remove it when versions before `fix_contract_loading_cost`
             // are no longer supported.
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.as_str().into(),

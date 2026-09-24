@@ -104,7 +104,7 @@ pub fn prepare_with_priority(
 /// current protocol version.
 ///
 /// Contract preparation gas is accounted for in the returned outcome. With
-/// `FixContractLoadingCost`, the caller precharges the loading cost before VM
+/// `FixContractLoadingCost`, the caller charges the loading cost before VM
 /// preparation, otherwise, the VM implementation charges it during preparation.
 #[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
     method_name,
