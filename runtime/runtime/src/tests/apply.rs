@@ -15,7 +15,7 @@ use itertools::Itertools;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::parameter_table::FeeComponent;
-use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{
     AccessKey, AccessKeyPermission, Account, AccountContract, FunctionCallPermission,
 };
@@ -1009,7 +1009,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1019,6 +1019,12 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1033,9 +1039,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
@@ -1107,7 +1111,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1117,6 +1121,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1131,9 +1141,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_deficit = if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
         Balance::ZERO
@@ -1157,12 +1165,24 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap();
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    // The deficit does not affect refunds, hence we should expect a
-    // normal refund of the unspent gas. However, this is small enough to
-    // cancel out, so we add the refund cost to tx_burnt and expect no
-    // refund. This ends up burning all gas and not refunding anything.
+    // The deficit does not affect refunds, hence we should expect a normal refund of the unspent
+    // gas. However, this is small enough to cancel out, so we add the refund cost to tx_burnt and
+    // expect no refund. With `FixContractLoadingCost`, paying the loading base exhausts the attached
+    // gas. The function-call gas reward is still credited to the receiver and is not burnt.
     assert_eq!(result.outgoing_receipts.len(), 0);
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    let expected_tx_burnt = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        let reward = Gas::from_gas(gas)
+            .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+            .unwrap()
+            .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+            .unwrap();
+        total_receipt_cost
+            .checked_sub(gas_price.checked_mul(u128::from(reward.as_gas())).unwrap())
+            .unwrap()
+    } else {
+        total_receipt_cost
+    };
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_tx_burnt);
 }
 
 #[test]
@@ -1186,7 +1206,7 @@ fn test_apply_surplus_gas_for_function_call() {
         deposit: Balance::ZERO,
     }))];
 
-    let expected_gas_burnt = apply_state
+    let prepaid_exec_gas = apply_state
         .config
         .fees
         .fee(ActionCosts::new_action_receipt)
@@ -1196,6 +1216,12 @@ fn test_apply_surplus_gas_for_function_call() {
         )
         .unwrap()
         .gas;
+    let contract_loading_gas = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base)
+    } else {
+        Gas::ZERO
+    };
+    let expected_gas_burnt = prepaid_exec_gas.checked_add(contract_loading_gas).unwrap();
     let receipts = vec![Receipt::V0(ReceiptV0 {
         predecessor_id: bob_account(),
         receiver_id: alice_account(),
@@ -1210,9 +1236,7 @@ fn test_apply_surplus_gas_for_function_call() {
         }),
     })];
     let total_receipt_cost = gas_price
-        .checked_mul(u128::from(
-            Gas::from_gas(gas).checked_add(expected_gas_burnt).unwrap().as_gas(),
-        ))
+        .checked_mul(u128::from(Gas::from_gas(gas).checked_add(prepaid_exec_gas).unwrap().as_gas()))
         .unwrap();
     let expected_gas_burnt_amount =
         gas_price.checked_mul(u128::from(expected_gas_burnt.as_gas())).unwrap();
