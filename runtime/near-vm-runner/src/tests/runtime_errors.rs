@@ -57,6 +57,7 @@ fn test_max_core_instance_size_breached() {
                 // Pre-fix: zero-gas nop, loading work uncharged.
                 let before = near_parameters::vm::Config {
                     fix_contract_loading_error: false,
+                    fix_contract_loading_cost: false,
                     ..base_config.clone()
                 };
                 let result = run(before);

@@ -69,6 +69,7 @@ use near_store::{
     set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
+use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
@@ -2147,9 +2148,9 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
     );
 }
 
-/// The hash of a global contract that is never deployed in these tests.
+/// The wallet contract is never deployed in these tests.
 fn missing_global_contract_hash() -> CryptoHash {
-    hash(b"global contract that was never deployed")
+    eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id())
 }
 
 fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
@@ -2169,7 +2170,7 @@ fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
     );
 }
 
-/// Points alice at a global contract hash that was never deployed, calls it as
+/// Points an ETH implicit account at its undeployed wallet contract, calls it as
 /// the chunk producer and replays the recorded witness as a chunk validator
 /// running `validator_protocol_version`. ETH implicit accounts are created this
 /// way, with a hardcoded wallet contract hash and no existence check. The
@@ -2179,8 +2180,9 @@ fn assert_code_does_not_exist(apply_result: &ApplyResult, call_id: CryptoHash) {
 fn apply_call_to_missing_global_contract(
     validator_protocol_version: ProtocolVersion,
 ) -> (CryptoHash, Result<ApplyResult, RuntimeError>) {
+    let wallet_account: AccountId = "0x1234567890123456789012345678901234567890".parse().unwrap();
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account()],
+        vec![wallet_account.clone()],
         Balance::from_near(1_000_000),
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
@@ -2188,9 +2190,9 @@ fn apply_call_to_missing_global_contract(
 
     // Write the reference directly: `UseGlobalContract` would refuse an unknown hash.
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
-    alice.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
-    set_account(&mut state_update, alice_account(), &alice);
+    let mut wallet = get_account(&state_update, &wallet_account).unwrap().unwrap();
+    wallet.set_contract(AccountContract::Global(missing_global_contract_hash())).unwrap();
+    set_account(&mut state_update, wallet_account.clone(), &wallet);
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
@@ -2198,7 +2200,7 @@ fn apply_call_to_missing_global_contract(
     store_update.commit();
 
     let call_receipt = create_receipt_with_actions(
-        alice_account(),
+        wallet_account,
         signers[0].clone(),
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "rlp_execute".to_string(),
@@ -2231,6 +2233,7 @@ fn apply_call_to_missing_global_contract(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -2543,7 +2546,9 @@ fn test_exclude_contract_code_from_witness() {
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: Vec::new(),
-                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                // Exercise actual loading, after `FixContractLoadingCost` it
+                // skips even metadata lookup when the loading base cannot be paid.
+                gas: Gas::from_teragas(1),
                 deposit: Balance::ZERO,
             }))],
         )
