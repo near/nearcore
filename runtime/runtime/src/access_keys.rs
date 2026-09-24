@@ -135,6 +135,7 @@ fn delete_gas_key(
         AccessKey::NONCE_VALUE_LEN * num_nonces,
     );
     result.compute_usage = safe_add_compute(result.compute_usage, nonce_remove_compute)?;
+    result.gas_key_nonces_removed = num_nonces as u64;
     remove_access_key(state_update, account_id.clone(), public_key.clone());
     account.set_storage_usage(account.storage_usage().saturating_sub(gas_key_storage_cost(
         &config.fees,
