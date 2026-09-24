@@ -25,7 +25,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
-use crate::utils::transactions::run_txs_parallel;
 use near_async::time::Duration;
 use near_client::QueryError;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -244,7 +243,7 @@ fn provision_env(env: &mut TestLoopEnv) {
             node.tx_from_actions(&actor(), &actor(), actor_actions),
         ]
     };
-    run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
+    env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
     // Run one extra block to make the state final, some functions can't read data from the latest block.
     env.rpc_runner().run_for_number_of_blocks(1);
 }
