@@ -141,7 +141,7 @@ impl ChainView for Policies {
         &self,
         block: &BlockHeader,
     ) -> Result<HashMap<ShardId, BlockHeight>, Error> {
-        self.core_reader.highest_certified_heights(block)
+        self.core_reader.certified_frontier(block)
     }
 }
 

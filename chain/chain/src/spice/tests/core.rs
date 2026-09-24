@@ -446,7 +446,7 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn highest_certified_heights_reads_the_oldest_entry_per_shard() {
+fn certified_frontier_reads_the_oldest_entry_per_shard() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let shard_ids: Vec<ShardId> =
@@ -471,7 +471,7 @@ fn highest_certified_heights_reads_the_oldest_entry_per_shard() {
     assert_eq!(uncertified.len(), 3 * 4 - 1);
     assert_eq!(uncertified[0].chunk_id.block_hash, *block1.hash());
 
-    let frontier = core_reader.highest_certified_heights(tip.header()).unwrap();
+    let frontier = core_reader.certified_frontier(tip.header()).unwrap();
 
     assert_eq!(
         frontier,
@@ -483,7 +483,7 @@ fn highest_certified_heights_reads_the_oldest_entry_per_shard() {
     );
     // Once every chunk is certified the frontier is the block itself.
     assert_eq!(
-        core_reader.highest_certified_heights(genesis.header()).unwrap(),
+        core_reader.certified_frontier(genesis.header()).unwrap(),
         shard_ids.iter().map(|shard_id| (*shard_id, genesis.header().height())).collect()
     );
 }

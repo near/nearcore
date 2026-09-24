@@ -160,7 +160,7 @@ impl SpiceCoreReader {
     /// of `block`: the height of the block before the shard's oldest uncertified chunk, or
     /// `block`'s own height when none of the shard's chunks is uncertified. The uncertified
     /// chunks are listed oldest first, so only each shard's first entry is read.
-    pub fn highest_certified_heights(
+    pub fn certified_frontier(
         &self,
         block: &BlockHeader,
     ) -> Result<HashMap<ShardId, BlockHeight>, Error> {
