@@ -8,6 +8,7 @@
 
 // cspell:words landlocks sandboxing
 
+#[cfg(unix)]
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::protocol::{
     COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
