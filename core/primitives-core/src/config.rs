@@ -13,43 +13,6 @@ use std::hash::Hash;
 /// into a protocol parameter if we ever want to change it.
 pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Hash,
-    PartialEq,
-    Eq,
-    serde_repr::Serialize_repr,
-    serde_repr::Deserialize_repr,
-)]
-#[repr(u8)]
-pub enum AccountIdValidityRulesVersion {
-    /// Skip account ID validation according to legacy rules.
-    V0,
-    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
-    V1,
-    /// Enforce full AccountId validation in all places that parse from strings.
-    V2,
-}
-
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for AccountIdValidityRulesVersion {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "AccountIdValidityRulesVersion".to_string().into()
-    }
-
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        u8::json_schema(generator)
-    }
-}
-
-impl AccountIdValidityRulesVersion {
-    pub fn v0() -> AccountIdValidityRulesVersion {
-        AccountIdValidityRulesVersion::V0
-    }
-}
-
 /// Configuration of view methods execution, during which no costs should be charged.
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {

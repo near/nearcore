@@ -867,7 +867,6 @@ pub fn validator_stake(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2570,7 +2569,6 @@ pub fn promise_batch_create(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2619,7 +2617,6 @@ pub fn promise_batch_then(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2675,7 +2672,6 @@ pub fn promise_set_refund_to(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -3059,7 +3055,6 @@ fn read_contract_id(
                 &mut ctx.result_state.gas_counter,
                 memory,
                 &ctx.registers,
-                &ctx.config,
                 account_id_ptr,
                 account_id_len,
             )?;
@@ -3823,7 +3818,6 @@ pub fn promise_batch_action_add_gas_key_with_function_call(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         receiver_id_ptr,
         receiver_id_len,
     )?;
@@ -4027,7 +4021,6 @@ pub fn promise_batch_action_add_key_with_function_call(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         receiver_id_ptr,
         receiver_id_len,
     )?;
@@ -4152,7 +4145,6 @@ pub fn promise_batch_action_delete_account(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
-        &ctx.config,
         beneficiary_id_ptr,
         beneficiary_id_len,
     )?;
@@ -4913,7 +4905,6 @@ fn read_and_parse_account_id(
     gas_counter: &mut GasCounter,
     memory: &[u8],
     registers: &Registers,
-    config: &Config,
     ptr: u64,
     len: u64,
 ) -> Result<AccountId> {
@@ -4923,17 +4914,7 @@ fn read_and_parse_account_id(
 
     let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
 
-    match config.limit_config.account_id_validity_rules_version {
-        near_primitives_core::config::AccountIdValidityRulesVersion::V0
-        | near_primitives_core::config::AccountIdValidityRulesVersion::V1 =>
-        {
-            #[allow(deprecated)]
-            Ok(AccountId::new_unvalidated(account_id_str))
-        }
-        near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
-            account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
-        }
-    }
+    account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
 }
 
 /// Writes key-value into storage.

@@ -6,7 +6,6 @@ use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, Pr
 use crate::map;
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts, Fee};
-use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -117,8 +116,6 @@ fn test_promise_batch_action_function_call() {
 #[test]
 fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_account() {
     let mut logic_builder = VMLogicBuilder::default();
-    logic_builder.config.limit_config.account_id_validity_rules_version =
-        AccountIdValidityRulesVersion::V2;
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
