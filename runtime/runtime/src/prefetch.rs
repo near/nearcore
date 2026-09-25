@@ -45,12 +45,14 @@ use crate::{SignedValidPeriodTransactions, metrics};
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
+use near_parameters::ExtCosts;
+use near_parameters::vm::Config as VmConfig;
 use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
 use near_primitives::transaction::{Action, TransactionNonce};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{Gas, StateRoot};
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
@@ -58,12 +60,14 @@ use std::str::FromStr;
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
     trie_root: StateRoot,
+    contract_loading_base: Option<Gas>,
+    max_gas_burnt: Gas,
     prefetch_enqueued: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TriePrefetcher {
-    pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
+    pub(crate) fn new_if_enabled(trie: &Trie, wasm_config: &VmConfig) -> Option<Self> {
         let Some(caching_storage) = trie.internal_get_storage_as_caching_storage() else {
             return None;
         };
@@ -73,9 +77,14 @@ impl TriePrefetcher {
         let trie_root = *trie.get_root();
         let shard_uid = prefetch_api.shard_uid;
         let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
+        let contract_loading_base = wasm_config
+            .fix_contract_loading_cost
+            .then(|| wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base));
         Some(Self {
             prefetch_api,
             trie_root,
+            contract_loading_base,
+            max_gas_burnt: wasm_config.limit_config.max_gas_burnt,
             prefetch_enqueued: metrics::PREFETCH_ENQUEUED.with_label_values(&metrics_labels),
             prefetch_queue_full: metrics::PREFETCH_QUEUE_FULL.with_label_values(&metrics_labels),
         })
@@ -163,11 +172,16 @@ impl TriePrefetcher {
                 let Action::FunctionCall(fn_call) = action else {
                     continue;
                 };
-                // Speculative code prefetch deliberately ignores receipt gas,
-                // including FixContractLoadingCost. The latency penalty for not
-                // loading it would be worse than the unpaid bandwidth for
-                // reading it ahead of time.
-                if !code_prefetch_requested {
+                // After `FixContractLoadingCost`, execution aborts early if the
+                // loading base gas cannot be paid, hence we should also abort
+                // prefetching.
+                //
+                // If the per-byte gas cost exceeds attached gas, ideally we
+                // would also stop prefetching. But we don't. Blocking on a read
+                // of the code length before continuing would be somewhat
+                // complex and also undermine the latency benefits of the
+                // prefetcher.
+                if !code_prefetch_requested && self.can_pay_contract_loading_base(fn_call.gas) {
                     let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
                     self.prefetch_trie_key(trie_key)?;
                     code_prefetch_requested = true;
@@ -400,12 +414,28 @@ impl TriePrefetcher {
         }
         Ok(())
     }
+
+    fn can_pay_contract_loading_base(&self, prepaid_gas: Gas) -> bool {
+        match self.contract_loading_base {
+            None => true,
+            Some(loading_base) => prepaid_gas.min(self.max_gas_burnt) >= loading_base,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::TriePrefetcher;
-    use near_primitives::{trie_key::TrieKey, types::AccountId};
+    use near_crypto::InMemorySigner;
+    use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
+    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+    use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives::version::ProtocolFeature;
+    use near_primitives::{
+        hash::CryptoHash,
+        trie_key::TrieKey,
+        types::{AccountId, Balance, Gas},
+    };
     use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
     use near_store::trie::AccessOptions;
@@ -514,8 +544,9 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
         trie.internal_get_storage_as_caching_storage().unwrap().clear_cache();
 
-        let prefetcher =
-            TriePrefetcher::new_if_enabled(&trie).expect("caching storage should have prefetcher");
+        let runtime_config = RuntimeConfig::test();
+        let prefetcher = TriePrefetcher::new_if_enabled(&trie, &runtime_config.wasm_config)
+            .expect("caching storage should have prefetcher");
         let prefetch_api = &prefetcher.prefetch_api;
 
         assert_eq!(prefetch_api.num_prefetched_and_staged(), 0);
@@ -593,5 +624,74 @@ mod tests {
                 TrieKey::Account { account_id }
             })
             .collect()
+    }
+
+    #[test]
+    fn test_contract_code_prefetch_requires_loading_base() {
+        let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
+        let store = create_test_store();
+        let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
+        let tries = ShardTries::new(
+            store.trie_store(),
+            trie_config,
+            flat_storage_manager,
+            StateSnapshotConfig::Disabled,
+        );
+        let shard_uid = ShardUId::new(1, 12345.into());
+        let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+
+        let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let wasm_config = &runtime_config_store.get_config(protocol_version).wasm_config;
+        assert!(wasm_config.fix_contract_loading_cost);
+        let loading_base = wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base);
+        let mut prefetcher = TriePrefetcher::new_if_enabled(&trie, wasm_config)
+            .expect("caching storage should have prefetcher");
+        // Isolate contract-code prefetching from the general account prefetcher.
+        prefetcher.prefetch_api.enable_receipt_prefetching = false;
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account_id);
+        let make_receipt = |gas| {
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: account_id.clone(),
+                    signer_public_key: signer.public_key(),
+                    gas_price: Balance::ZERO,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                        method_name: "main".to_string(),
+                        args: vec![],
+                        gas,
+                        deposit: Balance::ZERO,
+                    }))],
+                }),
+            })
+        };
+        let enqueued_before = prefetcher.prefetch_enqueued.get();
+        prefetcher
+            .prefetch_receipts_data(&[make_receipt(
+                loading_base.checked_sub(Gas::from_gas(1)).unwrap(),
+            )])
+            .unwrap();
+        assert_eq!(prefetcher.prefetch_enqueued.get(), enqueued_before);
+        prefetcher.prefetch_receipts_data(&[make_receipt(loading_base)]).unwrap();
+        assert_eq!(prefetcher.prefetch_enqueued.get(), enqueued_before + 1);
+
+        let mut capped_config = wasm_config.as_ref().clone();
+        capped_config.limit_config.max_gas_burnt =
+            loading_base.checked_sub(Gas::from_gas(1)).unwrap();
+        let capped_prefetcher = TriePrefetcher::new_if_enabled(&trie, &capped_config)
+            .expect("caching storage should have prefetcher");
+        assert!(!capped_prefetcher.can_pay_contract_loading_base(loading_base));
+
+        let mut legacy_config = wasm_config.as_ref().clone();
+        legacy_config.fix_contract_loading_cost = false;
+        let legacy_prefetcher = TriePrefetcher::new_if_enabled(&trie, &legacy_config)
+            .expect("caching storage should have prefetcher");
+        assert!(legacy_prefetcher.can_pay_contract_loading_base(Gas::ZERO));
     }
 }

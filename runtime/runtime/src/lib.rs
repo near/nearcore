@@ -3225,7 +3225,7 @@ impl<'a> ApplyProcessingState<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
-        let prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let prefetcher = TriePrefetcher::new_if_enabled(&trie, &apply_state.config.wasm_config);
         let state_update = TrieUpdate::new(trie);
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
