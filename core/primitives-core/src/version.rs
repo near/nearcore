@@ -141,6 +141,9 @@ pub enum ProtocolFeature {
     /// `CodeDoesNotExist`. Previously chunk validators rejected such a state
     /// witness as incomplete, which stalled the shard.
     FailCallToMissingGlobalContract,
+    /// A bandwidth request for a destination shard that is listed as its own parent
+    /// no longer chains that shard's outgoing buffer onto itself.
+    FixSelfMappedShardBandwidthRequest,
     /// Universal accounts: the `0u` account scheme. Enables the `UniversalStateInit`
     /// action, which creates an account whose ID is derived from its canonical state
     /// init (contract code, storage, and access keys).
@@ -185,6 +188,7 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContractSameChunkCallFix => 87,
             ProtocolFeature::UniversalAccounts => 87,
             ProtocolFeature::FailCallToMissingGlobalContract => 88,
+            ProtocolFeature::FixSelfMappedShardBandwidthRequest => 88,
             ProtocolFeature::UpdatedEthWalletContract => 88,
 
             // Nightly features:
