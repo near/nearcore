@@ -1,3 +1,4 @@
+pub mod block_observer;
 pub mod builder;
 pub mod drop_condition;
 pub mod env;

@@ -168,6 +168,27 @@ let new_node_state = env.node_state_builder().account_id(&new_account_id).build(
 env.add_node(identifier, new_node_state);
 ```
 
+### Block observers
+
+`env.on_each_block` registers code that runs once per new head height of one node, while a `NodeRunner` drives the test loop. Use it for checks or traffic that must run on each new block, next to the linear steps of the test body.
+
+```rust
+env.on_each_block(BlockSource::SlowestNode, move |block| {
+    let chunk_mask = block.observed_node.head_block().header().chunk_mask().to_vec();
+    assert!(chunk_mask.iter().all(|chunk_included| *chunk_included), "missing chunk at #{}", block.height());
+    ControlFlow::Continue(())
+});
+env.validator_runner().run_for_number_of_blocks(5);
+```
+
+- `BlockSource::SlowestNode` follows the first node with the lowest head height. `BlockSource::Node(index)` follows the node at that index. The selection compares heights only, so on a fork the other nodes may not have the selected block.
+- The observer gets an `ObservedBlock` with `observed_node`, `nodes` (all nodes) and `height()`.
+- Returning `ControlFlow::Break(())` removes the observer.
+- An observer is called when its source node's head height differs from the height at its previous call, so a new block at the same height does not call it again. The height is kept per observer, across runners.
+- Observers run in registration order, inside the runner's stop condition, before it is checked. Direct `env.test_loop.run_*` calls do not run them, so setup and shutdown are not observed.
+
+See `src/tests/block_observers.rs` for the behavior these rules describe.
+
 ## Utilities
 
 ### Transaction helpers

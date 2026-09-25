@@ -1,3 +1,4 @@
+use super::block_observer::BlockObservers;
 use super::env::TestLoopEnv;
 use super::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 use super::rpc::{FaultyRpcTransport, RpcFaultHandle};
@@ -492,7 +493,12 @@ impl TestLoopBuilder {
 
         Self::setup_sharded_rpc_pools(&datas, rpc_pool.as_deref(), &rpc_pool_fault_handles);
 
-        TestLoopEnv { test_loop, node_datas: datas, shared_state }
+        TestLoopEnv {
+            test_loop,
+            node_datas: datas,
+            shared_state,
+            block_observers: BlockObservers::default(),
+        }
     }
 
     /// Wire each node's sharded RPC pool with clients pointing to other nodes.
