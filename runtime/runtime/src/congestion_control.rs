@@ -1,18 +1,17 @@
 use crate::ApplyState;
 use crate::bandwidth_scheduler::BandwidthSchedulerOutput;
-use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
 use bytesize::ByteSize;
 use itertools::Itertools;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::RuntimeConfig;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
 use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::receipt::{
     Receipt, ReceiptOrStateStoredReceipt, StateStoredReceipt, StateStoredReceiptMetadata,
-    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
@@ -652,72 +651,6 @@ pub(crate) fn receipt_congestion_gas(
     }
 }
 
-/// Calculate the gas of a receipt before it is pushed into a state queue or
-/// buffer. Please note that this method should only be used when storing
-/// receipts into state. It should not be used for retrieving receipts from the
-/// state.
-///
-/// The calculation is part of protocol and should only be modified with a
-/// protocol upgrade.
-pub(crate) fn compute_receipt_congestion_gas(
-    receipt: &Receipt,
-    config: &RuntimeConfig,
-) -> Result<Gas, IntegerOverflowError> {
-    match receipt.versioned_receipt() {
-        VersionedReceiptEnum::Action(action_receipt) => {
-            // account for gas guaranteed to be used for executing the receipts
-            action_receipt_congestion_gas(receipt, config, action_receipt.into())
-        }
-        VersionedReceiptEnum::Data(_data_receipt) => {
-            // Data receipts themselves don't cost gas to execute, their cost is
-            // burnt at creation. What we should count, is the gas of the
-            // postponed action receipt. But looking that up would require
-            // reading the postponed receipt from the trie.
-            // Thus, the congestion control MVP does not account for data
-            // receipts or postponed receipts.
-            Ok(Gas::ZERO)
-        }
-        VersionedReceiptEnum::PromiseYield(_) => {
-            // The congestion control MVP does not account for yielding a
-            // promise. Yielded promises are confined to a single account, hence
-            // they never cross the shard boundaries. This makes it irrelevant
-            // for the congestion MVP, which only counts gas in the outgoing
-            // buffers and delayed receipts queue.
-            Ok(Gas::ZERO)
-        }
-        VersionedReceiptEnum::PromiseResume(_) => {
-            // The congestion control MVP does not account for resuming a promise.
-            // Unlike `PromiseYield`, it is possible that a promise-resume ends
-            // up in the delayed receipts queue.
-            // But similar to a data receipt, it would be difficult to find the cost
-            // of it without expensive state lookups.
-            Ok(Gas::ZERO)
-        }
-        VersionedReceiptEnum::GlobalContractDistribution(_) => Ok(Gas::ZERO),
-    }
-}
-
-fn action_receipt_congestion_gas(
-    receipt: &Receipt,
-    config: &RuntimeConfig,
-    action_receipt: VersionedActionReceipt,
-) -> Result<Gas, IntegerOverflowError> {
-    let prepaid_exec_gas =
-        total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-            .gas
-            .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
-            .ok_or(IntegerOverflowError)?;
-    // account for gas guaranteed to be used for creating new receipts
-    let prepaid_send_cost = total_prepaid_send_fees(config, &action_receipt.actions())?;
-    let prepaid_gas = prepaid_exec_gas.checked_add_result(prepaid_send_cost.gas)?;
-
-    // account for gas potentially used for dynamic execution
-    let gas_attached_to_fns = total_prepaid_gas(&action_receipt.actions())?;
-    let gas = gas_attached_to_fns.checked_add_result(prepaid_gas)?;
-
-    Ok(gas)
-}
-
 /// Iterate all columns in the trie holding unprocessed receipts and
 /// computes the storage consumption as well as attached gas.
 ///
@@ -930,18 +863,6 @@ pub(crate) fn receipt_size(
             Ok(receipt.metadata().congestion_size)
         }
     }
-}
-
-/// Calculate the size of a receipt before it is pushed into a state queue or
-/// buffer. Please note that this method should only be used when storing
-/// receipts into state. It should not be used for retrieving receipts from the
-/// state.
-///
-/// The calculation is part of protocol and should only be modified with a
-/// protocol upgrade.
-pub(crate) fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowError> {
-    let size = borsh::object_length(&receipt).unwrap();
-    size.try_into().map_err(|_| IntegerOverflowError)
 }
 
 fn int_overflow_to_storage_err(_err: IntegerOverflowError) -> StorageError {
