@@ -267,7 +267,7 @@ pub struct EdgeInner {
     /// - `nonce` is odd, then `removal_info` will be None
     /// - `nonce` is even, then the structure will be a pair with a signature of the party removing
     ///           the edge:
-    ///           - `bool` - `false` if `peer0` signed the `edge` `true` if `peer1`.
+    ///           - `bool` - `true` if `peer0` signed the `edge`, `false` if `peer1`.
     ///           - `Signature` - `Signature` of either `peer0` or `peer1`, depending on which peer
     ///           removed the edge.
     removal_info: Option<(bool, Signature)>,
