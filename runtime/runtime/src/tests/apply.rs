@@ -64,9 +64,9 @@ use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_received_data, remove_account,
-    set_access_key, set_account,
+    KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
+    TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
+    get_received_data, remove_account, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use near_wallet_contract::eth_wallet_global_contract_hash;
@@ -1957,6 +1957,161 @@ fn test_add_keys_after_large_read_exceed_receipt_storage_proof_limit() {
     for public_key in &added_keys {
         assert_eq!(get_access_key(&state, &account, public_key).unwrap(), None);
     }
+}
+
+enum ContractLoadingFailure {
+    Base,
+    Bytes,
+}
+
+struct ContractLoadingFailureResult {
+    apply_result: ApplyResult,
+    state_root: CryptoHash,
+    code_key: TrieKey,
+    code_len: u32,
+}
+
+/// Deploy a contract and record the state accesses made by a call that cannot
+/// afford either the loading base or the complete per-byte loading charge.
+fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLoadingFailureResult {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::clone(RuntimeConfigStore::new(None).get_config(protocol_version));
+    assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
+
+    let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
+    let code_len = contract_code.code().len();
+    let code_key = TrieKey::ContractCode { account_id: alice_account() };
+    let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+    let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    account.set_contract(AccountContract::Local(*contract_code.hash())).unwrap();
+    set_account(&mut state_update, alice_account(), &account);
+    state_update.set(code_key.clone(), contract_code.code().to_vec());
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let state_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit();
+
+    let costs = &apply_state.config.wasm_config.ext_costs;
+    let loading_base = costs.gas_cost(ExtCosts::contract_loading_base);
+    let loading_bytes =
+        costs.gas_cost(ExtCosts::contract_loading_bytes).checked_mul(code_len as u64).unwrap();
+    let gas = match failure {
+        ContractLoadingFailure::Base => loading_base.checked_sub(Gas::from_gas(1)).unwrap(),
+        ContractLoadingFailure::Bytes => {
+            loading_base.checked_add(loading_bytes).unwrap().checked_sub(Gas::from_gas(1)).unwrap()
+        }
+    };
+    let call_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: Vec::new(),
+            gas,
+            deposit: Balance::ZERO,
+        }))],
+    );
+    let call_id = *call_receipt.receipt_id();
+    let receipts = [call_receipt];
+    let apply_result = runtime
+        .apply(
+            tries
+                .get_trie_for_shard(ShardUId::single_shard(), state_root)
+                .recording_reads_new_recorder(),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let assert_out_of_gas_without_contract_access = |result: &ApplyResult| {
+        let call_outcome = result
+            .outcomes
+            .iter()
+            .find(|outcome| outcome.id == call_id)
+            .expect("function call outcome missing");
+        assert_matches!(
+            &call_outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(message)),
+                ..
+            })) if message == "Exceeded the prepaid gas."
+        );
+        assert!(result.contract_updates.contract_accesses.is_empty());
+    };
+    assert_out_of_gas_without_contract_access(&apply_result);
+
+    // Replay from only the recorded values. This succeeds only if the abort path does not read
+    // anything beyond what the producer recorded, in particular contract metadata/body.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    let replay_result = runtime
+        .apply(
+            Trie::from_recorded_storage(apply_result.proof.clone().unwrap(), state_root, false),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_out_of_gas_without_contract_access(&replay_result);
+
+    ContractLoadingFailureResult {
+        apply_result,
+        state_root,
+        code_key,
+        code_len: code_len.try_into().unwrap(),
+    }
+}
+
+#[test]
+fn test_contract_loading_base_failure_skips_contract_metadata() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Base);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    assert!(matches!(
+        state_update.get_ref(
+            &result.code_key,
+            KeyLookupMode::MemOrFlatOrTrie,
+            AccessOptions::DEFAULT,
+        ),
+        Err(StorageError::MissingTrieValue(_))
+    ));
+}
+
+#[test]
+fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
+    let result = apply_contract_loading_failure(ContractLoadingFailure::Bytes);
+    let partial_storage = result.apply_result.proof.unwrap();
+    let state_update =
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+
+    let value_ref = state_update
+        .get_ref(&result.code_key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)
+        .unwrap()
+        .expect("contract metadata should be present");
+    assert_eq!(value_ref.len(), result.code_len);
+    let value_hash = value_ref.value_hash();
+    assert_matches!(
+        state_update.get(&result.code_key, AccessOptions::DEFAULT),
+        Err(StorageError::MissingTrieValue(MissingTrieValue {
+            context: MissingTrieValueContext::TrieMemoryPartialStorage,
+            hash,
+        })) if hash == value_hash
+    );
 }
 
 /// Deploys a contract, records a witness for a call to it (which excludes the
