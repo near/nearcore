@@ -61,3 +61,11 @@ issued and when the gas refund arrived. In this case we use the best effort to r
 - the access key permission should be `FunctionCallPermission`
 - the allowance should be set to `Some` limited value, instead of unlimited allowance (`None`)
 - the runtime uses saturating add to increase the allowance, to avoid overflows
+
+## Gas Key Balance refunds
+
+When a transaction is signed with a [gas key](/DataStructures/AccessKey.md#gas-keys), gas costs are prepaid from the gas key balance. If unused gas remains after execution, the gas refund is credited back to the gas key balance rather than the account balance.
+
+The runtime identifies gas key refunds using the same condition as allowance refunds (`signer_id == receiver_id && predecessor_id == "system"`). For these refunds, the runtime first attempts to credit the gas key via `try_refund_gas_key_balance`. If the gas key still exists, the refund is added to its balance. If the gas key no longer exists (e.g., it was deleted between the original transaction and the refund arrival), the refund falls through to the account balance instead.
+
+This means that if a gas key is deleted while a gas key transaction is still in-flight, the gas refund from that transaction will go to the account balance rather than being burned.

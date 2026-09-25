@@ -74,7 +74,25 @@ Here is the list of actions and their corresponding fees:
   - the base fee [`delete_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_account_cost)
   - action receipt creation fee for creating Transfer to send remaining funds to `beneficiary_id`
   - full transfer fee described in the corresponding item
-    
+- [TransferToGasKey](/RuntimeSpec/Actions.md#transfertogaskeyaction) and [WithdrawFromGasKey](/RuntimeSpec/Actions.md#withdrawfromgaskeyaction) use the sum of the following fees:
+  - the base fee `gas_key_transfer_base` (derived from `transfer` send cost + `storage_read_base` + `storage_write_base` for execution)
+  - the per-byte fee `gas_key_byte` multiplied by the public key length (send) and by the access key trie key length + estimated access key value length (execution). `gas_key_byte` is derived from `new_data_receipt_byte` (send) and `storage_read_key_byte` + `storage_write_key_byte` (execution).
+- [AddKey](/RuntimeSpec/Actions.md#addkeyaction) with `GasKeyFullAccess` or `GasKeyFunctionCall` permission uses the sum of the following fees:
+  - the corresponding base fee for `add_key_cost.full_access_cost` or `add_key_cost.function_call_cost` (plus method name bytes if applicable), same as regular AddKey
+  - the per-byte fee `gas_key_byte` multiplied by `GasKeyInfo::borsh_len()` (send only)
+  - for each nonce slot (`num_nonces` times): the base fee `gas_key_nonce_write_base` (execution only, derived from `storage_write_base`) plus `gas_key_byte` multiplied by the nonce trie key length and nonce value length (execution only)
+
+## Gas key cost splitting
+
+For transactions signed with a [gas key](/DataStructures/AccessKey.md#gas-keys), the total transaction cost is split into two independent components:
+
+- **Gas cost** = gas burned (send fees) + gas remaining (execution fees), converted to tokens at the current gas price. This is deducted from the **gas key balance**.
+- **Deposit cost** = sum of all deposits in the transaction's actions (`Transfer.deposit`, `FunctionCall.deposit`, `TransferToGasKey.deposit`, etc.). This is deducted from the **account balance**.
+
+Both checks are performed independently. If the gas key has sufficient balance but the account does not have enough for deposits, the transaction enters the `DepositFailed` state where gas is charged but actions are not executed.
+
+Generally, honest chunk producers will prevent this from occurring for ordinary use. This is added as a protection against malicious contract behavior intending to add transactions to chunks without paying gas.
+
 ## Gas tracking
 
 In `Runtime`, gas is tracked in the following fields of `ActionResult` struct:
