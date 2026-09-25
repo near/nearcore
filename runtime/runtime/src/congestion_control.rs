@@ -338,7 +338,6 @@ impl ReceiptSinkV2 {
             let receipt = receipt_result?;
             let gas = receipt.metadata().congestion_gas;
             let size = receipt.metadata().congestion_size;
-            let should_update_outgoing_metadatas = receipt.should_update_outgoing_metadatas();
             let receipt = receipt.into_receipt();
             let target_shard_id = receipt.receiver_shard_id(&shard_layout)?;
 
@@ -355,10 +354,8 @@ impl ReceiptSinkV2 {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas.as_gas().into())?;
-                    if should_update_outgoing_metadatas {
-                        // Can't update metadatas immediately because state_update is borrowed by iterator.
-                        outgoing_metadatas_updates.push((ByteSize::b(size), gas));
-                    }
+                    // Can't update metadatas immediately because state_update is borrowed by iterator.
+                    outgoing_metadatas_updates.push((ByteSize::b(size), gas));
                     // count how many to release later to avoid modifying
                     // `state_update` while iterating based on
                     // `state_update.trie`.
@@ -465,17 +462,11 @@ impl ReceiptSinkV2 {
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
 
-        if receipt.should_update_outgoing_metadatas() {
-            self.outgoing_metadatas.update_on_receipt_pushed(
-                shard,
-                ByteSize::b(size),
-                gas,
-                state_update,
-            )?;
-        }
+        let size = ByteSize::b(size);
+        self.outgoing_metadatas.update_on_receipt_pushed(shard, size, gas, state_update)?;
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
-        self.stats.buffered_receipts.entry(shard).or_default().add_receipt(size, gas);
+        self.stats.buffered_receipts.entry(shard).or_default().add_receipt(size.0, gas);
         Ok(())
     }
 

@@ -98,24 +98,15 @@ pub enum Receipt {
 /// This struct is versioned so that it can be enhanced in the future.
 #[derive(PartialEq, Eq, Debug, ProtocolSchema)]
 pub enum StateStoredReceipt<'a> {
-    V0(StateStoredReceiptV0<'a>),
     V1(StateStoredReceiptV1<'a>),
 }
 
-/// The V0 of StateStoredReceipt. It contains the receipt and metadata.
-#[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
-pub struct StateStoredReceiptV0<'a> {
-    /// The receipt.
-    pub receipt: Cow<'a, Receipt>,
-    pub metadata: StateStoredReceiptMetadata,
-}
-
-/// The V1 of StateStoredReceipt.
-/// The data is the same as in V0.
-/// Outgoing buffer metadata is updated only for versions V1 and higher.
-/// The receipts start being stored as V1 after the protocol change that introduced
-/// outgoing buffer metadata. Having a separate variant makes it clear whether the
-/// outgoing buffer metadata should be updated when a receipt is stored/removed.
+/// The V1 of StateStoredReceipt. It contains the receipt and metadata.
+///
+/// V0 held the same data but predated the outgoing buffer metadata, which was
+/// therefore not updated when a V0 receipt was stored or removed. V0 has not
+/// been written since the bandwidth scheduler was enabled (release 2.5.0) and
+/// is no longer supported.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct StateStoredReceiptV1<'a> {
     pub receipt: Cow<'a, Receipt>,
@@ -164,29 +155,19 @@ impl<'a> StateStoredReceipt<'a> {
 
     pub fn into_receipt(self) -> Receipt {
         match self {
-            StateStoredReceipt::V0(v0) => v0.receipt.into_owned(),
             StateStoredReceipt::V1(v1) => v1.receipt.into_owned(),
         }
     }
 
     pub fn get_receipt(&self) -> &Receipt {
         match self {
-            StateStoredReceipt::V0(v0) => &v0.receipt,
             StateStoredReceipt::V1(v1) => &v1.receipt,
         }
     }
 
     pub fn metadata(&self) -> &StateStoredReceiptMetadata {
         match self {
-            StateStoredReceipt::V0(v0) => &v0.metadata,
             StateStoredReceipt::V1(v1) => &v1.metadata,
-        }
-    }
-
-    pub fn should_update_outgoing_metadatas(&self) -> bool {
-        match self {
-            StateStoredReceipt::V0(_) => false,
-            StateStoredReceipt::V1(_) => true,
         }
     }
 }
@@ -210,16 +191,12 @@ impl BorshSerialize for StateStoredReceipt<'_> {
         // The serialization format for StateStored receipt is as follows:
         // Byte 1: STATE_STORED_RECEIPT_TAG
         // Byte 2: STATE_STORED_RECEIPT_TAG
-        // Byte 3: enum version (e.g. V0 => 0_u8)
+        // Byte 3: enum version (e.g. V1 => 1_u8)
         // serialized variant value
 
         BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
         BorshSerialize::serialize(&STATE_STORED_RECEIPT_TAG, writer)?;
         match self {
-            StateStoredReceipt::V0(v0) => {
-                BorshSerialize::serialize(&0_u8, writer)?;
-                BorshSerialize::serialize(&v0, writer)?;
-            }
             StateStoredReceipt::V1(v1) => {
                 BorshSerialize::serialize(&1_u8, writer)?;
                 BorshSerialize::serialize(&v1, writer)?;
@@ -245,17 +222,13 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
         }
 
         match u3 {
-            0 => {
-                let v0 = StateStoredReceiptV0::deserialize_reader(reader)?;
-                Ok(StateStoredReceipt::V0(v0))
-            }
             1 => {
                 let v1 = StateStoredReceiptV1::deserialize_reader(reader)?;
                 Ok(StateStoredReceipt::V1(v1))
             }
             v => {
                 let error = format!(
-                    "Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0",
+                    "Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 1",
                     v
                 );
                 let error = Error::new(ErrorKind::Other, error);
