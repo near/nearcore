@@ -3,21 +3,26 @@
 mod data_id;
 mod fetchable;
 mod item;
+mod pull;
 
 pub use data_id::DataId;
 pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
+use near_async::time::Instant;
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
+use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+pub(crate) use pull::{PullConfig, PullRequest, rotated_source_index};
 use std::collections::{BTreeMap, HashMap};
+use std::mem::replace;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -79,31 +84,58 @@ impl DataPolicy for Policies {
     fn is_done(&self, id: &DataId) -> Result<bool, Error> {
         self.for_id(id).is_done(id)
     }
+
+    fn sources(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        self.for_id(id).sources(id)
+    }
+
+    fn is_pullable(
+        &self,
+        id: &DataId,
+        height: BlockHeight,
+        certified_frontier: &HashMap<ShardId, BlockHeight>,
+    ) -> bool {
+        self.for_id(id).is_pullable(id, height, certified_frontier)
+    }
 }
 
-/// Owns the per-item fetch lifecycle: what this node still needs, the parts received so
-/// far and who sent them, and when an item stops being relevant.
+/// Owns the per-item fetch state: what this node still needs, the parts received so far
+/// and who sent them, the pull requests outstanding, and when an item stops being
+/// relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager {
+pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
+    pull_config: PullConfig,
     encoders: ReedSolomonEncoderCache,
-    policies: Policies,
+    chain_store: ChainStoreAdapter,
+    policies: P,
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
     items_by_height: BTreeMap<BlockHeight, Vec<DataId>>,
     /// Highest final execution head reported; `None` until the first report.
     final_execution_head: Option<BlockHeight>,
+    /// Height up to which tracked items were checked against the canonical chain; `None`
+    /// before the first check.
+    canonical_checked_height: Option<BlockHeight>,
 }
 
-impl SpiceDataManager {
-    pub(crate) fn new(data_parts_ratio: f64, policies: Policies) -> Self {
+impl<P: DataPolicy> SpiceDataManager<P> {
+    pub(crate) fn new(
+        pull_config: PullConfig,
+        data_parts_ratio: f64,
+        chain_store: ChainStoreAdapter,
+        policies: P,
+    ) -> Self {
         Self {
+            pull_config,
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            chain_store,
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
             final_execution_head: None,
+            canonical_checked_height: None,
         }
     }
 
@@ -120,19 +152,71 @@ impl SpiceDataManager {
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
+        let mut new_ids = Vec::new();
         for id in self.policies.needed_ids(block)? {
-            if self.items.contains_key(&id) || self.policies.is_done(&id)? {
-                continue;
+            if !self.items.contains_key(&id) && !self.policies.is_done(&id)? {
+                new_ids.push(id);
             }
+        }
+        if new_ids.is_empty() {
+            return Ok(());
+        }
+        // The chain finalized past the block on another branch.
+        if self.canonical_checked_height.is_some_and(|checked| height <= checked)
+            && self.canonical_block_hash(height)? != Some(*block.hash())
+        {
+            return Ok(());
+        }
+        for id in new_ids {
+            let sources = self.policies.sources(&id)?;
             self.items_by_height.entry(height).or_default().push(id.clone());
-            self.items.insert(id, FetchItem::new(height));
+            self.items.insert(id, FetchItem::new(height, sources));
         }
         Ok(())
     }
 
+    /// The block was processed at `now` with `certified_frontier` the per-shard certified
+    /// heights as of it: expires the items at or below the final execution head and the
+    /// items whose block the chain finalized past on another branch, tracks the items
+    /// needed from the block, removes the pullable ones already in the store, and returns
+    /// the requests for the rest, grouped by producer.
+    pub(crate) fn on_block_processed(
+        &mut self,
+        block_hash: &CryptoHash,
+        certified_frontier: &HashMap<ShardId, BlockHeight>,
+        now: Instant,
+    ) -> Result<Vec<PullRequest>, Error> {
+        let block = self.chain_store.get_block_header(block_hash)?;
+        let block = block.as_ref();
+        self.expire_at_or_below(self.final_execution_head_height()?);
+        self.expire_forked()?;
+        self.track_block(block)?;
+        self.remove_done_items(certified_frontier);
+        Ok(self.pull_requests(now, certified_frontier))
+    }
+
+    /// Height of the final execution head; the genesis height before the first one is recorded.
+    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
+        match self.chain_store.spice_final_execution_head() {
+            Ok(head) => Ok(head.height),
+            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Hash of the canonical block at `height`; `None` when the canonical chain has no block there.
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+        match self.chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => Ok(Some(hash)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
     /// The only insert path for received units. Verifies every part against the
     /// commitment before inserting any; one failing part rejects the whole message and
-    /// leaves the item untouched. A decoding insert checks the decoded data against the
+    /// leaves the item untouched. A verified message counts as the sender's answer to any
+    /// request outstanding to it. A decoding insert checks the decoded data against the
     /// committed hash and the id, settles the commitment either way, and returns matching
     /// data.
     pub(crate) fn on_parts_received(
@@ -153,10 +237,12 @@ impl SpiceDataManager {
                     .ok_or(SenderFault::InvalidMerkleProof)?;
             verified.push(part);
         }
+        item.note_pull_response(sender);
         let encoder = self.encoders.entry(total_parts);
         for part in verified {
             match item.insert_part(&encoder, id, sender, part) {
                 PartInsertResult::Decoded(data) => {
+                    item.delivered = true;
                     return Ok(PartsOutcome::Decoded(data));
                 }
                 PartInsertResult::Garbage(error) => {
@@ -172,22 +258,54 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// The final execution head advanced: the chain is past every item at or below it,
-    /// so their data can no longer be applied. Removes them, and [`Self::track_block`] refuses
-    /// them from now on.
-    pub(crate) fn on_final_execution_head(&mut self, height: BlockHeight) {
+    /// Stops tracking items whose block is not the canonical block at its height, over
+    /// the heights the chain finalized since the last check.
+    fn expire_forked(&mut self) -> Result<(), Error> {
+        let final_height = self.chain_store.final_head()?.height;
+        let from = match self.canonical_checked_height {
+            Some(checked) if checked >= final_height => return Ok(()),
+            Some(checked) => checked + 1,
+            None => 0,
+        };
+        let mut forked = Vec::new();
+        for (height, ids) in self.items_by_height.range(from..=final_height) {
+            let canonical = self.canonical_block_hash(*height)?;
+            forked.extend(
+                ids.iter().filter(|id| canonical.as_ref() != Some(id.block_hash())).cloned(),
+            );
+        }
+        for id in &forked {
+            self.remove_item(id);
+        }
+        self.canonical_checked_height = Some(final_height);
+        Ok(())
+    }
+
+    /// Stops tracking items at or below `height`.
+    fn expire_at_or_below(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));
         let Some(next_height) = height.checked_add(1) else {
             return;
         };
         let live = self.items_by_height.split_off(&next_height);
-        let expired = std::mem::replace(&mut self.items_by_height, live);
+        let expired = replace(&mut self.items_by_height, live);
         for (bucket_height, ids) in expired {
             for id in ids {
                 let item = self.items.get(&id).expect("index entry names a tracked item");
                 assert_eq!(item.height, bucket_height, "index entry height matches its item");
                 self.items.remove(&id);
             }
+        }
+    }
+
+    fn remove_item(&mut self, id: &DataId) {
+        let Some(item) = self.items.remove(id) else {
+            return;
+        };
+        let ids = self.items_by_height.get_mut(&item.height).expect("tracked item is indexed");
+        ids.retain(|indexed| indexed != id);
+        if ids.is_empty() {
+            self.items_by_height.remove(&item.height);
         }
     }
 }

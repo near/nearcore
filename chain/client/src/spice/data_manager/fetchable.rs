@@ -5,22 +5,36 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::types::ShardId;
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Policy to query a fetchable data type's chain-dependent properties: relevance and
-/// doneness. Implementations carry the engine's only chain dependencies.
-/// Everything else about fetching is generic.
+/// Policy to query a fetchable data type's chain-dependent properties: relevance,
+/// doneness, who holds the data, etc.
 pub(crate) trait DataPolicy {
     /// The ids of this type that this node needs from `block`.
-    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` when the
-    // first pull starter lands (#16275).
+    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
+    // witnesses move onto the engine (#16275).
     fn needed_ids(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error>;
 
     /// Whether the durable artifact this item exists to obtain is already in the store.
     fn is_done(&self, id: &DataId) -> Result<bool, Error>;
+
+    /// The nodes that hold the item's data and can serve a pull, in encoding order:
+    /// the node at index `i` produced part `i`, and their count is the number of parts.
+    fn sources(&self, id: &DataId) -> Result<Vec<AccountId>, Error>;
+
+    /// Whether the item sourced from a block at `height` may be pulled as of a processed
+    /// block with `certified_frontier`. Evaluated at every trigger; a fork block's frontier
+    /// can sit below one already seen.
+    fn is_pullable(
+        &self,
+        id: &DataId,
+        height: BlockHeight,
+        certified_frontier: &HashMap<ShardId, BlockHeight>,
+    ) -> bool;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
@@ -75,5 +89,24 @@ impl DataPolicy for ReceiptProofPolicy {
             *to_shard,
             source.shard_id,
         ))
+    }
+
+    fn sources(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
+        let DataId::ReceiptProof { source, .. } = id;
+        let block_header = self.chain_store.get_block_header(&source.block_hash)?;
+        Ok(self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(block_header.epoch_id(), source.shard_id)?)
+    }
+
+    /// Pullable once the source chunk is certified.
+    fn is_pullable(
+        &self,
+        id: &DataId,
+        height: BlockHeight,
+        certified_frontier: &HashMap<ShardId, BlockHeight>,
+    ) -> bool {
+        let DataId::ReceiptProof { source, .. } = id;
+        certified_frontier.get(&source.shard_id).is_some_and(|certified| *certified >= height)
     }
 }

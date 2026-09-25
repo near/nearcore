@@ -1,5 +1,6 @@
 use super::DataId;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Instant;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
@@ -28,13 +29,26 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
+    /// The producers of the item's data, one per part ordinal.
+    pub(crate) sources: Vec<AccountId>,
+    /// Whether a decode has been handed to the consumer. Only then can the store hold the
+    /// item's data.
+    pub(crate) delivered: bool,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-    /// Maps each sender's `AccountId` to the commitment it contributed to.
-    pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
+    /// Each producer that sent a verifying part or was asked for one.
+    pub(super) producers: HashMap<AccountId, ProducerState>,
 }
 
-/// What the engine holds for one claimed commitment of an item.
+/// One producer's part in fetching this item.
+#[derive(Debug, Default)]
+pub(super) struct ProducerState {
+    /// The commitment this producer backed, once one of its parts verified.
+    pub(super) commitment: Option<SpiceDataCommitment>,
+    /// When this node asked it, while that request is unanswered.
+    pub(super) requested_at: Option<Instant>,
+}
+
 #[derive(Debug)]
 pub(super) enum CommitmentState {
     /// Collecting parts toward a decode.
@@ -44,16 +58,33 @@ pub(super) enum CommitmentState {
 }
 
 impl FetchItem {
-    pub(crate) fn new(height: BlockHeight) -> Self {
-        Self { height, commitments: HashMap::new(), commitment_by_contributor: HashMap::new() }
+    pub(crate) fn new(height: BlockHeight, sources: Vec<AccountId>) -> Self {
+        Self {
+            height,
+            sources,
+            delivered: false,
+            commitments: HashMap::new(),
+            producers: HashMap::new(),
+        }
+    }
+
+    /// The tracker still collecting under `commitment`, if any.
+    pub(super) fn tracker_mut(
+        &mut self,
+        commitment: &SpiceDataCommitment,
+    ) -> Option<&mut CodedTracker> {
+        match self.commitments.get_mut(commitment) {
+            Some(CommitmentState::Tracking(tracker)) => Some(tracker),
+            Some(CommitmentState::Settled) | None => None,
+        }
     }
 
     /// Senders contributed to `commitment`.
     pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
-        self.commitment_by_contributor
+        self.producers
             .iter()
-            .filter(|(_, bound)| *bound == commitment)
-            .map(|(contributor, _)| contributor)
+            .filter(|(_, state)| state.commitment.as_ref() == Some(commitment))
+            .map(|(producer, _)| producer)
             .collect()
     }
 
@@ -68,10 +99,11 @@ impl FetchItem {
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        if self.commitment_by_contributor.get(sender).is_some_and(|bound| bound != &commitment) {
+        let producer = self.producers.entry(sender.clone()).or_default();
+        if producer.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
+        producer.commitment = Some(commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
             return PartInsertResult::Settled;
@@ -160,6 +192,10 @@ impl VerifiedCodedPart {
 /// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
+    total_parts: usize,
+    /// Position in the pool's rotation; starts at random so requesters spread over the
+    /// pool, and moves past each member asked.
+    pub(super) rotation_cursor: u64,
 }
 
 impl fmt::Debug for CodedTracker {
@@ -174,7 +210,19 @@ impl fmt::Debug for CodedTracker {
 
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
-        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
+        Self {
+            total_parts: encoder.total_parts(),
+            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
+            rotation_cursor: rand::random(),
+        }
+    }
+
+    /// Ordinals not held yet.
+    pub(super) fn missing_ordinals(&self) -> Vec<u64> {
+        (0..self.total_parts)
+            .filter(|ordinal| !self.parts.has_part(*ordinal))
+            .map(|ordinal| ordinal as u64)
+            .collect()
     }
 
     /// Inserts a part; the decoding insert checks the data against `commitment`'s hash

@@ -3,9 +3,10 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    DATA_PARTS_RATIO, Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD,
+    MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    validate_wants,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
 use assert_matches::assert_matches;
@@ -48,6 +49,7 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{Direction, MerklePathItem};
+use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
@@ -299,6 +301,7 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
+            Clock::real(),
             epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
@@ -1720,8 +1723,7 @@ fn test_waiting_on_receipts_without_final_execution_head_on_start() {
     for block_hash in blocks {
         assert!(actor.is_tracking(&DataId::receipt_proof(block_hash, from_shard_id, to_shard_id)));
     }
-    // TODO(spice-data-distribution): until pull recovery lands, a waited-on receipt
-    // proof is never requested (#16275).
+    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
 }
@@ -1755,8 +1757,7 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     // The walk starts after the final execution head, so the head block itself is not
     // waited on.
     assert!(!actor.is_tracking(&id_at(*block.hash())));
-    // TODO(spice-data-distribution): until pull recovery lands, a waited-on receipt
-    // proof is never requested (#16275).
+    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
 }
@@ -1974,10 +1975,115 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(actor.is_tracking(&data_id));
-    // TODO(spice-data-distribution): until pull recovery lands, a waited-on receipt
-    // proof is never requested (#16275).
+    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
+}
+
+/// Every data request queued, by the producer it goes to; drops every other message.
+fn drain_outgoing_pull_requests(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    requester: &AccountId,
+) -> BTreeMap<AccountId, BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>> {
+    let mut requests = BTreeMap::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceDataRequest { request, producer },
+        } = message
+        else {
+            continue;
+        };
+        let (wants, sender) = request.into_parts();
+        assert_eq!(&sender, requester);
+        validate_wants(&wants).expect("a built request passes the server's caps");
+        assert!(requests.insert(producer, wants).is_none(), "two requests to one producer");
+    }
+    requests
+}
+
+/// The receipt proof of `block` and the recipient whose node pulls it: a producer of the
+/// destination shard that does not produce the source shard. Asserts one pushed part
+/// cannot decode the proof on its own.
+fn receipt_proof_pull_setup(
+    chain: &Chain,
+    block: &Block,
+) -> (ReceiptProof, Vec<AccountId>, AccountId) {
+    let receipt_proof = new_test_receipt_proof(block);
+    let producers = producers_of_receipt_proof(chain, block, &receipt_proof);
+    assert!(
+        reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO) >= 2,
+        "one part alone must not decode"
+    );
+    let recipient = recipients_of_receipt_proof(chain, block, &receipt_proof)
+        .into_iter()
+        .find(|account| !producers.contains(account))
+        .unwrap();
+    (receipt_proof, producers, recipient)
+}
+
+/// `producer`'s pushed part of `receipt_proof`, as its recipients receive it.
+fn pushed_receipt_proof_part(
+    chain: &Chain,
+    block: &Block,
+    producer: &AccountId,
+    receipt_proof: ReceiptProof,
+) -> SpiceIncomingPartialData {
+    let (data, _) = get_incoming_data(
+        producer,
+        chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![receipt_proof],
+        },
+    );
+    data
+}
+
+/// A processed-block message for `block` with every shard certified up to `height`.
+fn processed_block_certified_up_to(
+    chain: &Chain,
+    block: &Block,
+    height: BlockHeight,
+) -> ProcessedBlock {
+    let shard_layout = chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+    ProcessedBlock {
+        block_hash: *block.hash(),
+        certified_frontier: shard_layout.shard_ids().map(|shard_id| (shard_id, height)).collect(),
+    }
+}
+
+/// Once the source chunk is certified, the processed block pulls a receipt proof one
+/// pushed part short: the pushing producer is asked for the commitment's gaps and every
+/// silent producer for its own ordinal, in one request each.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_processed_block_pulls_a_certified_receipt_proof_from_its_producers() {
+    let (_genesis, mut chain) = setup(8, 0);
+    let block = latest_block(&chain);
+    let (receipt_proof, producers, recipient) = receipt_proof_pull_setup(&chain, &block);
+    let pushed = pushed_receipt_proof_part(&chain, &block, &producers[0], receipt_proof);
+    let data_id = SpiceDataIdentifier::from(&test_receipt_proof_data_id(&block));
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+
+    // As of its own block the source chunk is not certified, so nothing is pulled yet.
+    let height = block.header().height();
+    actor.handle(processed_block_certified_up_to(&chain, &block, height - 1));
+    actor.handle(pushed);
+    assert!(drain_outgoing_pull_requests(&mut outgoing_rc, &recipient).is_empty());
+
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &block);
+    actor.handle(processed_block_certified_up_to(&chain, &certifying_block, height));
+
+    let requests = drain_outgoing_pull_requests(&mut outgoing_rc, &recipient);
+    let mut expected = BTreeMap::new();
+    let gaps: BTreeSet<u64> = (1..producers.len() as u64).collect();
+    expected.insert(producers[0].clone(), BTreeMap::from([(data_id.clone(), gaps)]));
+    for (ordinal, producer) in producers.iter().enumerate().skip(1) {
+        let own = BTreeSet::from([ordinal as u64]);
+        expected.insert(producer.clone(), BTreeMap::from([(data_id.clone(), own)]));
+    }
+    assert_eq!(requests, expected);
 }
 
 #[test]
@@ -3244,12 +3350,11 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     actor.handle(processed_block(*head.hash()));
     fake_runner.run_queued_actions(&mut actor);
-    // The dead fork's witness is purged at the final head; the canonical block's stays.
+    // The dead fork's witness and receipt proof are purged at the final head; the
+    // canonical block's stay, the proof's item until the final execution head passes it.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
-    // Receipt proofs expire at the final execution head instead, which still sits below
-    // the fork, so both blocks' items are still tracked.
-    assert!(actor.is_tracking(&proof_id(&fork_block)));
+    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(actor.is_tracking(&proof_id(&next_block)));
     let requested_blocks: HashSet<_> = drain_outgoing_data_requests(&mut outgoing_rc)
         .into_iter()
@@ -3258,12 +3363,9 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(!requested_blocks.contains(fork_block.hash()));
     assert!(requested_blocks.contains(next_block.hash()));
 
-    // Once the final execution head passes their height, the dead fork's item and the
-    // executed canonical block's item are both moot and expire.
     save_final_execution_head(&chain, &next_block);
     actor.handle(processed_block(*head.hash()));
     fake_runner.run_queued_actions(&mut actor);
-    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(!actor.is_tracking(&proof_id(&next_block)));
 }
 
