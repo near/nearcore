@@ -1580,32 +1580,32 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn verified_parts_land_whatever_position_the_bad_one_holds() {
+    fn a_message_with_a_failing_part_is_rejected_whole_whatever_the_position() {
         let (chain, blocks) = chain_with_blocks(1);
         let id = receipt_id(&blocks[0], 0, 1);
         let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
         let good: Vec<u64> = (0..DATA_PARTS as u64).collect();
+        let alice = account("alice.near");
         for bad_position in [0, DATA_PARTS / 2, DATA_PARTS] {
-            let mut manager = TestManager::new(&chain).manager;
-            manager.track_block(blocks[0].header()).unwrap();
+            let mut manager = TestManager::new(&chain);
+            manager.manager.track_block(blocks[0].header()).unwrap();
             let mut message = parts_with_ordinals(&parts, &good);
             let mut bad = parts_with_ordinals(&parts, &[DATA_PARTS as u64]).remove(0);
             bad.part[0] ^= 1;
             message.insert(bad_position, bad);
 
-            let result = manager.on_parts_received(
-                &account("alice.near"),
-                &id,
-                &commitment,
-                message,
-                TOTAL_PARTS,
-            );
+            let result =
+                manager.manager.on_parts_received(&alice, &id, &commitment, message, TOTAL_PARTS);
 
             assert_matches!(
                 result,
-                Ok(PartsOutcome::Decoded(data)) if data == receipt_data(0, 1),
+                Err(SenderFault::InvalidMerkleProof),
                 "bad part at position {bad_position}"
             );
+            // Enough good parts to decode were in the message; none landed and the sender
+            // is not bound.
+            assert!(manager.item(&id).commitments.is_empty());
+            assert!(!manager.item(&id).producers.contains_key(&alice));
         }
     }
 

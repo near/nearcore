@@ -216,10 +216,11 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     }
 
     /// The only insert path for received units. Verifies every part against the
-    /// commitment first and inserts the ones that verify; a message with at least one
-    /// verifying part counts as the sender's answer to any request outstanding to it. A
-    /// decoding insert checks the decoded data against the committed hash and the id,
-    /// settles the commitment either way, and returns matching data.
+    /// commitment before inserting any; one failing part rejects the whole message and
+    /// leaves the item untouched. A verified message counts as the sender's answer to any
+    /// request outstanding to it. A decoding insert checks the decoded data against the
+    /// committed hash and the id, settles the commitment either way, and returns matching
+    /// data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
@@ -232,22 +233,11 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             return Ok(PartsOutcome::NotWanted);
         };
         let mut verified = Vec::with_capacity(parts.len());
-        let mut rejected = 0;
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
-            match VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)
-            {
-                Some(part) => verified.push(part),
-                None => rejected += 1,
-            }
-        }
-        // A message with no verifying part does not bind the sender. That costs at worst one extra
-        // pull request per sender. The alternative is either Item-local set of banned, or better manager-wide
-        // reputation - an option for later.
-        if verified.is_empty() {
-            return Err(SenderFault::InvalidMerkleProof);
-        }
-        if rejected > 0 {
-            tracing::debug!(target: "spice_data_distribution", ?id, ?sender, rejected, "parts failed their merkle proof");
+            let part =
+                VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)
+                    .ok_or(SenderFault::InvalidMerkleProof)?;
+            verified.push(part);
         }
         item.note_answer_from(sender);
         let encoder = self.encoders.entry(total_parts);
