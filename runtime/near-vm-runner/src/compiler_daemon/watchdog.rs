@@ -1,73 +1,61 @@
 //! Deadline watchdog for blocking compiler-daemon IPC.
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
+use std::io;
 use std::process::Child;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Killing the child is the only portable way to interrupt blocking
-/// `ChildStdin` and `ChildStdout` operations.
-enum WatchdogCommand {
-    // A generation identifies one startup or compilation operation. It keeps
-    // late timeout/disarm handling for an old operation from affecting a newer
-    // operation on the same worker.
-    Arm { generation: u64, timeout: Duration, acknowledged: Sender<()> },
-    Disarm { generation: u64, acknowledged: Sender<()> },
-    Shutdown,
+#[derive(Default)]
+struct WatchdogState {
+    deadline: Option<Instant>,
+    timed_out: bool,
+    shutdown: bool,
+}
+
+#[derive(Default)]
+struct SharedState {
+    state: Mutex<WatchdogState>,
+    changed: Condvar,
 }
 
 pub(super) struct ProcessWatchdog {
-    commands: Sender<WatchdogCommand>,
-    timed_out_generation: Arc<AtomicU64>,
+    shared: Arc<SharedState>,
     thread: Option<JoinHandle<()>>,
-    next_generation: u64,
 }
 
 impl ProcessWatchdog {
-    pub(super) fn spawn(child: Arc<Mutex<Child>>) -> std::io::Result<Self> {
-        let (commands, receiver) = mpsc::channel();
-        let timed_out_generation = Arc::new(AtomicU64::new(0));
-        let watchdog_timed_out_generation = Arc::clone(&timed_out_generation);
+    pub(super) fn spawn(child: Arc<Mutex<Child>>) -> io::Result<Self> {
+        let shared = Arc::new(SharedState::default());
+        let watchdog_shared = Arc::clone(&shared);
         let thread =
             Builder::new().name("compiler-daemon-watchdog".to_owned()).spawn(move || {
-                watchdog_loop(child, receiver, watchdog_timed_out_generation);
+                watchdog_loop(child, watchdog_shared);
             })?;
-        Ok(Self { commands, timed_out_generation, thread: Some(thread), next_generation: 1 })
+        Ok(Self { shared, thread: Some(thread) })
     }
 
-    pub(super) fn arm(&mut self, timeout: Duration) -> Result<u64, String> {
-        let generation = self.next_generation;
-        self.next_generation = self.next_generation.wrapping_add(1).max(1);
-        let (acknowledged, acknowledgement) = mpsc::channel();
-        self.commands
-            .send(WatchdogCommand::Arm { generation, timeout, acknowledged })
-            .map_err(|_| "compiler daemon watchdog stopped unexpectedly".to_owned())?;
-        acknowledgement
-            .recv()
-            .map_err(|_| "compiler daemon watchdog stopped unexpectedly".to_owned())?;
-        Ok(generation)
+    pub(super) fn arm(&self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.shared.state.lock();
+        state.deadline = Some(deadline);
+        state.timed_out = false;
+        self.shared.changed.notify_one();
     }
 
     /// Disarm synchronously before returning the worker to the pool, so a
     /// timeout for its previous request cannot race with its next user.
     pub(super) fn finish<T>(
         &self,
-        generation: u64,
         timeout: Duration,
         phase: &str,
         result: Result<T, String>,
     ) -> Result<T, String> {
-        let (acknowledged, acknowledgement) = mpsc::channel();
-        self.commands
-            .send(WatchdogCommand::Disarm { generation, acknowledged })
-            .map_err(|_| "compiler daemon watchdog stopped unexpectedly".to_owned())?;
-        acknowledgement
-            .recv()
-            .map_err(|_| "compiler daemon watchdog stopped unexpectedly".to_owned())?;
-        if self.timed_out_generation.load(Ordering::SeqCst) == generation {
+        let mut state = self.shared.state.lock();
+        state.deadline = None;
+        self.shared.changed.notify_one();
+        if state.timed_out {
             return Err(format!(
                 "compiler daemon timed out during {phase} after {} seconds",
                 timeout.as_secs()
@@ -77,7 +65,11 @@ impl ProcessWatchdog {
     }
 
     pub(super) fn shutdown(&mut self) {
-        let _ = self.commands.send(WatchdogCommand::Shutdown);
+        let mut guard = self.shared.state.lock();
+        guard.shutdown = true;
+        self.shared.changed.notify_one();
+        drop(guard);
+
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -90,43 +82,22 @@ impl Drop for ProcessWatchdog {
     }
 }
 
-fn watchdog_loop(
-    child: Arc<Mutex<Child>>,
-    receiver: Receiver<WatchdogCommand>,
-    timed_out_generation: Arc<AtomicU64>,
-) {
-    let mut armed: Option<(u64, Instant)> = None;
-    loop {
-        let command = match armed {
-            Some((generation, deadline)) => {
-                match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(command) => command,
-                    Err(RecvTimeoutError::Timeout) => {
-                        timed_out_generation.store(generation, Ordering::SeqCst);
-                        let _ = child.lock().kill();
-                        armed = None;
-                        continue;
-                    }
-                    Err(RecvTimeoutError::Disconnected) => return,
-                }
+fn watchdog_loop(child: Arc<Mutex<Child>>, shared: Arc<SharedState>) {
+    let mut state = shared.state.lock();
+    while !state.shutdown {
+        match state.deadline {
+            Some(deadline) if Instant::now() >= deadline => {
+                state.timed_out = true;
+                state.deadline = None;
+                // Killing the child is the only portable way to interrupt blocking
+                // pipe operations. Keep the state locked through the kill so finish
+                // and a subsequent arm cannot race with an old timeout.
+                let _ = child.lock().kill();
             }
-            None => match receiver.recv() {
-                Ok(command) => command,
-                Err(_) => return,
-            },
-        };
-        match command {
-            WatchdogCommand::Arm { generation, timeout, acknowledged } => {
-                armed = Some((generation, Instant::now() + timeout));
-                let _ = acknowledged.send(());
+            Some(deadline) => {
+                shared.changed.wait_until(&mut state, deadline);
             }
-            WatchdogCommand::Disarm { generation, acknowledged } => {
-                if matches!(armed, Some((armed_generation, _)) if armed_generation == generation) {
-                    armed = None;
-                }
-                let _ = acknowledged.send(());
-            }
-            WatchdogCommand::Shutdown => return,
+            None => shared.changed.wait(&mut state),
         }
     }
 }
