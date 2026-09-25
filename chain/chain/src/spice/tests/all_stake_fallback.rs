@@ -2,18 +2,28 @@ use crate::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, all_stake_fallback_assignment, fallback_only_shard_index,
     is_fallback_only_chunk,
 };
+use crate::spice::core::SpiceCoreReader;
 use crate::spice::tests::core::{
-    block_certification_core_statements, build_block, endorsement_into_core_statement,
+    block_certification_core_statements, build_block, core_reader, endorsement_into_core_statement,
     process_block, setup, setup_with_validators, test_chunk_endorsement,
     test_execution_result_for_chunk,
 };
+use crate::test_utils::get_chain_with_genesis_and_epoch_config_store;
 use crate::{Block, Chain};
 use assert_matches::assert_matches;
+use near_async::time::Clock;
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochHeight, ShardId, SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, ShardId,
+    SpiceChunkId,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -279,14 +289,28 @@ fn test_validate_all_stake_certification_when_designated_insufficient() {
     let (chunk_header, _) = find_non_designated(&chain, &block2, &validators);
     let (designated, non_designated) =
         split_designated(&chain, &block2, &chunk_header, &validators);
-    // Include all non-designated plus at most 2/3 of the designated set by count (validators have
-    // equal stake, so count ratios match stake ratios): below the strict >2/3 designated-stake
-    // threshold, but enough total stake to certify on the all-stake path.
-    let designated_subset = &designated[..2 * designated.len() / 3];
+    let designated_assignment = chain
+        .epoch_manager
+        .get_chunk_validator_assignments(
+            block2.header().epoch_id(),
+            chunk_header.shard_id(),
+            block2.header().height(),
+        )
+        .unwrap();
+    let all_stake =
+        all_stake_fallback_assignment(chain.epoch_manager.as_ref(), block2.header().epoch_id())
+            .unwrap();
+    // A designated subset below both thresholds: 2/3 of designated stake and 1/3 of total stake.
+    let designated_subset = &designated[..designated.len() / 3];
+    let designated_subset_set: HashSet<AccountId> = designated_subset.iter().cloned().collect();
+    assert!(!designated_assignment.is_endorsed(&designated_subset_set));
+    assert!(!all_stake.is_endorsed_by_more_than_one_third(&designated_subset_set));
 
     // Block at the window (eligible): non-designated + partial designated certifies via all-stake.
     let mut all_stake_endorsers = non_designated;
     all_stake_endorsers.extend_from_slice(designated_subset);
+    let all_stake_endorser_set: HashSet<AccountId> = all_stake_endorsers.iter().cloned().collect();
+    assert!(all_stake.is_endorsed_by_more_than_one_third(&all_stake_endorser_set));
     let certifying_block = build_block(
         &chain,
         &tip,
@@ -310,9 +334,9 @@ fn test_validate_all_stake_certification_when_designated_insufficient() {
     );
 }
 
-// Like the designated path, once on-chain endorsements reach the all-stake threshold (2/3 of total
-// epoch stake) the block must include the execution result; the certifying endorser set is rejected
-// when the result is omitted.
+// Like the designated path, once on-chain endorsements reach the all-stake threshold (more than
+// 1/3 of total epoch stake) the block must include the execution result; the certifying endorser
+// set is rejected when the result is omitted.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_all_stake_certification_requires_execution_result() {
@@ -331,12 +355,17 @@ fn test_validate_all_stake_certification_requires_execution_result() {
     let (chunk_header, _) = find_non_designated(&chain, &block2, &validators);
     let (designated, non_designated) =
         split_designated(&chain, &block2, &chunk_header, &validators);
-    let designated_subset = &designated[..2 * designated.len() / 3];
+    let designated_subset = &designated[..designated.len() / 3];
 
-    // Non-designated + sub-quorum designated reach 2/3 of total stake but the block omits the
-    // execution result.
+    // Non-designated + sub-quorum designated hold more than 1/3 of total stake but the block omits
+    // the execution result.
     let mut all_stake_endorsers = non_designated;
     all_stake_endorsers.extend_from_slice(designated_subset);
+    let all_stake =
+        all_stake_fallback_assignment(chain.epoch_manager.as_ref(), block2.header().epoch_id())
+            .unwrap();
+    let all_stake_endorser_set: HashSet<AccountId> = all_stake_endorsers.iter().cloned().collect();
+    assert!(all_stake.is_endorsed_by_more_than_one_third(&all_stake_endorser_set));
     let endorsements = endorsement_statements(&all_stake_endorsers, &block2, &chunk_header);
     let block_without_result = build_block(&chain, &tip, endorsements);
     assert_matches!(
@@ -518,17 +547,44 @@ pub(super) fn grow_chain_to_fallback_only_block(
     panic!("no fallback-only block within {bound} heights");
 }
 
-// Enough validators that a chunk's designated assignment stays under 2/3 of total stake, asserted
-// below.
-pub(super) fn validators_with_minority_designated_stake() -> Vec<String> {
-    (0..150).map(|i| format!("test{i}")).collect()
+// 14 equal stakes and a target of 2 mandates per shard give each validator one mandate, so it is
+// designated for one shard: at most 3 of 14 per shard, under 1/3 of total stake, asserted below.
+pub(super) fn chain_with_minority_designated_stake() -> (Vec<String>, Chain) {
+    init_test_logger();
+    let validators: Vec<String> = (0..14).map(|i| format!("test{i}")).collect();
+    let validator_infos = validators
+        .iter()
+        .map(|account_id| AccountInfo {
+            public_key: create_test_signer(account_id).public_key(),
+            account_id: account_id.parse().unwrap(),
+            amount: Balance::from_near(100),
+        })
+        .collect();
+    let num_validators = validators.len() as NumSeats;
+    let validators_spec = ValidatorsSpec::raw(validator_infos, num_validators, num_validators, 0);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(ShardLayout::multi_shard(6, 0))
+        .validators_spec(validators_spec)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .target_validator_mandates_per_shard(2)
+        .build_store_for_genesis_protocol_version();
+    let chain =
+        get_chain_with_genesis_and_epoch_config_store(Clock::real(), genesis, epoch_config_store);
+    (validators, chain)
+}
+
+fn setup_with_minority_designated_stake() -> (Vec<String>, Chain, SpiceCoreReader) {
+    let (validators, chain) = chain_with_minority_designated_stake();
+    let core_reader = core_reader(&chain);
+    (validators, chain, core_reader)
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() {
-    let validators = validators_with_minority_designated_stake();
-    let (mut chain, core_reader) = setup_with_validators(&validators);
+    let (validators, mut chain, core_reader) = setup_with_minority_designated_stake();
     let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
     let chunk_header = fallback_only_block
         .chunks()
@@ -560,10 +616,10 @@ fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() 
         fallback_only_block.header().epoch_id(),
     )
     .unwrap();
-    // The whole designated set must fall short of 2/3 of total stake, or a designated-only block
-    // would certify on the all-stake path and prove nothing about the designated rule.
+    // The whole designated set must not hold more than 1/3 of total stake, or a designated-only
+    // block would certify on the all-stake path and prove nothing about the designated rule.
     let mut endorsers: HashSet<AccountId> = designated.iter().cloned().collect();
-    assert!(!all_stake.is_endorsed(&endorsers));
+    assert!(!all_stake.is_endorsed_by_more_than_one_third(&endorsers));
 
     let designated_only = build_block(
         &chain,
@@ -578,16 +634,18 @@ fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() 
         })
     );
 
-    // Topping the designated set up to 2/3 of total stake certifies, so the rejection above is the
-    // designated rule being skipped, not an unreachable threshold. Stakes are not uniform, so the
-    // set is grown against the assignment rather than by a count.
+    // Topping the designated set up to more than 1/3 of total stake certifies, so the rejection
+    // above is the designated rule being skipped, not an unreachable threshold.
     for account in non_designated {
-        if all_stake.is_endorsed(&endorsers) {
+        if all_stake.is_endorsed_by_more_than_one_third(&endorsers) {
             break;
         }
         endorsers.insert(account);
     }
-    assert!(all_stake.is_endorsed(&endorsers), "fallback set must be able to certify");
+    assert!(
+        all_stake.is_endorsed_by_more_than_one_third(&endorsers),
+        "fallback set must be able to certify"
+    );
     let mut all_stake_endorsers: Vec<AccountId> = endorsers.into_iter().collect();
     all_stake_endorsers.sort();
 
@@ -606,8 +664,7 @@ fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validate_rejects_skipping_an_uncertified_fallback_only_chunk() {
-    let validators = validators_with_minority_designated_stake();
-    let (mut chain, core_reader) = setup_with_validators(&validators);
+    let (validators, mut chain, core_reader) = setup_with_minority_designated_stake();
     let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
     let chunk_of = |block: &Block| {
         block.chunks().iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone()
@@ -618,7 +675,7 @@ fn test_validate_rejects_skipping_an_uncertified_fallback_only_chunk() {
     let next_block = append_block(&mut chain, &fallback_only_block, parent_certification);
 
     // Every designated endorsement lands, which empties missing_endorsements without certifying
-    // the chunk: only 2/3 of total stake can do that.
+    // the chunk: only more than 1/3 of total stake can do that.
     let (designated, _) =
         split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
     let tip = append_block(

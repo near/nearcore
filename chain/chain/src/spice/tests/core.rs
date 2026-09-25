@@ -664,7 +664,7 @@ fn test_core_statements_for_next_block_contains_all_endorsements() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_endorsement_stats_only_credit_certified_result() {
     // Enough validators that the chunk still certifies when one of them endorses
-    // a different result (`required_stake` is strictly more than 2/3).
+    // a different result (`has_more_than_two_thirds_stake` is strict).
     let validators: Vec<String> = (0..7).map(|i| format!("test{i}")).collect();
     let (mut chain, _core_reader) = setup_with_validators(&validators);
     let genesis = chain.genesis_block();
@@ -1931,7 +1931,7 @@ pub(super) fn setup_with_validators(validators: &[String]) -> (Chain, SpiceCoreR
     (chain, core_reader)
 }
 
-fn core_reader(chain: &Chain) -> SpiceCoreReader {
+pub(super) fn core_reader(chain: &Chain) -> SpiceCoreReader {
     SpiceCoreReader::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
