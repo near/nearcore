@@ -491,7 +491,14 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            sync_handler: SyncHandler::new(config, epoch_sync, header_sync, state_sync, block_sync),
+            sync_handler: SyncHandler::new(
+                config,
+                epoch_sync,
+                header_sync,
+                state_sync,
+                block_sync,
+                rng_seed,
+            ),
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
