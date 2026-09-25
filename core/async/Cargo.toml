@@ -24,7 +24,8 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util.workspace = true
 tracing.workspace = true
 
-near-o11y.workspace = true
+# No `otlp`: see the note on near-o11y's features. Keep on one line (cargo-workspaces).
+near-o11y = { path = "../o11y", default-features = false }
 near-async-derive.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
