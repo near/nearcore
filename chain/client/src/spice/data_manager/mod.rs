@@ -178,14 +178,12 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     /// The block was processed at `now` with `certified_frontier` the per-shard certified
     /// heights as of it: expires the items at or below the final execution head and the
     /// items whose block the chain finalized past on another branch, tracks the items
-    /// needed from the block, retires the pullable ones already in the store, and returns
-    /// the requests for the rest, grouped by producer. Without a `requester` nothing is
-    /// requested and the items stay.
+    /// needed from the block, removes the pullable ones already in the store, and returns
+    /// the requests for the rest, grouped by producer.
     pub(crate) fn on_block_processed(
         &mut self,
         block_hash: &CryptoHash,
         certified_frontier: &HashMap<ShardId, BlockHeight>,
-        requester: Option<&AccountId>,
         now: Instant,
     ) -> Result<Vec<PullRequest>, Error> {
         let block = self.chain_store.get_block_header(block_hash)?;
@@ -193,8 +191,8 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         self.expire_at_or_below(self.final_execution_head_height()?);
         self.expire_forked()?;
         self.track_block(block)?;
-        self.retire_done_items(certified_frontier);
-        Ok(self.pull_requests(now, certified_frontier, requester))
+        self.remove_done_items(certified_frontier);
+        Ok(self.pull_requests(now, certified_frontier))
     }
 
     /// Height of the final execution head; the genesis height before the first one is recorded.
@@ -239,7 +237,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
                     .ok_or(SenderFault::InvalidMerkleProof)?;
             verified.push(part);
         }
-        item.note_answer_from(sender);
+        item.note_pull_response(sender);
         let encoder = self.encoders.entry(total_parts);
         for part in verified {
             match item.insert_part(&encoder, id, sender, part) {
@@ -258,17 +256,6 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             }
         }
         Ok(PartsOutcome::Collecting)
-    }
-
-    fn remove_item(&mut self, id: &DataId) {
-        let Some(item) = self.items.remove(id) else {
-            return;
-        };
-        let ids = self.items_by_height.get_mut(&item.height).expect("tracked item is indexed");
-        ids.retain(|indexed| indexed != id);
-        if ids.is_empty() {
-            self.items_by_height.remove(&item.height);
-        }
     }
 
     /// Stops tracking items whose block is not the canonical block at its height, over
@@ -308,6 +295,17 @@ impl<P: DataPolicy> SpiceDataManager<P> {
                 assert_eq!(item.height, bucket_height, "index entry height matches its item");
                 self.items.remove(&id);
             }
+        }
+    }
+
+    fn remove_item(&mut self, id: &DataId) {
+        let Some(item) = self.items.remove(id) else {
+            return;
+        };
+        let ids = self.items_by_height.get_mut(&item.height).expect("tracked item is indexed");
+        ids.retain(|indexed| indexed != id);
+        if ids.is_empty() {
+            self.items_by_height.remove(&item.height);
         }
     }
 }

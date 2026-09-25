@@ -468,10 +468,11 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
-        // TODO(spice): Allow requesting data without signer using route back.
+        // TODO(spice): Allow requesting data without signer using route back. Until then the
+        // manager records the requests below as outstanding on a node that cannot send them.
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
-        match self.pull_missing_data(&block_hash, me) {
+        match self.pull_missing_data(&block_hash) {
             Ok(requests) => {
                 if let Some(requester) = me {
                     self.send_pull_requests(requester, requests);
@@ -577,17 +578,12 @@ impl SpiceDataDistributorActor {
     /// The requests for the data still missing once `block_hash` is processed.
     // TODO(spice-data-distribution): the certified frontier arrives on `ProcessedBlock` once
     // block postprocessing computes it (#16275).
-    fn pull_missing_data(
-        &mut self,
-        block_hash: &CryptoHash,
-        requester: Option<&AccountId>,
-    ) -> Result<Vec<PullRequest>, Error> {
+    fn pull_missing_data(&mut self, block_hash: &CryptoHash) -> Result<Vec<PullRequest>, Error> {
         let header = self.chain_store.get_block_header(block_hash)?;
         let certified_frontier = self.core_reader.certified_frontier(&header)?;
         Ok(self.data_manager.on_block_processed(
             block_hash,
             &certified_frontier,
-            requester,
             self.clock.now(),
         )?)
     }

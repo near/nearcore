@@ -54,7 +54,7 @@ pub(crate) fn rotated_source_index(
     (hasher.finish().wrapping_add(round) % num_sources as u64) as usize
 }
 
-/// The requests each producer holds from this node at one trigger, against the cap.
+/// The requests outstanding for each producer from this node at one trigger, against the cap.
 pub(super) struct ProducerBudget {
     cap: usize,
     outstanding: HashMap<AccountId, usize>,
@@ -64,17 +64,19 @@ impl ProducerBudget {
     fn new<'a>(cap: usize, outstanding: impl Iterator<Item = &'a AccountId>) -> Self {
         let mut budget = Self { cap, outstanding: HashMap::new() };
         for producer in outstanding {
-            budget.take(producer);
+            *budget.outstanding.entry(producer.clone()).or_default() += 1;
         }
         budget
     }
 
-    fn has_slot(&self, producer: &AccountId) -> bool {
-        self.outstanding.get(producer).copied().unwrap_or(0) < self.cap
-    }
-
-    fn take(&mut self, producer: &AccountId) {
-        *self.outstanding.entry(producer.clone()).or_default() += 1;
+    /// Takes a slot for `producer` if it has one under the cap.
+    fn try_take(&mut self, producer: &AccountId) -> bool {
+        let outstanding = self.outstanding.entry(producer.clone()).or_default();
+        if *outstanding >= self.cap {
+            return false;
+        }
+        *outstanding += 1;
+        true
     }
 }
 
@@ -82,21 +84,18 @@ impl CodedTracker {
     /// The first member of `pool`, in rotation order, with a slot in `budget`: takes the
     /// slot and moves the rotation past that member. With no such member the rotation
     /// stays where it is.
-    fn next_source(
+    fn take_next_source(
         &mut self,
         pool: &[AccountId],
-        key: &impl Hash,
-        requester: &AccountId,
         budget: &mut ProducerBudget,
     ) -> Option<AccountId> {
         if pool.is_empty() {
             return None;
         }
-        let start = rotated_source_index(pool.len(), key, requester, self.rotation_cursor);
+        let start = (self.rotation_cursor % pool.len() as u64) as usize;
         let member = |offset: usize| &pool[(start + offset) % pool.len()];
-        let offset = (0..pool.len()).find(|offset| budget.has_slot(member(*offset)))?;
+        let offset = (0..pool.len()).find(|offset| budget.try_take(member(*offset)))?;
         let source = member(offset).clone();
-        budget.take(&source);
         // the next rotation starts right after the member asked
         self.rotation_cursor = self.rotation_cursor.wrapping_add(offset as u64 + 1);
         Some(source)
@@ -104,8 +103,8 @@ impl CodedTracker {
 }
 
 impl FetchItem {
-    /// Drops every request unanswered for `request_timeout` as of `now`.
-    pub(super) fn drop_stale_requests(&mut self, now: Instant, request_timeout: Duration) {
+    /// Drops every pull unanswered for `request_timeout` as of `now`.
+    pub(super) fn drop_stale_pulls(&mut self, now: Instant, request_timeout: Duration) {
         for state in self.producers.values_mut() {
             let stale = state
                 .requested_at
@@ -116,8 +115,8 @@ impl FetchItem {
         }
     }
 
-    /// The producers with a request from this item unanswered.
-    pub(super) fn outstanding_requests(&self) -> impl Iterator<Item = &AccountId> {
+    /// The producers with a pull from this item unanswered.
+    pub(super) fn outstanding_pulls(&self) -> impl Iterator<Item = &AccountId> {
         self.producers
             .iter()
             .filter(|(_, state)| state.requested_at.is_some())
@@ -129,8 +128,6 @@ impl FetchItem {
     /// own ordinal.
     pub(super) fn pull_wants(
         &mut self,
-        id: &DataId,
-        requester: &AccountId,
         now: Instant,
         budget: &mut ProducerBudget,
     ) -> BTreeMap<AccountId, BTreeSet<u64>> {
@@ -149,8 +146,7 @@ impl FetchItem {
                 continue;
             }
             let tracker = self.tracker_mut(&commitment).expect("live commitment is tracked");
-            let Some(source) = tracker.next_source(&pool, &(id, &commitment), requester, budget)
-            else {
+            let Some(source) = tracker.take_next_source(&pool, budget) else {
                 continue;
             };
             let missing = tracker.missing_ordinals();
@@ -163,18 +159,17 @@ impl FetchItem {
                 .producers
                 .get(producer)
                 .is_some_and(|state| state.commitment.is_some() || state.requested_at.is_some());
-            if engaged || !budget.has_slot(producer) {
+            if engaged || !budget.try_take(producer) {
                 continue;
             }
-            budget.take(producer);
             self.producers.entry(producer.clone()).or_default().requested_at = Some(now);
             wants.entry(producer.clone()).or_default().insert(ordinal as u64);
         }
         wants
     }
 
-    /// `sender` answered: forgets the request outstanding to it.
-    pub(super) fn note_answer_from(&mut self, sender: &AccountId) {
+    /// `sender` answered: forgets the pull outstanding to it.
+    pub(super) fn note_pull_response(&mut self, sender: &AccountId) {
         if let Some(state) = self.producers.get_mut(sender) {
             state.requested_at = None;
         }
@@ -183,7 +178,7 @@ impl FetchItem {
 
 impl<P: DataPolicy> SpiceDataManager<P> {
     /// Removes the pullable items whose delivered data is in the store.
-    pub(super) fn retire_done_items(&mut self, certified_frontier: &HashMap<ShardId, BlockHeight>) {
+    pub(super) fn remove_done_items(&mut self, certified_frontier: &HashMap<ShardId, BlockHeight>) {
         let mut done = Vec::new();
         for id in self.items_by_height.values().flatten() {
             let item = self.items.get(id).expect("index entry names a tracked item");
@@ -208,18 +203,14 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         &mut self,
         now: Instant,
         certified_frontier: &HashMap<ShardId, BlockHeight>,
-        requester: Option<&AccountId>,
     ) -> Vec<PullRequest> {
-        let Some(requester) = requester else {
-            return Vec::new();
-        };
         let request_timeout = self.pull_config.request_timeout;
         for item in self.items.values_mut() {
-            item.drop_stale_requests(now, request_timeout);
+            item.drop_stale_pulls(now, request_timeout);
         }
         let mut budget = ProducerBudget::new(
             self.pull_config.max_outstanding_per_producer,
-            self.items.values().flat_map(FetchItem::outstanding_requests),
+            self.items.values().flat_map(FetchItem::outstanding_pulls),
         );
         let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
             BTreeMap::new();
@@ -228,7 +219,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             if !self.policies.is_pullable(id, item.height, certified_frontier) {
                 continue;
             }
-            for (producer, ordinals) in item.pull_wants(id, requester, now, &mut budget) {
+            for (producer, ordinals) in item.pull_wants(now, &mut budget) {
                 wants_by_producer
                     .entry(producer)
                     .or_default()

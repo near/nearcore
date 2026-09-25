@@ -968,6 +968,7 @@ fn test_receipt_delivered_before_the_first_processed_block_is_saved_once_results
     // Only the source shard's node executes; the recipient has not processed a block yet.
     actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     assert!(block_executed(&actors[1], &block));
+    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
     let to_shard_id = tracked_shard(&actors[0], &block);
     let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     let from_shard_id = receipt_proof.1.from_shard_id;
