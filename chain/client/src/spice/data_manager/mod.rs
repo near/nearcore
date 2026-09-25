@@ -181,7 +181,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
     /// needed from the block, retires the pullable ones already in the store, and returns
     /// the requests for the rest, grouped by producer. Without a `requester` nothing is
     /// requested and the items stay.
-    pub(crate) fn on_new_block(
+    pub(crate) fn on_block_processed(
         &mut self,
         block_hash: &CryptoHash,
         certified_frontier: &HashMap<ShardId, BlockHeight>,

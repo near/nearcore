@@ -584,7 +584,7 @@ impl SpiceDataDistributorActor {
     ) -> Result<Vec<PullRequest>, Error> {
         let header = self.chain_store.get_block_header(block_hash)?;
         let certified_frontier = self.core_reader.certified_frontier(&header)?;
-        Ok(self.data_manager.on_new_block(
+        Ok(self.data_manager.on_block_processed(
             block_hash,
             &certified_frontier,
             requester,

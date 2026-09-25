@@ -593,6 +593,16 @@ mod manager {
         requests.into_iter().map(|request| (request.producer, request.wants)).collect()
     }
 
+    /// What an open item with one part from `backer`, who is not a source, asks: the backer
+    /// for the tracker's gaps and every source for its own ordinal.
+    fn open_item_wants(backer: &AccountId) -> BTreeMap<AccountId, BTreeSet<u64>> {
+        let mut wants = BTreeMap::from([(backer.clone(), ordinals(&[1, 2, 3, 4]))]);
+        for (ordinal, producer) in sources().into_iter().enumerate() {
+            wants.insert(producer, ordinals(&[ordinal as u64]));
+        }
+        wants
+    }
+
     /// The requests as `producer -> ordinals` for the one item `id`.
     fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTreeSet<u64>> {
         by_producer(requests)
@@ -696,10 +706,10 @@ mod manager {
         }
 
         /// `block` was processed at the clock's current time.
-        fn on_new_block(&mut self, block: &Block) -> Vec<PullRequest> {
+        fn on_block_processed(&mut self, block: &Block) -> Vec<PullRequest> {
             let certified_frontier = self.certified_frontier();
             self.manager
-                .on_new_block(
+                .on_block_processed(
                     block.hash(),
                     &certified_frontier,
                     Some(&requester()),
@@ -850,7 +860,7 @@ mod manager {
         manager.set_final_execution_head(&blocks[0]);
 
         // Height 1 is finally executed: neither the processed block nor a later track adds it.
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
         manager.manager.track_block(blocks[0].header()).unwrap();
         manager.manager.track_block(blocks[1].header()).unwrap();
 
@@ -871,7 +881,7 @@ mod manager {
         }
 
         manager.set_final_execution_head(&blocks[1]);
-        manager.on_new_block(&blocks[2]);
+        manager.on_block_processed(&blocks[2]);
 
         assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
         assert!(!manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
@@ -894,14 +904,14 @@ mod manager {
 
         // Finality below the forks: nothing about them is known yet.
         manager.set_final_head(&canonical[1]);
-        manager.on_new_block(&canonical[2]);
+        manager.on_block_processed(&canonical[2]);
         assert!(manager.manager.is_tracking(&fork_at_3_id));
         assert!(manager.manager.is_tracking(&fork_at_4_id));
 
         // The chain finalized past the skipped height and the height the canonical block
         // occupies.
         manager.set_final_head(&canonical[2]);
-        manager.on_new_block(&canonical[2]);
+        manager.on_block_processed(&canonical[2]);
         assert!(!manager.manager.is_tracking(&fork_at_3_id));
         assert!(!manager.manager.is_tracking(&fork_at_4_id));
         for id in &canonical_ids {
@@ -922,16 +932,16 @@ mod manager {
         manager.manager.track_block(blocks[3].header()).unwrap();
 
         manager.set_final_head(&blocks[1]);
-        manager.on_new_block(&blocks[3]);
+        manager.on_block_processed(&blocks[3]);
         assert_eq!(manager.manager.canonical_checked_height, Some(2));
 
-        manager.on_new_block(&blocks[3]);
+        manager.on_block_processed(&blocks[3]);
         assert_eq!(manager.manager.canonical_checked_height, Some(2));
 
         manager.set_final_head(&blocks[3]);
-        manager.on_new_block(&blocks[3]);
+        manager.on_block_processed(&blocks[3]);
         assert_eq!(manager.manager.canonical_checked_height, Some(4));
-        manager.on_new_block(&blocks[3]);
+        manager.on_block_processed(&blocks[3]);
         assert_eq!(manager.manager.canonical_checked_height, Some(4));
     }
 
@@ -941,7 +951,7 @@ mod manager {
         let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
         let mut manager = TestManager::new(&chain);
         manager.set_final_head(&canonical[2]);
-        manager.on_new_block(&canonical[2]);
+        manager.on_block_processed(&canonical[2]);
 
         manager.manager.track_block(fork_at_3.header()).unwrap();
         manager.manager.track_block(fork_at_4.header()).unwrap();
@@ -1057,11 +1067,13 @@ mod manager {
 
         // The source chunk is not certified: neither the tracker nor the unbound
         // producers are asked, and nothing is recorded as asked.
-        assert_eq!(manager.on_new_block(&blocks[0]), vec![]);
+        assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
         assert!(manager.item(&id).outstanding_requests().next().is_none());
 
         manager.certify_up_to(1);
-        assert!(!manager.on_new_block(&blocks[0]).is_empty());
+        // Certified: the tracker asks its one backer for the gaps and every source for its
+        // own ordinal.
+        assert_eq!(wants_for(manager.on_block_processed(&blocks[0]), &id), open_item_wants(&alice));
     }
 
     #[test]
@@ -1077,7 +1089,7 @@ mod manager {
         manager.push(&producers[1], &id, &second, parts_with_ordinals(&second_parts, &[1]));
         manager.certify_up_to(1);
 
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
 
         assert_eq!(
             wants_for(requests, &id),
@@ -1116,7 +1128,7 @@ mod manager {
         manager.push(&producers[3], &id, &honest, parts_with_ordinals(&honest_parts, &[3]));
         manager.certify_up_to(1);
 
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
 
         assert_eq!(
             wants_for(requests, &id),
@@ -1136,7 +1148,7 @@ mod manager {
         // The consumer saved the delivered data before the block was processed.
         save_proof(&chain, &blocks[0], &receipt_data(0, 1));
 
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
 
         assert_eq!(requests, vec![]);
         assert!(!manager.manager.is_tracking(&id));
@@ -1159,9 +1171,9 @@ mod manager {
         assert_eq!(manager.sources_calls(), 2);
 
         manager.certify_up_to(1);
-        let first = by_producer(manager.on_new_block(block));
+        let first = by_producer(manager.on_block_processed(block));
         for _ in 0..3 {
-            manager.on_new_block(block);
+            manager.on_block_processed(block);
         }
 
         assert_eq!(manager.sources_calls(), 2);
@@ -1193,17 +1205,17 @@ mod manager {
         assert_eq!(after_tracking, 3);
         manager.certify_up_to(3);
 
-        manager.on_new_block(&blocks[2]);
-        manager.on_new_block(&blocks[2]);
+        manager.on_block_processed(&blocks[2]);
+        manager.on_block_processed(&blocks[2]);
         assert_eq!(manager.is_done_calls(), after_tracking);
 
         manager.deliver(&account("alice.near"), &ids[0], &receipt_data(0, 1));
-        manager.on_new_block(&blocks[2]);
+        manager.on_block_processed(&blocks[2]);
         assert_eq!(manager.is_done_calls(), after_tracking + 1);
         assert!(manager.manager.is_tracking(&ids[0]));
 
         save_proof(&chain, &blocks[0], &receipt_data(0, 1));
-        manager.on_new_block(&blocks[2]);
+        manager.on_block_processed(&blocks[2]);
         assert_eq!(manager.is_done_calls(), after_tracking + 2);
         assert!(!manager.manager.is_tracking(&ids[0]));
         assert!(manager.manager.is_tracking(&ids[1]));
@@ -1219,11 +1231,11 @@ mod manager {
         let after_delivery = manager.is_done_calls();
 
         // The consumer saved nothing: the store keeps saying the item is not done.
-        manager.on_new_block(&blocks[0]);
+        manager.on_block_processed(&blocks[0]);
         assert_eq!(manager.is_done_calls(), after_delivery + 1);
         assert!(manager.manager.is_tracking(&id));
 
-        manager.on_new_block(&blocks[0]);
+        manager.on_block_processed(&blocks[0]);
         assert_eq!(manager.is_done_calls(), after_delivery + 2);
         assert!(manager.manager.is_tracking(&id));
     }
@@ -1259,7 +1271,7 @@ mod manager {
         let cap = PullConfig::default().max_outstanding_per_producer;
         assert_eq!(cap, 4, "the expectation below spells out two heights of two items");
 
-        let requests = by_producer(manager.on_new_block(&blocks[5]));
+        let requests = by_producer(manager.on_block_processed(&blocks[5]));
 
         let expected_ids: BTreeSet<DataId> = blocks[..2]
             .iter()
@@ -1290,7 +1302,7 @@ mod manager {
         let cap = PullConfig::default().max_outstanding_per_producer;
         assert!(cap < blocks.len());
 
-        let requests = by_producer(manager.on_new_block(&blocks[5]));
+        let requests = by_producer(manager.on_block_processed(&blocks[5]));
 
         assert_eq!(requests.len(), 2 * TOTAL_PARTS);
         for (producers, from_shard) in [(sources(), 0), (others, 1)] {
@@ -1323,7 +1335,7 @@ mod manager {
             }
             manager.certify_up_to(2);
             manager
-                .on_new_block(&blocks[1])
+                .on_block_processed(&blocks[1])
                 .into_iter()
                 .filter(|request| request.producer == backer)
                 .collect::<Vec<_>>()
@@ -1358,7 +1370,7 @@ mod manager {
         manager.certify_up_to(1);
 
         let requests: Vec<PullRequest> = manager
-            .on_new_block(&blocks[0])
+            .on_block_processed(&blocks[0])
             .into_iter()
             .filter(|request| request.producer == backer)
             .collect();
@@ -1388,16 +1400,16 @@ mod manager {
         let high = receipt_id(&blocks[1], 0, 1);
 
         // Height 1: the lowest item takes every producer's one slot.
-        let requests = by_producer(manager.on_new_block(&blocks[0]));
+        let requests = by_producer(manager.on_block_processed(&blocks[0]));
         assert_eq!(requests.len(), TOTAL_PARTS);
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
         // Height 2, within the timeout: the slots are still held, so the higher item waits.
-        assert_eq!(manager.on_new_block(&blocks[1]), vec![]);
+        assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
         assert!(manager.item(&high).outstanding_requests().next().is_none());
         // Height 3, the timeout elapsed: the requests are stale and dropped; the freed
         // slots go to the lowest item again.
         manager.clock.advance(request_timeout);
-        let requests = by_producer(manager.on_new_block(&blocks[2]));
+        let requests = by_producer(manager.on_block_processed(&blocks[2]));
         assert_eq!(requests.len(), TOTAL_PARTS);
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
         assert!(manager.item(&high).outstanding_requests().next().is_none());
@@ -1424,7 +1436,7 @@ mod manager {
 
         // The lowest item takes every producer's one slot; the tracker above finds no
         // member free and waits without turning the rotation.
-        let requests = by_producer(manager.on_new_block(&blocks[0]));
+        let requests = by_producer(manager.on_block_processed(&blocks[0]));
         assert!(requests.values().all(|wants| wants.keys().eq([&low])));
         assert!(manager.item(&high).outstanding_requests().next().is_none());
         assert_eq!(manager.tracker(&high, &commitment).rotation_cursor, 0);
@@ -1442,7 +1454,7 @@ mod manager {
             )
             .unwrap();
         assert_matches!(result, PartsOutcome::Decoded(_));
-        let requests = wants_for(manager.on_new_block(&blocks[1]), &high);
+        let requests = wants_for(manager.on_block_processed(&blocks[1]), &high);
         assert_eq!(requests, BTreeMap::from([(other.clone(), ordinals(&[2, 3, 4]))]));
     }
 
@@ -1463,7 +1475,7 @@ mod manager {
         let mut sent: BTreeSet<(AccountId, DataId, BTreeSet<u64>)> = BTreeSet::new();
         let mut sent_per_producer: BTreeMap<AccountId, usize> = BTreeMap::new();
         for block in &blocks {
-            for (producer, wants) in by_producer(manager.on_new_block(block)) {
+            for (producer, wants) in by_producer(manager.on_block_processed(block)) {
                 for (id, ordinals) in wants {
                     *sent_per_producer.entry(producer.clone()).or_default() += 1;
                     assert!(
@@ -1496,7 +1508,7 @@ mod manager {
         // Only height 1 is pullable, so the later blocks add no items of their own.
         manager.certify_up_to(1);
 
-        let first = wants_for(manager.on_new_block(&blocks[0]), &id);
+        let first = wants_for(manager.on_block_processed(&blocks[0]), &id);
         let first_backer =
             pool.iter().find(|producer| first.contains_key(*producer)).unwrap().clone();
         assert_eq!(first[&first_backer], ordinals(&[2, 3, 4]));
@@ -1504,12 +1516,12 @@ mod manager {
 
         // Just short of the timeout every request is still outstanding.
         manager.clock.advance(request_timeout - Duration::milliseconds(1));
-        assert_eq!(manager.on_new_block(&blocks[1]), vec![]);
+        assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
 
         // At the timeout they count as unanswered: the tracker moves to the other backer,
         // the unbound producers are asked again.
         manager.clock.advance(Duration::milliseconds(1));
-        let third = wants_for(manager.on_new_block(&blocks[2]), &id);
+        let third = wants_for(manager.on_block_processed(&blocks[2]), &id);
         let second_backer =
             pool.iter().find(|producer| third.contains_key(*producer)).unwrap().clone();
         assert_ne!(second_backer, first_backer);
@@ -1531,7 +1543,7 @@ mod manager {
         let producers = sources();
         manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
         manager.certify_up_to(1);
-        let requests = wants_for(manager.on_new_block(&blocks[0]), &id);
+        let requests = wants_for(manager.on_block_processed(&blocks[0]), &id);
         assert_eq!(requests[&producers[0]], ordinals(&[1, 2, 3, 4]));
         assert!(manager.item(&id).producers[&producers[2]].requested_at.is_some());
 
@@ -1549,7 +1561,7 @@ mod manager {
         // Once the timeout elapsed, the next block asks one of the two backers for the
         // rest, and again only the producers still unbound for their own ordinal.
         manager.clock.advance(PullConfig::default().request_timeout);
-        let requests = wants_for(manager.on_new_block(&blocks[1]), &id);
+        let requests = wants_for(manager.on_block_processed(&blocks[1]), &id);
         let backer = [&producers[0], &producers[2]]
             .into_iter()
             .find(|producer| requests.contains_key(*producer))
@@ -1608,7 +1620,7 @@ mod manager {
         let producers = sources();
         manager.push(&producers[0], &id, &commitment, parts_with_ordinals(&parts, &[0]));
         manager.certify_up_to(1);
-        let requests = wants_for(manager.on_new_block(&blocks[0]), &id);
+        let requests = wants_for(manager.on_block_processed(&blocks[0]), &id);
         assert_eq!(requests[&producers[0]], ordinals(&[1, 2, 3, 4]));
         assert_eq!(requests[&producers[1]], ordinals(&[1]));
 
@@ -1633,7 +1645,7 @@ mod manager {
         assert!(manager.item(&id).producers[&producers[0]].requested_at.is_some());
         assert!(manager.item(&id).producers[&producers[1]].requested_at.is_some());
         assert!(manager.item(&id).producers[&producers[1]].commitment.is_none());
-        assert_eq!(manager.on_new_block(&blocks[1]), vec![]);
+        assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
     }
 
     #[test]
@@ -1646,14 +1658,19 @@ mod manager {
 
         let now = manager.clock.now();
         let certified_frontier = manager.certified_frontier();
-        let requests =
-            manager.manager.on_new_block(blocks[0].hash(), &certified_frontier, None, now).unwrap();
+        let requests = manager
+            .manager
+            .on_block_processed(blocks[0].hash(), &certified_frontier, None, now)
+            .unwrap();
 
         assert_eq!(requests, vec![]);
         assert!(manager.manager.is_tracking(&id));
         assert!(manager.item(&id).outstanding_requests().next().is_none());
         // A requester appearing later is served from the kept state.
-        assert!(!manager.on_new_block(&blocks[0]).is_empty());
+        assert_eq!(
+            wants_for(manager.on_block_processed(&blocks[0]), &id),
+            open_item_wants(&account("alice.near"))
+        );
     }
 
     #[test]
@@ -1668,7 +1685,7 @@ mod manager {
         // Three requests in a row, each unanswered for the timeout, then the answer decodes
         // the commitment.
         for block in &blocks {
-            let requests = wants_for(manager.on_new_block(block), &id);
+            let requests = wants_for(manager.on_block_processed(block), &id);
             assert_eq!(requests[&honest], ordinals(&[1, 2, 3, 4]));
             manager.clock.advance(PullConfig::default().request_timeout);
         }
@@ -1780,7 +1797,7 @@ mod manager {
         honest: &Honest,
     ) -> usize {
         for (processed, block) in blocks.iter().enumerate() {
-            let requests = manager.on_new_block(block);
+            let requests = manager.on_block_processed(block);
             if answer_requests(manager, id, requests, liars, honest) {
                 return processed + 1;
             }
@@ -1829,7 +1846,7 @@ mod manager {
 
         // The first block asks the silent honest producer for exactly its own ordinal;
         // its answer binds it, and the next block's tracker pull completes the commitment.
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
         assert_eq!(wants_for(requests.clone(), &id)[&honest.0], ordinals(&[honest_ordinal]));
         assert!(!answer_requests(&mut manager, &id, requests, &liars, &honest));
         let processed =
@@ -1846,7 +1863,7 @@ mod manager {
         let honest_ordinal = liars.fakes.len() as u64;
 
         // Every liar is bound to a settled commitment, so only the honest producer is asked.
-        let requests = manager.on_new_block(&blocks[0]);
+        let requests = manager.on_block_processed(&blocks[0]);
         assert_eq!(
             wants_for(requests.clone(), &id),
             BTreeMap::from([(honest.0.clone(), ordinals(&[honest_ordinal]))])
