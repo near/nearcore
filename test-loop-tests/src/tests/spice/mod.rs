@@ -8,4 +8,5 @@ mod light_client;
 mod malicious_chunk_producer;
 mod pre_activation;
 mod resharding;
+mod state_sync;
 mod utils;
