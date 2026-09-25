@@ -152,7 +152,6 @@ fn genesis_state_from_genesis(
     }
     let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
     let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-    let storage_usage_config = &runtime_config.fees.storage_usage_config;
     let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
     let shard_uids: Vec<_> = shard_layout.shard_uids().collect();
 
@@ -208,7 +207,7 @@ fn genesis_state_from_genesis(
                 tries.clone(),
                 shard_uid,
                 &validators,
-                storage_usage_config,
+                runtime_config,
                 genesis,
                 shard_account_ids[&shard_id].clone(),
             )

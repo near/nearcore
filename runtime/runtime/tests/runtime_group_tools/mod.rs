@@ -90,7 +90,7 @@ impl StandaloneRuntime {
             tries.clone(),
             shard_uid,
             &[],
-            &runtime_config.fees.storage_usage_config,
+            &runtime_config,
             &genesis,
             account_ids,
         );

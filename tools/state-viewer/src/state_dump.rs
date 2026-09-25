@@ -6,7 +6,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
-use near_primitives::receipt::ReceiptOrStateStoredReceipt;
+use near_primitives::receipt::StateStoredReceipt;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::{DelayedReceipt, StateRecord};
 use near_primitives::trie_key::TrieKey;
@@ -327,8 +327,7 @@ fn iterate_over_records(
         if let Some(indices) = indices.indices {
             for index in indices {
                 let key = TrieKey::DelayedReceipt { index };
-                let value =
-                    near_store::get_pure::<ReceiptOrStateStoredReceipt>(&trie, &key).unwrap();
+                let value = near_store::get_pure::<StateStoredReceipt>(&trie, &key).unwrap();
                 let Some(receipt) = value else {
                     tracing::warn!(
                         %index,
