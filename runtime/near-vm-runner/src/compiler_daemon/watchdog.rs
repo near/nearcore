@@ -101,3 +101,42 @@ fn watchdog_loop(child: Arc<Mutex<Child>>, shared: Arc<SharedState>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ProcessWatchdog, SharedState};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn finish_then_rearm() {
+        // Leave the background thread out so we can inspect the state it would
+        // observe without racing the scheduler or relying on sleeps. In
+        // particular, finish must disarm synchronously, not ask the thread to do it.
+        let watchdog = ProcessWatchdog { shared: Arc::new(SharedState::default()), thread: None };
+        let first_timeout = Duration::ZERO;
+        watchdog.arm(first_timeout);
+        let first_deadline = watchdog.shared.state.lock().deadline.unwrap();
+        assert!(first_deadline <= Instant::now());
+        assert_eq!(watchdog.finish(first_timeout, "first request", Ok(1)), Ok(1));
+        {
+            let state = watchdog.shared.state.lock();
+            assert_eq!(state.deadline, None);
+            assert!(!state.timed_out);
+        }
+
+        // Reuse the same watchdog after the first deadline has passed. Only the
+        // new deadline may be visible to the thread, and finish must not report
+        // a timeout inherited from the previous request.
+        let second_timeout = Duration::from_secs(60);
+        let before_rearm = Instant::now();
+        watchdog.arm(second_timeout);
+        {
+            let state = watchdog.shared.state.lock();
+            assert!(state.deadline.unwrap() >= before_rearm + second_timeout);
+            assert!(!state.timed_out);
+        }
+        assert_eq!(watchdog.finish(second_timeout, "second request", Ok(2)), Ok(2));
+        assert_eq!(watchdog.shared.state.lock().deadline, None);
+    }
+}
