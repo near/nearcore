@@ -8,7 +8,7 @@ use crate::spice::chunk_validator_actor::{
 };
 pub use crate::spice::data_manager::DataId;
 use crate::spice::data_manager::{
-    DataManagerError, Policies, ReceivedParts, SpiceData, SpiceDataManager, VerifiedCodedPart,
+    PartsOutcome, Policies, SenderFault, SpiceData, SpiceDataManager, VerifiedCodedPart,
 };
 use itertools::Itertools as _;
 use lru::LruCache;
@@ -124,8 +124,8 @@ pub(crate) enum Error {
     StoreIoError(std::io::Error),
     #[error("malformed data request: {0}")]
     MalformedRequest(MalformedDataRequest),
-    #[error("data manager error: {0}")]
-    DataManager(#[from] DataManagerError),
+    #[error("sender fault: {0}")]
+    SenderFault(#[from] SenderFault),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -401,9 +401,8 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             }
             // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
             // invalid data.
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to handle receiving partial data");
-            return;
-        };
+            tracing::debug!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to handle receiving partial data");
+        }
     }
 }
 
@@ -759,17 +758,17 @@ impl SpiceDataDistributorActor {
                     parts,
                     producers.len(),
                 ) {
-                    Ok(ReceivedParts::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
+                    Ok(PartsOutcome::Decoded(SpiceData::ReceiptProof(receipt_proof))) => {
                         tracing::debug!(target: "spice_data_distribution", ?data_id, ?commitment, "delivering decoded receipt proof");
                         self.executor_sender
                             .send(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
                         Ok(())
                     }
-                    Ok(ReceivedParts::Decoded(SpiceData::StateWitness(_))) => {
+                    Ok(PartsOutcome::Decoded(SpiceData::StateWitness(_))) => {
                         unreachable!("decode checked the data against its receipt-proof id")
                     }
-                    Ok(ReceivedParts::Collecting | ReceivedParts::Settled) => Ok(()),
-                    Ok(ReceivedParts::NotWanted) => Err(Error::DataIsIrrelevant(id)),
+                    Ok(PartsOutcome::Collecting | PartsOutcome::Settled) => Ok(()),
+                    Ok(PartsOutcome::NotWanted) => Err(Error::DataIsIrrelevant(id)),
                     Err(err) => Err(err.into()),
                 }
             }
@@ -818,7 +817,7 @@ impl SpiceDataDistributorActor {
             // insert_part; the unwrap below goes with the old tracker (#16275).
             let verified =
                 VerifiedCodedPart::verify(&commitment, total_parts, part_ord, part, &merkle_proof)
-                    .map_err(|_| Error::InvalidCommitment)?;
+                    .ok_or(Error::InvalidCommitment)?;
             // TODO(spice): Verify that size of partial data isn't too large.
             let create_decode_span = None;
             let ordinal = verified.ordinal();
@@ -1414,7 +1413,7 @@ impl SpiceDataDistributorActor {
             self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
 
-        self.data_manager.on_block(block.header())?;
+        self.data_manager.track_block(block.header())?;
         Ok(())
     }
 
