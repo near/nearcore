@@ -459,14 +459,15 @@ mod manager {
     use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
     use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
     use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_primitives::block::Tip;
     use near_primitives::block_header::BlockHeader;
     use near_primitives::spice::partial_data::SpiceDataPart;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::types::{BlockHeight, EpochId};
-    use near_store::ShardUId;
-    use near_store::adapter::StoreAdapter;
+    use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+    use near_store::{ShardUId, Store};
     use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
     /// height `i + 1`.
@@ -521,8 +522,7 @@ mod manager {
     }
 
     /// The chain's policies with fixed source lists in place of the chain's single
-    /// chunk producer, extra receipt-proof (from, to) pairs, and an injected certified
-    /// height shared by every shard.
+    /// chunk producer and extra receipt-proof (from, to) pairs.
     struct TestPolicy {
         chain: Policies,
         sources: Vec<AccountId>,
@@ -532,12 +532,8 @@ mod manager {
         extra_pairs: Vec<(u64, u64)>,
         /// Ids whose source lookup fails.
         failing_sources: HashSet<DataId>,
-        certified_height: Arc<AtomicU64>,
-        final_execution_head: Arc<AtomicU64>,
-        final_head: Arc<AtomicU64>,
         sources_calls: AtomicUsize,
         is_done_calls: AtomicUsize,
-        canonical_calls: AtomicUsize,
     }
 
     impl DataPolicy for TestPolicy {
@@ -575,33 +571,6 @@ mod manager {
             certified_frontier: &HashMap<ShardId, BlockHeight>,
         ) -> bool {
             self.chain.is_pullable(id, height, certified_frontier)
-        }
-    }
-
-    impl ChainView for TestPolicy {
-        fn block_header(&self, block_hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-            self.chain.block_header(block_hash)
-        }
-
-        fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
-            Ok(self.final_execution_head.load(Ordering::Relaxed))
-        }
-
-        fn final_head_height(&self) -> Result<BlockHeight, Error> {
-            Ok(self.final_head.load(Ordering::Relaxed))
-        }
-
-        fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
-            self.canonical_calls.fetch_add(1, Ordering::Relaxed);
-            self.chain.canonical_block_hash(height)
-        }
-
-        fn certified_frontier(
-            &self,
-            _block: &BlockHeader,
-        ) -> Result<HashMap<ShardId, BlockHeight>, Error> {
-            let certified = self.certified_height.load(Ordering::Relaxed);
-            Ok([0, 1].into_iter().map(|shard| (ShardId::new(shard), certified)).collect())
         }
     }
 
@@ -644,9 +613,9 @@ mod manager {
     struct TestManager {
         manager: SpiceDataManager<TestPolicy>,
         clock: FakeClock,
-        certified_height: Arc<AtomicU64>,
-        final_execution_head: Arc<AtomicU64>,
-        final_head: Arc<AtomicU64>,
+        store: Store,
+        /// Every shard's chunks up to this height count as certified.
+        certified_height: BlockHeight,
     }
 
     impl TestManager {
@@ -667,48 +636,45 @@ mod manager {
                 chain.epoch_manager.clone(),
                 MutableConfigValue::new(None, "validator_signer"),
             );
-            let policies = Policies::new(
-                chain.chain_store.store().chain_store(),
-                chain.epoch_manager.clone(),
-                shard_tracker,
-                chain.spice_core_reader.clone(),
-            );
-            let certified_height = Arc::new(AtomicU64::new(0));
-            let final_execution_head = Arc::new(AtomicU64::new(0));
-            let final_head = Arc::new(AtomicU64::new(0));
+            let store = chain.chain_store.store();
+            let policies =
+                Policies::new(store.chain_store(), chain.epoch_manager.clone(), shard_tracker);
             let policy = TestPolicy {
                 chain: policies,
                 sources,
                 sources_by_from_shard: HashMap::new(),
                 extra_pairs,
                 failing_sources: HashSet::new(),
-                certified_height: certified_height.clone(),
-                final_execution_head: final_execution_head.clone(),
-                final_head: final_head.clone(),
                 sources_calls: AtomicUsize::new(0),
                 is_done_calls: AtomicUsize::new(0),
-                canonical_calls: AtomicUsize::new(0),
             };
             Self {
-                manager: SpiceDataManager::new(pull_config, 0.6, policy),
+                manager: SpiceDataManager::new(pull_config, 0.6, store.chain_store(), policy),
                 clock: FakeClock::default(),
-                certified_height,
-                final_execution_head,
-                final_head,
+                store,
+                certified_height: 0,
             }
         }
 
         /// Every shard's chunks up to `height` count as certified from now on.
-        fn certify_up_to(&self, height: BlockHeight) {
-            self.certified_height.store(height, Ordering::Relaxed);
+        fn certify_up_to(&mut self, height: BlockHeight) {
+            self.certified_height = height;
         }
 
-        fn set_final_execution_head(&self, height: BlockHeight) {
-            self.final_execution_head.store(height, Ordering::Relaxed);
+        /// Writes `block` to the store as the final execution head.
+        fn set_final_execution_head(&self, block: &Block) {
+            let mut store_update = self.store.store_update();
+            store_update
+                .chain_store_update()
+                .set_spice_final_execution_head(&Tip::from_header(block.header()));
+            store_update.commit();
         }
 
-        fn set_final_head(&self, height: BlockHeight) {
-            self.final_head.store(height, Ordering::Relaxed);
+        /// Writes `block` to the store as the chain's final head.
+        fn set_final_head(&self, block: &Block) {
+            let mut store_update = self.store.store_update();
+            store_update.chain_store_update().set_final_head(&Tip::from_header(block.header()));
+            store_update.commit();
         }
 
         /// Items from `from_shard` are served by `producers` instead of the default list.
@@ -724,13 +690,22 @@ mod manager {
             self.manager.policies.is_done_calls.load(Ordering::Relaxed)
         }
 
-        fn canonical_calls(&self) -> usize {
-            self.manager.policies.canonical_calls.load(Ordering::Relaxed)
+        /// Both shards certified up to `certify_up_to`'s height.
+        fn certified_frontier(&self) -> HashMap<ShardId, BlockHeight> {
+            [0, 1].map(|shard| (ShardId::new(shard), self.certified_height)).into()
         }
 
         /// `block` was processed at the clock's current time.
         fn on_new_block(&mut self, block: &Block) -> Vec<PullRequest> {
-            self.manager.on_new_block(block.hash(), Some(&requester()), self.clock.now()).unwrap()
+            let certified_frontier = self.certified_frontier();
+            self.manager
+                .on_new_block(
+                    block.hash(),
+                    &certified_frontier,
+                    Some(&requester()),
+                    self.clock.now(),
+                )
+                .unwrap()
         }
 
         /// Delivers `parts` and asserts the item keeps collecting.
@@ -872,7 +847,7 @@ mod manager {
     fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
         let (chain, blocks) = chain_with_blocks(2);
         let mut manager = TestManager::new(&chain);
-        manager.set_final_execution_head(1);
+        manager.set_final_execution_head(&blocks[0]);
 
         // Height 1 is finally executed: neither the processed block nor a later track adds it.
         let requests = manager.on_new_block(&blocks[0]);
@@ -895,7 +870,7 @@ mod manager {
             manager.manager.track_block(block.header()).unwrap();
         }
 
-        manager.set_final_execution_head(3);
+        manager.set_final_execution_head(&blocks[1]);
         manager.on_new_block(&blocks[2]);
 
         assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
@@ -918,20 +893,16 @@ mod manager {
         let fork_at_4_id = receipt_id(&fork_at_4, 0, 1);
 
         // Finality below the forks: nothing about them is known yet.
-        manager.set_final_head(2);
+        manager.set_final_head(&canonical[1]);
         manager.on_new_block(&canonical[2]);
         assert!(manager.manager.is_tracking(&fork_at_3_id));
         assert!(manager.manager.is_tracking(&fork_at_4_id));
 
-        // The chain finalized past the skipped height.
-        manager.set_final_head(3);
+        // The chain finalized past the skipped height and the height the canonical block
+        // occupies.
+        manager.set_final_head(&canonical[2]);
         manager.on_new_block(&canonical[2]);
         assert!(!manager.manager.is_tracking(&fork_at_3_id));
-        assert!(manager.manager.is_tracking(&fork_at_4_id));
-
-        // And past the height the canonical block occupies.
-        manager.set_final_head(4);
-        manager.on_new_block(&canonical[2]);
         assert!(!manager.manager.is_tracking(&fork_at_4_id));
         for id in &canonical_ids {
             assert!(manager.manager.is_tracking(id), "canonical item expired: {id:?}");
@@ -944,26 +915,24 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn each_finalized_height_with_items_is_checked_against_the_canonical_chain_once() {
+    fn the_canonical_watermark_advances_to_the_final_head_and_stays_while_finality_does_not_move() {
         let (chain, blocks) = chain_with_blocks(4);
         let mut manager = TestManager::new(&chain);
-        // Heights 1 and 4 hold items; 2 and 3 hold none.
         manager.manager.track_block(blocks[0].header()).unwrap();
         manager.manager.track_block(blocks[3].header()).unwrap();
 
-        manager.set_final_head(2);
+        manager.set_final_head(&blocks[1]);
         manager.on_new_block(&blocks[3]);
-        assert_eq!(manager.canonical_calls(), 1);
+        assert_eq!(manager.manager.canonical_checked_height, Some(2));
 
-        // Finality did not move: nothing is re-read.
         manager.on_new_block(&blocks[3]);
-        assert_eq!(manager.canonical_calls(), 1);
+        assert_eq!(manager.manager.canonical_checked_height, Some(2));
 
-        manager.set_final_head(4);
+        manager.set_final_head(&blocks[3]);
         manager.on_new_block(&blocks[3]);
-        assert_eq!(manager.canonical_calls(), 2);
+        assert_eq!(manager.manager.canonical_checked_height, Some(4));
         manager.on_new_block(&blocks[3]);
-        assert_eq!(manager.canonical_calls(), 2);
+        assert_eq!(manager.manager.canonical_checked_height, Some(4));
     }
 
     #[test]
@@ -971,7 +940,7 @@ mod manager {
     fn a_fork_block_at_a_finalized_height_is_not_tracked_while_the_canonical_one_is() {
         let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
         let mut manager = TestManager::new(&chain);
-        manager.set_final_head(4);
+        manager.set_final_head(&canonical[2]);
         manager.on_new_block(&canonical[2]);
 
         manager.manager.track_block(fork_at_3.header()).unwrap();
@@ -1676,7 +1645,9 @@ mod manager {
         manager.certify_up_to(1);
 
         let now = manager.clock.now();
-        let requests = manager.manager.on_new_block(blocks[0].hash(), None, now).unwrap();
+        let certified_frontier = manager.certified_frontier();
+        let requests =
+            manager.manager.on_new_block(blocks[0].hash(), &certified_frontier, None, now).unwrap();
 
         assert_eq!(requests, vec![]);
         assert!(manager.manager.is_tracking(&id));
@@ -1820,7 +1791,7 @@ mod manager {
     /// The single-honest-executor setup: `blocks` to process, the item pullable, N−1 liars and
     /// the honest producer's data.
     fn single_honest_setup() -> (Vec<Arc<Block>>, DataId, TestManager, Liars, Honest) {
-        let (_chain, blocks, id, manager) = tracked_item(3);
+        let (_chain, blocks, id, mut manager) = tracked_item(3);
         let producers = sources();
         let (honest_producer, liar_producers) = producers.split_last().unwrap();
         let liars = Liars::new(liar_producers);

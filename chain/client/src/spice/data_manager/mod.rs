@@ -6,14 +6,12 @@ mod item;
 mod pull;
 
 pub use data_id::DataId;
-pub(crate) use fetchable::ChainView;
 pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_async::time::Instant;
 use near_chain::Error;
-use near_chain::spice::core::SpiceCoreReader;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
@@ -58,8 +56,6 @@ pub(crate) enum PartsOutcome {
 /// The per-data-type policies, one per [`DataId`] variant.
 pub(crate) struct Policies {
     receipt_proofs: ReceiptProofPolicy,
-    chain_store: ChainStoreAdapter,
-    core_reader: SpiceCoreReader,
 }
 
 impl Policies {
@@ -67,17 +63,8 @@ impl Policies {
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        core_reader: SpiceCoreReader,
     ) -> Self {
-        Self {
-            receipt_proofs: ReceiptProofPolicy::new(
-                chain_store.clone(),
-                epoch_manager,
-                shard_tracker,
-            ),
-            chain_store,
-            core_reader,
-        }
+        Self { receipt_proofs: ReceiptProofPolicy::new(chain_store, epoch_manager, shard_tracker) }
     }
 
     fn for_id(&self, id: &DataId) -> &dyn DataPolicy {
@@ -112,47 +99,15 @@ impl DataPolicy for Policies {
     }
 }
 
-impl ChainView for Policies {
-    fn block_header(&self, block_hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        self.chain_store.get_block_header(block_hash)
-    }
-
-    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
-        match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Ok(head.height),
-            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn final_head_height(&self) -> Result<BlockHeight, Error> {
-        Ok(self.chain_store.final_head()?.height)
-    }
-
-    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
-        match self.chain_store.get_block_hash_by_height(height) {
-            Ok(hash) => Ok(Some(hash)),
-            Err(Error::DBNotFoundErr(_)) => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn certified_frontier(
-        &self,
-        block: &BlockHeader,
-    ) -> Result<HashMap<ShardId, BlockHeight>, Error> {
-        self.core_reader.certified_frontier(block)
-    }
-}
-
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager<P: DataPolicy + ChainView = Policies> {
+pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     pull_config: PullConfig,
     encoders: ReedSolomonEncoderCache,
+    chain_store: ChainStoreAdapter,
     policies: P,
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
@@ -165,11 +120,17 @@ pub(crate) struct SpiceDataManager<P: DataPolicy + ChainView = Policies> {
     canonical_checked_height: Option<BlockHeight>,
 }
 
-impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
-    pub(crate) fn new(pull_config: PullConfig, data_parts_ratio: f64, policies: P) -> Self {
+impl<P: DataPolicy> SpiceDataManager<P> {
+    pub(crate) fn new(
+        pull_config: PullConfig,
+        data_parts_ratio: f64,
+        chain_store: ChainStoreAdapter,
+        policies: P,
+    ) -> Self {
         Self {
             pull_config,
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            chain_store,
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
@@ -202,7 +163,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         }
         // The chain finalized past the block on another branch.
         if self.canonical_checked_height.is_some_and(|checked| height <= checked)
-            && self.policies.canonical_block_hash(height)? != Some(*block.hash())
+            && self.canonical_block_hash(height)? != Some(*block.hash())
         {
             return Ok(());
         }
@@ -214,25 +175,44 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         Ok(())
     }
 
-    /// The block was processed at `now`: expires the items at or below the final execution
-    /// head and the items whose block the chain finalized past on another branch, tracks
-    /// the items needed from the block, retires the pullable ones already in the store,
-    /// and returns the requests for the rest, grouped by producer. Without a `requester`
-    /// nothing is requested and the items stay.
+    /// The block was processed at `now` with `certified_frontier` the per-shard certified
+    /// heights as of it: expires the items at or below the final execution head and the
+    /// items whose block the chain finalized past on another branch, tracks the items
+    /// needed from the block, retires the pullable ones already in the store, and returns
+    /// the requests for the rest, grouped by producer. Without a `requester` nothing is
+    /// requested and the items stay.
     pub(crate) fn on_new_block(
         &mut self,
         block_hash: &CryptoHash,
+        certified_frontier: &HashMap<ShardId, BlockHeight>,
         requester: Option<&AccountId>,
         now: Instant,
     ) -> Result<Vec<PullRequest>, Error> {
-        let block = self.policies.block_header(block_hash)?;
+        let block = self.chain_store.get_block_header(block_hash)?;
         let block = block.as_ref();
-        self.expire_at_or_below(self.policies.final_execution_head_height()?);
+        self.expire_at_or_below(self.final_execution_head_height()?);
         self.expire_forked()?;
         self.track_block(block)?;
-        let certified_frontier = self.policies.certified_frontier(block)?;
-        self.retire_done_items(&certified_frontier);
-        Ok(self.pull_requests(now, &certified_frontier, requester))
+        self.retire_done_items(certified_frontier);
+        Ok(self.pull_requests(now, certified_frontier, requester))
+    }
+
+    /// Height of the final execution head; the genesis height before the first one is recorded.
+    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
+        match self.chain_store.spice_final_execution_head() {
+            Ok(head) => Ok(head.height),
+            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Hash of the canonical block at `height`; `None` when the canonical chain has no block there.
+    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error> {
+        match self.chain_store.get_block_hash_by_height(height) {
+            Ok(hash) => Ok(Some(hash)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     /// The only insert path for received units. Verifies every part against the
@@ -304,7 +284,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
     /// Stops tracking items whose block is not the canonical block at its height, over
     /// the heights the chain finalized since the last check.
     fn expire_forked(&mut self) -> Result<(), Error> {
-        let final_height = self.policies.final_head_height()?;
+        let final_height = self.chain_store.final_head()?.height;
         let from = match self.canonical_checked_height {
             Some(checked) if checked >= final_height => return Ok(()),
             Some(checked) => checked + 1,
@@ -312,7 +292,7 @@ impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
         };
         let mut forked = Vec::new();
         for (height, ids) in self.items_by_height.range(from..=final_height) {
-            let canonical = self.policies.canonical_block_hash(*height)?;
+            let canonical = self.canonical_block_hash(*height)?;
             forked.extend(
                 ids.iter().filter(|id| canonical.as_ref() != Some(id.block_hash())).cloned(),
             );

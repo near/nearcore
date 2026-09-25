@@ -5,7 +5,6 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -35,26 +34,6 @@ pub(crate) trait DataPolicy {
         height: BlockHeight,
         certified_frontier: &HashMap<ShardId, BlockHeight>,
     ) -> bool;
-}
-
-/// Methods to view into the chain state, independent of item's identity.
-pub(crate) trait ChainView {
-    fn block_header(&self, block_hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
-
-    /// Height of the final execution head; the genesis height before the first one is recorded.
-    fn final_execution_head_height(&self) -> Result<BlockHeight, Error>;
-
-    /// Height of the chain's final head.
-    fn final_head_height(&self) -> Result<BlockHeight, Error>;
-
-    /// Hash of the canonical block at `height`; `None` when the canonical chain has no block there.
-    fn canonical_block_hash(&self, height: BlockHeight) -> Result<Option<CryptoHash>, Error>;
-
-    /// Per shard, the height of the highest block whose chunk is certified as of `block`.
-    fn certified_frontier(
-        &self,
-        block: &BlockHeader,
-    ) -> Result<HashMap<ShardId, BlockHeight>, Error>;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply

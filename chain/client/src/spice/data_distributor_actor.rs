@@ -471,7 +471,7 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         // TODO(spice): Allow requesting data without signer using route back.
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
-        match self.data_manager.on_new_block(&block_hash, me, self.clock.now()) {
+        match self.pull_missing_data(&block_hash, me) {
             Ok(requests) => {
                 if let Some(requester) = me {
                     self.send_pull_requests(requester, requests);
@@ -512,12 +512,8 @@ impl SpiceDataDistributorActor {
                 ..PullConfig::default()
             },
             DATA_PARTS_RATIO,
-            Policies::new(
-                chain_store.clone(),
-                epoch_manager.clone(),
-                shard_tracker.clone(),
-                core_reader.clone(),
-            ),
+            chain_store.clone(),
+            Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         Self {
             clock,
@@ -576,6 +572,24 @@ impl SpiceDataDistributorActor {
         {
             *self.malformed_data_requests.entry(*reason).or_default() += 1;
         }
+    }
+
+    /// The requests for the data still missing once `block_hash` is processed.
+    // TODO(spice-data-distribution): the certified frontier arrives on `ProcessedBlock` once
+    // block postprocessing computes it (#16275).
+    fn pull_missing_data(
+        &mut self,
+        block_hash: &CryptoHash,
+        requester: Option<&AccountId>,
+    ) -> Result<Vec<PullRequest>, Error> {
+        let header = self.chain_store.get_block_header(block_hash)?;
+        let certified_frontier = self.core_reader.certified_frontier(&header)?;
+        Ok(self.data_manager.on_new_block(
+            block_hash,
+            &certified_frontier,
+            requester,
+            self.clock.now(),
+        )?)
     }
 
     fn send_pull_requests(&self, requester: &AccountId, requests: Vec<PullRequest>) {

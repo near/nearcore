@@ -1,5 +1,5 @@
 use super::item::{CodedTracker, CommitmentState, FetchItem};
-use super::{ChainView, DataId, DataPolicy, SpiceDataManager};
+use super::{DataId, DataPolicy, SpiceDataManager};
 use near_async::time::{Duration, Instant};
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
@@ -181,7 +181,7 @@ impl FetchItem {
     }
 }
 
-impl<P: DataPolicy + ChainView> SpiceDataManager<P> {
+impl<P: DataPolicy> SpiceDataManager<P> {
     /// Removes the pullable items whose delivered data is in the store.
     pub(super) fn retire_done_items(&mut self, certified_frontier: &HashMap<ShardId, BlockHeight>) {
         let mut done = Vec::new();
