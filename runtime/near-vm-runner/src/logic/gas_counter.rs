@@ -1,10 +1,13 @@
 use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
-use super::errors::{HostError, VMLogicError};
+use super::errors::{FunctionCallError, HostError, MethodResolveError, VMLogicError};
 use crate::ProfileDataV3;
+use near_parameters::vm::Config;
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
 use near_primitives_core::types::{Compute, Gas};
 use std::collections::HashMap;
+use std::fmt;
+use std::result::Result as StdResult;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -61,7 +64,7 @@ impl StorageAccessTracker for FreeGasCounter {
     }
 }
 
-/// Gas counter (a part of VMlogic)
+/// Gas counter (a part of VMLogic).
 pub struct GasCounter {
     /// Shared gas counter data.
     fast_counter: FastGasCounter,
@@ -226,32 +229,55 @@ impl GasCounter {
         self.pay_base(ExtCosts::contract_loading_base)
     }
 
-    /// VM independent setup before loading the executable.
+    /// Charge the loading base before querying contract identity/size metadata.
     ///
-    /// Does VM independent checks that happen after the host state has been set
-    /// up but before loading the executable. This includes pre-charging gas
-    /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(feature = "wasmtime_vm")]
-    pub(crate) fn before_loading_executable(
-        &mut self,
-        config: &near_parameters::vm::Config,
+    /// When `FixContractLoadingCost` is enabled, the returned intermediate value
+    /// must be completed with the resolved source length before it can be passed
+    /// to VM preparation. Before the feature, the returned counter is immediately
+    /// ready because the VM retains the legacy loading-charge behavior.
+    pub fn before_loading_contract(
+        mut self,
+        config: &Config,
         method_name: &str,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+    ) -> StdResult<ContractLoadingCharge, ContractLoadingAbort> {
+        if !config.fix_contract_loading_cost {
+            return Ok(ContractLoadingCharge::Legacy(PreparedContractGasCounter {
+                gas_counter: self,
+                loading_charge: ContractLoadingStatus::Legacy,
+            }));
+        }
         if method_name.is_empty() {
-            let error = super::errors::FunctionCallError::MethodResolveError(
-                super::errors::MethodResolveError::MethodEmptyName,
-            );
-            return Err(error);
+            return Err(ContractLoadingAbort {
+                gas_counter: Box::new(self),
+                error: FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName),
+            });
         }
-        if config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                let error =
-                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
-                return Err(error);
-            }
+        if self.pay_base(ExtCosts::contract_loading_base).is_err() {
+            return Err(ContractLoadingAbort {
+                gas_counter: Box::new(self),
+                error: FunctionCallError::HostError(HostError::GasExceeded),
+            });
         }
-        Ok(())
+        Ok(ContractLoadingCharge::ChargeBytes(ContractLoadingBaseCharged(self)))
+    }
+
+    /// Charge contract-loading gas for callers that already have source metadata.
+    ///
+    /// Runtime execution should use [`Self::before_loading_contract`] directly so
+    /// it can resolve the source length only after the loading base has been paid.
+    pub fn prepare_for_contract(
+        self,
+        config: &Config,
+        method_name: &str,
+        code_len: Option<u64>,
+    ) -> StdResult<PreparedContractGasCounter, ContractLoadingAbort> {
+        match self.before_loading_contract(config, method_name)? {
+            ContractLoadingCharge::Legacy(gas_counter) => Ok(gas_counter),
+            ContractLoadingCharge::ChargeBytes(gas_counter) => match code_len {
+                Some(code_len) => gas_counter.charge_bytes(code_len),
+                None => Ok(gas_counter.without_code()),
+            },
+        }
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
@@ -410,6 +436,90 @@ impl StorageAccessTracker for GasCounter {
     }
     fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()> {
         self.pay_per(ExtCosts::storage_remove_ret_value_byte, bytes)
+    }
+}
+
+/// A gas counter which is ready to be passed to VM contract preparation.
+///
+/// This wrapper helps ensure the loading gas cost is being charged exactly once
+/// for a function call.
+pub struct PreparedContractGasCounter {
+    gas_counter: GasCounter,
+    loading_charge: ContractLoadingStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContractLoadingStatus {
+    Legacy,
+    Charged(Option<u64>),
+}
+
+impl PreparedContractGasCounter {
+    pub fn into_inner(self, config: &Config, code_len: Option<u64>) -> GasCounter {
+        let expected = if config.fix_contract_loading_cost {
+            ContractLoadingStatus::Charged(code_len)
+        } else {
+            ContractLoadingStatus::Legacy
+        };
+        assert_eq!(
+            self.loading_charge, expected,
+            "contract loading gas was prepared for a different configuration or source length"
+        );
+        self.gas_counter
+    }
+}
+
+/// Result of charging the loading base.
+pub enum ContractLoadingCharge {
+    /// Legacy execution leaves loading charges to the VM.
+    Legacy(PreparedContractGasCounter),
+    /// The loading base is already paid.
+    ChargeBytes(ContractLoadingBaseCharged),
+}
+
+/// Intermediate state after the loading base is paid but before source bytes are charged.
+pub struct ContractLoadingBaseCharged(GasCounter);
+
+impl ContractLoadingBaseCharged {
+    pub fn charge_bytes(
+        mut self,
+        wasm_code_bytes: u64,
+    ) -> StdResult<PreparedContractGasCounter, ContractLoadingAbort> {
+        if self.0.pay_per(ExtCosts::contract_loading_bytes, wasm_code_bytes).is_err() {
+            return Err(ContractLoadingAbort {
+                gas_counter: Box::new(self.0),
+                error: FunctionCallError::HostError(HostError::GasExceeded),
+            });
+        }
+        Ok(PreparedContractGasCounter {
+            gas_counter: self.0,
+            loading_charge: ContractLoadingStatus::Charged(Some(wasm_code_bytes)),
+        })
+    }
+
+    pub fn without_code(self) -> PreparedContractGasCounter {
+        PreparedContractGasCounter {
+            gas_counter: self.0,
+            loading_charge: ContractLoadingStatus::Charged(None),
+        }
+    }
+}
+
+/// A loading-charge failure together with the counter containing the gas burnt so far.
+pub struct ContractLoadingAbort {
+    gas_counter: Box<GasCounter>,
+    error: FunctionCallError,
+}
+
+impl fmt::Debug for ContractLoadingAbort {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("ContractLoadingAbort").field("error", &self.error).finish()
+    }
+}
+
+impl ContractLoadingAbort {
+    pub fn into_parts(self) -> (GasCounter, FunctionCallError) {
+        (*self.gas_counter, self.error)
     }
 }
 

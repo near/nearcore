@@ -1,4 +1,5 @@
 use super::test_vm_config;
+use crate::Contract;
 use crate::ContractCode;
 use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
@@ -71,7 +72,10 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     context.prepaid_gas = near_primitives_core::types::Gas::from_teragas(100);
     let config = test_vm_config(Some(vm_kind));
     let fees = Arc::new(RuntimeFeesConfig::test());
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, &method_name, fake_external.code_len())
+        .expect("contract loading charge failed");
     let mut res = vm_kind
         .runtime(config.into())
         .unwrap()

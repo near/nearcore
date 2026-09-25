@@ -1,4 +1,5 @@
 use super::test_vm_config;
+use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
@@ -55,7 +56,10 @@ pub fn test_read_write() {
         let context = create_context(encode(&[10u64, 20u64]));
 
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "write_key_value", fake_external.code_len())
+            .expect("contract loading charge failed");
         let result = runtime.prepare(&fake_external, None, gas_counter, "write_key_value").run(
             &mut fake_external,
             &context,
@@ -65,7 +69,10 @@ pub fn test_read_write() {
 
         let context = create_context(encode(&[10u64]));
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "read_value", fake_external.code_len())
+            .expect("contract loading charge failed");
         let result = runtime.prepare(&fake_external, None, gas_counter, "read_value").run(
             &mut fake_external,
             &context,
@@ -119,10 +126,13 @@ fn run_test_ext(
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let fees = Arc::new(RuntimeFeesConfig::test());
     let context = create_context(input.to_vec());
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, method, fake_external.code_len())
+        .expect("contract loading charge failed");
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     let outcome = runtime
-        .prepare(&fake_external, None, gas_counter, &method)
+        .prepare(&fake_external, None, gas_counter, method)
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
@@ -223,7 +233,10 @@ pub fn test_out_of_memory() {
         let context = create_context(Vec::new());
         let fees = Arc::new(RuntimeFeesConfig::free());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "out_of_memory", fake_external.code_len())
+            .expect("contract loading charge failed");
         let result = runtime
             .prepare(&fake_external, None, gas_counter, "out_of_memory")
             .run(&mut fake_external, &context, fees)
@@ -256,7 +269,14 @@ fn attach_unspent_gas_but_use_all_gas() {
         let fees = Arc::new(RuntimeFeesConfig::test());
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(
+                &config,
+                "attach_unspent_gas_but_use_all_gas",
+                external.code_len(),
+            )
+            .expect("contract loading charge failed");
         let outcome = runtime
             .prepare(&external, None, gas_counter, "attach_unspent_gas_but_use_all_gas")
             .run(&mut external, &context, fees)

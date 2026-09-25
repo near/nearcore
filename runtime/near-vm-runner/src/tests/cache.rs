@@ -4,7 +4,7 @@ use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::{VMKindExt, VMResult};
-use crate::{ContractCode, MockContractRuntimeCache};
+use crate::{Contract, ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -25,13 +25,12 @@ fn test_caches_compilation_error() {
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
         let outcome1 = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             Some(&code),
             "method_name1",
             terragas,
@@ -43,7 +42,7 @@ fn test_caches_compilation_error() {
         let outcome2 = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             None,
             "method_name2",
             terragas,
@@ -65,7 +64,6 @@ fn test_does_not_cache_io_error() {
 
         let code = near_test_contracts::trivial_contract();
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
         let prepaid_gas = 10u64.pow(12);
         let cache = FaultingContractRuntimeCache::default();
 
@@ -73,7 +71,7 @@ fn test_does_not_cache_io_error() {
         let result = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             None,
             "main",
             prepaid_gas,
@@ -89,7 +87,7 @@ fn test_does_not_cache_io_error() {
         let result = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             Some(&code),
             "main",
             prepaid_gas,
@@ -106,24 +104,40 @@ fn test_does_not_cache_io_error() {
 fn make_cached_contract_call_vm(
     config: Arc<Config>,
     cache: &dyn ContractRuntimeCache,
-    code_hash: CryptoHash,
+    source: &ContractCode,
     code: Option<&ContractCode>,
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> VMResult {
-    let mut fake_external = if let Some(code) = code {
-        MockedExternal::with_code_and_hash(code_hash, code.clone_for_tests())
-    } else {
-        MockedExternal::new()
-    };
-    fake_external.code_hash = code_hash;
+    // Cached execution still supplies exact source metadata, but must not need
+    // the source body. Keep these separate to exercise that boundary.
+    struct CachedContract<'a> {
+        source: &'a ContractCode,
+        body: Option<&'a ContractCode>,
+    }
+    impl Contract for CachedContract<'_> {
+        fn hash(&self) -> CryptoHash {
+            *self.source.hash()
+        }
+        fn code_len(&self) -> Option<u64> {
+            Some(self.source.code().len() as u64)
+        }
+        fn get_code(&self) -> Option<Arc<ContractCode>> {
+            self.body.map(|code| Arc::new(code.clone_for_tests()))
+        }
+    }
+    let contract = CachedContract { source, body: code };
+    let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = near_primitives_core::types::Gas::from_gas(prepaid_gas);
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, method_name, contract.code_len())
+        .expect("contract loading charge failed");
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-    runtime.prepare(&fake_external, Some(cache), gas_counter, method_name).run(
+    runtime.prepare(&contract, Some(cache), gas_counter, method_name).run(
         &mut fake_external,
         &context,
         fees,

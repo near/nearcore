@@ -2,8 +2,9 @@
 //!
 //! Each test runs a [`Scenario`] (a transaction to execute) both before the feature (protocol
 //! version `AccountCostIncrease - 1`) and after it (the latest protocol version) and compares
-//! the cost. A scenario that creates no account must cost exactly the same before and after; a
-//! scenario that creates accounts must cost `account_creation_charge` more per account. See
+//! the cost. Account creation adds `account_creation_charge` per account. The expectation also
+//! accounts for unrelated protocol features enabled between the compared versions, such as the
+//! loading base charged by `FixContractLoadingCost` for a call to a missing contract. See
 //! [`expected_cost_diff`] for the precise expectation.
 //!
 //! The cost is measured as the net balance decrease across the payer's accounts and any accounts a
@@ -29,7 +30,7 @@ use near_async::time::Duration;
 use near_client::QueryError;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::RuntimeConfig;
+use near_parameters::{ExtCosts, RuntimeConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{
@@ -161,6 +162,9 @@ struct ScenarioTx {
     deposit_recipients: Vec<AccountId>,
     /// Whether the transaction is expected to succeed.
     expect_success: bool,
+    /// Whether the scenario calls an account without a contract. Such a call starts charging the
+    /// contract-loading base when `FixContractLoadingCost` is enabled.
+    charges_missing_contract_loading_base: bool,
     /// Actions run via the actor's full access key to `receiver` before measuring (not
     /// counted), e.g. to pre-create the receiver so the measured transaction does not create it.
     pre_setup: Vec<Action>,
@@ -174,6 +178,7 @@ impl ScenarioTx {
             actions,
             deposit_recipients: vec![],
             expect_success: true,
+            charges_missing_contract_loading_base: false,
             pre_setup: vec![],
         }
     }
@@ -507,7 +512,8 @@ fn measure_cost(env: &mut TestLoopEnv, method: SubmitMethod, scenario: &Scenario
 /// `scenario` via `method`.
 ///
 /// Each created account costs an extra `account_creation_charge`, minus the create-account exec
-/// gas the receipt already burns at the regular price.
+/// gas the receipt already burns at the regular price. Calls to a missing contract also account
+/// for the loading base introduced by `FixContractLoadingCost`.
 ///
 /// Delegate methods see an additional meta-transaction adjustment: a relayed transaction
 /// charges each inner action's send fee one extra time (the relayer->sender hop), and the
@@ -525,22 +531,31 @@ fn expected_cost_diff(
 ) -> i128 {
     let charge_per_account =
         FeeHelper::new(after_config.clone(), GAS_PRICE).extra_account_creation_charge();
-    let charge_total = charge_per_account
+    let account_charge = charge_per_account
         .checked_mul(u128::from(scenario.accounts_created))
         .unwrap()
         .as_yoctonear() as i128;
+    let tx = (scenario.build)(method.index());
+    let price = GAS_PRICE.as_yoctonear() as i128;
+    let loading_base = |config: &RuntimeConfig| {
+        if tx.charges_missing_contract_loading_base && config.wasm_config.fix_contract_loading_cost
+        {
+            config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).as_gas() as i128
+        } else {
+            0
+        }
+    };
+    let loading_charge = (loading_base(after_config) - loading_base(before_config)) * price;
     if !method.is_delegate() {
-        return charge_total;
+        return account_charge + loading_charge;
     }
 
-    let tx = (scenario.build)(method.index());
     let sender_is_receiver = actor() == tx.receiver;
     let send_fee = |config: &RuntimeConfig| {
         total_send_fees(config, sender_is_receiver, &tx.actions, &tx.receiver).unwrap().gas.as_gas()
             as i128
     };
-    let price = GAS_PRICE.as_yoctonear() as i128;
-    charge_total + (send_fee(after_config) - send_fee(before_config)) * price
+    account_charge + loading_charge + (send_fee(after_config) - send_fee(before_config)) * price
 }
 
 /// Run a single scenario across multiple submission methods, comparing the cost of running it
@@ -694,12 +709,14 @@ fn test_transfer_creating_eth_implicit_account() {
 fn test_create_account_then_failing_call() {
     // `CreateAccount` followed by a `FunctionCall` on the new (contract-less) account, which
     // fails - rolling back the whole receipt, so the account is NOT created and no creation
-    // charge is applied. Cost is therefore identical before and after.
+    // charge is applied. `FixContractLoadingCost` still charges the loading base before discovering
+    // that the account has no contract.
     run_cost_test(
         Scenario {
             accounts_created: 0,
             build: |index| ScenarioTx {
                 expect_success: false,
+                charges_missing_contract_loading_base: true,
                 ..ScenarioTx::new(
                     sub_account(index),
                     vec![Action::CreateAccount(CreateAccountAction {}), log_something_action()],

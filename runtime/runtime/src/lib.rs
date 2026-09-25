@@ -9,7 +9,6 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-use crate::contract_code::RuntimeContractIdentifier;
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
@@ -685,20 +684,15 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.function_call.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract().into_owned();
-                let contract_id = RuntimeContractIdentifier::resolve(
+                let preparation = preparation_pipeline.prepare_contract_metadata(
                     account_id,
                     account_contract,
                     &state_update,
-                    &epoch_info_provider.chain_id(),
+                    function_call,
+                    None,
                     AccessOptions::DEFAULT,
                     apply_state.current_protocol_version,
                 )?;
-                let contract = preparation_pipeline.get_contract(
-                    receipt,
-                    contract_id.clone(),
-                    action_index,
-                    None,
-                );
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
@@ -711,11 +705,12 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    &contract_id,
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
-                    contract,
+                    preparation,
+                    preparation_pipeline,
+                    action_index,
                     storage_proof_size_before_receipt,
                 )?;
             }
@@ -3230,7 +3225,7 @@ impl<'a> ApplyProcessingState<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
-        let prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let prefetcher = TriePrefetcher::new_if_enabled(&trie, &apply_state.config.wasm_config);
         let state_update = TrieUpdate::new(trie);
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
@@ -3367,7 +3362,7 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)
-                    mgr.submit(receipt, state_update, None)
+                    mgr.submit(receipt, state_update)
                 }
                 ReceiptEnum::Data(dr) => {
                     let key = TrieKey::PostponedReceiptId {
