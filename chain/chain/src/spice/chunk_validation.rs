@@ -43,6 +43,16 @@ pub fn spice_pre_validate_chunk_state_witness(
     prev_validator_proposals: Vec<ValidatorStake>,
 ) -> Result<SpicePreValidationOutput, Error> {
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
+    let witness = match state_witness {
+        SpiceChunkStateWitness::V1(witness) => witness,
+        // TODO(spice): replaced by boundary pre-validation, which replays the
+        // pre-spice application the boundary witness attests.
+        SpiceChunkStateWitness::Boundary(_) => {
+            return Err(Error::InvalidChunkStateWitness(
+                "boundary state witness is not supported yet".to_string(),
+            ));
+        }
+    };
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
     let shard_id = state_witness.chunk_id().shard_id;
 
@@ -73,7 +83,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     // get_resharding_transition in c/c/s/stateless_validation/chunk_validation.rs
 
     let receipts_to_apply = validate_source_receipts_proofs(
-        &state_witness.source_receipt_proofs(),
+        &witness.source_receipt_proofs,
         prev_execution_results,
         &shard_layout,
         shard_id,
@@ -478,7 +488,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let proof = valid_witness.source_receipt_proofs().values().next().unwrap();
+        let proof = v1_source_receipt_proofs(&valid_witness).values().next().unwrap();
         let invalid_receipt_proofs = (0..test_chain.prev_block().chunks().len())
             .map(|i| -> (ShardId, ReceiptProof) { (ShardId::new(42 + i as u64), proof.clone()) })
             .collect();
@@ -496,8 +506,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, mut proof)| {
@@ -519,8 +528,7 @@ mod tests {
         let test_chain = setup();
         let valid_witness = test_chain.valid_witness();
 
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, mut proof)| {
@@ -544,8 +552,7 @@ mod tests {
 
         let shard_layout = &test_chain.shard_layout();
         let receipts = vec![];
-        let invalid_receipt_proofs = valid_witness
-            .source_receipt_proofs()
+        let invalid_receipt_proofs = v1_source_receipt_proofs(&valid_witness)
             .clone()
             .into_iter()
             .map(|(chunk_hash, valid_proof)| {
@@ -958,6 +965,15 @@ mod tests {
         ]
     }
 
+    fn v1_source_receipt_proofs(
+        witness: &SpiceChunkStateWitness,
+    ) -> &HashMap<ShardId, ReceiptProof> {
+        let SpiceChunkStateWitness::V1(witness) = witness else {
+            panic!("expected a regular witness");
+        };
+        &witness.source_receipt_proofs
+    }
+
     struct TestWitnessBuilder {
         chunk_id: SpiceChunkId,
         pre_state: PartialState,
@@ -985,16 +1001,17 @@ mod tests {
         builder_setter!(proof_of_invalid_chunk, Option<Box<EncodedShardChunkBody>>);
 
         fn from_default(default: SpiceChunkStateWitness) -> Self {
+            let SpiceChunkStateWitness::V1(default) = default else {
+                panic!("test builder only builds regular witnesses");
+            };
             Self {
-                chunk_id: default.chunk_id().clone(),
-                pre_state: default.pre_state().clone(),
-                source_receipt_proofs: default.source_receipt_proofs().clone(),
-                applied_receipts_hash: *default.applied_receipts_hash(),
-                transactions: default.transactions().to_vec(),
-                contract_accesses: default.contract_accesses().clone(),
-                proof_of_invalid_chunk: default
-                    .proof_of_invalid_chunk()
-                    .map(|b| Box::new(b.clone())),
+                chunk_id: default.chunk_id,
+                pre_state: default.pre_state,
+                source_receipt_proofs: default.source_receipt_proofs,
+                applied_receipts_hash: default.applied_receipts_hash,
+                transactions: default.transactions,
+                contract_accesses: default.contract_accesses,
+                proof_of_invalid_chunk: default.proof_of_invalid_chunk,
             }
         }
 
