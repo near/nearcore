@@ -3,7 +3,7 @@ use crate::spice::core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
 };
 use crate::spice::tests::all_stake_fallback::{
-    grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
+    chain_with_minority_designated_stake, grow_chain_to_fallback_only_block, split_designated,
 };
 use crate::spice::tests::core::endorse_chunk;
 use crate::test_utils::{
@@ -779,15 +779,19 @@ fn setup_with_senders(
 
 fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let chain = get_chain_with_genesis(Clock::real(), genesis);
-    let core_writer_actor = SpiceCoreWriterActor::new(
+    let core_writer_actor = core_writer_actor_for_chain(&chain);
+    (chain, core_writer_actor)
+}
+
+fn core_writer_actor_for_chain(chain: &Chain) -> SpiceCoreWriterActor {
+    SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
-        core_reader(&chain),
+        core_reader(chain),
         noop().into_sender(),
         noop().into_sender(),
-    );
-    (chain, core_writer_actor)
+    )
 }
 
 fn test_execution_result_for_chunk(chunk_header: &ShardChunkHeader) -> ChunkExecutionResult {
@@ -852,17 +856,8 @@ fn find_irrelevant_validator(
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_head_chain() {
-    // Enough validators that a chunk's designated assignment stays under 2/3 of total stake,
-    // asserted below.
-    let validators = validators_with_minority_designated_stake();
-    let validators_spec =
-        ValidatorsSpec::desired_roles(&validators.iter().map(|v| v.as_str()).collect_vec(), &[]);
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&Clock::real())
-        .shard_layout(ShardLayout::multi_shard(3, 0))
-        .validators_spec(validators_spec)
-        .build();
-    let (mut chain, mut core_writer_actor) = setup_with_genesis(genesis);
+    let (validators, mut chain) = chain_with_minority_designated_stake();
+    let mut core_writer_actor = core_writer_actor_for_chain(&chain);
 
     let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
     let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
@@ -884,8 +879,8 @@ fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_hea
         "the chunk should be absent from the head's uncertified set",
     );
 
-    // Every designated validator endorses. Only 2/3 of total stake may certify a fallback-only
-    // chunk, and the designated set alone is below that, so nothing should be stored.
+    // Every designated validator endorses. Only more than 1/3 of total stake may certify a
+    // fallback-only chunk, and the designated set alone is below that, so nothing should be stored.
     let chunks = fallback_only_block.chunks();
     let chunk_header =
         chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone();

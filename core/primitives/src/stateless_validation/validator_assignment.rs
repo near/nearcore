@@ -15,18 +15,12 @@ pub struct ChunkEndorsementsState {
     pub signatures: ChunkEndorsementSignatures,
 }
 
-fn has_enough_stake(total_stake: Balance, endorsed_stake: Balance) -> bool {
-    endorsed_stake >= required_stake(total_stake)
+fn has_more_than_two_thirds_stake(total_stake: Balance, endorsed_stake: Balance) -> bool {
+    endorsed_stake > total_stake.checked_mul(2).unwrap().checked_div(3).unwrap()
 }
 
-fn required_stake(total_stake: Balance) -> Balance {
-    total_stake
-        .checked_mul(2)
-        .unwrap()
-        .checked_div(3)
-        .unwrap()
-        .checked_add(Balance::from_yoctonear(1))
-        .unwrap()
+fn has_more_than_one_third_stake(total_stake: Balance, endorsed_stake: Balance) -> bool {
+    endorsed_stake > total_stake.checked_div(3).unwrap()
 }
 
 #[derive(Debug, Default)]
@@ -77,7 +71,7 @@ impl ChunkValidatorAssignments {
             }
         }
         // Signatures are empty if the chunk is not endorsed
-        let is_endorsed = has_enough_stake(total_stake, endorsed_stake);
+        let is_endorsed = has_more_than_two_thirds_stake(total_stake, endorsed_stake);
         if !is_endorsed {
             signatures.clear();
         }
@@ -91,10 +85,21 @@ impl ChunkValidatorAssignments {
         }
     }
 
-    /// Whether `endorsers` hold at least 2/3 of the assignment's total stake. Like
+    /// Whether `endorsers` hold more than 2/3 of the assignment's total stake. Like
     /// `compute_endorsement_state(..).is_endorsed`, but without materializing the full state when
     /// only the verdict is needed.
     pub fn is_endorsed(&self, endorsers: &HashSet<AccountId>) -> bool {
+        let (total_stake, endorsed_stake) = self.total_and_endorsed_stake(endorsers);
+        has_more_than_two_thirds_stake(total_stake, endorsed_stake)
+    }
+
+    /// Whether `endorsers` hold more than 1/3 of the assignment's total stake.
+    pub fn is_endorsed_by_more_than_one_third(&self, endorsers: &HashSet<AccountId>) -> bool {
+        let (total_stake, endorsed_stake) = self.total_and_endorsed_stake(endorsers);
+        has_more_than_one_third_stake(total_stake, endorsed_stake)
+    }
+
+    fn total_and_endorsed_stake(&self, endorsers: &HashSet<AccountId>) -> (Balance, Balance) {
         let mut total_stake = Balance::ZERO;
         let mut endorsed_stake = Balance::ZERO;
         for (account_id, stake) in &self.assignments {
@@ -103,6 +108,6 @@ impl ChunkValidatorAssignments {
                 endorsed_stake = endorsed_stake.checked_add(*stake).unwrap();
             }
         }
-        has_enough_stake(total_stake, endorsed_stake)
+        (total_stake, endorsed_stake)
     }
 }

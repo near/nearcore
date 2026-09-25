@@ -97,16 +97,15 @@ impl SpiceCoreReader {
         self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key)
     }
 
-    /// Whether the union of `endorsers` and the validators whose stored endorsement attests
-    /// `result_hash` certifies the chunk under `assignment`. `endorsers` seeds the set with the
-    /// endorsers already in hand (e.g. from the block); the rest are read from the store.
-    pub(crate) fn reaches_endorsement_threshold(
+    /// Adds to `endorsers` each validator of `assignment` whose stored endorsement attests
+    /// `result_hash`.
+    pub(crate) fn extend_with_stored_endorsers(
         &self,
         chunk_id: &SpiceChunkId,
         result_hash: &ChunkExecutionResultHash,
         assignment: &ChunkValidatorAssignments,
         mut endorsers: HashSet<AccountId>,
-    ) -> bool {
+    ) -> HashSet<AccountId> {
         for (account_id, _) in assignment.assignments() {
             if endorsers.contains(account_id) {
                 continue;
@@ -121,7 +120,7 @@ impl SpiceCoreReader {
             }
             endorsers.insert(account_id.clone());
         }
-        assignment.is_endorsed(&endorsers)
+        endorsers
     }
 
     fn get_execution_result(
@@ -390,7 +389,7 @@ impl SpiceCoreReader {
     }
 
     /// The not-yet-on-chain non-designated (fallback-set) endorsements. Included over successive
-    /// blocks, so they accumulate toward the 2/3-total-stake threshold rather than one fat
+    /// blocks, so they accumulate toward the all-stake threshold rather than one fat
     /// certifying block.
     fn fallback_endorsements(
         &self,
