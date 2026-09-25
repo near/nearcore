@@ -793,205 +793,227 @@ mod manager {
         store_update.commit();
     }
 
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn track_block_tracks_exactly_the_needed_items_once() {
-        let (chain, blocks) = chain_with_blocks(5);
-        let block = &blocks[4];
-        let mut manager = TestManager::new(&chain).manager;
+    mod delivery {
+        use super::*;
 
-        manager.track_block(block.header()).unwrap();
-        manager.track_block(block.header()).unwrap();
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn parts_without_an_item_are_not_wanted() {
+            let (chain, blocks) = chain_with_blocks(1);
+            let id = receipt_id(&blocks[0], 0, 1);
+            let mut manager = TestManager::new(&chain).manager;
+            let encoder = encoder();
+            let (commitment, parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
 
-        assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
-        // Proofs from the shard we apply are produced locally; proofs into the shard we
-        // don't apply are never needed.
-        assert!(!manager.is_tracking(&receipt_id(block, 1, 0)));
-        assert!(!manager.is_tracking(&receipt_id(block, 1, 1)));
-        assert!(!manager.is_tracking(&receipt_id(block, 0, 0)));
-        assert_eq!(manager.items.len(), 1);
-        // The second call did not duplicate the height index entry.
-        assert_eq!(manager.items_by_height[&5].len(), 1);
-    }
+            let result = manager.on_parts_received(
+                &account("alice.near"),
+                &id,
+                &commitment,
+                parts,
+                TOTAL_PARTS,
+            );
 
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn track_block_skips_items_already_on_disk() {
-        let (chain, blocks) = chain_with_blocks(1);
-        let block = &blocks[0];
-        save_proof(&chain, block, &receipt_data(0, 1));
-        let mut manager = TestManager::new(&chain).manager;
-
-        manager.track_block(block.header()).unwrap();
-
-        assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
-        assert!(manager.items_by_height.is_empty());
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
-        let (chain, blocks) = chain_with_blocks(2);
-        let mut manager = TestManager::new(&chain);
-        manager.set_final_execution_head(&blocks[0]);
-
-        // Height 1 is finally executed: neither the processed block nor a later track adds it.
-        let requests = manager.on_block_processed(&blocks[0]);
-        manager.manager.track_block(blocks[0].header()).unwrap();
-        manager.manager.track_block(blocks[1].header()).unwrap();
-
-        assert_eq!(requests, vec![]);
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-        assert!(manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
-        let (chain, all_blocks) = chain_with_blocks(4);
-        // Heights 2, 3, 4.
-        let blocks = &all_blocks[1..];
-        let mut manager = TestManager::new(&chain);
-        for block in blocks {
-            manager.manager.track_block(block.header()).unwrap();
+            assert_matches!(result, Ok(PartsOutcome::NotWanted));
         }
 
-        manager.set_final_execution_head(&blocks[1]);
-        manager.on_block_processed(&blocks[2]);
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
+            let (_chain, _blocks, id, mut manager) = tracked_item(1);
+            let manager = &mut manager.manager;
+            let encoder = encoder();
+            let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+            let late_part = parts.split_off(DATA_PARTS);
 
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-        assert!(!manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-        assert!(manager.manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
-        assert_eq!(manager.manager.items_by_height.keys().copied().collect::<Vec<_>>(), vec![4]);
-    }
+            let delivered = manager
+                .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
+                .unwrap();
 
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn parts_without_an_item_are_not_wanted() {
-        let (chain, blocks) = chain_with_blocks(1);
-        let id = receipt_id(&blocks[0], 0, 1);
-        let mut manager = TestManager::new(&chain).manager;
-        let encoder = encoder();
-        let (commitment, parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+            assert_matches!(delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+            // Nothing more can arrive under a decoded commitment, so a re-pushed part cannot
+            // deliver twice. The item stays until it expires.
+            let result = manager.on_parts_received(
+                &account("bob.near"),
+                &id,
+                &commitment,
+                late_part,
+                TOTAL_PARTS,
+            );
+            assert_matches!(result, Ok(PartsOutcome::Settled));
+            assert!(manager.is_tracking(&id));
+        }
 
-        let result =
-            manager.on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS);
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
+            let (_chain, _blocks, id, mut manager) = tracked_item(1);
+            let manager = &mut manager.manager;
+            let encoder = encoder();
+            let (first, first_parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
+            let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
 
-        assert_matches!(result, Ok(PartsOutcome::NotWanted));
-    }
+            let first_delivered = manager
+                .on_parts_received(&account("alice.near"), &id, &first, first_parts, TOTAL_PARTS)
+                .unwrap();
+            let second_delivered = manager
+                .on_parts_received(&account("bob.near"), &id, &second, second_parts, TOTAL_PARTS)
+                .unwrap();
 
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
-        let (_chain, _blocks, id, mut manager) = tracked_item(1);
-        let manager = &mut manager.manager;
-        let encoder = encoder();
-        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
-        let late_part = parts.split_off(DATA_PARTS);
+            assert_matches!(first_delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+            assert_matches!(
+                second_delivered,
+                PartsOutcome::Decoded(data) if data == other_receipt_data(0, 1)
+            );
+        }
 
-        let delivered = manager
-            .on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS)
-            .unwrap();
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
+            let (_chain, _blocks, id, mut manager) = tracked_item(1);
+            let manager = &mut manager.manager;
+            let encoder = encoder();
+            // The decoded proof's destination doesn't match the id's `to_shard`.
+            let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));
+            let late_part = parts.split_off(DATA_PARTS);
 
-        assert_matches!(delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
-        // Nothing more can arrive under a decoded commitment, so a re-pushed part cannot
-        // deliver twice. The item stays until it expires.
-        let result = manager.on_parts_received(
-            &account("bob.near"),
-            &id,
-            &commitment,
-            late_part,
-            TOTAL_PARTS,
-        );
-        assert_matches!(result, Ok(PartsOutcome::Settled));
-        assert!(manager.is_tracking(&id));
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
-        let (_chain, _blocks, id, mut manager) = tracked_item(1);
-        let manager = &mut manager.manager;
-        let encoder = encoder();
-        let (first, first_parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
-        let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
-
-        let first_delivered = manager
-            .on_parts_received(&account("alice.near"), &id, &first, first_parts, TOTAL_PARTS)
-            .unwrap();
-        let second_delivered = manager
-            .on_parts_received(&account("bob.near"), &id, &second, second_parts, TOTAL_PARTS)
-            .unwrap();
-
-        assert_matches!(first_delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
-        assert_matches!(
-            second_delivered,
-            PartsOutcome::Decoded(data) if data == other_receipt_data(0, 1)
-        );
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
-        let (_chain, _blocks, id, mut manager) = tracked_item(1);
-        let manager = &mut manager.manager;
-        let encoder = encoder();
-        // The decoded proof's destination doesn't match the id's `to_shard`.
-        let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));
-        let late_part = parts.split_off(DATA_PARTS);
-
-        let result =
-            manager.on_parts_received(&account("alice.near"), &id, &commitment, parts, TOTAL_PARTS);
-        assert_matches!(
-            result,
-            Err(SenderFault::GarbageCommitment(AssembledDataError::InvalidToShardId))
-        );
-
-        // The item keeps collecting, with the mismatched commitment settled.
-        assert!(manager.is_tracking(&id));
-        let result = manager.on_parts_received(
-            &account("bob.near"),
-            &id,
-            &commitment,
-            late_part,
-            TOTAL_PARTS,
-        );
-        assert_matches!(result, Ok(PartsOutcome::Settled));
-    }
-
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn a_message_with_a_failing_part_is_rejected_whole_whatever_the_position() {
-        let (chain, blocks) = chain_with_blocks(1);
-        let id = receipt_id(&blocks[0], 0, 1);
-        let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
-        let good: Vec<u64> = (0..DATA_PARTS as u64).collect();
-        let alice = account("alice.near");
-        for bad_position in [0, DATA_PARTS / 2, DATA_PARTS] {
-            let mut manager = TestManager::new(&chain);
-            manager.manager.track_block(blocks[0].header()).unwrap();
-            let mut message = parts_with_ordinals(&parts, &good);
-            let mut bad = parts_with_ordinals(&parts, &[DATA_PARTS as u64]).remove(0);
-            bad.part[0] ^= 1;
-            message.insert(bad_position, bad);
-
-            let result =
-                manager.manager.on_parts_received(&alice, &id, &commitment, message, TOTAL_PARTS);
-
+            let result = manager.on_parts_received(
+                &account("alice.near"),
+                &id,
+                &commitment,
+                parts,
+                TOTAL_PARTS,
+            );
             assert_matches!(
                 result,
-                Err(SenderFault::InvalidMerkleProof),
-                "bad part at position {bad_position}"
+                Err(SenderFault::GarbageCommitment(AssembledDataError::InvalidToShardId))
             );
-            // Enough good parts to decode were in the message; none landed and the sender
-            // is not bound.
-            assert!(manager.item(&id).commitments.is_empty());
-            assert!(!manager.item(&id).producers.contains_key(&alice));
+
+            // The item keeps collecting, with the mismatched commitment settled.
+            assert!(manager.is_tracking(&id));
+            let result = manager.on_parts_received(
+                &account("bob.near"),
+                &id,
+                &commitment,
+                late_part,
+                TOTAL_PARTS,
+            );
+            assert_matches!(result, Ok(PartsOutcome::Settled));
+        }
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn a_message_with_a_failing_part_is_rejected_whole_whatever_the_position() {
+            let (chain, blocks) = chain_with_blocks(1);
+            let id = receipt_id(&blocks[0], 0, 1);
+            let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+            let good: Vec<u64> = (0..DATA_PARTS as u64).collect();
+            let alice = account("alice.near");
+            for bad_position in [0, DATA_PARTS / 2, DATA_PARTS] {
+                let mut manager = TestManager::new(&chain);
+                manager.manager.track_block(blocks[0].header()).unwrap();
+                let mut message = parts_with_ordinals(&parts, &good);
+                let mut bad = parts_with_ordinals(&parts, &[DATA_PARTS as u64]).remove(0);
+                bad.part[0] ^= 1;
+                message.insert(bad_position, bad);
+
+                let result = manager.manager.on_parts_received(
+                    &alice,
+                    &id,
+                    &commitment,
+                    message,
+                    TOTAL_PARTS,
+                );
+
+                assert_matches!(
+                    result,
+                    Err(SenderFault::InvalidMerkleProof),
+                    "bad part at position {bad_position}"
+                );
+                // Enough good parts to decode were in the message; none landed and the sender
+                // is not bound.
+                assert!(manager.item(&id).commitments.is_empty());
+                assert!(!manager.item(&id).producers.contains_key(&alice));
+            }
         }
     }
 
     mod lifecycle {
         use super::*;
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn track_block_tracks_exactly_the_needed_items_once() {
+            let (chain, blocks) = chain_with_blocks(5);
+            let block = &blocks[4];
+            let mut manager = TestManager::new(&chain).manager;
+
+            manager.track_block(block.header()).unwrap();
+            manager.track_block(block.header()).unwrap();
+
+            assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
+            // Proofs from the shard we apply are produced locally; proofs into the shard we
+            // don't apply are never needed.
+            assert!(!manager.is_tracking(&receipt_id(block, 1, 0)));
+            assert!(!manager.is_tracking(&receipt_id(block, 1, 1)));
+            assert!(!manager.is_tracking(&receipt_id(block, 0, 0)));
+            assert_eq!(manager.items.len(), 1);
+            // The second call did not duplicate the height index entry.
+            assert_eq!(manager.items_by_height[&5].len(), 1);
+        }
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn track_block_skips_items_already_on_disk() {
+            let (chain, blocks) = chain_with_blocks(1);
+            let block = &blocks[0];
+            save_proof(&chain, block, &receipt_data(0, 1));
+            let mut manager = TestManager::new(&chain).manager;
+
+            manager.track_block(block.header()).unwrap();
+
+            assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
+            assert!(manager.items_by_height.is_empty());
+        }
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
+            let (chain, blocks) = chain_with_blocks(2);
+            let mut manager = TestManager::new(&chain);
+            manager.set_final_execution_head(&blocks[0]);
+
+            // Height 1 is finally executed: neither the processed block nor a later track adds it.
+            let requests = manager.on_block_processed(&blocks[0]);
+            manager.manager.track_block(blocks[0].header()).unwrap();
+            manager.manager.track_block(blocks[1].header()).unwrap();
+
+            assert_eq!(requests, vec![]);
+            assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+            assert!(manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+        }
+
+        #[test]
+        #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+        fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
+            let (chain, all_blocks) = chain_with_blocks(4);
+            // Heights 2, 3, 4.
+            let blocks = &all_blocks[1..];
+            let mut manager = TestManager::new(&chain);
+            for block in blocks {
+                manager.manager.track_block(block.header()).unwrap();
+            }
+
+            manager.set_final_execution_head(&blocks[1]);
+            manager.on_block_processed(&blocks[2]);
+
+            assert!(!manager.manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+            assert!(!manager.manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+            assert!(manager.manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+            assert_eq!(
+                manager.manager.items_by_height.keys().copied().collect::<Vec<_>>(),
+                vec![4]
+            );
+        }
 
         #[test]
         #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
