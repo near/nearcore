@@ -20,7 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
-use crate::sync::peers::{PeerAdvertisedHead, SyncPeers};
+use crate::sync::peers::{PeerAdvertisedHead, PeerSelector, SyncPeers};
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
@@ -1680,7 +1680,7 @@ impl ClientActor {
 
     /// Check whether need to (continue) sync.
     /// Also return the height to sync to, from a peer or from our own header head.
-    fn syncing_info(&mut self) -> Result<SyncRequirement, near_chain::Error> {
+    fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
@@ -1690,8 +1690,8 @@ impl ClientActor {
 
         let from_peers = if self.head_is_stale(&head)? {
             // Head hasn't advanced in ~1 epoch: we really are behind (a peer can't
-            // fake this), so use the unvalidated claimed heights to pick who to sync
-            // from; the proof and downstream checks re-validate the target.
+            // fake this), so use the unvalidated claimed heights to decide how far
+            // behind we are; the proof and downstream checks re-validate the target.
             self.sync_requirement_from_claimed_peers(head.clone())?
         } else {
             // Head is recent, so we still know the validator set for nearby heights
@@ -1764,14 +1764,12 @@ impl ClientActor {
     /// Sync decision from unverified advertised heights. Used only once our own
     /// clock already shows we are behind.
     fn sync_requirement_from_claimed_peers(
-        &mut self,
+        &self,
         head: Tip,
     ) -> Result<SyncRequirement, near_chain::Error> {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let eligible_peers = self.peers_advertising_above(head.height);
-        let now = self.clock.now_utc();
-        let selector = &mut self.client.sync_handler.peer_selector;
-        let Some(peer_info) = selector.pick(&eligible_peers, now) else {
+        let Some(peer_info) = PeerSelector::median_advertised_head(&eligible_peers) else {
             return Ok(SyncRequirement::NoPeers);
         };
         let peer_id = peer_info.peer_info.id.clone();
@@ -1904,7 +1902,7 @@ impl ClientActor {
         now + delay
     }
 
-    fn sync_wait_period(&mut self) -> Duration {
+    fn sync_wait_period(&self) -> Duration {
         if let Ok(sync) = self.syncing_info() {
             if !sync.sync_needed() {
                 // If we don't need syncing - retry the sync call rarely.
