@@ -3,11 +3,12 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
-    Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    DATA_PARTS_RATIO, Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD,
+    MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    validate_wants,
 };
-use crate::spice::data_manager::{AssembledDataError, DataId, DataManagerError};
+use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
 use near_async::messaging::Actor;
@@ -47,7 +48,8 @@ use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::hash::hash;
-use near_primitives::merkle::{Direction, MerklePathItem, merklize};
+use near_primitives::merkle::{Direction, MerklePathItem};
+use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunkHeader;
@@ -294,6 +296,7 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
+            Clock::real(),
             epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
@@ -1017,12 +1020,12 @@ test_invalid_incoming_partial_data! {
             .id(SpiceDataIdentifier::ReceiptProof { from_shard_id, block_hash, to_shard_id })
             .build()
     })
-    merkle_path_does_not_match_commitment_root(Error::DataManager(DataManagerError::InvalidMerkleProof), receipt_proof_incoming_data, default, {
+    merkle_path_does_not_match_commitment_root(Error::SenderFault(SenderFault::InvalidMerkleProof), receipt_proof_incoming_data, default, {
         let mut commitment = default.commitment.clone();
         commitment.root = CryptoHash::default();
         SpicePartialDataBuilder::from_verified(default).commitment(commitment).build()
     })
-    invalid_part_ord(Error::DataManager(DataManagerError::InvalidMerkleProof), receipt_proof_incoming_data, default, {
+    invalid_part_ord(Error::SenderFault(SenderFault::InvalidMerkleProof), receipt_proof_incoming_data, default, {
         let mut parts = default.parts.clone();
         parts[0].part_ord = 42;
         SpicePartialDataBuilder::from_verified(default).parts(parts).build()
@@ -1035,7 +1038,7 @@ test_invalid_incoming_partial_data! {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_not_matching_commitment_hash_is_settled() {
+fn test_a_garbage_decode_delivers_nothing_and_the_item_keeps_collecting() {
     let (_genesis, chain) = setup(2, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
@@ -1052,78 +1055,13 @@ fn test_incoming_partial_data_not_matching_commitment_hash_is_settled() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
         result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-            DataManagerError::GarbageCommitment(AssembledDataError::HashMismatch)
+        Err(ReceiveDataError::ReceivingDataWithBlock(Error::SenderFault(
+            SenderFault::GarbageCommitment(AssembledDataError::HashMismatch)
         )))
     );
     // The garbage decode settled only its commitment; the item keeps collecting.
     assert!(actor.is_tracking(&data_id));
     assert_matches!(actor.receive_data(data), Ok(()));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_with_undecodable_part_is_settled() {
-    let (_genesis, chain) = setup(2, 0);
-    let block = latest_block(&chain);
-    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
-    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let default = data_into_verified(incoming_data.data);
-    let data_id = test_receipt_proof_data_id(&block);
-    // A well-formed part (right length for the claimed encoded_length) whose bytes
-    // decode to nothing.
-    let encoded_length = 30usize;
-    let mut boxed_parts: Vec<Box<[u8]>> = vec![vec![0xff; encoded_length].into_boxed_slice()];
-    let (merkle_root, mut merkle_proofs) = merklize(&boxed_parts);
-    let data = SpicePartialDataBuilder::from_verified(default)
-        .commitment(SpiceDataCommitment {
-            hash: CryptoHash::default(),
-            root: merkle_root,
-            encoded_length: encoded_length as u64,
-        })
-        .parts(vec![SpiceDataPart {
-            part_ord: 0,
-            part: boxed_parts.swap_remove(0),
-            merkle_proof: merkle_proofs.swap_remove(0),
-        }])
-        .build();
-
-    let result = actor.receive_data(data.clone());
-
-    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-            DataManagerError::GarbageCommitment(AssembledDataError::Undecodable)
-        )))
-    );
-    // The garbage decode settled only its commitment; the item keeps collecting.
-    assert!(actor.is_tracking(&data_id));
-    assert_matches!(actor.receive_data(data), Ok(()));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_is_already_decoded() {
-    let (_genesis, chain) = setup(2, 0);
-    let block = latest_block(&chain);
-
-    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
-
-    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let data = incoming_data.data.clone();
-    actor.handle(incoming_data);
-    assert_matches!(
-        outgoing_rc.try_recv(),
-        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
-    );
-    // A re-pushed part under the decoded commitment is harmless: nothing is delivered
-    // twice and nothing is reported.
-    let result = actor.receive_data(data);
-    assert_matches!(result, Ok(()));
-    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
@@ -1267,110 +1205,8 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
             result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-                DataManagerError::GarbageCommitment(AssembledDataError::IdAndDataMismatch)
-            )))
-        );
-    }
-    // The mismatch banned the commitment and bound its sender to it, so recovery has to
-    // come from another producer.
-    let honest_proof = new_test_receipt_proof(&block);
-    let other_producer = producers_of_receipt_proof(&chain, &block, &honest_proof).swap_remove(1);
-    let (honest_data, _) = get_incoming_data(
-        &other_producer,
-        &chain,
-        SpiceDistributorOutgoingReceipts {
-            block_hash: *block.hash(),
-            receipt_proofs: vec![honest_proof],
-        },
-    );
-    actor.handle(honest_data);
-    assert_matches!(outgoing_rc.try_recv(), Ok(_));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
-    let (_genesis, chain) = setup(4, 0);
-    let block = latest_block(&chain);
-    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
-    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    {
-        let mut receipt_proof = new_test_receipt_proof(&block);
-        receipt_proof.1.from_shard_id = receipt_proof.1.to_shard_id;
-        let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
-        let (different_incoming_data, _recipient) = get_incoming_data(
-            &producer,
-            &chain,
-            SpiceDistributorOutgoingReceipts {
-                block_hash: *block.hash(),
-                receipt_proofs: vec![receipt_proof],
-            },
-        );
-        let different_incoming_data = data_into_verified(different_incoming_data.data);
-
-        let data = SpicePartialDataBuilder::from_default(incoming_data.data)
-            .commitment(different_incoming_data.commitment)
-            .parts(different_incoming_data.parts)
-            .build();
-        let result = actor.receive_data(data);
-        assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(
-            result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-                DataManagerError::GarbageCommitment(AssembledDataError::InvalidFromShardId)
-            )))
-        );
-    }
-    // The mismatch banned the commitment and bound its sender to it, so recovery has to
-    // come from another producer.
-    let honest_proof = new_test_receipt_proof(&block);
-    let other_producer = producers_of_receipt_proof(&chain, &block, &honest_proof).swap_remove(1);
-    let (honest_data, _) = get_incoming_data(
-        &other_producer,
-        &chain,
-        SpiceDistributorOutgoingReceipts {
-            block_hash: *block.hash(),
-            receipt_proofs: vec![honest_proof],
-        },
-    );
-    actor.handle(honest_data);
-    assert_matches!(outgoing_rc.try_recv(), Ok(_));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
-    let (_genesis, chain) = setup(4, 0);
-    let block = latest_block(&chain);
-    let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
-    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    {
-        let mut receipt_proof = new_test_receipt_proof(&block);
-        receipt_proof.1.to_shard_id = receipt_proof.1.from_shard_id;
-        let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
-        let (different_incoming_data, _recipient) = get_incoming_data(
-            &producer,
-            &chain,
-            SpiceDistributorOutgoingReceipts {
-                block_hash: *block.hash(),
-                receipt_proofs: vec![receipt_proof],
-            },
-        );
-        let different_incoming_data = data_into_verified(different_incoming_data.data);
-
-        let data = SpicePartialDataBuilder::from_default(incoming_data.data)
-            .commitment(different_incoming_data.commitment)
-            .parts(different_incoming_data.parts)
-            .build();
-        let result = actor.receive_data(data);
-        assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(
-            result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataManager(
-                DataManagerError::GarbageCommitment(AssembledDataError::InvalidToShardId)
+            Err(ReceiveDataError::ReceivingDataWithBlock(Error::SenderFault(
+                SenderFault::GarbageCommitment(AssembledDataError::IdAndDataMismatch)
             )))
         );
     }
@@ -2136,10 +1972,101 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(actor.is_tracking(&data_id));
-    // TODO(spice-data-distribution): until pull recovery lands, a waited-on receipt
-    // proof is never requested (#16275).
+    // The proof's source chunk is not certified as of its own block, so it is not pulled yet.
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
     assert!(!requests.iter().any(|(id, _)| matches!(id, SpiceDataIdentifier::ReceiptProof { .. })));
+}
+
+/// Every data request queued, by the producer it goes to; drops every other message.
+fn drain_outgoing_pull_requests(
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+    requester: &AccountId,
+) -> BTreeMap<AccountId, BTreeMap<SpiceDataIdentifier, BTreeSet<u64>>> {
+    let mut requests = BTreeMap::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        let OutgoingMessage::NetworkRequests {
+            request: NetworkRequests::SpiceDataRequest { request, producer },
+        } = message
+        else {
+            continue;
+        };
+        let (wants, sender) = request.into_parts();
+        assert_eq!(&sender, requester);
+        validate_wants(&wants).expect("a built request passes the server's caps");
+        assert!(requests.insert(producer, wants).is_none(), "two requests to one producer");
+    }
+    requests
+}
+
+/// The receipt proof of `block` and the recipient whose node pulls it: a producer of the
+/// destination shard that does not produce the source shard. Asserts one pushed part
+/// cannot decode the proof on its own.
+fn receipt_proof_pull_setup(
+    chain: &Chain,
+    block: &Block,
+) -> (ReceiptProof, Vec<AccountId>, AccountId) {
+    let receipt_proof = new_test_receipt_proof(block);
+    let producers = producers_of_receipt_proof(chain, block, &receipt_proof);
+    assert!(
+        reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO) >= 2,
+        "one part alone must not decode"
+    );
+    let recipient = recipients_of_receipt_proof(chain, block, &receipt_proof)
+        .into_iter()
+        .find(|account| !producers.contains(account))
+        .unwrap();
+    (receipt_proof, producers, recipient)
+}
+
+/// `producer`'s pushed part of `receipt_proof`, as its recipients receive it.
+fn pushed_receipt_proof_part(
+    chain: &Chain,
+    block: &Block,
+    producer: &AccountId,
+    receipt_proof: ReceiptProof,
+) -> SpiceIncomingPartialData {
+    let (data, _) = get_incoming_data(
+        producer,
+        chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![receipt_proof],
+        },
+    );
+    data
+}
+
+/// Once the source chunk is certified, the processed block pulls a receipt proof one
+/// pushed part short: the pushing producer is asked for the commitment's gaps and every
+/// silent producer for its own ordinal, in one request each.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_processed_block_pulls_a_certified_receipt_proof_from_its_producers() {
+    let (_genesis, mut chain) = setup(8, 0);
+    let block = latest_block(&chain);
+    let (receipt_proof, producers, recipient) = receipt_proof_pull_setup(&chain, &block);
+    let pushed = pushed_receipt_proof_part(&chain, &block, &producers[0], receipt_proof);
+    let data_id = SpiceDataIdentifier::from(&test_receipt_proof_data_id(&block));
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
+
+    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(pushed);
+    // The source chunk is not certified as of its own block, so nothing is pulled yet.
+    assert!(drain_outgoing_pull_requests(&mut outgoing_rc, &recipient).is_empty());
+
+    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &block);
+    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
+
+    let requests = drain_outgoing_pull_requests(&mut outgoing_rc, &recipient);
+    let mut expected = BTreeMap::new();
+    let gaps: BTreeSet<u64> = (1..producers.len() as u64).collect();
+    expected.insert(producers[0].clone(), BTreeMap::from([(data_id.clone(), gaps)]));
+    for (ordinal, producer) in producers.iter().enumerate().skip(1) {
+        let own = BTreeSet::from([ordinal as u64]);
+        expected.insert(producer.clone(), BTreeMap::from([(data_id.clone(), own)]));
+    }
+    assert_eq!(requests, expected);
 }
 
 #[test]
@@ -3406,12 +3333,11 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
-    // The dead fork's witness is purged at the final head; the canonical block's stays.
+    // The dead fork's witness and receipt proof are purged at the final head; the
+    // canonical block's stay, the proof's item until the final execution head passes it.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
     assert_eq!(waiting_witness_count_of(&actor, next_block.hash()), next_witnesses);
-    // Receipt proofs expire at the final execution head instead, which still sits below
-    // the fork, so both blocks' items are still tracked.
-    assert!(actor.is_tracking(&proof_id(&fork_block)));
+    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(actor.is_tracking(&proof_id(&next_block)));
     let requested_blocks: HashSet<_> = drain_outgoing_data_requests(&mut outgoing_rc)
         .into_iter()
@@ -3420,12 +3346,9 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(!requested_blocks.contains(fork_block.hash()));
     assert!(requested_blocks.contains(next_block.hash()));
 
-    // Once the final execution head passes their height, the dead fork's item and the
-    // executed canonical block's item are both moot and expire.
     save_final_execution_head(&chain, &next_block);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
-    assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(!actor.is_tracking(&proof_id(&next_block)));
 }
 

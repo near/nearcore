@@ -1,6 +1,8 @@
-use super::DataManagerError;
+use super::DataId;
+use super::pull::PullState;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::hash::{CryptoHash, hash};
+use near_async::time::Instant;
+use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderDeserialize,
@@ -9,49 +11,10 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
+use near_primitives::types::{AccountId, BlockHeight};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
-
-/// Identity of one piece of distributed data the engine tracks.
-// TODO(spice-data-distribution): witnesses and contract code move here when their
-// paths switch to the engine. At that moment it can be replaced with `SpiceDataIdentifier`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DataId {
-    /// `source` is the chunk whose execution produced the receipts; `to_shard` is their
-    /// destination. Produced by `source`'s producers, needed by next-block producers of
-    /// `to_shard`.
-    ReceiptProof { source: SpiceChunkId, to_shard: ShardId },
-}
-
-impl DataId {
-    pub fn receipt_proof(
-        block_hash: CryptoHash,
-        from_shard_id: ShardId,
-        to_shard_id: ShardId,
-    ) -> Self {
-        Self::ReceiptProof {
-            source: SpiceChunkId { block_hash, shard_id: from_shard_id },
-            to_shard: to_shard_id,
-        }
-    }
-
-    /// Checks that decoded data is the data this id names.
-    pub(crate) fn verify_data(&self, data: &SpiceData) -> Result<(), AssembledDataError> {
-        let DataId::ReceiptProof { source, to_shard } = self;
-        let SpiceData::ReceiptProof(proof) = data else {
-            return Err(AssembledDataError::IdAndDataMismatch);
-        };
-        if &proof.1.to_shard_id != to_shard {
-            return Err(AssembledDataError::InvalidToShardId);
-        }
-        if proof.1.from_shard_id != source.shard_id {
-            return Err(AssembledDataError::InvalidFromShardId);
-        }
-        Ok(())
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, BorshSerialize, BorshDeserialize)]
 pub(crate) enum SpiceData {
@@ -67,13 +30,19 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
+    /// The producers of the item's data, one per part ordinal.
+    pub(crate) sources: Vec<AccountId>,
+    /// Whether a decode has been handed to the consumer. Only then can the store hold the
+    /// item's data.
+    pub(crate) delivered: bool,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
     /// Maps each sender's `AccountId` to the commitment it contributed to.
     pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
+    /// In-flight requests to producers bound to no commitment, by the time each was sent.
+    pub(super) requests_to_unbound: HashMap<AccountId, Instant>,
 }
 
-/// What the engine holds for one claimed commitment of an item.
 #[derive(Debug)]
 pub(super) enum CommitmentState {
     /// Collecting parts toward a decode.
@@ -83,8 +52,34 @@ pub(super) enum CommitmentState {
 }
 
 impl FetchItem {
-    pub(crate) fn new(height: BlockHeight) -> Self {
-        Self { height, commitments: HashMap::new(), commitment_by_contributor: HashMap::new() }
+    pub(crate) fn new(height: BlockHeight, sources: Vec<AccountId>) -> Self {
+        Self {
+            height,
+            sources,
+            delivered: false,
+            commitments: HashMap::new(),
+            commitment_by_contributor: HashMap::new(),
+            requests_to_unbound: HashMap::new(),
+        }
+    }
+
+    /// The trackers still collecting.
+    pub(super) fn live_trackers_mut(&mut self) -> impl Iterator<Item = &mut CodedTracker> {
+        self.commitments.values_mut().filter_map(|state| match state {
+            CommitmentState::Tracking(tracker) => Some(tracker),
+            CommitmentState::Settled => None,
+        })
+    }
+
+    /// The tracker still collecting under `commitment`, if any.
+    pub(super) fn tracker_mut(
+        &mut self,
+        commitment: &SpiceDataCommitment,
+    ) -> Option<&mut CodedTracker> {
+        match self.commitments.get_mut(commitment) {
+            Some(CommitmentState::Tracking(tracker)) => Some(tracker),
+            Some(CommitmentState::Settled) | None => None,
+        }
     }
 
     /// Senders contributed to `commitment`.
@@ -98,62 +93,57 @@ impl FetchItem {
 
     /// Inserts a verified part under its commitment. Any claim binds the sender to the
     /// commitment; a claim of the wrong width or part length settles the commitment as
-    /// bogus. A decoding insert settles it in the same call. Errors are attributable to
-    /// the sender.
+    /// garbage. A decoding insert settles it in the same call.
     pub(crate) fn insert_part(
         &mut self,
         encoder: &Arc<ReedSolomonEncoder>,
         id: &DataId,
         sender: &AccountId,
         verified: VerifiedCodedPart,
-    ) -> Result<PartInsertResult, DataManagerError> {
+    ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
         if self.commitment_by_contributor.get(sender).is_some_and(|bound| bound != &commitment) {
-            return Err(DataManagerError::ConflictingCommitment);
+            return PartInsertResult::ConflictingCommitment;
         }
         self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
-            return Ok(PartInsertResult::Settled);
+            return PartInsertResult::Settled;
         }
         // TODO(spice-data-distribution): cap encoded_length against the max payload size;
         // the only cap today is MAX_ENCODED_LENGTH inside the decode.
         let encoded_length =
             usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
-        // equal widths plus a verified proof imply the ordinal is in range
-        let malformed = if total_parts != encoder.total_parts() {
-            Some(DataManagerError::WrongTotalParts)
+        // No part verifies under a well-formed commitment of another width or part length,
+        // so such a claim is garbage. Equal widths plus a verified proof imply the ordinal
+        // is in range.
+        let result = if total_parts != encoder.total_parts() {
+            PartInsertResult::Garbage(AssembledDataError::WrongTotalParts)
         } else if part.len() != reed_solomon_part_length(encoded_length, encoder.data_parts()) {
-            Some(DataManagerError::WrongPartLength)
+            PartInsertResult::Garbage(AssembledDataError::WrongPartLength)
         } else {
-            None
+            let state = self.commitments.entry(commitment.clone()).or_insert_with(|| {
+                CommitmentState::Tracking(CodedTracker::new(encoder.clone(), encoded_length))
+            });
+            let CommitmentState::Tracking(tracker) = state else {
+                unreachable!("a settled commitment was returned above");
+            };
+            tracker.insert_part(id, &commitment, ordinal, part)
         };
-        if let Some(error) = malformed {
-            // no part verifies under a well-formed commitment of another width or part
-            // length, so the commitment is bogus: settled like a garbage decode
-            self.commitments.insert(commitment, CommitmentState::Settled);
-            return Err(error);
-        }
-        let state = self.commitments.entry(commitment.clone()).or_insert_with(|| {
-            CommitmentState::Tracking(CodedTracker::new(encoder.clone(), encoded_length))
-        });
-        let CommitmentState::Tracking(tracker) = state else {
-            unreachable!("a settled commitment was returned above");
-        };
-        let result = tracker.insert_part(id, &commitment, ordinal, part);
         match &result {
             PartInsertResult::Decoded(_) | PartInsertResult::Garbage(_) => {
-                *state = CommitmentState::Settled;
+                self.commitments.insert(commitment.clone(), CommitmentState::Settled);
             }
             PartInsertResult::Accepted
             | PartInsertResult::Duplicate
-            | PartInsertResult::Settled => {}
+            | PartInsertResult::Settled
+            | PartInsertResult::ConflictingCommitment => {}
         }
         if let PartInsertResult::Garbage(error) = &result {
             let contributors = self.contributors(&commitment);
-            tracing::debug!(target: "spice_data_distribution", ?id, ?error, ?contributors, "commitment decoded to garbage");
+            tracing::debug!(target: "spice_data_distribution", ?id, ?error, ?contributors, "commitment settled as garbage");
         }
-        Ok(result)
+        result
     }
 }
 
@@ -175,7 +165,7 @@ impl VerifiedCodedPart {
         ordinal: u64,
         part: Box<[u8]>,
         merkle_proof: &MerklePath,
-    ) -> Result<Self, DataManagerError> {
+    ) -> Option<Self> {
         if !verify_path_with_index(
             commitment.root,
             merkle_proof,
@@ -183,11 +173,11 @@ impl VerifiedCodedPart {
             ordinal,
             total_parts as u64,
         ) {
-            return Err(DataManagerError::InvalidMerkleProof);
+            return None;
         }
         // the index check above bounds the ordinal by `total_parts`, a usize
         let ordinal = usize::try_from(ordinal).expect("verified ordinal fits in usize");
-        Ok(Self { commitment: commitment.clone(), total_parts, ordinal, part })
+        Some(Self { commitment: commitment.clone(), total_parts, ordinal, part })
     }
 
     // TODO(spice-data-distribution): these accessors only feed the old witness ingress
@@ -204,6 +194,8 @@ impl VerifiedCodedPart {
 /// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
+    total_parts: usize,
+    pub(super) pull: PullState,
 }
 
 impl fmt::Debug for CodedTracker {
@@ -218,7 +210,19 @@ impl fmt::Debug for CodedTracker {
 
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
-        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
+        Self {
+            total_parts: encoder.total_parts(),
+            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
+            pull: PullState::default(),
+        }
+    }
+
+    /// Ordinals not held yet.
+    pub(super) fn missing_ordinals(&self) -> Vec<u64> {
+        (0..self.total_parts)
+            .filter(|ordinal| !self.parts.has_part(*ordinal))
+            .map(|ordinal| ordinal as u64)
+            .collect()
     }
 
     /// Inserts a part; the decoding insert checks the data against `commitment`'s hash
@@ -263,13 +267,19 @@ pub(crate) enum PartInsertResult {
     Settled,
     /// The commitment decoded to this data, which matches the committed hash and the id.
     Decoded(SpiceData),
-    /// The commitment reached K parts but yielded no data matching its hash and id.
+    /// The commitment settled without data.
     Garbage(AssembledDataError),
+    /// The sender already backed another commitment. Part ignored.
+    ConflictingCommitment,
 }
 
-/// Why decoded data was rejected.
+/// Why a commitment settled without data
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AssembledDataError {
+    #[error("part was verified against a different total parts count")]
+    WrongTotalParts,
+    #[error("part length does not match the commitment's encoded length")]
+    WrongPartLength,
     #[error("decoding assembled data failed")]
     Undecodable,
     #[error("decoded data does not match the committed hash")]
