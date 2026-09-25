@@ -550,14 +550,19 @@ pub(super) fn grow_chain_to_fallback_only_block(
 // 14 equal stakes and a target of 2 mandates per shard give each validator one mandate, so it is
 // designated for one shard: at most 3 of 14 per shard, under 1/3 of total stake, asserted below.
 pub(super) fn chain_with_minority_designated_stake() -> (Vec<String>, Chain) {
+    chain_with_validator_stakes(&[Balance::from_near(100); 14])
+}
+
+fn chain_with_validator_stakes(stakes: &[Balance]) -> (Vec<String>, Chain) {
     init_test_logger();
-    let validators: Vec<String> = (0..14).map(|i| format!("test{i}")).collect();
+    let validators: Vec<String> = (0..stakes.len()).map(|i| format!("test{i}")).collect();
     let validator_infos = validators
         .iter()
-        .map(|account_id| AccountInfo {
+        .zip(stakes)
+        .map(|(account_id, stake)| AccountInfo {
             public_key: create_test_signer(account_id).public_key(),
             account_id: account_id.parse().unwrap(),
-            amount: Balance::from_near(100),
+            amount: *stake,
         })
         .collect();
     let num_validators = validators.len() as NumSeats;
@@ -659,6 +664,75 @@ fn test_validate_rejects_designated_only_certification_of_fallback_only_chunk() 
         ),
     );
     core_reader.validate_core_statements_in_block(&all_stake_block).unwrap();
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validate_rejects_exactly_one_third_of_stake_and_accepts_one_yocto_above() {
+    // test0 and test1 differ from 100 NEAR by one yocto, so a set can hold exactly 1/3 of the
+    // 1500 NEAR total or one yocto more.
+    let stake = Balance::from_near(100);
+    let one_yocto = Balance::from_yoctonear(1);
+    let mut stakes =
+        vec![stake.checked_add(one_yocto).unwrap(), stake.checked_sub(one_yocto).unwrap()];
+    stakes.extend([stake; 13]);
+    let (validators, mut chain) = chain_with_validator_stakes(&stakes);
+    let core_reader = core_reader(&chain);
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let chunk_header = fallback_only_block
+        .chunks()
+        .iter_raw()
+        .find(|chunk| chunk.shard_id() == shard_id)
+        .unwrap()
+        .clone();
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+    let parent_certification = certify_block_designated(&chain, &parent);
+    let tip = append_block(&mut chain, &fallback_only_block, parent_certification);
+
+    let accounts: Vec<AccountId> =
+        validators.iter().map(|account_id| account_id.parse().unwrap()).collect();
+    let exactly_one_third = accounts[2..7].to_vec();
+    let one_yocto_above_one_third = [&accounts[0..1], &accounts[2..6]].concat();
+    let all_stake = all_stake_fallback_assignment(
+        chain.epoch_manager.as_ref(),
+        fallback_only_block.header().epoch_id(),
+    )
+    .unwrap();
+    let stake_of = |endorsers: &[AccountId]| -> u128 {
+        all_stake
+            .assignments()
+            .iter()
+            .filter(|(account_id, _)| endorsers.contains(account_id))
+            .map(|(_, stake)| stake.as_yoctonear())
+            .sum()
+    };
+    let total_stake = stake_of(&accounts);
+    assert_eq!(stake_of(&exactly_one_third) * 3, total_stake);
+    assert_eq!(stake_of(&one_yocto_above_one_third), total_stake / 3 + 1);
+
+    let exactly_one_third_block = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(&exactly_one_third, &fallback_only_block, &chunk_header),
+    );
+    assert_matches!(
+        core_reader.validate_core_statements_in_block(&exactly_one_third_block),
+        Err(InvalidSpiceCoreStatementsError::InvalidCoreStatement {
+            reason: "execution results included without enough corresponding endorsement",
+            ..
+        })
+    );
+
+    let one_yocto_above_block = build_block(
+        &chain,
+        &tip,
+        endorsements_and_execution_result(
+            &one_yocto_above_one_third,
+            &fallback_only_block,
+            &chunk_header,
+        ),
+    );
+    core_reader.validate_core_statements_in_block(&one_yocto_above_block).unwrap();
 }
 
 #[test]
