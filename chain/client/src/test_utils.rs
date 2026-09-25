@@ -51,7 +51,7 @@ impl Client {
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
-        Ok(accepted_blocks)
+        Ok(accepted_blocks.into_iter().map(|accepted_block| accepted_block.hash).collect())
     }
 
     pub fn process_block_test(
@@ -82,7 +82,9 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
+            let (newly_accepted, _) = self.postprocess_ready_blocks(None, true);
+            accepted_blocks
+                .extend(newly_accepted.into_iter().map(|accepted_block| accepted_block.hash));
         }
         accepted_blocks
     }
@@ -92,7 +94,7 @@ impl Client {
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
-            return accepted_blocks;
+            return accepted_blocks.into_iter().map(|accepted_block| accepted_block.hash).collect();
         }
         vec![]
     }

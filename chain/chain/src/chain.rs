@@ -1883,7 +1883,7 @@ impl Chain {
         block: Arc<Block>,
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
-    ) -> Result<Option<Tip>, Error> {
+    ) -> Result<(Option<Tip>, HashMap<ShardId, BlockHeight>), Error> {
         // Save state transition data to the database only if it might later be needed
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
@@ -1892,7 +1892,7 @@ impl Chain {
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
-        let new_head = chain_update.postprocess_block(
+        let (new_head, certified_frontier) = chain_update.postprocess_block(
             block,
             block_preprocess_info,
             apply_results,
@@ -1903,7 +1903,7 @@ impl Chain {
         }
         chain_update.commit()?;
         self.sandbox_patches.mark_committed(sandbox_patch_gen);
-        Ok(new_head)
+        Ok((new_head, certified_frontier))
     }
 
     /// Run postprocessing on this block, which stores the block on chain.
@@ -1947,7 +1947,7 @@ impl Chain {
                 }
             }
         }
-        let new_head = match self.postprocess_block_only(
+        let (new_head, certified_frontier) = match self.postprocess_block_only(
             Arc::clone(&block),
             block_preprocess_info,
             apply_results,
@@ -1957,7 +1957,7 @@ impl Chain {
                 self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
                 return Err(err);
             }
-            Ok(new_head) => new_head,
+            Ok(postprocessed) => postprocessed,
         };
 
         self.update_optimistic_blocks_pool(&block)?;
@@ -2095,7 +2095,12 @@ impl Chain {
         // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head.as_ref(), &prev_head);
-        Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
+        Ok(AcceptedBlock {
+            hash: *block.hash(),
+            status: block_status,
+            provenance,
+            certified_frontier,
+        })
     }
 
     fn postprocess_optimistic_block(

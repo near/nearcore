@@ -452,7 +452,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
 impl Handler<ProcessedBlock> for ChunkExecutorActor {
     // TODO(spice): Implement pub(crate) handle functions in ChunkExecutorActor that would return
     // errors/results and use them in tests to make sure we are testing correct errors.
-    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+    fn handle(&mut self, ProcessedBlock { block_hash, .. }: ProcessedBlock) {
         if let Err(err) = self.handle_processed_block(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process block");
         }

@@ -47,7 +47,7 @@ use near_chain::spice::chain::SpiceChainReader;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{AcceptedBlock, RuntimeAdapter};
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
@@ -1689,22 +1689,23 @@ impl ClientActor {
     }
 
     /// Process all blocks that were accepted by calling other relevant services.
-    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
+    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
         let _span = tracing::debug_span!(
             target: "client",
             "process_accepted_blocks",
             num_blocks = accepted_blocks.len())
         .entered();
-        for accepted_block in accepted_blocks {
-            let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+        for AcceptedBlock { hash: block_hash, certified_frontier, .. } in accepted_blocks {
+            let block = self.client.chain.get_block(&block_hash).unwrap().clone();
             tracing::debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block());
-            self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
-            self.spice_core_writer_sender.send(ProcessedBlock { block_hash: accepted_block });
+            let processed_block = ProcessedBlock { block_hash, certified_frontier };
+            self.chunk_executor_sender.send(processed_block.clone());
+            self.spice_chunk_validator_sender.send(processed_block.clone());
+            self.spice_data_distributor_sender.send(processed_block.clone());
+            self.spice_core_writer_sender.send(processed_block);
         }
     }
 

@@ -6,11 +6,9 @@ use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::spice::core_writer_actor::{
-    ExecutionResultEndorsed, ProcessedBlock, SpiceCoreWriterActor,
-};
+use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, SpiceCoreWriterActor};
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync, processed_block,
 };
 use near_chain::types::{
     ApplyChunkShardContext, MaybePinnedMemtrieRoot, RuntimeStorageConfig, StorageDataSource,
@@ -224,7 +222,7 @@ fn test_witness_arriving_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
@@ -250,7 +248,7 @@ fn test_witness_arriving_before_block_without_accesses_message() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert_no_contract_requests(&mut actor.network_rc);
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -299,7 +297,7 @@ fn test_witness_arriving_before_block_and_execution_results() {
     )
     .unwrap();
     send_empty_contract_accesses(&mut actor, &block);
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     record_execution_results(&actor, &prev_block, starting_state_root);

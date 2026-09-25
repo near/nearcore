@@ -7,7 +7,6 @@ use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::near_chain_primitives::error::QueryError;
-use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -881,7 +880,7 @@ impl TestEnv {
             return;
         }
 
-        self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash });
+        self.spice_chunk_executors[id].handle_processed_block(block_hash);
         // This allows us in tests to pretend that all nodes get all endorsements as soon as they
         // are available (as long as least one chunk producer for shard is validator). Even though
         // in a real system endorsements to some nodes may arrive only with later blocks.

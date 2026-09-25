@@ -11,13 +11,15 @@ use near_async::messaging::{Handler, IntoSender, Sender, noop};
 use near_chain::ChainGenesis;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
+use near_chain::test_utils::processed_block;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
+use near_primitives::hash::CryptoHash;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use parking_lot::RwLock;
@@ -134,10 +136,10 @@ impl TestonlySyncChunkExecutorActor {
         self.run_internal_events();
     }
 
-    pub fn handle_processed_block(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+    pub fn handle_processed_block(&mut self, block_hash: CryptoHash) {
         self.actor.handle_processed_block(&block_hash).unwrap();
         self.run_internal_events();
-        self.core_writer_actor.handle(ProcessedBlock { block_hash });
+        self.core_writer_actor.handle(processed_block(block_hash));
     }
 
     fn run_internal_events(&mut self) {

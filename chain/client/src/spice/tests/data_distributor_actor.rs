@@ -21,9 +21,9 @@ use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers, is_fallback_only_chunk,
 };
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync, processed_block,
 };
 use near_chain::types::Tip;
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
@@ -1520,7 +1520,7 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
 }
 
@@ -1852,7 +1852,7 @@ fn test_requesting_witness_for_new_block_when_validator() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -1893,7 +1893,7 @@ fn test_not_requesting_witness_for_new_block_when_not_validator() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -1930,7 +1930,7 @@ fn test_not_requesting_witness_for_new_block_without_signer() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -1967,7 +1967,7 @@ fn test_waiting_on_receipts_we_do_not_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(actor.is_tracking(&data_id));
@@ -2009,7 +2009,7 @@ fn test_not_waiting_on_receipts_we_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&data_id));
@@ -2050,7 +2050,7 @@ fn test_not_requesting_witnesses_we_produce_for_new_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -2087,7 +2087,7 @@ fn test_not_requesting_data_we_already_received() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
     actor.handle(incoming_data);
 
     fake_runner.run_queued_actions(&mut actor);
@@ -2126,7 +2126,7 @@ fn test_not_requesting_data_we_already_received_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     let requests = drain_outgoing_data_requests(&mut outgoing_rc);
@@ -3188,7 +3188,7 @@ fn test_stops_waiting_on_witness_once_its_block_is_final_certified() {
     let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &next_block);
     let head = produce_blocks_until_final(&mut chain, &certifying_block);
 
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    actor.handle(processed_block(*head.hash()));
     fake_runner.run_queued_actions(&mut actor);
     assert!(
         !actor
@@ -3239,7 +3239,7 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
 
     let head = produce_blocks_until_final(&mut chain, &next_block);
 
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    actor.handle(processed_block(*head.hash()));
     fake_runner.run_queued_actions(&mut actor);
     // The dead fork's witness is purged at the final head; the canonical block's stays.
     assert_eq!(waiting_witness_count_of(&actor, fork_block.hash()), 0);
@@ -3258,7 +3258,7 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     // Once the final execution head passes their height, the dead fork's item and the
     // executed canonical block's item are both moot and expire.
     save_final_execution_head(&chain, &next_block);
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    actor.handle(processed_block(*head.hash()));
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&fork_block)));
     assert!(!actor.is_tracking(&proof_id(&next_block)));
@@ -3290,14 +3290,14 @@ fn test_fallback_endorsement_is_broadcast_on_every_block_until_it_is_on_chain() 
 
     let mut block = latest_block(&chain);
     for _ in 0..3 {
-        actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        actor.handle(processed_block(*block.hash()));
         assert!(broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
         block = produce_block(&mut chain, &block);
     }
 
     let carrying_block =
         produce_block_carrying_endorsement(&mut chain, &block, &chunk_id, &validator);
-    actor.handle(ProcessedBlock { block_hash: *carrying_block.hash() });
+    actor.handle(processed_block(*carrying_block.hash()));
     assert!(!broadcast_endorsement_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
 }
 
@@ -3388,7 +3388,7 @@ fn test_witness_is_pushed_when_fallback_opens() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    actor.handle(processed_block(*head_block.hash()));
 
     let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
     assert_eq!(pushes.len(), 1);
@@ -3415,11 +3415,11 @@ fn test_witness_is_pushed_only_once() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    actor.handle(processed_block(*head_block.hash()));
     assert_eq!(drain_outgoing_partial_data(&mut outgoing_rc).len(), 1);
 
     let next_block = produce_block(&mut chain, &head_block);
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 }
 
@@ -3441,12 +3441,12 @@ fn test_fallback_only_witness_is_pushed_on_the_block_after_the_witness_is_saved(
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
     // A fallback-only chunk is eligible on its own block, but its witness only exists once the
     // producer applies the chunk, which needs the previous block certified.
-    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+    actor.handle(processed_block(*chunk_block.hash()));
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 
     let witness = save_test_witness_for_chunk(&chain, &chunk_id);
     let next_block = produce_block(&mut chain, &chunk_block);
-    actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    actor.handle(processed_block(*next_block.hash()));
 
     let mut pushes = drain_outgoing_partial_data(&mut outgoing_rc);
     assert_eq!(pushes.len(), 1, "the push was not retried once the witness was saved");
@@ -3472,7 +3472,7 @@ fn test_fallback_witness_is_requested_only_after_the_pull_grace() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
+    actor.handle(processed_block(*head_block.hash()));
 
     fake_runner.run_queued_actions(&mut actor);
     assert!(!requested_witness_chunk_ids(&mut outgoing_rc).contains(&chunk_id));
@@ -3555,7 +3555,7 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
 
     let chunk_block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
     catch_up_to(&mut receiver_chain, &chain, &chunk_block);
-    actor.handle(ProcessedBlock { block_hash: *chunk_block.hash() });
+    actor.handle(processed_block(*chunk_block.hash()));
 
     let message = outgoing_rc.try_recv().unwrap();
     let OutgoingMessage::ChunkStateWitnessMessage(SpiceChunkStateWitnessMessage {

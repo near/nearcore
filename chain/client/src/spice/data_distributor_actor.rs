@@ -453,7 +453,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 }
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
-    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+    fn handle(&mut self, ProcessedBlock { block_hash, .. }: ProcessedBlock) {
         match is_spice_or_last_pre_spice_block(
             &self.chain_store,
             self.epoch_manager.as_ref(),

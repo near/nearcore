@@ -1,11 +1,11 @@
 use crate::spice::core::{
-    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, compute_spice_endorsement_stats,
-    credit_chunk_endorsement_stats, find_newly_certified_block_hashes, fold_endorsement_stats,
-    record_uncertified_chunks_for_block,
+    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, certified_frontier,
+    compute_spice_endorsement_stats, credit_chunk_endorsement_stats,
+    find_newly_certified_block_hashes, fold_endorsement_stats, record_uncertified_chunks_for_block,
 };
-use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use crate::spice::core_writer_actor::SpiceCoreWriterActor;
 use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync, processed_block,
 };
 use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
@@ -37,8 +37,9 @@ use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    AccountId, Balance, BlockExecutionResults, BlockHeight, ChunkExecutionResult,
+    ChunkExecutionResultHash, ShardId, SpiceChunkEndorsementStats, SpiceChunkId,
+    SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -884,6 +885,148 @@ fn test_record_block_for_block_with_execution_results() {
     run_record_uncertified_chunks_for_block(&mut chain, &next_block);
 }
 
+/// Processes `block` and returns the certified frontier recorded for it.
+fn process_block_for_frontier(
+    chain: &mut Chain,
+    block: Arc<Block>,
+) -> HashMap<ShardId, BlockHeight> {
+    let mut accepted = process_block_sync(
+        chain,
+        block.into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    assert_eq!(accepted.len(), 1);
+    accepted.remove(0).certified_frontier
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn certified_frontier_is_the_prev_height_of_each_shards_oldest_uncertified_entry() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let genesis_height = genesis.header().height();
+    let mut shard_ids: Vec<ShardId> =
+        genesis.chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    shard_ids.sort();
+    assert_eq!(shard_ids.len(), 3);
+
+    // Nothing is inherited from genesis: every shard is certified through the parent.
+    let block1 = build_block(&chain, &genesis, vec![]);
+    assert_eq!(
+        process_block_for_frontier(&mut chain, block1.clone()),
+        shard_ids.iter().map(|shard_id| (*shard_id, genesis_height)).collect()
+    );
+
+    // Block 2 certifies shard 0's chunk of block 1 and nothing else.
+    let core_statements: Vec<SpiceCoreStatement> = block_certification_core_statements(&block1)
+        .into_iter()
+        .filter(|statement| statement.chunk_id().shard_id == shard_ids[0])
+        .collect();
+    let block2 = build_block(&chain, &block1, core_statements);
+    let expected = HashMap::from([
+        (shard_ids[0], block1.header().height()),
+        (shard_ids[1], genesis_height),
+        (shard_ids[2], genesis_height),
+    ]);
+    assert_eq!(process_block_for_frontier(&mut chain, block2.clone()), expected);
+
+    // Later blocks certify nothing: shard 0's oldest uncertified chunk is block 2's, the
+    // other shards' block 1's.
+    let mut tip = block2.clone();
+    for _ in 0..2 {
+        tip = build_block(&chain, &tip, vec![]);
+        assert_eq!(process_block_for_frontier(&mut chain, tip.clone()), expected);
+    }
+
+    let certification_of = |block: &Block, shard_id: ShardId| {
+        block_certification_core_statements(block)
+            .into_iter()
+            .filter(move |statement| statement.chunk_id().shard_id == shard_id)
+    };
+
+    // Certifying after a lag moves the frontier of the certified shard only.
+    tip = build_block(&chain, &tip, certification_of(&block1, shard_ids[1]).collect());
+    let expected = HashMap::from([
+        (shard_ids[0], block1.header().height()),
+        (shard_ids[1], block1.header().height()),
+        (shard_ids[2], genesis_height),
+    ]);
+    assert_eq!(process_block_for_frontier(&mut chain, tip.clone()), expected);
+
+    // One block certifying two heights of a shard moves its frontier past both.
+    let core_statements = certification_of(&block2, shard_ids[1])
+        .chain(certification_of(&block1, shard_ids[2]))
+        .collect();
+    tip = build_block(&chain, &tip, core_statements);
+    let expected = HashMap::from([
+        (shard_ids[0], block1.header().height()),
+        (shard_ids[1], block2.header().height()),
+        (shard_ids[2], block1.header().height()),
+    ]);
+    assert_eq!(process_block_for_frontier(&mut chain, tip), expected);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn certified_frontier_after_a_split_is_each_new_shards_oldest_uncertified_entry() {
+    let (mut chain, _core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+    let block2 = build_block(&chain, &block1, vec![]);
+    process_block(&mut chain, block2.clone());
+    let block3 = build_block(&chain, &block2, vec![]);
+
+    let old_layout = ShardLayout::multi_shard(2, 0);
+    let new_layout = ShardLayout::derive_shard_layout(&old_layout, "test5".parse().unwrap());
+    let (retained, children): (Vec<ShardId>, Vec<ShardId>) = new_layout
+        .shard_ids()
+        .partition(|shard_id| new_layout.get_parent_shard_id(*shard_id).unwrap() == *shard_id);
+    let [retained] = retained[..] else { panic!("one shard should be retained") };
+    let [child1, child2] = children[..] else { panic!("one shard should split in two") };
+    let parent = new_layout.get_parent_shard_id(child1).unwrap();
+
+    // Block 1 is the last block of the old layout, block 2 the first of the new one, and
+    // nothing is certified. The old layout's shard ids come first in the inherited list.
+    let chunk = |block: &Block, shard_id| SpiceUncertifiedChunkInfo {
+        chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id },
+        missing_endorsements: Vec::new(),
+        present_endorsements: Vec::new(),
+        present_fallback_endorsements: Vec::new(),
+        certifiable_since_height: None,
+    };
+    let uncertified_chunks = [
+        chunk(&block1, retained),
+        chunk(&block1, parent),
+        chunk(&block2, retained),
+        chunk(&block2, child1),
+        chunk(&block2, child2),
+    ];
+    let certified_frontier = certified_frontier(
+        &chain.chain_store().store().chain_store(),
+        &new_layout,
+        block3.header(),
+        &uncertified_chunks,
+    )
+    .unwrap();
+
+    let genesis_height = genesis.header().height();
+    let block1_height = block1.header().height();
+    assert_eq!(
+        new_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, certified_frontier[&shard_id]))
+            .collect::<HashMap<_, _>>(),
+        HashMap::from([
+            (retained, genesis_height),
+            (child1, block1_height),
+            (child2, block1_height),
+        ])
+    );
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_endorsements_from_forks_can_be_used_in_other_forks() {
@@ -900,7 +1043,7 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
 
     let fork_block = build_block(&mut chain, &block, vec![core_endorsement.clone()]);
     process_block(&mut chain, fork_block.clone());
-    core_writer_actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
+    core_writer_actor.handle(processed_block(*fork_block.hash()));
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![core_endorsement]);
@@ -1601,7 +1744,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_executio
     let core_statements = block_certification_core_statements(&block);
     let next_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
-    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    core_writer_actor.handle(processed_block(*next_block.hash()));
 
     // B1 was already certified in next_block's ancestry, so no newly certified blocks.
     let execution_results = core_reader
@@ -1644,7 +1787,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_old_bloc
     let core_statements = block_certification_core_statements(&block);
     let mut last_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, last_block.clone());
-    core_writer_actor.handle(ProcessedBlock { block_hash: *last_block.hash() });
+    core_writer_actor.handle(processed_block(*last_block.hash()));
 
     for _ in 0..3 {
         let new_block = build_block(&chain, &last_block, vec![]);
@@ -1681,7 +1824,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_certific
 
     let next_block = build_block(&mut chain, &block, next_block_core_statements);
     process_block(&mut chain, next_block.clone());
-    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    core_writer_actor.handle(processed_block(*next_block.hash()));
 
     let last_shard_core_statements = SpiceCoreStatements::new(last_shard_core_statements);
     let execution_results = core_reader
@@ -1791,7 +1934,7 @@ fn test_get_newly_certified_block_execution_results_multi_block_incremental() {
     let b1_cert = block_certification_core_statements(&b1);
     let b3 = build_block(&mut chain, &b2, b1_cert);
     process_block(&mut chain, b3.clone());
-    core_writer_actor.handle(ProcessedBlock { block_hash: *b3.hash() });
+    core_writer_actor.handle(processed_block(*b3.hash()));
 
     // For B4: certify B2. Should return vec![B2_results] only, since B1 was already certified.
     let b2_cert = SpiceCoreStatements::new(block_certification_core_statements(&b2));
