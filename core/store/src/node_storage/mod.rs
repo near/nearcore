@@ -1,12 +1,15 @@
+#[cfg(feature = "rocksdb")]
 pub(super) mod opener;
 
+use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
-use crate::{Store, StoreConfig};
+#[cfg(feature = "rocksdb")]
+use crate::{StoreConfig, archive::cloud_storage::config::CloudStorageContext};
+#[cfg(feature = "rocksdb")]
 use opener::StoreOpener;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 /// Specifies temperature of a storage.
 ///
@@ -46,6 +49,7 @@ pub struct NodeStorage {
 impl NodeStorage {
     /// Initializes a new opener with given home directory and hot, cold,
     /// and cloud store config.
+    #[cfg(feature = "rocksdb")]
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
@@ -63,14 +67,17 @@ impl NodeStorage {
     ///
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
+    #[cfg(feature = "rocksdb")]
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
-        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
+        static CONFIG: std::sync::LazyLock<StoreConfig> =
+            std::sync::LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
         let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
         (dir, opener)
     }
 
     /// Constructs new object backed by given database.
+    #[cfg(feature = "rocksdb")]
     fn from_rocksdb(
         hot_storage: crate::db::RocksDB,
         cold_storage: Option<crate::db::RocksDB>,
