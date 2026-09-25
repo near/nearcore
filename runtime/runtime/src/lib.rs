@@ -46,9 +46,9 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction,
-    ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0, ReceivedData,
-    VersionedActionReceipt, VersionedReceiptEnum,
+    ReceiptOrigin, ReceiptOriginReceipt, ReceiptOriginTransaction, ReceiptSource, ReceiptToTxInfo,
+    ReceiptToTxInfoV1, ReceiptV0, ReceivedData, StateStoredReceipt, VersionedActionReceipt,
+    VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -2555,15 +2555,13 @@ impl Runtime {
                 break;
             }
 
-            let receipt = if let Some(receipt) = processing_state
-                .delayed_receipts
-                .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
-            {
-                receipt.into_receipt()
-            } else {
-                // Break loop if there are no more receipts to be processed.
+            let receipt =
+                processing_state.delayed_receipts.pop(&mut processing_state.state_update)?;
+            // Break loop if there are no more receipts to be processed.
+            let Some(receipt) = receipt else {
                 break;
             };
+            let receipt = receipt.into_receipt();
 
             // TODO(resharding): Add metric for tracking number of
             delayed_receipt_count += 1;
@@ -2965,7 +2963,7 @@ impl ApplyState {
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
         let start = std::time::Instant::now();
-        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
+        let result = bootstrap_congestion_info(trie, self.shard_id);
         let time = start.elapsed();
         tracing::warn!(target: "runtime", ?time, "bootstrapping congestion info done");
         let computed = result?;
@@ -3327,13 +3325,13 @@ impl<'a> MaybeRefReceipt for &'a Receipt {
     }
 }
 
-impl MaybeRefReceipt for ReceiptOrStateStoredReceipt<'_> {
+impl MaybeRefReceipt for StateStoredReceipt<'_> {
     fn as_ref(&self) -> &Receipt {
         self.get_receipt()
     }
 }
 
-impl<'a> MaybeRefReceipt for &'a ReceiptOrStateStoredReceipt<'a> {
+impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
     fn as_ref(&self) -> &Receipt {
         self.get_receipt()
     }

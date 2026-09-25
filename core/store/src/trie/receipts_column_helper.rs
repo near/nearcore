@@ -1,9 +1,7 @@
 use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
-use near_primitives::receipt::{
-    BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
-};
+use near_primitives::receipt::{BufferedReceiptIndices, StateStoredReceipt, TrieQueueIndices};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
@@ -259,7 +257,7 @@ impl DelayedReceiptQueue {
 }
 
 impl TrieQueue for DelayedReceiptQueue {
-    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+    type Item<'a> = StateStoredReceipt<'a>;
 
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         crate::get_delayed_receipt_indices(trie).map(TrieQueueIndices::from)
@@ -307,7 +305,7 @@ impl ShardsOutgoingReceiptBuffer {
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {
-    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+    type Item<'a> = StateStoredReceipt<'a>;
 
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         let all_indices: BufferedReceiptIndices =
@@ -380,12 +378,12 @@ mod tests {
     use super::*;
     use crate::Trie;
     use crate::test_utils::{TestTriesBuilder, gen_receipts};
-    use near_primitives::receipt::Receipt;
+    use near_parameters::RuntimeConfig;
+    use near_primitives::receipt::{Receipt, StateStoredReceiptMetadata};
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
-    use std::borrow::Cow;
     use std::collections::VecDeque;
 
     #[test]
@@ -498,13 +496,13 @@ mod tests {
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = StateStoredReceipt<'a>>,
     ) {
         for receipt in input_receipts {
-            let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
+            let receipt = state_stored_receipt(receipt);
             queue.push_back(trie, &receipt).expect("pushing must not fail");
         }
-        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
+        let iterated_receipts: Vec<StateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
@@ -519,10 +517,10 @@ mod tests {
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = StateStoredReceipt<'a>>,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
-        let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
+        let iterated_receipts: Vec<StateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
         let iterated_receipts: Vec<Receipt> =
             iterated_receipts.into_iter().map(|receipt| receipt.into_receipt()).collect();
@@ -535,6 +533,12 @@ mod tests {
             popped.push(receipt);
         }
         assert_eq!(input_receipts, popped, "receipts were not popped correctly");
+    }
+
+    fn state_stored_receipt(receipt: &Receipt) -> StateStoredReceipt<'_> {
+        let metadata = StateStoredReceiptMetadata::compute(receipt, &RuntimeConfig::test())
+            .expect("computing receipt metadata must not fail");
+        StateStoredReceipt::new_borrowed(receipt, metadata)
     }
 
     fn init_state() -> TrieUpdate {

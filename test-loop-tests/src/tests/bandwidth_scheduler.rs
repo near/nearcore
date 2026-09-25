@@ -32,9 +32,7 @@ use near_primitives::bandwidth_scheduler::{
 };
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
-};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -395,14 +393,7 @@ fn analyze_workload_blocks(
                     .to_shard(target_shard_id)
                     .iter(&trie, false)
                     .map(|res| res.unwrap())
-                    .map(|receipt| match receipt {
-                        ReceiptOrStateStoredReceipt::Receipt(_) => {
-                            panic!("Old receipts shouldn't occur")
-                        }
-                        ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt) => {
-                            ByteSize::b(state_stored_receipt.metadata().congestion_size)
-                        }
-                    })
+                    .map(|receipt| ByteSize::b(receipt.metadata().congestion_size))
                     .collect();
                 let mut total_size: ByteSize = ByteSize::b(0);
                 for &receipt_size in &buffered_receipt_sizes {

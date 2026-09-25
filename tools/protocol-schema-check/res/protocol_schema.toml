@@ -261,7 +261,6 @@ ReceiptGroupV0 = 2900361850
 ReceiptGroupsQueueData = 65960627
 ReceiptGroupsQueueDataV0 = 3449687695
 ReceiptList = 2819985494
-ReceiptOrStateStoredReceipt = 1383650164
 ReceiptOrigin = 2411908023
 ReceiptOriginReceipt = 117113786
 ReceiptOriginTransaction = 4174279364

@@ -21,9 +21,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{
-    DelayedReceiptIndices, PromiseYieldIndices, ReceiptOrStateStoredReceipt,
-};
+use near_primitives::receipt::{DelayedReceiptIndices, PromiseYieldIndices};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -419,12 +417,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                 for target_shard in outgoing_buffers.shards() {
                     let mut receipt_sizes = Vec::new();
                     for receipt in outgoing_buffers.to_shard(target_shard).iter(&memtrie, false) {
-                        let receipt_size = match receipt {
-                            Ok(ReceiptOrStateStoredReceipt::StateStoredReceipt(
-                                state_stored_receipt,
-                            )) => state_stored_receipt.metadata().congestion_size,
-                            _ => panic!("receipt is {:?}", receipt),
-                        };
+                        let receipt_size = receipt.unwrap().metadata().congestion_size;
                         receipt_sizes.push(ByteSize::b(receipt_size));
                     }
                     if !receipt_sizes.is_empty() {
