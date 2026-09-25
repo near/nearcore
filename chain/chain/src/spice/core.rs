@@ -14,7 +14,7 @@ use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::spice::chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceEndorsementSignedData, SpiceStoredVerifiedEndorsement,
 };
@@ -975,13 +975,15 @@ fn get_uncertified_chunks(
 }
 
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
-/// Returns the certification lag: height distance from `block` to the oldest block with
-/// uncertified chunks, 0 when nothing older awaits certification.
+/// Returns the certification lag (height distance from `block` to the oldest block with
+/// uncertified chunks, 0 when nothing older awaits certification) and the certified frontier
+/// as of `block`: per shard, the height of the highest block whose chunk of that shard is
+/// certified.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
-) -> Result<BlockHeight, Error> {
+) -> Result<(BlockHeight, HashMap<ShardId, BlockHeight>), Error> {
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
     let mut block_endorsements: HashMap<
@@ -1063,6 +1065,12 @@ pub fn record_uncertified_chunks_for_block(
         oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
 
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    let certified_frontier = certified_frontier(
+        chain_store_update.chain_store(),
+        &shard_layout,
+        block.header(),
+        &uncertified_chunks,
+    )?;
     uncertified_chunks.reserve_exact(shard_layout.num_shards() as usize);
     for shard_id in shard_layout.shard_ids() {
         let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
@@ -1103,7 +1111,42 @@ pub fn record_uncertified_chunks_for_block(
         &uncertified_chunks,
     );
     chain_store_update.merge(store_update);
-    Ok(certification_lag)
+    Ok((certification_lag, certified_frontier))
+}
+
+/// Per shard, the height of the highest block whose chunk of that shard is certified as of
+/// `block`: the height before the shard's oldest entry in `uncertified_chunks`, the list
+/// before `block`'s own chunks are added, or the parent's height when the shard has none.
+fn certified_frontier(
+    chain_store: &ChainStoreAdapter,
+    shard_layout: &ShardLayout,
+    block: &BlockHeader,
+    uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+) -> Result<HashMap<ShardId, BlockHeight>, Error> {
+    let num_shards = shard_layout.num_shards() as usize;
+    let mut certified_frontier = HashMap::with_capacity(num_shards);
+    for chunk_info in uncertified_chunks {
+        if certified_frontier.len() == num_shards {
+            break;
+        }
+        let shard_id = chunk_info.chunk_id.shard_id;
+        if certified_frontier.contains_key(&shard_id) {
+            continue;
+        }
+        let header = chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?;
+        certified_frontier.insert(shard_id, prev_height(&header)?);
+    }
+    let parent_height = prev_height(block)?;
+    for shard_id in shard_layout.shard_ids() {
+        certified_frontier.entry(shard_id).or_insert(parent_height);
+    }
+    Ok(certified_frontier)
+}
+
+fn prev_height(header: &BlockHeader) -> Result<BlockHeight, Error> {
+    header
+        .prev_height()
+        .ok_or_else(|| Error::Other(format!("block header {} has no prev height", header.hash())))
 }
 
 /// Adds `src` into `dst` element-wise, erroring on overflow. `src` may be empty

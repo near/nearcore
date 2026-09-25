@@ -37,9 +37,12 @@ pub struct ExecutionResultEndorsed {
 }
 
 /// Message that should be sent once block is processed.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcessedBlock {
     pub block_hash: CryptoHash,
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as
+    /// of this block. Empty for a pre-spice block.
+    pub certified_frontier: HashMap<ShardId, BlockHeight>,
 }
 
 // SpiceCoreWriterActor is the only actor that should be allowed to change spice core state to
@@ -60,7 +63,7 @@ pub struct SpiceCoreWriterActor {
 impl near_async::messaging::Actor for SpiceCoreWriterActor {}
 
 impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
-    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+    fn handle(&mut self, ProcessedBlock { block_hash, .. }: ProcessedBlock) {
         if let Err(err) = self.handle_processed_block(block_hash) {
             tracing::error!(target: "spice_core_writer", ?err, "error handling processed block");
         }

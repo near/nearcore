@@ -37,7 +37,7 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::spice::core::find_newly_certified_block_hashes;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
+use near_chain::types::{AcceptedBlock, ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
@@ -1501,7 +1501,7 @@ impl Client {
         &mut self,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         should_produce_chunk: bool,
-    ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
+    ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, near_chain::Error>) {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
         let (accepted_blocks, errors) = self
             .chain
@@ -1515,19 +1515,17 @@ impl Client {
             });
         }
         self.process_block_processing_artifact(block_processing_artifacts);
-        let accepted_blocks_hashes =
-            accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
-        for accepted_block in accepted_blocks {
+        for accepted_block in &accepted_blocks {
             self.on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
+                accepted_block.status.clone(),
+                accepted_block.provenance.clone(),
                 !should_produce_chunk,
             );
         }
         self.last_time_head_progress_made =
             max(self.chain.get_last_time_head_updated(), self.last_time_head_progress_made);
-        (accepted_blocks_hashes, errors)
+        (accepted_blocks, errors)
     }
 
     /// Process the result of block processing from chain, finish the steps that can't be done

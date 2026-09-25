@@ -33,6 +33,7 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreUpdateAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 
@@ -212,7 +213,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_incoming_receipt(hash, shard_id, receipt_proof);
     }
     /// This is the last step of process_block_single, where we take the preprocess block info
-    /// apply chunk results and store the results on chain.
+    /// apply chunk results and store the results on chain. Returns the new head, if the block
+    /// became one, and the certified frontier as of the block (empty for a pre-spice block).
     #[tracing::instrument(
         level = "debug",
         target = "chain",
@@ -225,7 +227,7 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
-    ) -> Result<Option<Tip>, Error> {
+    ) -> Result<(Option<Tip>, HashMap<ShardId, BlockHeight>), Error> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
@@ -295,21 +297,22 @@ impl<'a> ChainUpdate<'a> {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let spice_certification_lag = if ProtocolFeature::Spice.enabled(protocol_version) {
-            let certification_lag = record_uncertified_chunks_for_block(
-                &mut self.chain_store_update,
-                self.epoch_manager.as_ref(),
-                &block,
-            )?;
-            record_spice_endorsement_stats_for_block(
-                &mut self.chain_store_update,
-                self.epoch_manager.as_ref(),
-                &block,
-            )?;
-            Some(certification_lag)
-        } else {
-            None
-        };
+        let (spice_certification_lag, certified_frontier) =
+            if ProtocolFeature::Spice.enabled(protocol_version) {
+                let (certification_lag, certified_frontier) = record_uncertified_chunks_for_block(
+                    &mut self.chain_store_update,
+                    self.epoch_manager.as_ref(),
+                    &block,
+                )?;
+                record_spice_endorsement_stats_for_block(
+                    &mut self.chain_store_update,
+                    self.epoch_manager.as_ref(),
+                    &block,
+                )?;
+                (Some(certification_lag), certified_frontier)
+            } else {
+                (None, HashMap::new())
+            };
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
@@ -341,7 +344,7 @@ impl<'a> ChainUpdate<'a> {
                 metrics::SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
             }
         }
-        Ok(res)
+        Ok((res, certified_frontier))
     }
 
     pub fn create_light_client_block(

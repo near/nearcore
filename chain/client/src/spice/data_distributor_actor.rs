@@ -448,7 +448,7 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 }
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
-    fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+    fn handle(&mut self, ProcessedBlock { block_hash, .. }: ProcessedBlock) {
         // A pre-spice block distributes no receipts or witnesses and produces no
         // endorsements, so there is nothing to wait on or contribute for it.
         match spice_enabled_for_block(&self.chain_store, &block_hash) {

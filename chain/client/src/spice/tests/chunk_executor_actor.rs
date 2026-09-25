@@ -53,8 +53,14 @@ use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::str::FromStr as _;
 use std::sync::Arc;
+
+/// A processed-block message with an empty certified frontier.
+fn processed_block(block_hash: CryptoHash) -> ProcessedBlock {
+    ProcessedBlock { block_hash, certified_frontier: HashMap::new() }
+}
 
 struct FakeSpawner {
     sc: UnboundedSender<Box<dyn FnOnce() + Send>>,
@@ -504,7 +510,7 @@ fn execute_blocks_until_final_execution_head_moves(
     for _ in 0..block_limit {
         let block = produce_block(actors, &prev_block);
         for actor in actors.iter_mut() {
-            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+            actor.handle_with_internal_events(processed_block(*block.hash()));
             assert!(
                 block_executed(actor, &block),
                 "{:?} did not execute block",
@@ -536,8 +542,7 @@ fn test_executing_blocks() {
     for (i, block) in blocks.iter().enumerate() {
         for actor in &mut actors {
             assert!(!block_executed(&actor, &block), "block #{} is already executed", i + 1);
-            actor
-                .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
+            actor.handle_with_internal_events(processed_block(*block.header().hash()));
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
         }
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
@@ -553,8 +558,7 @@ fn test_non_validator_executing_blocks() {
     let blocks = produce_n_blocks(&mut actors, 5);
     for (i, block) in blocks.iter().enumerate() {
         for actor in &mut actors {
-            actor
-                .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
+            actor.handle_with_internal_events(processed_block(*block.header().hash()));
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
         }
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
@@ -569,7 +573,7 @@ fn test_scheduling_same_block_twice() {
     let mut actors = setup_with_shards(2, outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 3);
 
-    actors[0].handle(ProcessedBlock { block_hash: *blocks[0].hash() });
+    actors[0].handle(processed_block(*blocks[0].hash()));
 
     assert!(!block_executed(&actors[0], &blocks[0]));
     let mut tasks = Vec::new();
@@ -578,7 +582,7 @@ fn test_scheduling_same_block_twice() {
     }
     assert_ne!(tasks.len(), 0);
 
-    actors[0].handle(ProcessedBlock { block_hash: *blocks[0].hash() });
+    actors[0].handle(processed_block(*blocks[0].hash()));
     assert!(actors[0].tasks_rc.try_next().is_err(), "no new tasks should be scheduled");
 }
 
@@ -590,10 +594,10 @@ fn test_executing_same_block_twice() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     assert!(!block_executed(&actors[0], &blocks[0]));
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[0].hash()));
     assert!(block_executed(&actors[0], &blocks[0]));
 
-    actors[0].handle(ProcessedBlock { block_hash: *blocks[0].hash() });
+    actors[0].handle(processed_block(*blocks[0].hash()));
     assert!(actors[0].tasks_rc.try_next().is_err(), "no new tasks should be scheduled");
 }
 
@@ -606,14 +610,14 @@ fn test_execution_result_endorsement_trigger_next_blocks_execution() {
     let fork_block = produce_block(&mut actors, &blocks[0]);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
 
     // Announce the descendants: each parks because blocks[0]'s execution result
     // is not yet available. (The real client sends a ProcessedBlock per block.)
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
+    actors[0].handle_with_internal_events(processed_block(*fork_block.hash()));
 
     simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
     record_endorsements(&mut actors, &blocks[0]);
@@ -636,14 +640,14 @@ fn test_new_receipts_trigger_next_blocks_execution() {
     let fork_block = produce_block(&mut actors, &blocks[0]);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
 
     // Announce the descendants: each parks until blocks[0]'s receipts arrive.
     // (The real client sends a ProcessedBlock per block.)
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
+    actors[0].handle_with_internal_events(processed_block(*fork_block.hash()));
 
     record_endorsements(&mut actors, &blocks[0]);
 
@@ -663,12 +667,12 @@ fn test_not_executing_without_execution_result() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
     simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
     assert!(!block_executed(&actors[0], &blocks[1]));
 }
 
@@ -680,12 +684,12 @@ fn test_not_executing_without_receipts() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
     record_endorsements(&mut actors, &blocks[0]);
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
     assert!(!block_executed(&actors[0], &blocks[1]));
 }
 
@@ -697,7 +701,7 @@ fn test_executing_forks() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
 
@@ -708,11 +712,11 @@ fn test_executing_forks() {
     assert!(!block_executed(&actors[0], &blocks[1]));
     assert!(!block_executed(&actors[0], &fork_block));
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
     assert!(block_executed(&actors[0], &blocks[1]));
     assert!(!block_executed(&actors[0], &fork_block));
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+    actors[0].handle_with_internal_events(processed_block(*fork_block.hash()));
     assert!(block_executed(&actors[0], &fork_block));
 }
 
@@ -727,7 +731,7 @@ fn test_not_executing_forks_past_final_execution_head() {
     execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+        actor.handle_with_internal_events(processed_block(*fork_block.hash()));
     }
     assert!(!block_executed(&actors[0], &fork_block));
 }
@@ -741,7 +745,7 @@ fn test_not_applying_forks_past_final_execution_head() {
     let genesis = actors[0].chain.genesis_block();
 
     let fork_block = produce_block(&mut actors, &genesis);
-    actors[0].actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
+    actors[0].actor.handle(processed_block(*fork_block.hash()));
     // Delaying internal tasks and events simulates a race of fork block processing starting and
     // final execution head moving while it's ongoing.
     let fork_tasks = actors[0].drain_tasks();
@@ -752,7 +756,7 @@ fn test_not_applying_forks_past_final_execution_head() {
     let mut prev_block = genesis.clone();
     loop {
         let block = produce_block(&mut actors, &prev_block);
-        actors[0].actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        actors[0].actor.handle(processed_block(*block.hash()));
         blocks.push(block.clone());
         let last_final_block = block.header().last_final_block();
         if last_final_block != &CryptoHash::default() && last_final_block != genesis.hash() {
@@ -837,7 +841,7 @@ fn test_not_executing_with_bad_receipts() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+        actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
         assert!(block_executed(&actor, &blocks[0]));
     }
 
@@ -858,7 +862,7 @@ fn test_not_executing_with_bad_receipts() {
         simulate_single_outgoing_message(&mut actors, &message);
     }
 
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[0].handle_with_internal_events(processed_block(*blocks[1].hash()));
     assert!(!block_executed(&actors[0], &blocks[1]));
 }
 
@@ -871,7 +875,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
     let first_block = produce_block(&mut actors, &genesis);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *first_block.hash() });
+        actor.handle_with_internal_events(processed_block(*first_block.hash()));
         assert!(block_executed(&actor, &first_block));
     }
 
@@ -895,7 +899,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
     record_endorsements(&mut actors, &first_block);
 
     let second_block = produce_block(&mut actors, &first_block);
-    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *second_block.hash() });
+    actors[0].handle_with_internal_events(processed_block(*second_block.hash()));
     assert!(block_executed(&actors[0], &second_block));
 }
 
@@ -907,7 +911,7 @@ fn test_a_valid_network_receipt_is_saved() {
     let genesis_block = actors[0].chain.genesis_block();
     let block = produce_block(&mut actors, &genesis_block);
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actor.handle_with_internal_events(processed_block(*block.hash()));
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
@@ -934,7 +938,7 @@ fn test_an_invalid_network_receipt_is_dropped() {
     let genesis_block = actors[0].chain.genesis_block();
     let block = produce_block(&mut actors, &genesis_block);
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actor.handle_with_internal_events(processed_block(*block.hash()));
         assert!(block_executed(&actor, &block));
     }
     record_endorsements(&mut actors, &block);
@@ -966,7 +970,7 @@ fn test_a_receipt_arriving_before_its_executor_exists_is_buffered() {
     let genesis_block = actors[0].chain.genesis_block();
     let block = produce_block(&mut actors, &genesis_block);
     // Only the other actor executes, so this one never reconciles its tracked shards.
-    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    actors[1].handle_with_internal_events(processed_block(*block.hash()));
     assert!(block_executed(&actors[1], &block));
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 
@@ -992,7 +996,7 @@ fn test_a_receipt_for_an_untracked_shard_is_dropped() {
     let block = produce_block(&mut actors, &genesis_block);
     // No endorsements are recorded, so a buffered receipt would stay buffered.
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actor.handle_with_internal_events(processed_block(*block.hash()));
         assert!(block_executed(&actor, &block));
     }
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
@@ -1072,9 +1076,7 @@ fn test_receipts_arriving_after_execution_scheduled_are_not_pending() {
     let block_producing_receipts = produce_block(&mut actors, &genesis);
 
     for actor in &mut actors {
-        actor.handle_with_internal_events(ProcessedBlock {
-            block_hash: *block_producing_receipts.hash(),
-        });
+        actor.handle_with_internal_events(processed_block(*block_producing_receipts.hash()));
         assert!(block_executed(&actor, &block_producing_receipts));
     }
 
@@ -1093,7 +1095,7 @@ fn test_receipts_arriving_after_execution_scheduled_are_not_pending() {
     record_endorsements(&mut actors, &block_producing_receipts);
     let block_receiving_receipts = produce_block(&mut actors, &block_producing_receipts);
     // We don't use handle_with_internal_events so that block execution wouldn't be finished.
-    actors[0].handle(ProcessedBlock { block_hash: *block_receiving_receipts.hash() });
+    actors[0].handle(processed_block(*block_receiving_receipts.hash()));
     // We have to drain tasks to make sure they aren't run on new receipts internal events
     // handling.
     let tasks = actors[0].drain_tasks();
@@ -1115,8 +1117,7 @@ fn test_tracking_several_shards() {
 
     let blocks = produce_n_blocks(&mut actors, 3);
     for (i, block) in blocks.iter().enumerate() {
-        actors[0]
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
+        actors[0].handle_with_internal_events(processed_block(*block.header().hash()));
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = actors[0].actor.epoch_manager.get_shard_layout(epoch_id).unwrap();
@@ -1146,7 +1147,7 @@ fn test_not_sending_witness_when_not_validator() {
     let blocks = produce_n_blocks(&mut actors, 3);
     let actor = &mut actors[1];
 
-    actor.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    actor.handle_with_internal_events(processed_block(*blocks[0].hash()));
     assert!(block_executed(&actor, &blocks[0]));
 
     let mut witnesses = Vec::new();
@@ -1171,7 +1172,7 @@ fn test_executing_chain_of_ready_blocks() {
     let blocks = produce_n_blocks(&mut actors, 5);
 
     for block in &blocks {
-        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actors[0].handle_with_internal_events(processed_block(*block.hash()));
         assert!(block_executed(&actors[0], block));
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
@@ -1183,7 +1184,7 @@ fn test_executing_chain_of_ready_blocks() {
     // Every input is on disk, so announcing the blocks (one ProcessedBlock each,
     // as the client does) executes the whole chain.
     for block in &blocks {
-        actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actors[1].handle_with_internal_events(processed_block(*block.hash()));
     }
     for block in &blocks {
         assert!(block_executed(&actors[1], block));
@@ -1198,7 +1199,7 @@ fn test_not_executing_out_of_order() {
     let blocks = produce_n_blocks(&mut actors, 5);
 
     for block in &blocks {
-        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        actors[0].handle_with_internal_events(processed_block(*block.hash()));
         assert!(block_executed(&actors[0], block));
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
@@ -1207,7 +1208,7 @@ fn test_not_executing_out_of_order() {
     for block in &blocks {
         assert!(!block_executed(&actors[1], block));
     }
-    actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    actors[1].handle_with_internal_events(processed_block(*blocks[1].hash()));
     for block in &blocks {
         assert!(!block_executed(&actors[1], block));
     }
@@ -1224,7 +1225,7 @@ fn test_witness_is_saved() {
     let actor = &mut actors[0];
     let shard_id = block.chunks().get(0).unwrap().shard_id();
 
-    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle_with_internal_events(processed_block(*block.hash()));
     assert!(block_executed(&actor, &block));
 
     let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id);
@@ -1241,7 +1242,7 @@ fn test_witness_is_valid() {
     let block = produce_block(&mut actors, &prev_block);
     let actor = &mut actors[0];
 
-    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle_with_internal_events(processed_block(*block.hash()));
     assert!(block_executed(&actor, &block));
 
     let mut count_witnesses = 0;

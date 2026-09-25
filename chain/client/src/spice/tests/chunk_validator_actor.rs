@@ -62,6 +62,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+/// A processed-block message with an empty certified frontier.
+fn processed_block(block_hash: CryptoHash) -> ProcessedBlock {
+    ProcessedBlock { block_hash, certified_frontier: HashMap::new() }
+}
+
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
 const GAS_LIMIT: Gas = Gas::from_teragas(300);
 
@@ -224,7 +229,7 @@ fn test_witness_arriving_before_block() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
@@ -250,7 +255,7 @@ fn test_witness_arriving_before_block_without_accesses_message() {
         &mut BlockProcessingArtifact::default(),
     )
     .unwrap();
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert_no_contract_requests(&mut actor.network_rc);
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
@@ -299,7 +304,7 @@ fn test_witness_arriving_before_block_and_execution_results() {
     )
     .unwrap();
     send_empty_contract_accesses(&mut actor, &block);
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    actor.handle(processed_block(*block.hash()));
     assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     record_execution_results(&actor, &prev_block, starting_state_root);

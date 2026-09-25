@@ -51,7 +51,7 @@ pub use node_runtime::PendingConstraints;
 use node_runtime::PostStateReadyCallback;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tracing::instrument;
@@ -106,6 +106,9 @@ pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,
     pub provenance: Provenance,
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as
+    /// of this block. Empty for a pre-spice block.
+    pub certified_frontier: HashMap<ShardId, BlockHeight>,
 }
 
 #[derive(Debug)]
