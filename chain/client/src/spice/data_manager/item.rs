@@ -193,7 +193,6 @@ impl VerifiedCodedPart {
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
     total_parts: usize,
-    /// Rotates the pool members asked for missing ordinals.
     /// Position in the pool's rotation; starts at random so requesters spread over the
     /// pool, and moves past each member asked.
     pub(super) rotation_cursor: u64,
