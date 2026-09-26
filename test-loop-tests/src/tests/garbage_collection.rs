@@ -1,6 +1,5 @@
 use crate::setup;
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::retrieve_client_actor;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -49,10 +48,7 @@ fn test_state_transition_data_gc_simple() {
     env.test_loop.run_for(Duration::seconds(20));
 
     assert_state_transition_data_is_cleared(
-        &retrieve_client_actor(&env.node_datas, &mut env.test_loop.data, &client)
-            .client
-            .chain
-            .chain_store,
+        &env.node_for_account(&client).client().chain.chain_store,
         &shard_layout.shard_ids().collect(),
     );
 }
