@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::utils::run_for_number_of_blocks;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -78,7 +77,7 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     let dropped = [(target_shard_id, drop_map)].into_iter().collect();
     let mut env = env.drop(DropCondition::ChunksProducedByHeight(dropped));
 
-    run_for_number_of_blocks(&mut env, rpc_id, num_missed_chunks + 2);
+    env.runner_for_account(rpc_id).run_for_number_of_blocks(num_missed_chunks + 2);
 
     // Send a tx targeting the stuck shard; it should be accepted because
     // 10 missed chunks is well below the 125 threshold.

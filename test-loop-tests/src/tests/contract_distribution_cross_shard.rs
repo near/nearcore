@@ -4,7 +4,6 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
-use crate::utils::get_node_head_height;
 use crate::utils::transactions::{check_txs, make_accounts};
 use itertools::Itertools;
 use near_async::time::Duration;
@@ -48,7 +47,7 @@ fn test_contract_distribution_cross_shard() {
     let contract_ids = [&accounts[0], &accounts[4]];
     let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
 
-    let start_height = get_node_head_height(&env, &accounts[0]);
+    let start_height = env.node_for_account(&accounts[0]).head().height;
 
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
@@ -64,7 +63,7 @@ fn test_contract_distribution_cross_shard() {
 
     call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids);
 
-    let end_height = get_node_head_height(&env, &accounts[0]);
+    let end_height = env.node_for_account(&accounts[0]).head().height;
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 }
 
