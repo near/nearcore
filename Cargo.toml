@@ -46,6 +46,7 @@ members = [
     "core/crypto",
     "core/dyn-configs",
     "core/external-storage",
+    "core/mldsa-native-sys",
     "core/o11y",
     "core/parameters",
     "core/primitives",
@@ -142,9 +143,6 @@ assert_matches = "1.5.0"
 async-trait = "0.1.58"
 aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
-# Pinned to an exact version because ML-DSA performance affects gas costs;
-# releases that touch its implementation need an explicit rebench.
-aws-lc-rs = "=1.18.1"
 axum = { version = "0.8", features = ["http2", "macros"] }
 axum-test = "18.0"
 base64 = "0.21"
@@ -164,6 +162,7 @@ bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
 cov-mark = "2.0.0-pre.1"
 cargo_metadata = "0.14.1"
+cc = "1.2"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "alloc",
@@ -229,6 +228,7 @@ near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
+near-mldsa-native-sys = { path = "core/mldsa-native-sys" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-external-storage = { path = "core/external-storage" }
 near-flat-storage = { path = "tools/flat-storage" }
