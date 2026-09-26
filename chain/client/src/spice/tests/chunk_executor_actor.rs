@@ -18,6 +18,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ChainStoreAccess;
 use near_chain::Error;
+use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
@@ -39,6 +40,7 @@ use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -46,9 +48,16 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::test_utils::{
+    TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
+};
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::{AccountId, Balance, ChunkExecutionResult, NumShards, ShardId};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+};
+use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
@@ -1421,4 +1430,321 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     spice_head_update.commit();
 
     assert_eq!(is_descendant_of_final_execution_head(&chain.chain_store, block.header()), false);
+}
+
+fn build_saved_block(
+    chain: &mut Chain,
+    prev_block: &Block,
+    height: u64,
+    protocol_version: ProtocolVersion,
+    signer: &Arc<ValidatorSigner>,
+) -> Arc<Block> {
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer.clone())
+        .height(height)
+        .protocol_version(protocol_version)
+        .build();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_block(block.clone());
+    store_update.save_block_header(block.header().clone()).unwrap();
+    store_update.commit().unwrap();
+    block
+}
+
+fn seed_execution_heads(chain: &Chain, last_pre_spice: &Block, block: &Block) {
+    let mut store_update = chain.chain_store.store().store_update();
+    seed_execution_heads_at_activation(&mut store_update, block, last_pre_spice.header()).unwrap();
+    store_update.commit();
+}
+
+/// A pre-spice chain genesis..height 3 at consecutive heights, so `Block::produce`
+/// resolves real last-final blocks: a first spice block built on the block at
+/// height 3 finalizes the block at height 2.
+fn pre_spice_boundary_chain() -> (Chain, Arc<ValidatorSigner>, Vec<Arc<Block>>) {
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut chain = {
+        let genesis = TestGenesisBuilder::new()
+            .protocol_version(pre_spice_protocol_version())
+            .validators_spec(ValidatorsSpec::desired_roles(&[signer.validator_id().as_str()], &[]))
+            .build();
+        get_chain_with_genesis(Clock::real(), genesis)
+    };
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=3u64 {
+        let block = build_saved_block(
+            &mut chain,
+            blocks[height as usize - 1].clone().as_ref(),
+            height,
+            pre_spice_protocol_version(),
+            &signer,
+        );
+        blocks.push(block);
+    }
+    (chain, signer, blocks)
+}
+
+/// Re-seeding the execution heads from sibling boundary forks changes nothing:
+/// both setters are forward-only, and every first spice block on a same-height
+/// fork resolves the same last final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_head_seeding_is_idempotent_across_sibling_boundary_forks() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let last_pre_spice = blocks[3].clone();
+    let first_spice =
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
+    assert_eq!(first_spice.header().last_final_block(), blocks[2].hash());
+
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
+    let chain_store = chain.chain_store.store().chain_store();
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+
+    // A sibling first spice block on the same prev block re-seeds to the same heads.
+    let sibling_first_spice =
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), sibling_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+
+    // A same-height sibling last pre-spice block on a fork re-seeds without moving
+    // the heads either: the forward-only execution head setter skips equal heights.
+    let sibling_last_pre_spice = build_saved_block(
+        &mut chain,
+        blocks[2].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let fork_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        4,
+        spice_protocol_version,
+        &signer,
+    );
+    seed_execution_heads(&chain, sibling_last_pre_spice.as_ref(), fork_first_spice.as_ref());
+    assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, last_pre_spice.hash());
+    assert_eq!(
+        &chain_store.spice_final_execution_head().unwrap().last_block_hash,
+        blocks[2].hash()
+    );
+}
+
+/// At the boundary the final execution head is seeded to the first spice block's
+/// last final block. `is_descendant_of_final_execution_head` gates execution on it
+/// by walking a block's ancestry down to the head's height and comparing heights
+/// only, never hashes. Consequences:
+/// - a fork whose blocks sit at the same heights as the canonical chain passes,
+///   even though its ancestor at the head's height is a different block;
+/// - a fork that branched below the seeded head and skipped its height has no
+///   ancestor at that height, fails the check, and so never executes — only a
+///   losing fork can have that shape, since the seeded head is a final block.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_activation_seeded_head_rejects_height_skipping_boundary_fork() {
+    let (mut chain, signer, blocks) = pre_spice_boundary_chain();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let last_pre_spice = blocks[3].clone();
+    let first_spice =
+        build_saved_block(&mut chain, last_pre_spice.as_ref(), 4, spice_protocol_version, &signer);
+    seed_execution_heads(&chain, last_pre_spice.as_ref(), first_spice.as_ref());
+
+    // The canonical first spice block descends through the seeded head's height.
+    assert!(is_descendant_of_final_execution_head(&chain.chain_store, first_spice.header()));
+
+    // A same-height sibling boundary fork passes either way.
+    let sibling_last_pre_spice = build_saved_block(
+        &mut chain,
+        blocks[2].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let sibling_first_spice = build_saved_block(
+        &mut chain,
+        sibling_last_pre_spice.as_ref(),
+        4,
+        spice_protocol_version,
+        &signer,
+    );
+    assert!(is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        sibling_first_spice.header()
+    ));
+
+    // A boundary fork branching below the seeded head and skipping its height
+    // has no ancestor at that height and is rejected.
+    let skipping_parent = build_saved_block(
+        &mut chain,
+        blocks[1].clone().as_ref(),
+        3,
+        pre_spice_protocol_version(),
+        &signer,
+    );
+    let skipping_first_spice =
+        build_saved_block(&mut chain, skipping_parent.as_ref(), 4, spice_protocol_version, &signer);
+    assert!(!is_descendant_of_final_execution_head(
+        &chain.chain_store,
+        skipping_first_spice.header()
+    ));
+}
+
+/// Saves `block` and records it in the epoch manager the way block postprocessing
+/// does, without processing the block: the epoch manager has to know the block
+/// to answer activation-boundary questions about it, and its chunks have to be on
+/// disk for the executor to read them.
+fn save_and_record_pre_spice_block(chain: &mut Chain, block: &Arc<Block>) {
+    let protocol_version =
+        chain.epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_block(block.clone());
+    store_update.save_block_header(block.header().clone()).unwrap();
+    for chunk_header in block.chunks().iter_raw() {
+        store_update.save_chunk(ShardChunk::new(chunk_header.clone(), vec![], vec![]));
+    }
+    let block_info = BlockInfo::from_header(
+        block.header(),
+        block.header().height().saturating_sub(2),
+        protocol_version,
+    );
+    let epoch_manager_update = chain
+        .epoch_manager
+        .add_validator_proposals(block_info, *block.header().random_value())
+        .unwrap();
+    store_update.merge(epoch_manager_update.into());
+    store_update.commit().unwrap();
+}
+
+/// Extends `chain` with fabricated pre-spice blocks that vote for spice until the
+/// tip is a last pre-spice block, and returns it.
+/// The epoch after the returned block is the first spice epoch.
+fn build_to_last_pre_spice_block(chain: &mut Chain, signer: &Arc<ValidatorSigner>) -> Arc<Block> {
+    let mut block = chain.genesis_block();
+    for _ in 0..MAX_BLOCKS_TO_ACTIVATION {
+        let epoch_manager = chain.epoch_manager.clone();
+        let chunks = get_fake_next_block_chunk_headers(&block, epoch_manager.as_ref());
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(block.hash()).unwrap();
+        let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(block.hash()).unwrap();
+        let height = block.header().height() + 1;
+        // The epoch info aggregator asserts one bitmap slot per assigned chunk
+        // validator, so the endorsement vectors have to be sized from the epoch.
+        let chunk_endorsements = epoch_manager
+            .get_shard_layout(&epoch_id)
+            .unwrap()
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments = epoch_manager
+                    .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                    .unwrap();
+                vec![Some(Box::new(signer.sign_bytes(&[]))); assignments.assignments().len()]
+            })
+            .collect();
+        let mut next = TestBlockBuilder::from_prev_block(Clock::real(), &block, signer.clone())
+            .chunks(chunks)
+            .chunk_endorsements(chunk_endorsements)
+            .epoch_id(epoch_id)
+            .next_epoch_id(next_epoch_id)
+            .protocol_version(pre_spice_protocol_version())
+            .build_owned();
+        next.mut_header().set_latest_protocol_version(ProtocolFeature::Spice.protocol_version());
+        next.mut_header().resign(signer.as_ref());
+        let next = Arc::new(next);
+        save_and_record_pre_spice_block(chain, &next);
+        block = next;
+        if is_last_pre_spice_block(chain.epoch_manager.as_ref(), block.hash()).unwrap() {
+            return block;
+        }
+    }
+    panic!("chain never reached a last pre-spice block")
+}
+
+const MAX_BLOCKS_TO_ACTIVATION: usize = 30;
+const BOUNDARY_NUM_SHARDS: NumShards = 3;
+/// The one shard whose chunk extra is withheld below.
+const BROKEN_SHARD_INDEX: usize = 1;
+
+/// The boundary bootstrap has to survive a shard it cannot synthesize. That
+/// shard's bootstrap must fail on its own without taking the other shards' work
+/// with it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_boundary_bootstrap_isolates_a_shard_it_cannot_synthesize() {
+    init_test_logger();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let signer = Arc::new(create_test_signer("test0"));
+    let shard_layout = ShardLayout::multi_shard(BOUNDARY_NUM_SHARDS, 0);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .epoch_length(5)
+        .transaction_validity_period(10)
+        .protocol_version(pre_spice_protocol_version())
+        .shard_layout(shard_layout.clone())
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
+        .build();
+    let mut test_actor = TestActor::new(
+        genesis,
+        MutableConfigValue::new(Some(signer.clone()), "validator_signer"),
+        shard_layout.shard_uids().collect(),
+        outgoing_sc,
+    );
+
+    let last_pre_spice = build_to_last_pre_spice_block(&mut test_actor.chain, &signer);
+
+    // Every shard but one looks like a shard this node applied pre-spice: the
+    // withheld chunk extra is what makes the remaining shard unsynthesizable.
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+    let broken_shard_uid = shard_uids[BROKEN_SHARD_INDEX];
+    let mut store_update = test_actor.chain.chain_store.store_update();
+    for shard_uid in &shard_uids {
+        if *shard_uid == broken_shard_uid {
+            continue;
+        }
+        store_update.save_outgoing_receipt(
+            last_pre_spice.hash(),
+            shard_uid.shard_id(),
+            vec![Receipt::new_balance_refund(
+                &signer.validator_id().clone(),
+                Balance::from_near(1),
+            )],
+        );
+        store_update.save_chunk_extra(
+            last_pre_spice.hash(),
+            shard_uid,
+            ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(
+                shard_uid.shard_id().to_string().as_bytes(),
+            ))
+            .into(),
+        );
+    }
+    store_update.commit().unwrap();
+
+    let result = test_actor.actor.handle_processed_block(last_pre_spice.hash());
+    assert!(
+        result.is_ok(),
+        "one unsynthesizable shard must not fail the whole boundary bootstrap: {:?}",
+        result.unwrap_err(),
+    );
+
+    // Each synthesizable shard still produced and persisted its receipt proofs,
+    // whichever order the coordinator visited the executors in.
+    let store = test_actor.actor.chain_store.store();
+    for shard_uid in &shard_uids {
+        let from_shard_id = shard_uid.shard_id();
+        let expected = *shard_uid != broken_shard_uid;
+        for to_shard_id in shard_layout.shard_ids() {
+            assert_eq!(
+                receipt_proof_exists(&store, last_pre_spice.hash(), to_shard_id, from_shard_id),
+                expected,
+                "receipt proof {from_shard_id} -> {to_shard_id} at the last pre-spice block",
+            );
+        }
+    }
 }
