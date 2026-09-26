@@ -9,8 +9,6 @@ use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnum};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::FinalExecutionStatus;
@@ -196,7 +194,6 @@ fn prepare_env_with_yield(
     init_test_logger();
 
     let test_account: AccountId = "test0".parse().unwrap();
-    let test_account_signer = create_user_test_signer(&test_account).into();
 
     let runtime_config = RuntimeConfig::test();
     assert_eq!(
@@ -217,16 +214,8 @@ fn prepare_env_with_yield(
 
     assert_eq!(env.validator().head().height, 0);
 
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-
     // Submit transaction deploying contract to test0
-    let deploy_contract_tx = SignedTransaction::deploy_contract(
-        1,
-        &test_account,
-        near_test_contracts::rs_contract().into(),
-        &test_account_signer,
-        *genesis_block.hash(),
-    );
+    let deploy_contract_tx = env.validator().tx_deploy_test_contract(&test_account);
     env.validator().submit_tx(deploy_contract_tx.clone());
 
     // Allow enough blocks for the contract to be deployed (and, under
@@ -243,18 +232,15 @@ fn prepare_env_with_yield(
     ));
 
     // Submit transaction making a function call which will invoke yield create
-    let yield_transaction = SignedTransaction::from_actions(
-        10,
-        test_account.clone(),
-        test_account,
-        &test_account_signer,
+    let yield_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: anticipated_yield_payload,
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
     env.validator().submit_tx(yield_transaction);
@@ -284,21 +270,17 @@ fn invoke_yield_resume(
     data_id: CryptoHash,
     yield_payload: Vec<u8>,
 ) -> CryptoHash {
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
 
-    let resume_transaction = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let resume_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     let tx_hash = resume_transaction.get_hash();
     env.validator().submit_tx(resume_transaction);
@@ -310,22 +292,18 @@ fn invoke_yield_resume(
 /// Note that these transactions start to be processed in the *second* block produced after they are
 /// inserted to client 0's mempool.
 fn create_congestion(env: &TestLoopEnv) {
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
 
-    for i in 0..25 {
-        let signed_transaction = SignedTransaction::from_actions(
-            i + 100,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
+    for _ in 0..25 {
+        let signed_transaction = env.validator().tx_from_actions(
+            &test_account,
+            &test_account,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "epoch_height".to_string(),
                 args: vec![],
                 gas: Gas::from_gas(100),
                 deposit: Balance::ZERO,
             }))],
-            *genesis_block.hash(),
         );
         env.validator().submit_tx(signed_transaction);
     }

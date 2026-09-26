@@ -37,7 +37,7 @@ fn test_hint_fallback_resolves_tx_origin() {
         })
         .build();
 
-    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+    let (tx_hash, receipt_id, height) = send_self_money(&mut env, &user_account);
 
     let response = handle(
         &mut env,
@@ -76,14 +76,10 @@ fn test_hint_height_only_resolves_all_shards() {
         })
         .build();
 
-    let signer = create_user_test_signer(&sender_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        sender_account.clone(),
-        receiver_account,
-        &signer,
+    let tx = env.validator().tx_send_money(
+        &sender_account,
+        &receiver_account,
         Balance::from_yoctonear(100),
-        env.validator().head().last_block_hash,
     );
     let tx_hash = tx.get_hash();
     let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
@@ -128,26 +124,16 @@ fn test_hint_fallback_resolves_through_refund_chain() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
@@ -206,27 +192,16 @@ fn test_hint_cross_shard_walk_resolves_via_predecessor_shard() {
         })
         .build();
 
-    let receiver_signer = create_user_test_signer(&receiver_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &receiver_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &receiver_signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&receiver_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let sender_signer = create_user_test_signer(&sender_account);
-    let call_tx = SignedTransaction::call(
-        1,
-        sender_account.clone(),
-        receiver_account,
-        &sender_signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &sender_account,
+        &receiver_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
@@ -278,15 +253,8 @@ fn test_hint_with_column_populated_save_tx_outcomes_false_succeeds() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::from_yoctonear(100),
-        env.validator().head().last_block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(&user_account, &user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     env.validator().submit_tx(tx);
     let target_height = env.validator().head().height + 2 * EPOCH_LENGTH;
@@ -336,7 +304,7 @@ fn test_hint_fallback_wrong_height() {
         })
         .build();
 
-    let (_, receipt_id, height) = send_self_money(&mut env, &user_account, 1);
+    let (_, receipt_id, height) = send_self_money(&mut env, &user_account);
     let bogus_hint = height + 100;
     let result = handle(
         &mut env,
@@ -371,26 +339,16 @@ fn test_hint_column_then_fallback_boundary() {
         .gas_prices(min_gas_price, min_gas_price)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
@@ -464,14 +422,10 @@ fn test_hint_fallback_cross_shard_returns_unknown_receipt() {
         })
         .build();
 
-    let signer = create_user_test_signer(&sender_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        sender_account,
-        receiver_account,
-        &signer,
+    let tx = env.validator().tx_send_money(
+        &sender_account,
+        &receiver_account,
         Balance::from_yoctonear(100),
-        env.validator().head().last_block_hash,
     );
     let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
 
@@ -542,26 +496,16 @@ fn test_hint_stale_then_column_miss_returns_unknown() {
         .gas_prices(min_gas_price, min_gas_price)
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account,
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
     let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
@@ -630,26 +574,16 @@ fn test_hint_ancestor_includes_anchor() {
         })
         .build();
 
-    let signer = create_user_test_signer(&user_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &user_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&user_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let call_tx = SignedTransaction::call(
-        2,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &user_account,
+        &user_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();
@@ -706,14 +640,10 @@ fn test_hint_ancestor_distance_misses_when_delay_exceeds_config() {
         })
         .build();
 
-    let signer = create_user_test_signer(&sender_account);
-    let tx = SignedTransaction::send_money(
-        1,
-        sender_account,
-        receiver_account,
-        &signer,
+    let tx = env.validator().tx_send_money(
+        &sender_account,
+        &receiver_account,
         Balance::from_yoctonear(100),
-        env.validator().head().last_block_hash,
     );
     let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     let action_receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
@@ -819,27 +749,16 @@ fn test_hint_ancestor_gap_band() {
         })
         .build();
 
-    let receiver_signer = create_user_test_signer(&receiver_account);
-    let deploy_tx = SignedTransaction::deploy_contract(
-        1,
-        &receiver_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &receiver_signer,
-        env.validator().head().last_block_hash,
-    );
+    let deploy_tx = env.validator().tx_deploy_test_contract(&receiver_account);
     env.validator_runner().run_tx(deploy_tx, Duration::seconds(5));
 
-    let sender_signer = create_user_test_signer(&sender_account);
-    let call_tx = SignedTransaction::call(
-        1,
-        sender_account.clone(),
-        receiver_account,
-        &sender_signer,
-        Balance::ZERO,
-        "log_something".to_owned(),
+    let call_tx = env.validator().tx_call(
+        &sender_account,
+        &receiver_account,
+        "log_something",
         vec![],
+        Balance::ZERO,
         Gas::from_teragas(300),
-        env.validator().head().last_block_hash,
     );
     let call_tx_hash = call_tx.get_hash();
     let outcome = env.validator_runner().execute_tx(call_tx, Duration::seconds(10)).unwrap();

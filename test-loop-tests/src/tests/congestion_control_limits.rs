@@ -207,19 +207,8 @@ fn submit_n_cheap_fns(
 // ---- account / contract setup ----
 
 fn setup_account(env: &mut TestLoopEnv, account_id: &AccountId, account_parent_id: &AccountId) {
-    let signer = InMemorySigner::test_signer(account_parent_id);
-    let block_hash = env.validator().head().last_block_hash;
-    let nonce = env.validator().get_next_nonce(account_parent_id);
-    let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
-    let tx = SignedTransaction::create_account(
-        nonce,
-        account_parent_id.clone(),
-        account_id.clone(),
-        Balance::from_near(100),
-        public_key,
-        &signer,
-        block_hash,
-    );
+    let tx =
+        env.validator().tx_create_account(account_parent_id, account_id, Balance::from_near(100));
     assert_matches!(execute_setup_tx(env, tx), FinalExecutionStatus::SuccessValue(_));
 }
 

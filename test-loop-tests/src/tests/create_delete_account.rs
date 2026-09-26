@@ -8,8 +8,6 @@ use near_client::QueryError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::Action;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
 
@@ -39,25 +37,14 @@ fn test_instant_delete_account() {
         .build();
 
     let [contract_account, beneficiary] = &user_accounts;
-    let contract_signer = create_user_test_signer(contract_account);
 
     // Deploy rs_contract.
-    let nonce = 1;
-    let block_hash = env.rpc_node().head().last_block_hash;
-    let tx = SignedTransaction::deploy_contract(
-        nonce,
-        contract_account,
-        near_test_contracts::rs_contract().to_vec(),
-        &contract_signer,
-        block_hash,
-    );
+    let tx = env.rpc_node().tx_deploy_test_contract(contract_account);
     env.rpc_runner().run_tx(tx, Duration::seconds(5));
 
     // Call `call_promise` on the contract to create a batch promise on itself
     // with a single DeleteAccount action. The contract deletes its own account.
     // This produces a child receipt with only DeleteAccount, which should be instant.
-    let nonce = 2;
-    let block_hash = env.rpc_node().head().last_block_hash;
     let call_promise_args = serde_json::json!([
         {
             "batch_create": { "account_id": contract_account.as_str() },
@@ -72,16 +59,13 @@ fn test_instant_delete_account() {
             "return": true
         }
     ]);
-    let tx = SignedTransaction::call(
-        nonce,
-        contract_account.clone(),
-        contract_account.clone(),
-        &contract_signer,
-        Balance::ZERO,
-        "call_promise".to_string(),
+    let tx = env.rpc_node().tx_call(
+        contract_account,
+        contract_account,
+        "call_promise",
         serde_json::to_vec(&call_promise_args).unwrap(),
+        Balance::ZERO,
         Gas::from_teragas(300),
-        block_hash,
     );
     let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     assert!(

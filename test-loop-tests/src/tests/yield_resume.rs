@@ -11,8 +11,6 @@ use near_primitives::block::ChunkType;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, VersionedReceiptEnum};
-use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
@@ -89,7 +87,6 @@ fn prepare_env() -> TestLoopEnv {
     init_test_logger();
 
     let test_account: AccountId = "test0".parse().unwrap();
-    let test_account_signer = create_user_test_signer(&test_account).into();
 
     let mut env = TestLoopBuilder::new()
         .genesis_height(0)
@@ -99,13 +96,9 @@ fn prepare_env() -> TestLoopEnv {
 
     assert_eq!(env.validator().head().height, 0);
 
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
-    let deploy_contract_tx = SignedTransaction::deploy_contract(
-        1,
+    let deploy_contract_tx = env.validator().tx_deploy_contract(
         &test_account,
         near_test_contracts::backwards_compatible_rs_contract().into(),
-        &test_account_signer,
-        *genesis_block.hash(),
     );
     env.validator().submit_tx(deploy_contract_tx.clone());
 
@@ -136,24 +129,20 @@ fn prepare_env() -> TestLoopEnv {
 #[test]
 fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env();
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
     let mut next_block_height = next_block_height_after_setup();
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.
-    let yield_transaction = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let yield_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: yield_payload.clone(),
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
     env.validator().submit_tx(yield_transaction);
@@ -179,18 +168,15 @@ fn test_yield_then_resume_one_block_apart() {
     assert_eq!(get_yield_data_ids_in_latest_state(&env).len(), 1);
 
     // Add another transaction invoking `yield_resume`.
-    let resume_transaction = SignedTransaction::from_actions(
-        201,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let resume_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
             args: yield_payload,
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     env.validator().submit_tx(resume_transaction);
 
@@ -224,41 +210,34 @@ fn test_yield_then_resume_one_block_apart() {
 #[test]
 fn test_yield_then_resume_same_block() {
     let mut env = prepare_env();
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
     let mut next_block_height = next_block_height_after_setup();
     let yield_payload = vec![6u8; 16];
 
     // Add a transaction invoking `yield_create`.
-    let yield_transaction = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let yield_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
             args: yield_payload.clone(),
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
     env.validator().submit_tx(yield_transaction);
 
     // Add another transaction invoking `yield_resume`.
-    let resume_transaction = SignedTransaction::from_actions(
-        201,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let resume_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
             args: yield_payload,
             gas: Gas::from_teragas(300),
             deposit: Balance::ZERO,
         }))],
-        *genesis_block.hash(),
     );
     let resume_tx_hash = resume_transaction.get_hash();
     env.validator().submit_tx(resume_transaction);
@@ -302,15 +281,12 @@ fn test_yield_then_resume_same_block() {
 #[test]
 fn test_yield_then_resume_two_actions() {
     let mut env = prepare_env();
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
     let yield_payload = vec![6u8; 16];
 
-    let yield_resume_transaction = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let yield_resume_transaction = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_yield_create_return_promise".to_string(),
@@ -325,7 +301,6 @@ fn test_yield_then_resume_two_actions() {
                 deposit: Balance::ZERO,
             })),
         ],
-        *genesis_block.hash(),
     );
     env.validator_runner()
         .execute_tx(yield_resume_transaction.clone(), Duration::seconds(5))
@@ -354,15 +329,12 @@ fn test_yield_then_resume_two_actions() {
 #[test]
 fn test_yield_then_resume_two_actions_failure() {
     let mut env = prepare_env();
-    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
+    let test_account = AccountId::from_str("test0").unwrap();
     let yield_payload = vec![6u8; 16];
 
-    let tx = SignedTransaction::from_actions(
-        200,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
+    let tx = env.validator().tx_from_actions(
+        &test_account,
+        &test_account,
         vec![
             Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_yield_create_return_promise".to_string(),
@@ -383,7 +355,6 @@ fn test_yield_then_resume_two_actions_failure() {
                 deposit: Balance::ZERO,
             })),
         ],
-        *genesis_block.hash(),
     );
 
     let res = env.validator_runner().execute_tx(tx, Duration::seconds(5));
