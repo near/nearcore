@@ -13,7 +13,6 @@ pub(super) use near_primitives::receipt::{
     ReceiptSource, ReceiptToTxInfo, ReceiptToTxInfoV1,
 };
 pub(super) use near_primitives::test_utils::create_user_test_signer;
-pub(super) use near_primitives::transaction::SignedTransaction;
 pub(super) use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, ShardId};
 pub(super) use near_primitives::utils::get_block_shard_id;
 pub(super) use near_store::DBCol;
@@ -45,18 +44,9 @@ pub(super) fn receipt_to_tx_rpc_req(receipt_id: CryptoHash) -> RpcReceiptToTxReq
 pub(super) fn send_self_money(
     env: &mut crate::setup::env::TestLoopEnv,
     user_account: &AccountId,
-    nonce: u64,
 ) -> (CryptoHash, CryptoHash, u64) {
-    let signer = create_user_test_signer(user_account);
-    let head = env.validator().head();
-    let tx = SignedTransaction::send_money(
-        nonce,
-        user_account.clone(),
-        user_account.clone(),
-        &signer,
-        Balance::from_yoctonear(100),
-        head.last_block_hash,
-    );
+    let tx =
+        env.validator().tx_send_money(user_account, user_account, Balance::from_yoctonear(100));
     let tx_hash = tx.get_hash();
     let outcome = env.validator_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     let receipt_id = outcome.transaction_outcome.outcome.receipt_ids[0];
