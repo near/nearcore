@@ -23,6 +23,7 @@ use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesCo
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use num_rational::Rational32;
@@ -439,6 +440,31 @@ pub fn record_block_with_final_and_mask_at_version(
     chunk_mask: Vec<bool>,
     protocol_version: ProtocolVersion,
 ) {
+    record_block_with_final_and_mask_uncommitted(
+        em,
+        prev,
+        cur,
+        height,
+        last_final_hash,
+        last_final_height,
+        chunk_mask,
+        protocol_version,
+    )
+    .commit();
+}
+
+/// `record_block_with_final_and_mask_at_version` without committing: returns the store
+/// update the way the chain holds it between `add_validator_proposals` and its own commit.
+pub fn record_block_with_final_and_mask_uncommitted(
+    em: &mut EpochManager,
+    prev: CryptoHash,
+    cur: CryptoHash,
+    height: BlockHeight,
+    last_final_hash: CryptoHash,
+    last_final_height: BlockHeight,
+    chunk_mask: Vec<bool>,
+    protocol_version: ProtocolVersion,
+) -> EpochStoreUpdateAdapter<'static> {
     let epoch_id = em.get_epoch_id(&prev).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     // A missed chunk (mask == false) must carry an EMPTY endorsement bitmap for that shard.
@@ -475,7 +501,6 @@ pub fn record_block_with_final_and_mask_at_version(
         [0; 32],
     )
     .unwrap()
-    .commit();
 }
 
 pub fn record_block_with_final_block_hash(

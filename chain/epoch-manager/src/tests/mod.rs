@@ -2,6 +2,7 @@ mod early_kickout;
 mod epoch_start_fork_determinism;
 mod pick_shard_to_split;
 mod random_epochs;
+mod uncommitted_block_info_eviction;
 
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;

@@ -1381,6 +1381,12 @@ impl EpochManager {
                         block_info.height(),
                     )?;
                 }
+
+                // Until the caller commits `store_update`, this block's `BlockInfo` is
+                // readable only through `blocks_info`, and callers do read it before
+                // committing. The steps above can walk far enough back to evict it, so put
+                // it back last.
+                self.blocks_info.put(current_hash, block_info);
             }
         }
         Ok(store_update)
@@ -2119,6 +2125,17 @@ impl EpochManager {
         self.blocks_info.get_or_try_put(*hash, |hash| self.store.get_block_info(hash).map(Arc::new))
     }
 
+    /// Like `get_block_info`, but a miss is read from the store without inserting into
+    /// `blocks_info`. For the aggregator walk, which can span a whole epoch and would
+    /// otherwise flush the cache, including a just-recorded `BlockInfo` that exists nowhere
+    /// else until its store update is committed.
+    fn get_block_info_uncached(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
+        match self.blocks_info.get(hash) {
+            Some(block_info) => Ok(block_info),
+            None => self.store.get_block_info(hash).map(Arc::new),
+        }
+    }
+
     fn save_block_info(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
@@ -2234,7 +2251,7 @@ impl EpochManager {
             return Ok(None);
         }
 
-        let epoch_id = *self.get_block_info(block_hash)?.epoch_id();
+        let epoch_id = *self.get_block_info_uncached(block_hash)?.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
 
@@ -2250,7 +2267,7 @@ impl EpochManager {
             // To avoid cloning BlockInfo we need to first get reference to the
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
-            let block_info = self.get_block_info(&cur_hash)?;
+            let block_info = self.get_block_info_uncached(&cur_hash)?;
             let different_epoch = &epoch_id != block_info.epoch_id();
 
             if different_epoch || block_info.is_genesis() {
@@ -2264,7 +2281,7 @@ impl EpochManager {
             }
 
             let prev_hash = *block_info.prev_hash();
-            let (prev_height, prev_epoch) = match self.get_block_info(&prev_hash) {
+            let (prev_height, prev_epoch) = match self.get_block_info_uncached(&prev_hash) {
                 Ok(info) => (info.height(), *info.epoch_id()),
                 Err(EpochError::MissingBlock(_)) => {
                     // In the case of epoch sync, we may not have the BlockInfo for the last final block
@@ -2290,7 +2307,7 @@ impl EpochManager {
                 &shard_layout,
                 &prev_hash,
             );
-            let block_info = self.get_block_info(&cur_hash)?;
+            let block_info = self.get_block_info_uncached(&cur_hash)?;
             aggregator.update_tail(
                 &block_info,
                 &epoch_info,
@@ -2331,12 +2348,12 @@ impl EpochManager {
         }
         // Missing prev `BlockInfo` is the epoch-sync special case handled by
         // the caller; resolve that block with the legacy sampler.
-        let prev_block_info = self.get_block_info(prev_hash).ok()?;
+        let prev_block_info = self.get_block_info_uncached(prev_hash).ok()?;
         if prev_block_info.is_genesis() {
             return None;
         }
         let anchor = *prev_block_info.prev_hash();
-        let anchor_block_info = self.get_block_info(&anchor).ok()?;
+        let anchor_block_info = self.get_block_info_uncached(&anchor).ok()?;
         if anchor_block_info.epoch_id() != epoch_id {
             return None;
         }
