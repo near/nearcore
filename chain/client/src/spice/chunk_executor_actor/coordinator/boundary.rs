@@ -4,11 +4,11 @@
 use super::ChunkExecutorActor;
 use near_chain::Error;
 use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain_primitives::ApplyChunksMode;
 use near_primitives::hash::CryptoHash;
 
 impl ChunkExecutorActor {
-    /// Runs the boundary bootstrap of `block_hash` on every tracked shard's executor
-    /// when it is a last pre-spice block; a no-op otherwise.
+    /// Runs the boundary bootstrap of `block_hash` when it is a last pre-spice block; a no-op otherwise.
     pub(super) fn bootstrap_last_pre_spice_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -17,10 +17,16 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        // The block was applied the pre-spice way, keyed on its own prev hash like any
-        // other block: the shards tracked in its epoch hold its results.
-        self.reconcile_tracked_shards(block.header().prev_hash())?;
+        let prev_hash = block.header().prev_hash();
+        self.reconcile_tracked_shards(prev_hash)?;
         for executor in self.per_shard_executors.values() {
+            if !self.shard_tracker.should_apply_chunk(
+                ApplyChunksMode::NotCaughtUp,
+                prev_hash,
+                executor.shard_uid().shard_id(),
+            ) {
+                continue;
+            }
             if let Err(err) =
                 executor.endorse_and_send_receipts_and_witness_for_last_pre_spice_block(&block)
             {

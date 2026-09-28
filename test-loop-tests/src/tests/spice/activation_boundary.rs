@@ -480,13 +480,8 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
 ///
 /// A validator that tracks a shard in the first spice epoch but not before applies the
 /// last pre-spice block's chunk of that shard through catch-up, asynchronously, some
-/// time after processing the block. The boundary bootstrap runs on it as soon as the
-/// block is postprocessed, because the bootstrap keys on this-or-next-epoch tracking,
-/// finds no chunk extra and gives up, and nothing re-runs it once catch-up lands the
-/// block. The data distributor makes the same this-or-next-epoch assumption, so the
-/// validator never requests the shard's boundary witness either. Its endorsement of the
-/// boundary chunk is lost, and when certification needs it the last pre-spice block
-/// never certifies: blocks keep coming, but certification never crosses the boundary.
+/// time after processing the block, while the boundary bootstrap runs as soon as the
+/// block is postprocessed.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activation() {
