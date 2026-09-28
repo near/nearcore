@@ -411,6 +411,7 @@ pub async fn start_with_config_and_synchronization_impl(
         tracing::info!(
             compatibility_hash = status.compiler_compatibility_hash,
             isolation = ?status.isolation,
+            memory_limit = ?status.memory_limit,
             "compiler daemon worker is ready"
         );
     } else {

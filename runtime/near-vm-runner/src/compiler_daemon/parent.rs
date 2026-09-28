@@ -9,16 +9,17 @@
 //! waiting caller is served first (see [`CompilePriority`]).
 
 use super::protocol::{
-    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    DaemonStatus, IsolationStatus, WorkerConfig, read_compile_response, read_frame, write_frame,
+    COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV,
+    CompileRequest, DaemonStartup, DaemonStatus, IsolationStatus, MemoryLimitStatus, WorkerConfig,
+    read_compile_response, read_frame, write_frame,
 };
 use super::watchdog::{ProcessControl, ProcessWatchdog, TerminationReason, WatchdogError};
 use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::worker_failure::{WorkerFailure, worker_failure_kind};
 use crate::compiler_daemon::{
     DAEMON_STARTUP_TIMEOUT, DEFAULT_THREAD_STACK_SIZE_BYTES, DEFAULT_THREADS_PER_WORKER,
-    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS,
-    MIN_WORKER_MEMORY_LIMIT_BYTES,
+    DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, INITIAL_WORKER_MEMORY_LIMIT_BYTES, MAX_POOL_SIZE,
+    MAX_REQUEST_ATTEMPTS,
 };
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::metrics::COMPILATION_PATH_TOTAL;
@@ -42,7 +43,8 @@ use std::time::{Duration, Instant};
 
 static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
 static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
-static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
+static DAEMON_MEMORY_CONFIG: OnceLock<MemoryConfig> = OnceLock::new();
+static DAEMON_POOL: OnceLock<Result<DaemonPool, String>> = OnceLock::new();
 static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
 
 const PROCESS_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -91,10 +93,33 @@ pub fn is_daemon_configured() -> bool {
     DAEMON_BINARY.get().is_some()
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MemoryConfig {
+    worker_limit_bytes: u64,
+    total_budget_bytes: u64,
+}
+
+fn memory_config() -> MemoryConfig {
+    DAEMON_MEMORY_CONFIG.get().copied().unwrap_or(MemoryConfig {
+        worker_limit_bytes: INITIAL_WORKER_MEMORY_LIMIT_BYTES,
+        total_budget_bytes: DEFAULT_TOTAL_MEMORY_BUDGET_BYTES,
+    })
+}
+
+/// Override daemon memory settings before the singleton pool is initialized.
+#[cfg(feature = "test_features")]
+pub fn set_test_memory_config(worker_limit_bytes: u64, total_budget_bytes: u64) {
+    assert!(DAEMON_POOL.get().is_none(), "compiler daemon pool is already initialized");
+    DAEMON_MEMORY_CONFIG
+        .set(MemoryConfig { worker_limit_bytes, total_budget_bytes })
+        .expect("compiler daemon memory configuration is already set");
+}
+
 fn default_worker_config() -> WorkerConfig {
     WorkerConfig {
         threads: DEFAULT_THREADS_PER_WORKER,
         thread_stack_size_bytes: DEFAULT_THREAD_STACK_SIZE_BYTES,
+        memory_limit_bytes: memory_config().worker_limit_bytes,
     }
 }
 
@@ -111,7 +136,7 @@ struct DaemonProcess {
 impl DaemonProcess {
     fn spawn(binary: &Path, config: WorkerConfig) -> Result<Self, WorkerFailure> {
         // Do not inherit environment-based allocator, proxy, logging, or
-        // compiler configuration from neard. The two variables below are the
+        // compiler configuration from neard. The variables below are the
         // explicit process-level configuration contract for the worker.
         let mut command = Command::new(binary);
         command
@@ -119,6 +144,7 @@ impl DaemonProcess {
             .env_clear()
             .env(COMPILER_DAEMON_THREADS_ENV, config.threads.to_string())
             .env(COMPILER_DAEMON_STACK_SIZE_ENV, config.thread_stack_size_bytes.to_string())
+            .env(COMPILER_DAEMON_MEMORY_LIMIT_ENV, config.memory_limit_bytes.to_string())
             .current_dir("/")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -316,11 +342,29 @@ fn validate_daemon_status(
     }
     if status.worker_config != expected_config {
         return Err(format!(
-            "compiler daemon configuration mismatch: daemon reported {} threads with {} byte stacks, expected {} threads with {} byte stacks",
+            "compiler daemon configuration mismatch: daemon reported {} threads with {} byte stacks and a {} byte memory limit, expected {} threads with {} byte stacks and a {} byte memory limit",
             status.worker_config.threads,
             status.worker_config.thread_stack_size_bytes,
+            status.worker_config.memory_limit_bytes,
             expected_config.threads,
             expected_config.thread_stack_size_bytes,
+            expected_config.memory_limit_bytes,
+        ));
+    }
+    #[cfg(unix)]
+    if status.memory_limit
+        != (MemoryLimitStatus::Enforced { memory_limit_bytes: expected_config.memory_limit_bytes })
+    {
+        return Err(format!(
+            "compiler daemon did not enforce the requested {} byte memory limit: {:?}",
+            expected_config.memory_limit_bytes, status.memory_limit
+        ));
+    }
+    #[cfg(not(unix))]
+    if status.memory_limit != MemoryLimitStatus::Unavailable {
+        return Err(format!(
+            "unexpected compiler daemon memory limit status: {:?}",
+            status.memory_limit
         ));
     }
     #[cfg(target_os = "linux")]
@@ -599,51 +643,89 @@ impl Drop for Lease {
         }
     }
 }
-/// Default worker count when not configured: the smaller of two bounds, then
-/// clamped to `[1, MAX_POOL_SIZE]`.
-///
-/// - CPU: `available_parallelism()`. Each worker compiles with the full rayon
-///   pool, so more workers than cores only adds contention.
-/// - Memory: `DEFAULT_TOTAL_MEMORY_BUDGET_BYTES /
-///   MIN_WORKER_MEMORY_LIMIT_BYTES`. Keeping `workers × per_worker_limit`
-///   within the configured RAM budget is what stops a burst of compilations
-///   from tripping the kernel OOM killer and taking neard with it.
-fn default_pool_size() -> usize {
+/// Default worker count when not configured: the smaller of the CPU and
+/// virtual-address-space budget bounds, clamped to `[1, MAX_POOL_SIZE]`.
+fn default_pool_size(memory: MemoryConfig) -> usize {
     let by_cpu = available_parallelism().map_or(4, |n| n.get());
-    let by_memory = (DEFAULT_TOTAL_MEMORY_BUDGET_BYTES / MIN_WORKER_MEMORY_LIMIT_BYTES) as usize;
+    let by_memory = usize::try_from(memory.total_budget_bytes / memory.worker_limit_bytes)
+        .unwrap_or(usize::MAX);
     by_cpu.min(by_memory).clamp(1, MAX_POOL_SIZE)
 }
 
-fn get_or_init_pool() -> &'static DaemonPool {
-    DAEMON_POOL.get_or_init(|| {
-        let binary = DAEMON_BINARY.get().expect("daemon binary not configured").clone();
-        let max_workers = DAEMON_POOL_SIZE
-            .get()
-            .copied()
-            .unwrap_or_else(default_pool_size)
-            .clamp(1, MAX_POOL_SIZE);
-        DaemonPool {
-            binary,
-            worker_config: default_worker_config(),
-            max_workers,
-            inner: Mutex::new(PoolInner {
-                idle: Vec::new(),
-                live: 0,
-                waiters: [0; CompilePriority::COUNT],
-                #[cfg(feature = "test_features")]
-                high_water: 0,
-            }),
-            avail: from_fn(|_| Condvar::new()),
+fn validate_resource_config(
+    worker_config: WorkerConfig,
+    max_workers: usize,
+    total_budget_bytes: u64,
+) -> Result<(), String> {
+    if worker_config.memory_limit_bytes == 0 {
+        return Err("compiler daemon worker memory limit must be greater than zero".to_owned());
+    }
+    if total_budget_bytes == 0 {
+        return Err("compiler daemon total memory budget must be greater than zero".to_owned());
+    }
+    usize::try_from(worker_config.memory_limit_bytes)
+        .map_err(|_| "compiler daemon worker memory limit exceeds the platform address space")?;
+    #[cfg(unix)]
+    {
+        let limit = libc::rlim_t::try_from(worker_config.memory_limit_bytes)
+            .map_err(|_| "compiler daemon worker memory limit is not representable by rlim_t")?;
+        if limit == libc::RLIM_INFINITY {
+            return Err("compiler daemon worker memory limit must be finite".to_owned());
         }
-    })
+    }
+    let reserved_bytes = worker_config
+        .memory_limit_bytes
+        .checked_mul(u64::try_from(max_workers).map_err(|_| "worker count exceeds u64")?)
+        .ok_or_else(|| "compiler daemon worker memory reservation overflowed".to_owned())?;
+    if reserved_bytes > total_budget_bytes {
+        return Err(format!(
+            "compiler daemon workers reserve {reserved_bytes} bytes, exceeding the {total_budget_bytes} byte total memory budget"
+        ));
+    }
+    Ok(())
+}
+
+fn get_or_init_pool() -> Result<&'static DaemonPool, String> {
+    DAEMON_POOL
+        .get_or_init(|| {
+            let binary = DAEMON_BINARY.get().expect("daemon binary not configured").clone();
+            let memory = memory_config();
+            if memory.worker_limit_bytes == 0 {
+                return Err(
+                    "compiler daemon worker memory limit must be greater than zero".to_owned()
+                );
+            }
+            let max_workers = DAEMON_POOL_SIZE
+                .get()
+                .copied()
+                .unwrap_or_else(|| default_pool_size(memory))
+                .clamp(1, MAX_POOL_SIZE);
+            let worker_config = default_worker_config();
+            validate_resource_config(worker_config, max_workers, memory.total_budget_bytes)?;
+            Ok(DaemonPool {
+                binary,
+                worker_config,
+                max_workers,
+                inner: Mutex::new(PoolInner {
+                    idle: Vec::new(),
+                    live: 0,
+                    waiters: [0; CompilePriority::COUNT],
+                    #[cfg(feature = "test_features")]
+                    high_water: 0,
+                }),
+                avail: from_fn(|_| Condvar::new()),
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 /// Eagerly start and validate one worker, leaving it idle in the pool.
 ///
-/// This verifies IPC compatibility, compiler settings, and effective process
-/// isolation before the node starts serving requests.
+/// This verifies IPC compatibility, compiler settings, effective address-space
+/// enforcement, and process isolation before the node starts serving requests.
 pub fn start_daemon() -> Result<DaemonStatus, String> {
-    let pool = get_or_init_pool();
+    let pool = get_or_init_pool()?;
     let worker = pool.checkout(CompilePriority::Critical).map_err(|err| err.to_string())?;
     let status = worker.status().clone();
     Lease { pool, worker: Some(worker) }.check_in();
@@ -670,7 +752,8 @@ pub fn compile_in_subprocess(
         test_action: NEXT_TEST_ACTION.with(Cell::take),
     };
 
-    let pool = get_or_init_pool();
+    let pool = get_or_init_pool()
+        .map_err(|debug_message| VMRunnerError::WasmCompilationUnknownError { debug_message })?;
 
     let mut last_err = String::new();
     for attempt in 0..MAX_REQUEST_ATTEMPTS {
@@ -728,7 +811,7 @@ pub fn compile_in_subprocess(
 /// Diagnostic helper for tests to witness that parallel compilation actually occurred.
 #[cfg(feature = "test_features")]
 pub fn spawned_worker_high_water() -> usize {
-    get_or_init_pool().inner.lock().high_water
+    get_or_init_pool().expect("invalid compiler daemon configuration").inner.lock().high_water
 }
 
 /// Current worker counts for tests checking that all pool leases were returned.
@@ -741,14 +824,21 @@ pub struct WorkerPoolState {
 
 #[cfg(feature = "test_features")]
 pub fn worker_pool_state() -> WorkerPoolState {
-    let inner = get_or_init_pool().inner.lock();
+    let inner = get_or_init_pool().expect("invalid compiler daemon configuration").inner.lock();
     WorkerPoolState { live: inner.live, idle: inner.idle.len() }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{highest_priority_waiter, priority_may_checkout, read_retrying_on_interrupt};
+    use super::{
+        highest_priority_waiter, priority_may_checkout, read_retrying_on_interrupt,
+        validate_daemon_status, validate_resource_config,
+    };
     use crate::compile_priority::CompilePriority;
+    use crate::compiler_daemon::protocol::{
+        DaemonStatus, IsolationStatus, MemoryLimitStatus, WorkerConfig,
+    };
+    use crate::wasmtime_runner::compiler_compatibility_hash;
     use std::io::{Cursor, Error, ErrorKind, Read, Result};
 
     struct InterruptedOnce {
@@ -775,6 +865,48 @@ mod tests {
         let count = read_retrying_on_interrupt(&mut input, &mut buffer).unwrap();
 
         assert_eq!(&buffer[..count], b"daemon output");
+    }
+
+    #[test]
+    fn validates_worker_memory_reservations() {
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1024, memory_limit_bytes: 1024 };
+        assert!(validate_resource_config(config, 4, 4096).is_ok());
+        assert!(validate_resource_config(config, 4, 4095).is_err());
+        assert!(
+            validate_resource_config(WorkerConfig { memory_limit_bytes: 0, ..config }, 1, 4096)
+                .is_err()
+        );
+        assert!(
+            validate_resource_config(
+                WorkerConfig { memory_limit_bytes: u64::MAX / 2 + 1, ..config },
+                2,
+                u64::MAX
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_unacknowledged_worker_memory_limit() {
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1024, memory_limit_bytes: 4096 };
+        #[cfg(unix)]
+        let memory_limit = MemoryLimitStatus::Unavailable;
+        #[cfg(not(unix))]
+        let memory_limit = MemoryLimitStatus::Enforced { memory_limit_bytes: 4096 };
+        let status = DaemonStatus {
+            compiler_compatibility_hash: compiler_compatibility_hash().unwrap(),
+            isolation: IsolationStatus::Unavailable,
+            memory_limit,
+            worker_config: config,
+        };
+
+        let err = validate_daemon_status(status, config).unwrap_err();
+        #[cfg(unix)]
+        assert!(err.contains("did not enforce the requested 4096 byte memory limit"), "{err}");
+        #[cfg(not(unix))]
+        assert!(err.contains("unexpected compiler daemon memory limit status"), "{err}");
     }
 
     #[test]

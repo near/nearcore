@@ -4,16 +4,15 @@
 //! limit (RLIMIT_AS), [landlocks](https://landlock.io/) itself to minimal
 //! system access, and raises `oom_score_adj`.
 //!
-//! Limits and sandboxing are only implemented for Linux.
+//! Address-space limits are enforced on Unix, sandboxing is Linux-only.
 
 // cspell:words landlocks sandboxing
 
-#[cfg(unix)]
-use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
 use super::allocator::{enable as enable_allocation_failure_exit, exit_for_memory_exhaustion};
 use super::protocol::{
-    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    DaemonStatus, WorkerConfig, read_frame, write_compile_response, write_frame,
+    COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV,
+    CompileRequest, DaemonStartup, DaemonStatus, MemoryLimitStatus, WorkerConfig, read_frame,
+    write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
@@ -38,7 +37,10 @@ pub fn daemon_main() -> ! {
     };
 
     enable_allocation_failure_exit();
-    set_memory_limit();
+    let memory_limit = match set_memory_limit(worker_config.memory_limit_bytes) {
+        Ok(status) => status,
+        Err(err) => report_startup_error(&mut writer, err),
+    };
     raise_oom_score_adj();
     let sandbox_status = match sandbox::apply() {
         Ok(status) => status,
@@ -61,6 +63,7 @@ pub fn daemon_main() -> ! {
     let startup = DaemonStartup::Ready(DaemonStatus {
         compiler_compatibility_hash,
         isolation: sandbox_status.isolation_status(),
+        memory_limit,
         worker_config,
     });
     if write_frame(&mut writer, &borsh::to_vec(&startup).unwrap()).is_err() {
@@ -80,7 +83,7 @@ pub fn daemon_main() -> ! {
             Ok(r) => r,
             Err(err) => abort_worker(format!("failed to deserialize request: {err}")),
         };
-        let response = handle_request(&mut engines, request, &sandbox_status);
+        let response = handle_request(&mut engines, request, &sandbox_status, worker_config);
         let response = response.as_ref().map(Vec::as_slice).map_err(String::as_str);
         if write_compile_response(&mut writer, response).is_err() {
             std::process::exit(0);
@@ -101,7 +104,9 @@ fn worker_config_from_env() -> Result<WorkerConfig, String> {
             "environment variable {COMPILER_DAEMON_STACK_SIZE_ENV} exceeds the platform address space"
         )
     })?;
-    Ok(WorkerConfig { threads, thread_stack_size_bytes })
+    let memory_limit_bytes = read_positive_env(COMPILER_DAEMON_MEMORY_LIMIT_ENV)?;
+    validate_memory_limit_representation(memory_limit_bytes)?;
+    Ok(WorkerConfig { threads, thread_stack_size_bytes, memory_limit_bytes })
 }
 
 fn read_positive_env(name: &str) -> Result<u64, String> {
@@ -126,6 +131,7 @@ fn handle_request(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest<'_>,
     sandbox_status: &SandboxStatus,
+    worker_config: WorkerConfig,
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]
     if let Some(action) = request.test_action {
@@ -156,7 +162,7 @@ fn handle_request(
                 // A single allocation as large as the worker's complete
                 // address-space limit must fail without committing host memory.
                 let allocation = Vec::<u8>::with_capacity(
-                    usize::try_from(MIN_WORKER_MEMORY_LIMIT_BYTES).unwrap(),
+                    usize::try_from(worker_config.memory_limit_bytes).unwrap(),
                 );
                 std::hint::black_box(allocation);
                 abort_worker("test allocation unexpectedly succeeded")
@@ -228,25 +234,58 @@ fn abort_worker(err: impl Display) -> ! {
 }
 
 #[cfg(unix)]
-fn set_memory_limit() {
-    let ret = unsafe {
-        // cspell:words rlim
-        let limit = libc::rlimit {
-            rlim_cur: MIN_WORKER_MEMORY_LIMIT_BYTES,
-            rlim_max: MIN_WORKER_MEMORY_LIMIT_BYTES,
-        };
-        // cspell:words setrlimit
-        libc::setrlimit(libc::RLIMIT_AS, &limit)
-    };
-    if ret != 0 {
-        eprintln!("warning: failed to set memory limit: {}", std::io::Error::last_os_error());
-        // TODO: Reconsider the behavior when failing to set a memory limit,
-        // especially if we add an async compilation sub-protocol.
+fn validate_memory_limit_representation(memory_limit_bytes: u64) -> Result<(), String> {
+    let limit = libc::rlim_t::try_from(memory_limit_bytes).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} exceeds the platform address space"
+        )
+    })?;
+    if limit == libc::RLIM_INFINITY {
+        return Err(format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} must be a finite limit"
+        ));
     }
+    Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_memory_limit() {}
+fn validate_memory_limit_representation(memory_limit_bytes: u64) -> Result<(), String> {
+    usize::try_from(memory_limit_bytes).map_err(|_| {
+        format!(
+            "environment variable {COMPILER_DAEMON_MEMORY_LIMIT_ENV} exceeds the platform address space"
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_memory_limit(memory_limit_bytes: u64) -> Result<MemoryLimitStatus, String> {
+    validate_memory_limit_representation(memory_limit_bytes)?;
+    let requested = libc::rlim_t::try_from(memory_limit_bytes).map_err(|_| {
+        format!("memory limit {memory_limit_bytes} exceeds the platform address space")
+    })?;
+    let limit = libc::rlimit { rlim_cur: requested, rlim_max: requested };
+    if unsafe { libc::setrlimit(libc::RLIMIT_AS, &limit) } != 0 {
+        return Err(format!("failed to set memory limit: {}", std::io::Error::last_os_error()));
+    }
+
+    let mut effective = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    if unsafe { libc::getrlimit(libc::RLIMIT_AS, &mut effective) } != 0 {
+        return Err(format!("failed to verify memory limit: {}", std::io::Error::last_os_error()));
+    }
+    if effective.rlim_cur != requested || effective.rlim_max != requested {
+        return Err(format!(
+            "memory limit mismatch after installation: soft {}, hard {}, requested {memory_limit_bytes}",
+            effective.rlim_cur, effective.rlim_max
+        ));
+    }
+    Ok(MemoryLimitStatus::Enforced { memory_limit_bytes })
+}
+
+#[cfg(not(unix))]
+fn set_memory_limit(_memory_limit_bytes: u64) -> Result<MemoryLimitStatus, String> {
+    Ok(MemoryLimitStatus::Unavailable)
+}
 
 /// Mark this worker as the kernel OOM killer's preferred victim.
 ///

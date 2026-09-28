@@ -8,6 +8,7 @@ use std::io::{self, ErrorKind, Read, Write};
 /// Environment contract used by the parent to configure a worker process.
 pub const COMPILER_DAEMON_THREADS_ENV: &str = "NEAR_COMPILER_DAEMON_THREADS";
 pub const COMPILER_DAEMON_STACK_SIZE_ENV: &str = "NEAR_COMPILER_DAEMON_STACK_SIZE_BYTES";
+pub const COMPILER_DAEMON_MEMORY_LIMIT_ENV: &str = "NEAR_COMPILER_DAEMON_MEMORY_LIMIT_BYTES";
 
 /// Test-only behavior requested from a compiler worker.
 #[cfg(feature = "test_features")]
@@ -39,6 +40,16 @@ pub enum IsolationStatus {
 pub struct WorkerConfig {
     pub threads: u32,
     pub thread_stack_size_bytes: u64,
+    /// Immutable virtual address-space limit for this worker process.
+    pub memory_limit_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum MemoryLimitStatus {
+    /// The worker verified that both its soft and hard limits have this value.
+    Enforced { memory_limit_bytes: u64 },
+    /// This platform does not support the worker's `RLIMIT_AS` enforcement.
+    Unavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -47,8 +58,10 @@ pub struct DaemonStatus {
     /// be loaded by another engine.
     pub compiler_compatibility_hash: u64,
     pub isolation: IsolationStatus,
-    /// Effective worker settings, echoed so the parent can verify that the
-    /// child implementation honored its process configuration.
+    /// Effective address-space enforcement observed after applying the
+    /// requested worker configuration.
+    pub memory_limit: MemoryLimitStatus,
+    /// Immutable worker settings echoed for startup compatibility validation.
     pub worker_config: WorkerConfig,
 }
 

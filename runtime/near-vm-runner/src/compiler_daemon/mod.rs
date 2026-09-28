@@ -20,7 +20,8 @@ pub use allocator::{ExitOnWorkerMemoryExhaustion, WORKER_MEMORY_EXHAUSTED_EXIT_C
 pub use child::daemon_main;
 #[cfg(feature = "test_features")]
 pub use parent::{
-    WorkerPoolState, set_test_action_for_next_request, spawned_worker_high_water, worker_pool_state,
+    WorkerPoolState, set_test_action_for_next_request, set_test_memory_config,
+    spawned_worker_high_water, worker_pool_state,
 };
 pub use parent::{
     compile_in_subprocess, is_daemon_configured, set_daemon_binary, set_daemon_pool_size,
@@ -29,20 +30,17 @@ pub use parent::{
 use std::time::Duration;
 
 // TODO(jakmeier): make the worker resource and pool limits configurable.
-/// Minimum per-worker virtual memory budget.
+/// Initial per-worker virtual address-space limit.
 ///
-/// Applied as `RLIMIT_AS` in the daemon child (virtual memory, not physical).
-/// Lives here so the parent and child share a single source of truth and the
-/// value can never drift between them.
-///
-/// If compilation fails for any reason, it will be retried once.
-/// (TODO: increase the memory budget on retry)
+/// The parent passes this value explicitly and the child applies it as both
+/// the soft and hard `RLIMIT_AS`. A worker's limit is immutable, a future
+/// larger retry must use a fresh process.
 ///
 /// With 6 threads, most contracts compile using less than 450MB virtual memory
 /// and less than 35MB physical memory. Known valid cases use 600 MB virtual and
-/// 170 MB physical memory at the extreme. Using more than 1GiB virtual memory
-/// might be possible but almost certainly would be a maliciously crafted Wasm.
-const MIN_WORKER_MEMORY_LIMIT_BYTES: u64 = bytesize::GIB;
+/// 170 MB physical memory at the extreme. Virtual address space is not RSS,
+/// and this limit does not cover allocations in neard or other processes.
+const INITIAL_WORKER_MEMORY_LIMIT_BYTES: u64 = bytesize::GIB;
 
 /// Default number of compilation threads per worker subprocess.
 ///
@@ -64,11 +62,10 @@ const MAX_POOL_SIZE: usize = 8;
 /// Total virtual memory budget set aside for compiler-daemon workers, in bytes.
 ///
 /// Not a limit in itself: the default pool size caps the worker count so that
-/// `workers x MIN_WORKER_MEMORY_LIMIT_BYTES` stays within this budget.
+/// `workers x INITIAL_WORKER_MEMORY_LIMIT_BYTES` stays within this budget.
 ///
-/// Experiments show that wasmtime usually allocates at least 4 time more
-/// virtual memory than gets mapped to physical memory. Hence, a 16GiB limit
-/// usually results in less than 4GiB physical memory allocation.
+/// This is a conservative admission budget for configured worker virtual
+/// address-space limits. It is not a physical-memory cap for the node.
 const DEFAULT_TOTAL_MEMORY_BUDGET_BYTES: u64 = 16 * bytesize::GIB;
 
 /// Maximum time allowed for a worker to report that it is ready.

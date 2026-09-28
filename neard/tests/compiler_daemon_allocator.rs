@@ -2,11 +2,13 @@
 
 use near_vm_runner::compiler_daemon;
 use near_vm_runner::compiler_daemon::protocol::{
-    COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-    TestAction, read_frame, write_frame,
+    COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV,
+    CompileRequest, DaemonStartup, MemoryLimitStatus, TestAction, read_frame, write_frame,
 };
 use std::borrow::Cow;
 use std::process::{Command, Stdio};
+
+const TEST_MEMORY_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Verify the production Jemalloc adapter with a real allocation failure under
 /// the compiler worker's address-space limit.
@@ -17,6 +19,7 @@ fn jemalloc_exits_with_memory_exhaustion_status() {
         .env_clear()
         .env(COMPILER_DAEMON_THREADS_ENV, "1")
         .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .env(COMPILER_DAEMON_MEMORY_LIMIT_ENV, TEST_MEMORY_LIMIT_BYTES.to_string())
         .current_dir("/")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -28,7 +31,13 @@ fn jemalloc_exits_with_memory_exhaustion_status() {
 
     let startup = read_frame(&mut stdout).unwrap();
     let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
-    assert!(matches!(startup, DaemonStartup::Ready(_)));
+    let DaemonStartup::Ready(status) = startup else {
+        panic!("compiler daemon failed to start");
+    };
+    assert_eq!(
+        status.memory_limit,
+        MemoryLimitStatus::Enforced { memory_limit_bytes: TEST_MEMORY_LIMIT_BYTES }
+    );
 
     let request = CompileRequest {
         prepared_code: Cow::Borrowed(&[]),

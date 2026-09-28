@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
+const TEST_MEMORY_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[global_allocator]
 static ALLOC: ExitOnWorkerMemoryExhaustion<System> = ExitOnWorkerMemoryExhaustion::new(System);
@@ -38,7 +39,11 @@ fn main() {
 
     compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
+    #[cfg(feature = "test_features")]
+    compiler_daemon::set_test_memory_config(TEST_MEMORY_LIMIT_BYTES, 16 * 1024 * 1024 * 1024);
 
+    #[cfg(unix)]
+    test_missing_memory_limit_is_startup_error();
     #[cfg(unix)]
     test_allocator_exhaustion_exit_code();
     test_startup_probe();
@@ -62,13 +67,10 @@ fn main() {
     test_engine_creation_failure_is_not_cached();
 }
 
-/// Exercise the real system allocator under the worker's RLIMIT_AS and check
-/// that the adapter exits directly with the reserved, distinguishable status.
 #[cfg(unix)]
-fn test_allocator_exhaustion_exit_code() {
+fn test_missing_memory_limit_is_startup_error() {
     use compiler_daemon::protocol::{
-        COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
-        TestAction, read_frame, write_frame,
+        COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, DaemonStartup, read_frame,
     };
 
     let mut child = Command::new(env::current_exe().unwrap())
@@ -76,6 +78,37 @@ fn test_allocator_exhaustion_exit_code() {
         .env_clear()
         .env(COMPILER_DAEMON_THREADS_ENV, "1")
         .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .current_dir("/")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let startup = read_frame(child.stdout.as_mut().unwrap()).unwrap();
+    let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
+    let DaemonStartup::Err(err) = startup else {
+        panic!("worker without a memory limit unexpectedly became ready");
+    };
+    assert!(err.contains("NEAR_COMPILER_DAEMON_MEMORY_LIMIT_BYTES"), "{err}");
+    assert!(!child.wait().unwrap().success());
+}
+
+/// Exercise the real system allocator under the worker's RLIMIT_AS and check
+/// that the adapter exits directly with the reserved, distinguishable status.
+#[cfg(unix)]
+fn test_allocator_exhaustion_exit_code() {
+    use compiler_daemon::protocol::{
+        COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV,
+        COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup, MemoryLimitStatus, TestAction,
+        read_frame, write_frame,
+    };
+
+    let mut child = Command::new(env::current_exe().unwrap())
+        .arg("compile-wasm")
+        .env_clear()
+        .env(COMPILER_DAEMON_THREADS_ENV, "1")
+        .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .env(COMPILER_DAEMON_MEMORY_LIMIT_ENV, TEST_MEMORY_LIMIT_BYTES.to_string())
         .current_dir("/")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -87,7 +120,13 @@ fn test_allocator_exhaustion_exit_code() {
 
     let startup = read_frame(&mut stdout).unwrap();
     let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
-    assert!(matches!(startup, DaemonStartup::Ready(_)));
+    let DaemonStartup::Ready(status) = startup else {
+        panic!("compiler daemon failed to start");
+    };
+    assert_eq!(
+        status.memory_limit,
+        MemoryLimitStatus::Enforced { memory_limit_bytes: TEST_MEMORY_LIMIT_BYTES }
+    );
 
     let request = CompileRequest {
         prepared_code: Cow::Borrowed(&[]),
@@ -109,6 +148,15 @@ fn test_allocator_exhaustion_exit_code() {
 fn test_startup_probe() {
     let status = compiler_daemon::start_daemon().unwrap();
     assert_ne!(status.compiler_compatibility_hash, 0);
+    #[cfg(unix)]
+    assert_eq!(
+        status.memory_limit,
+        compiler_daemon::protocol::MemoryLimitStatus::Enforced {
+            memory_limit_bytes: TEST_MEMORY_LIMIT_BYTES,
+        }
+    );
+    #[cfg(not(unix))]
+    assert_eq!(status.memory_limit, compiler_daemon::protocol::MemoryLimitStatus::Unavailable);
     #[cfg(target_os = "linux")]
     assert_matches!(
         status.isolation,
