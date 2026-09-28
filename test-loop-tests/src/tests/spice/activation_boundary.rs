@@ -6,13 +6,15 @@ use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::core::get_last_certified_block_header;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::{create_test_signer, pre_spice_protocol_version};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -471,6 +473,151 @@ fn test_protocol_upgrade_to_spice_with_shard_rotation() {
     // Certification must cross the boundary: the rotated-in producers bootstrap and
     // distribute the last pre-spice block's receipts and witnesses.
     env.node_runner(0).run_until_certified(boundary_height + 2);
+}
+
+/// The upgrade with validators that start tracking a shard exactly at activation, and
+/// catch-up too slow to land the last pre-spice block before its boundary bootstrap runs.
+///
+/// A validator that tracks a shard in the first spice epoch but not before applies the
+/// last pre-spice block's chunk of that shard through catch-up, asynchronously, some
+/// time after processing the block. The boundary bootstrap runs on it as soon as the
+/// block is postprocessed, because the bootstrap keys on this-or-next-epoch tracking,
+/// finds no chunk extra and gives up, and nothing re-runs it once catch-up lands the
+/// block. The data distributor makes the same this-or-next-epoch assumption, so the
+/// validator never requests the shard's boundary witness either. Its endorsement of the
+/// boundary chunk is lost, and when certification needs it the last pre-spice block
+/// never certifies: blocks keep coming, but certification never crosses the boundary.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activation() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let num_producers = 2;
+    let num_late_trackers = 2;
+    // Spice activates two epochs after genesis under an immediate upgrade vote.
+    let spice_epoch_height = 2;
+    let late_shard_id = ShardId::new(1);
+    // Indexed by epoch height: nothing tracked before activation, the shard from then on.
+    let schedule: Vec<Vec<ShardId>> = (0..20)
+        .map(
+            |epoch_height| {
+                if epoch_height < spice_epoch_height { vec![] } else { vec![late_shard_id] }
+            },
+        )
+        .collect();
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, num_late_trackers)
+        .num_shards(2)
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .config_modifier(move |config, index| {
+            // Catch-up advances one step per period: state sync takes a few steps and
+            // then each block of the epoch takes one. Steps this far apart keep the late
+            // trackers catching up well past the epoch's last block.
+            config.catchup_step_period = Duration::seconds(5);
+            if index >= num_producers {
+                config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
+            }
+        })
+        .build();
+    let late_trackers: Vec<usize> = (num_producers..num_producers + num_late_trackers).collect();
+
+    // Run until the last pre-spice block is the head.
+    env.node_runner(0).run_until(
+        |node| {
+            let head_block_hash = node.head().last_block_hash;
+            is_last_pre_spice_block(node.client().epoch_manager.as_ref(), &head_block_hash)
+                .unwrap_or(false)
+        },
+        Duration::seconds(600),
+    );
+    let last_pre_spice = env.node(0).head_block();
+    let boundary_height = last_pre_spice.header().height();
+    let late_shard_uid = {
+        let node = env.node(0);
+        let epoch_manager = node.client().epoch_manager.clone();
+        assert_eq!(
+            epoch_manager.get_epoch_height_from_prev_block(last_pre_spice.hash()).unwrap(),
+            spice_epoch_height,
+            "the schedule must start tracking the shard in the first spice epoch",
+        );
+        let shard_layout =
+            epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+        ShardUId::from_shard_id_and_layout(late_shard_id, &shard_layout)
+    };
+
+    // The late trackers' endorsements of the boundary chunk must be needed for it to
+    // certify, or their loss goes unnoticed.
+    {
+        let node = env.node(0);
+        let designated = node
+            .client()
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                last_pre_spice.header().epoch_id(),
+                late_shard_id,
+                boundary_height,
+            )
+            .unwrap();
+        let late_accounts: HashSet<AccountId> =
+            late_trackers.iter().map(|index| env.node_datas[*index].account_id.clone()).collect();
+        for account_id in &late_accounts {
+            assert!(
+                designated.contains(account_id),
+                "{account_id} must validate the boundary chunk"
+            );
+        }
+        let others: HashSet<AccountId> = designated
+            .assignments()
+            .iter()
+            .map(|(account_id, _)| account_id.clone())
+            .filter(|account_id| !late_accounts.contains(account_id))
+            .collect();
+        assert!(
+            !designated.is_endorsed(&others),
+            "the boundary chunk must not certify without the late trackers' endorsements",
+        );
+    }
+
+    // Each late tracker processes the last pre-spice block without applying the shard
+    // it starts tracking; that apply is still ahead of it, in catch-up. The block's
+    // postprocessing has already triggered the boundary bootstrap by now.
+    for &node_index in &late_trackers {
+        env.node_runner(node_index)
+            .run_until(|node| node.head().height >= boundary_height, Duration::seconds(60));
+        let node = env.node(node_index);
+        assert_eq!(
+            &node.head().last_block_hash,
+            last_pre_spice.hash(),
+            "node {node_index} advanced past the last pre-spice block before catch-up landed it",
+        );
+        assert!(
+            node.client()
+                .chain
+                .chain_store
+                .get_chunk_extra(last_pre_spice.hash(), &late_shard_uid)
+                .is_err(),
+            "node {node_index} had applied {late_shard_uid} of the last pre-spice block on \
+             processing it; the catch-up is not slow enough for the test to show anything",
+        );
+    }
+
+    // Certification must still cross the boundary: the late trackers are designated
+    // validators of the boundary chunk and can validate its witness without having
+    // caught up, so their endorsements must not depend on catch-up timing.
+    env.node_runner(0).run_until(
+        |node| {
+            let chain_store = &node.client().chain.chain_store;
+            let head_hash = chain_store.head().unwrap().last_block_hash;
+            get_last_certified_block_header(chain_store, &head_hash)
+                .map_or(false, |header| header.height() >= boundary_height)
+        },
+        Duration::seconds(60),
+    );
 }
 
 /// The deposit each trickled transfer carries.
