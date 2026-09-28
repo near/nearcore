@@ -14,6 +14,7 @@ mod parent;
 pub mod protocol;
 mod sandbox;
 mod watchdog;
+mod worker_failure;
 
 pub use allocator::{ExitOnWorkerMemoryExhaustion, WORKER_MEMORY_EXHAUSTED_EXIT_CODE};
 pub use child::daemon_main;

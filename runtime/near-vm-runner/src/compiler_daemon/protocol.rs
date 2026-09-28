@@ -16,6 +16,12 @@ pub enum TestAction {
     Abort,
     Timeout,
     EngineCreationFailure,
+    /// Exit due to an external-style signal with no local OOM evidence.
+    #[cfg(unix)]
+    UnknownSigkill,
+    /// Break the response pipe while leaving the worker alive.
+    #[cfg(unix)]
+    CloseOutputAndPark,
     /// Breach RLIMIT_AS with an allocation.
     #[cfg(unix)]
     AllocationFailure,

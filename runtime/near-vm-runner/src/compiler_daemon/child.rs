@@ -138,6 +138,20 @@ fn handle_request(
                 abort_worker("failed to create engine: test engine creation failure")
             }
             #[cfg(unix)]
+            super::protocol::TestAction::UnknownSigkill => unsafe {
+                libc::kill(libc::getpid(), libc::SIGKILL);
+                libc::_exit(1);
+            },
+            #[cfg(unix)]
+            super::protocol::TestAction::CloseOutputAndPark => {
+                unsafe {
+                    libc::close(libc::STDOUT_FILENO);
+                }
+                loop {
+                    park();
+                }
+            }
+            #[cfg(unix)]
             super::protocol::TestAction::AllocationFailure => {
                 // A single allocation as large as the worker's complete
                 // address-space limit must fail without committing host memory.

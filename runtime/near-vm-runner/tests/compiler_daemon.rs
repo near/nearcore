@@ -52,6 +52,12 @@ fn main() {
     test_worker_timeout_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_worker_crash_is_unknown_compilation_error();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_worker_memory_exhaustion_is_preserved();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_unknown_sigkill_is_not_memory_exhaustion();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_live_protocol_failure_has_bounded_cleanup();
     #[cfg(feature = "test_features")]
     test_engine_creation_failure_is_not_cached();
 }
@@ -313,9 +319,76 @@ fn test_worker_crash_is_unknown_compilation_error() {
         &config.limit_config,
         CompilePriority::Critical,
     );
-    assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after daemon crash");
+    };
+    assert!(debug_message.contains("compiler daemon exited with"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
     let state = compiler_daemon::worker_pool_state();
     assert_eq!(state.live, state.idle, "worker crash leaked a worker permit: {state:?}");
+}
+
+/// The reserved allocator exit remains distinguishable after pipe teardown.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_worker_memory_exhaustion_is_preserved() {
+    let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::AllocationFailure,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after local memory exhaustion");
+    };
+    assert!(debug_message.contains("exhausted its local memory limit"), "{debug_message}");
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "memory exhaustion leaked a worker permit: {state:?}");
+}
+
+/// SIGKILL without trustworthy per-worker evidence must stay an ordinary crash.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_unknown_sigkill_is_not_memory_exhaustion() {
+    let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::UnknownSigkill,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after sigkill");
+    };
+    assert!(debug_message.contains("compiler daemon exited with"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
+}
+
+/// A live child which closes its response pipe is killed and reaped without an
+/// unbounded wait, while the cleanup signal remains distinct from the cause.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_live_protocol_failure_has_bounded_cleanup() {
+    let config = test_config();
+    let started = Instant::now();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::CloseOutputAndPark,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after broken protocol");
+    };
+    assert!(debug_message.contains("compiler daemon protocol failed"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
+    assert!(started.elapsed() < Duration::from_secs(5), "protocol cleanup took too long");
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "protocol failure leaked a worker permit: {state:?}");
 }
 
 /// Engine construction depends on local process resources and configuration.

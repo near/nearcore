@@ -12,8 +12,9 @@ use super::protocol::{
     COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
     DaemonStatus, IsolationStatus, WorkerConfig, read_compile_response, read_frame, write_frame,
 };
-use super::watchdog::ProcessWatchdog;
+use super::watchdog::{ProcessControl, ProcessWatchdog, TerminationReason, WatchdogError};
 use crate::compile_priority::CompilePriority;
+use crate::compiler_daemon::worker_failure::{WorkerFailure, worker_failure_kind};
 use crate::compiler_daemon::{
     DAEMON_STARTUP_TIMEOUT, DEFAULT_THREAD_STACK_SIZE_BYTES, DEFAULT_THREADS_PER_WORKER,
     DEFAULT_TOTAL_MEMORY_BUDGET_BYTES, MAX_POOL_SIZE, MAX_REQUEST_ATTEMPTS,
@@ -34,7 +35,7 @@ use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult};
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::thread::{Builder, JoinHandle, available_parallelism};
 use std::time::{Duration, Instant};
@@ -43,6 +44,10 @@ static DAEMON_BINARY: OnceLock<PathBuf> = OnceLock::new();
 static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
 static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
 static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
+
+const PROCESS_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+
+type CompileResult = Result<Vec<u8>, String>;
 
 #[cfg(feature = "test_features")]
 thread_local! {
@@ -86,8 +91,6 @@ pub fn is_daemon_configured() -> bool {
     DAEMON_BINARY.get().is_some()
 }
 
-type CompileResult = Result<Vec<u8>, String>;
-
 fn default_worker_config() -> WorkerConfig {
     WorkerConfig {
         threads: DEFAULT_THREADS_PER_WORKER,
@@ -97,7 +100,7 @@ fn default_worker_config() -> WorkerConfig {
 
 /// Parent-side handle to a spawned worker subprocess.
 struct DaemonProcess {
-    child: Arc<Mutex<Child>>,
+    control: Arc<ProcessControl>,
     stdin: ChildStdin,
     stdout: ChildStdout,
     stderr_thread: Option<JoinHandle<()>>,
@@ -106,7 +109,7 @@ struct DaemonProcess {
 }
 
 impl DaemonProcess {
-    fn spawn(binary: &Path, config: WorkerConfig) -> std::io::Result<Self> {
+    fn spawn(binary: &Path, config: WorkerConfig) -> Result<Self, WorkerFailure> {
         // Do not inherit environment-based allocator, proxy, logging, or
         // compiler configuration from neard. The two variables below are the
         // explicit process-level configuration contract for the worker.
@@ -137,43 +140,44 @@ impl DaemonProcess {
                 Ok(())
             });
         }
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(|err| WorkerFailure::Spawn(err.to_string()))?;
         let stdin = child.stdin.take().expect("stdio configured as piped");
         let stdout = child.stdout.take().expect("stdio configured as piped");
         let child_stderr = child.stderr.take().expect("stdio configured as piped");
         let worker_id = child.id();
+        let control = Arc::new(ProcessControl::new(child));
         let stderr_thread = match Builder::new()
             .name("compiler-daemon-stderr".to_owned())
             .spawn(move || relay_stderr(child_stderr, worker_id))
         {
             Ok(thread) => Some(thread),
             Err(err) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(err);
+                supervise_process_teardown(
+                    Arc::clone(&control),
+                    None,
+                    TerminationReason::ProcessDrop,
+                );
+                return Err(WorkerFailure::Spawn(err.to_string()));
             }
         };
-        let child = Arc::new(Mutex::new(child));
-        let watchdog = match ProcessWatchdog::spawn(Arc::clone(&child)) {
+        let watchdog = match ProcessWatchdog::spawn(Arc::clone(&control)) {
             Ok(watchdog) => watchdog,
             Err(err) => {
-                let mut child = child.lock();
-                let _ = child.kill();
-                let _ = child.wait();
-                drop(child);
-                if let Some(stderr_thread) = stderr_thread {
-                    let _ = stderr_thread.join();
-                }
-                return Err(err);
+                supervise_process_teardown(
+                    Arc::clone(&control),
+                    stderr_thread,
+                    TerminationReason::ProcessDrop,
+                );
+                return Err(WorkerFailure::Spawn(err.to_string()));
             }
         };
-        let mut process = Self { child, stdin, stdout, stderr_thread, watchdog, status: None };
+        let mut process = Self { control, stdin, stdout, stderr_thread, watchdog, status: None };
         process.status = Some(process.wait_for_startup(config)?);
         Ok(process)
     }
 
-    fn wait_for_startup(&mut self, config: WorkerConfig) -> std::io::Result<DaemonStatus> {
-        self.watchdog.arm(DAEMON_STARTUP_TIMEOUT);
+    fn wait_for_startup(&mut self, config: WorkerConfig) -> Result<DaemonStatus, WorkerFailure> {
+        self.watchdog.arm(DAEMON_STARTUP_TIMEOUT, "startup");
         let result = read_frame(&mut self.stdout)
             .map_err(|err| format!("failed to read startup response: {err}"))
             .and_then(|bytes| {
@@ -184,23 +188,40 @@ impl DaemonProcess {
                     DaemonStartup::Err(err) => Err(err),
                 }
             });
-        self.watchdog.finish(DAEMON_STARTUP_TIMEOUT, "startup", result).map_err(IoError::other)
+        match self.watchdog.finish(result) {
+            Ok(status) => Ok(status),
+            Err(WatchdogError::Timeout { phase, timeout }) => {
+                Err(self.finish_failed_ipc(String::new(), Some((phase, timeout))))
+            }
+            Err(WatchdogError::Operation(err)) => {
+                if self.control.try_status().ok().flatten().is_some() {
+                    Err(self.finish_failed_ipc(err, None))
+                } else {
+                    Err(WorkerFailure::Startup(err))
+                }
+            }
+        }
     }
 
     /// Send a compilation request and read the response. Returns:
     /// - `Ok(Ok(bytes))` -- compilation succeeded
     /// - `Ok(Err(msg))` -- daemon reported a compilation error (not retryable)
-    /// - `Err(msg)` -- IPC failure, daemon likely crashed (retryable)
-    fn compile_raw(&mut self, request: &CompileRequest<'_>) -> Result<CompileResult, String> {
-        let request_bytes =
-            borsh::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
+    /// - `Err(failure)` -- typed worker/process failure (retryable here)
+    fn compile_raw(
+        &mut self,
+        request: &CompileRequest<'_>,
+    ) -> Result<CompileResult, WorkerFailure> {
+        let request_bytes = borsh::to_vec(request).map_err(|e| WorkerFailure::Protocol {
+            error: format!("failed to serialize request: {e}"),
+            cleanup_status: None,
+        })?;
         // The test-only `Timeout` action exercises watchdog recovery from an
         // unresponsive worker. Normal compilation requests have no deadline
         // right now, since we decided a hanging node is preferable to crashing
         // or committing a potentially nondeterministic error.
         let timeout = compilation_request_timeout(request);
         if let Some(timeout) = timeout {
-            self.watchdog.arm(timeout);
+            self.watchdog.arm(timeout, "compilation request");
         }
         let result = write_frame(&mut self.stdin, &request_bytes)
             .map_err(|e| format!("failed to send to compiler daemon: {e}"))
@@ -208,11 +229,57 @@ impl DaemonProcess {
                 read_compile_response(&mut self.stdout)
                     .map_err(|e| format!("failed to read from compiler daemon: {e}"))
             });
-        if let Some(timeout) = timeout {
-            self.watchdog.finish(timeout, "compilation request", result)
-        } else {
-            result
+        match timeout {
+            Some(_) => match self.watchdog.finish(result) {
+                Ok(result) => Ok(result),
+                Err(WatchdogError::Timeout { phase, timeout }) => {
+                    Err(self.finish_failed_ipc(String::new(), Some((phase, timeout))))
+                }
+                Err(WatchdogError::Operation(err)) => Err(self.finish_failed_ipc(err, None)),
+            },
+            None => result.map_err(|err| self.finish_failed_ipc(err, None)),
         }
+    }
+
+    /// Classify the original IPC failure before any cleanup signal can obscure
+    /// an already available child exit status.
+    fn finish_failed_ipc(
+        &mut self,
+        protocol_error: String,
+        timeout: Option<(&'static str, Duration)>,
+    ) -> WorkerFailure {
+        self.watchdog.shutdown();
+
+        let mut natural_status = self.control.try_status().ok().flatten();
+        if let Some((phase, timeout)) = timeout {
+            debug_assert_eq!(
+                self.control.termination_reason(),
+                Some(TerminationReason::WatchdogTimeout { phase, timeout })
+            );
+            let _ = self.control.wait_for_exit(PROCESS_TEARDOWN_TIMEOUT);
+            return WorkerFailure::WatchdogTimeout { phase, timeout };
+        }
+
+        if natural_status.is_none() {
+            // EOF and wait status become observable through different kernel
+            // interfaces. Give a naturally exiting peer a short grace period
+            // before deciding that cleanup must terminate a still-live child.
+            natural_status = self.control.wait_for_exit(Duration::from_millis(100)).ok().flatten();
+        }
+        if let Some(status) = natural_status {
+            #[cfg(unix)]
+            if status.code() == Some(crate::compiler_daemon::WORKER_MEMORY_EXHAUSTED_EXIT_CODE) {
+                return WorkerFailure::LocalMemoryExhaustion;
+            }
+            return WorkerFailure::Crash { status, protocol_error };
+        }
+
+        // The peer broke the protocol while still alive. Record cleanup as a
+        // parent action before killing it, and never report the cleanup signal
+        // as the original failure cause.
+        let _ = self.control.terminate(TerminationReason::ProtocolCleanup);
+        let cleanup_status = self.control.wait_for_exit(PROCESS_TEARDOWN_TIMEOUT).ok().flatten();
+        WorkerFailure::Protocol { error: protocol_error, cleanup_status }
     }
 
     fn status(&self) -> &DaemonStatus {
@@ -220,14 +287,14 @@ impl DaemonProcess {
     }
 
     fn is_alive(&self) -> bool {
-        matches!(self.child.lock().try_wait(), Ok(None))
+        matches!(self.control.try_status(), Ok(None))
     }
 
     /// OS process ID for diagnostic logging.
     ///
     /// Note: Pool bookkeeping uses leases and does not depend on this ID.
     fn id(&self) -> u32 {
-        self.child.lock().id()
+        self.control.id()
     }
 }
 
@@ -281,13 +348,45 @@ fn compilation_request_timeout(_request: &CompileRequest<'_>) -> Option<Duration
 impl Drop for DaemonProcess {
     fn drop(&mut self) {
         self.watchdog.shutdown();
-        let mut child = self.child.lock();
-        let _ = child.kill();
-        let _ = child.wait();
-        drop(child);
-        if let Some(stderr_thread) = self.stderr_thread.take() {
+        supervise_process_teardown(
+            Arc::clone(&self.control),
+            self.stderr_thread.take(),
+            TerminationReason::ProcessDrop,
+        );
+    }
+}
+
+fn supervise_process_teardown(
+    control: Arc<ProcessControl>,
+    stderr_thread: Option<JoinHandle<()>>,
+    reason: TerminationReason,
+) {
+    let _ = control.terminate(reason);
+    let reaped = control.wait_for_exit(PROCESS_TEARDOWN_TIMEOUT).ok().flatten().is_some();
+    if reaped {
+        if let Some(stderr_thread) = stderr_thread {
             let _ = stderr_thread.join();
         }
+        return;
+    }
+
+    // Keep the caller-facing teardown bounded. A detached supervisor owns the
+    // final blocking reap and stderr join, avoiding both a zombie and an
+    // indefinitely blocked compiler caller if kill unexpectedly fails.
+    let worker_id = control.id();
+    if Builder::new()
+        .name("compiler-daemon-reaper".to_owned())
+        .spawn(move || {
+            if let Err(err) = control.reap() {
+                tracing::warn!(target: "vm", worker_id, %err, "failed to reap compiler daemon");
+            }
+            if let Some(stderr_thread) = stderr_thread {
+                let _ = stderr_thread.join();
+            }
+        })
+        .is_err()
+    {
+        tracing::warn!(target: "vm", worker_id, "failed to start compiler daemon reaper");
     }
 }
 
@@ -367,7 +466,7 @@ struct DaemonPool {
 
 impl DaemonPool {
     /// Block until a worker is available.
-    fn checkout(&self, priority: CompilePriority) -> Result<DaemonProcess, String> {
+    fn checkout(&self, priority: CompilePriority) -> Result<DaemonProcess, WorkerFailure> {
         let idx = priority.index();
         let mut inner = self.inner.lock();
         // Register before inspecting capacity so a newly arriving lower-priority
@@ -428,7 +527,7 @@ impl DaemonPool {
                         let mut inner = self.inner.lock();
                         inner.live -= 1;
                         self.wake_one(&inner);
-                        Err(format!("failed to spawn compiler daemon: {e}"))
+                        Err(e)
                     }
                 };
             }
@@ -545,7 +644,7 @@ fn get_or_init_pool() -> &'static DaemonPool {
 /// isolation before the node starts serving requests.
 pub fn start_daemon() -> Result<DaemonStatus, String> {
     let pool = get_or_init_pool();
-    let worker = pool.checkout(CompilePriority::Critical)?;
+    let worker = pool.checkout(CompilePriority::Critical).map_err(|err| err.to_string())?;
     let status = worker.status().clone();
     Lease { pool, worker: Some(worker) }.check_in();
     Ok(status)
@@ -578,14 +677,15 @@ pub fn compile_in_subprocess(
         COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
         let mut lease = match pool.checkout(priority) {
             Ok(worker) => Lease { pool, worker: Some(worker) },
-            Err(spawn_err) => {
+            Err(spawn_failure) => {
                 tracing::warn!(
                     target: "vm",
                     attempt,
-                    err = %spawn_err,
+                    cause = worker_failure_kind(&spawn_failure),
+                    err = %spawn_failure,
                     "failed to spawn compiler daemon worker"
                 );
-                last_err = spawn_err;
+                last_err = spawn_failure.to_string();
                 continue;
             }
         };
@@ -600,15 +700,16 @@ pub fn compile_in_subprocess(
                 lease.check_in();
                 return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
             }
-            Err(ipc_err) => {
+            Err(worker_failure) => {
                 tracing::warn!(
                     target: "vm",
                     attempt,
                     worker_id,
-                    err = %ipc_err,
+                    cause = worker_failure_kind(&worker_failure),
+                    err = %worker_failure,
                     "compiler daemon worker failed, re-spawning"
                 );
-                last_err = ipc_err;
+                last_err = worker_failure.to_string();
                 lease.discard();
             }
         }
