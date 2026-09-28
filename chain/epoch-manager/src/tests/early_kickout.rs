@@ -1196,9 +1196,8 @@ fn seed_walk_skips_fork_basis_behind_sync_point() {
     assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
 }
 
-// Regression for the testnet halt at height 270420307: a late block moved the sync point
-// past the canonical basis. The resulting epoch walk evicted uncommitted `BlockInfo`,
-// causing every retry to fail with `MissingBlock`.
+// A late block can move the sync point past the canonical basis. Blocks recorded on that
+// basis must keep their uncommitted `BlockInfo` readable.
 enum ForkOrder {
     CanonicalFirst,
     OrphanFirst,
@@ -1501,6 +1500,48 @@ fn memoized_blacklist_is_keyed_by_thresholds() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(u64::MAX), None);
     let raised = em.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
     assert!(raised.blacklist.values().all(HashSet::is_empty), "got {:?}", raised.blacklist);
+}
+
+// Forks can have final blocks at the same height with different hashes. The memo must not
+// reuse one fork's blacklist for the other.
+#[cfg(feature = "test_features")]
+#[test]
+fn memoized_blacklist_is_keyed_by_basis_hash() {
+    let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
+    let fx = ForkFixture::new();
+    let only = |id: ValidatorId| HashMap::from([(fx.shard_id, HashSet::from([id]))]);
+    let height_of =
+        |h: &EpochManagerHandle, tip: CryptoHash| h.read().get_block_info(&tip).unwrap().height();
+    let (tip_1, height_1) =
+        fx.drive_until(fx.genesis, 0, 1, 0, 256, "branch 1 -> {0}", |h, tip| {
+            h.get_chunk_producer_blacklist(&tip).unwrap() == only(0)
+        });
+    // Advance branch 2 past branch 1, filling memo entries at heights branch 1 has not reached.
+    let (tip_2, height_2) =
+        fx.drive_until(fx.genesis, 0, 2, 1, 256, "branch 2 -> {1} past branch 1", |h, tip| {
+            height_of(h, tip) > height_1 && h.get_chunk_producer_blacklist(&tip).unwrap() == only(1)
+        });
+    // Advance branch 1 to the same tip height, so both tips have bases at one height.
+    let (tip_1, _) = fx.drive_until(tip_1, height_1, 1, 0, 256, "branch 1 catches up", |h, tip| {
+        height_of(h, tip) == height_2
+    });
+    let basis = |tip: CryptoHash| {
+        let info = fx.handle.read().get_block_info(&tip).unwrap();
+        (*info.last_final_block_hash(), info.last_finalized_height())
+    };
+    let ((hash_1, basis_height_1), (hash_2, basis_height_2)) = (basis(tip_1), basis(tip_2));
+    assert_eq!(basis_height_1, basis_height_2, "both tips must have bases at the same height");
+    assert_ne!(hash_1, hash_2, "the bases must be different blocks");
+    assert_eq!(
+        fx.handle.get_chunk_producer_blacklist(&tip_1).unwrap(),
+        only(0),
+        "branch 1 must resolve its own basis"
+    );
+    assert_eq!(
+        fx.handle.get_chunk_producer_blacklist(&tip_2).unwrap(),
+        only(1),
+        "branch 2 must resolve its own basis"
+    );
 }
 
 #[test]

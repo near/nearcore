@@ -1,6 +1,7 @@
-//! Regression for the testnet halt at height 270420307. A withheld block arrives before
-//! its canonical sibling and advances the aggregator past the canonical last-final basis.
-//! The resulting epoch walk used to evict uncommitted `BlockInfo`, blocking every retry.
+//! A withheld block arrives after its canonical sibling and moves the aggregator past the
+//! sibling's last-final block. Every node must still accept the sibling's child, whose basis is
+//! then behind the aggregator sync point. Seeding the child must not evict its own uncommitted
+//! `BlockInfo`.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -10,7 +11,7 @@ use near_async::messaging::CanSend as _;
 use near_client::BlockResponse;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_o11y::testonly::init_test_logger;
+use near_o11y::testonly::init_test_logger_with_directives;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -22,7 +23,8 @@ const EPOCH_LENGTH: u64 = 1100;
 /// Past both the kickout grace period and the `BlockInfo` cache capacity.
 const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
-/// Deliver the withheld block to every node just before its canonical sibling.
+/// Deliver the withheld block after its canonical sibling and before the sibling's child.
+/// Every head is then on the sibling, so a node that cannot record the child cannot progress.
 fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
     let late: Arc<Mutex<Option<Arc<Block>>>> = Arc::new(Mutex::new(None));
     let client_senders: Vec<_> =
@@ -40,7 +42,7 @@ fn deliver_late(env: &mut TestLoopEnv, withheld: BlockHeight) {
                 *late.lock() = Some(block.clone());
                 return HandlerResult::Handled(NetworkResponses::NoResponse);
             }
-            if block.header().height() > withheld {
+            if block.header().height() > withheld + 1 {
                 if let Some(late) = late.lock().take() {
                     for sender in &client_senders {
                         let response = BlockResponse {
@@ -148,7 +150,7 @@ fn build_env() -> TestLoopEnv {
 // TODO(spice-test): Check relevance to SPICE and enable if applicable.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_withheld_block_mid_epoch() {
-    init_test_logger();
+    init_test_logger_with_directives("test_loop=warn");
     let env = build_env();
     let genesis_height = env.node(0).head().height;
     let (env, parent) = withhold_block(env, genesis_height + SAME_EPOCH_FORK_OFFSET);
@@ -164,7 +166,7 @@ fn slow_test_withheld_block_mid_epoch() {
 // TODO(spice-test): Check relevance to SPICE and enable if applicable.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_withheld_block_at_epoch_boundary() {
-    init_test_logger();
+    init_test_logger_with_directives("test_loop=warn");
     let mut env = build_env();
     let genesis_height = env.node(0).head().height;
     // The epoch boundary depends on finality lag; measure it shortly before the boundary.
