@@ -44,6 +44,25 @@ pub(crate) static COMPILATION_PATH_TOTAL: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
+pub(crate) static COMPILER_DAEMON_FAILURES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_vm_compiler_daemon_failures_total",
+        "Number of compiler daemon failures by bounded cause",
+        &["cause"],
+    )
+    .unwrap()
+});
+
+pub(crate) static COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_vm_compiler_daemon_recovery_events_total",
+            "Number of compiler daemon recovery events by bounded action",
+            &["action"],
+        )
+        .unwrap()
+    });
+
 pub(crate) static COMPILATION_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compilation_total",

@@ -24,10 +24,13 @@ use std::env;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 #[cfg(feature = "test_features")]
+use std::thread::{sleep, spawn};
+#[cfg(feature = "test_features")]
 use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
 const TEST_MEMORY_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+const TEST_TOTAL_BUDGET_BYTES: u64 = 4 * TEST_MEMORY_LIMIT_BYTES;
 
 #[global_allocator]
 static ALLOC: ExitOnWorkerMemoryExhaustion<System> = ExitOnWorkerMemoryExhaustion::new(System);
@@ -40,7 +43,11 @@ fn main() {
     compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
     #[cfg(feature = "test_features")]
-    compiler_daemon::set_test_memory_config(TEST_MEMORY_LIMIT_BYTES, 16 * 1024 * 1024 * 1024);
+    compiler_daemon::set_test_memory_config(
+        TEST_MEMORY_LIMIT_BYTES,
+        TEST_TOTAL_BUDGET_BYTES,
+        TEST_TOTAL_BUDGET_BYTES,
+    );
 
     #[cfg(unix)]
     test_missing_memory_limit_is_startup_error();
@@ -57,6 +64,12 @@ fn main() {
     test_worker_timeout_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_worker_crash_is_unknown_compilation_error();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_worker_memory_escalation_succeeds();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_memory_escalation_evicts_active_sibling();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_concurrent_memory_recoveries_are_serialized();
     #[cfg(all(unix, feature = "test_features"))]
     test_worker_memory_exhaustion_is_preserved();
     #[cfg(all(unix, feature = "test_features"))]
@@ -376,7 +389,133 @@ fn test_worker_crash_is_unknown_compilation_error() {
     assert_eq!(state.live, state.idle, "worker crash leaked a worker permit: {state:?}");
 }
 
-/// The reserved allocator exit remains distinguishable after pipe teardown.
+/// Confirmed local exhaustion retries in a fresh, larger worker and produces
+/// the same artifact as an ordinary compilation.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_worker_memory_escalation_succeeds() {
+    let config = test_config();
+    let prepared = prepared_module(&config, 101, 10);
+    let expected = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+            memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+        },
+    );
+    let compiled = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(compiled, expected, "memory escalation changed the artifact");
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+}
+
+/// Under a constrained budget, a protected larger retry evicts an active
+/// ordinary request and that displaced caller safely requeues at the same tier.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_memory_escalation_evicts_active_sibling() {
+    let config = Arc::new(test_config());
+    let prepared = Arc::new(prepared_module(&config, 102, 10));
+    let evictions_before = compiler_daemon::worker_pool_state().scheduler_evictions;
+    let sleepers: Vec<_> = (0..3)
+        .map(|_| {
+            let config = Arc::clone(&config);
+            let prepared = Arc::clone(&prepared);
+            spawn(move || {
+                compiler_daemon::set_test_action_for_next_request(
+                    compiler_daemon::protocol::TestAction::SleepMillis(5_000),
+                );
+                compiler_daemon::compile_in_subprocess(
+                    &prepared,
+                    &config.limit_config,
+                    CompilePriority::Background,
+                )
+                .unwrap()
+                .unwrap()
+            })
+        })
+        .collect();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = compiler_daemon::worker_pool_state();
+        if state.live >= 3 && state.idle == 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "sleeping workers did not become active: {state:?}");
+        sleep(Duration::from_millis(10));
+    }
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+            memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+        },
+    );
+    let compiled = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(!compiled.is_empty());
+    assert!(
+        compiler_daemon::worker_pool_state().scheduler_evictions > evictions_before,
+        "larger recovery did not evict a sibling under the constrained budget"
+    );
+
+    for sleeper in sleepers {
+        assert!(!sleeper.join().unwrap().is_empty());
+    }
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+}
+
+/// Concurrent local OOMs share one protected recovery owner and both callers
+/// eventually make progress without exceeding the global reservation budget.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_concurrent_memory_recoveries_are_serialized() {
+    let config = Arc::new(test_config());
+    let prepared = Arc::new(prepared_module(&config, 103, 10));
+    let recoveries: Vec<_> = (0..2)
+        .map(|_| {
+            let config = Arc::clone(&config);
+            let prepared = Arc::clone(&prepared);
+            spawn(move || {
+                compiler_daemon::set_test_action_for_next_request(
+                    compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+                        memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+                    },
+                );
+                compiler_daemon::compile_in_subprocess(
+                    &prepared,
+                    &config.limit_config,
+                    CompilePriority::Interactive,
+                )
+                .unwrap()
+                .unwrap()
+            })
+        })
+        .collect();
+    for recovery in recoveries {
+        assert!(!recovery.join().unwrap().is_empty());
+    }
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+}
+
+/// The reserved allocator exit remains distinguishable after pipe teardown,
+/// including after all larger local tiers have also failed.
 #[cfg(all(unix, feature = "test_features"))]
 fn test_worker_memory_exhaustion_is_preserved() {
     let config = test_config();

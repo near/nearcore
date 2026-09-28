@@ -24,7 +24,9 @@ use std::fmt::Display;
 use std::io::Write;
 use std::process::exit;
 #[cfg(feature = "test_features")]
-use std::thread::park;
+use std::thread::{park, sleep};
+#[cfg(feature = "test_features")]
+use std::time::Duration;
 use wasmtime::{Error as WasmtimeError, OutOfMemory};
 
 /// Entry point for the dedicated compiler daemon binary.
@@ -143,6 +145,9 @@ fn handle_request(
             super::protocol::TestAction::EngineCreationFailure => {
                 abort_worker("failed to create engine: test engine creation failure")
             }
+            super::protocol::TestAction::SleepMillis(millis) => {
+                sleep(Duration::from_millis(millis));
+            }
             #[cfg(unix)]
             super::protocol::TestAction::UnknownSigkill => unsafe {
                 libc::kill(libc::getpid(), libc::SIGKILL);
@@ -166,6 +171,12 @@ fn handle_request(
                 );
                 std::hint::black_box(allocation);
                 abort_worker("test allocation unexpectedly succeeded")
+            }
+            #[cfg(unix)]
+            super::protocol::TestAction::MemoryExhaustionBelow { memory_limit_bytes } => {
+                if worker_config.memory_limit_bytes < memory_limit_bytes {
+                    exit_for_memory_exhaustion();
+                }
             }
             #[cfg(target_os = "linux")]
             super::protocol::TestAction::LandlockProbe => {

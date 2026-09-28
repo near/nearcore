@@ -42,6 +42,13 @@ use std::time::Duration;
 /// and this limit does not cover allocations in neard or other processes.
 const INITIAL_WORKER_MEMORY_LIMIT_BYTES: u64 = bytesize::GIB;
 
+/// Largest virtual address-space limit used for a single worker retry.
+///
+/// Confirmed worker-local exhaustion grows through geometric tiers up to this
+/// limit. The aggregate reservation still remains bounded independently by
+/// [`DEFAULT_TOTAL_MEMORY_BUDGET_BYTES`].
+const MAX_WORKER_MEMORY_LIMIT_BYTES: u64 = 16 * bytesize::GIB;
+
 /// Default number of compilation threads per worker subprocess.
 ///
 /// Setting this higher results in higher virtual memory usage, reaching the
@@ -71,5 +78,5 @@ const DEFAULT_TOTAL_MEMORY_BUDGET_BYTES: u64 = 16 * bytesize::GIB;
 /// Maximum time allowed for a worker to report that it is ready.
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Per-request retry budget on IPC failure (for example, a worker crash).
-const MAX_REQUEST_ATTEMPTS: u32 = 2;
+/// A scheduler-displaced request may requeue at the same memory tier this many times.
+const MAX_REQUEST_DISPLACEMENTS: u32 = 2;

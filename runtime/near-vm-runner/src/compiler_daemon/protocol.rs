@@ -17,6 +17,8 @@ pub enum TestAction {
     Abort,
     Timeout,
     EngineCreationFailure,
+    /// Keep an ordinary request active long enough for scheduler-eviction tests.
+    SleepMillis(u64),
     /// Exit due to an external-style signal with no local OOM evidence.
     #[cfg(unix)]
     UnknownSigkill,
@@ -26,6 +28,11 @@ pub enum TestAction {
     /// Breach RLIMIT_AS with an allocation.
     #[cfg(unix)]
     AllocationFailure,
+    /// Report local exhaustion until a worker reaches the requested tier.
+    #[cfg(unix)]
+    MemoryExhaustionBelow {
+        memory_limit_bytes: u64,
+    },
     #[cfg(target_os = "linux")]
     LandlockProbe,
 }

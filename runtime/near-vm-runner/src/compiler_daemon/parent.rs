@@ -13,13 +13,15 @@ mod pool;
 mod process;
 
 use self::config::pool_settings;
-use self::pool::DaemonPool;
-use super::MAX_REQUEST_ATTEMPTS;
+use self::pool::{DaemonPool, RecoveryPermit};
+use super::MAX_REQUEST_DISPLACEMENTS;
 use super::protocol::{CompileRequest, DaemonStatus};
 use crate::compile_priority::CompilePriority;
-use crate::compiler_daemon::worker_failure::worker_failure_kind;
+use crate::compiler_daemon::worker_failure::{WorkerFailure, worker_failure_kind};
 use crate::logic::errors::{CompilationError, VMRunnerError};
-use crate::metrics::COMPILATION_PATH_TOTAL;
+use crate::metrics::{
+    COMPILATION_PATH_TOTAL, COMPILER_DAEMON_FAILURES_TOTAL, COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL,
+};
 pub use config::{is_daemon_configured, set_daemon_binary, set_daemon_pool_size};
 use near_parameters::vm::LimitConfig;
 use std::borrow::Cow;
@@ -48,9 +50,17 @@ pub fn set_test_action_for_next_request(action: super::protocol::TestAction) {
 
 /// Override daemon memory settings before the singleton pool is initialized.
 #[cfg(feature = "test_features")]
-pub fn set_test_memory_config(worker_limit_bytes: u64, total_budget_bytes: u64) {
+pub fn set_test_memory_config(
+    initial_worker_limit_bytes: u64,
+    max_worker_limit_bytes: u64,
+    total_budget_bytes: u64,
+) {
     assert!(DAEMON_POOL.get().is_none(), "compiler daemon pool is already initialized");
-    config::set_test_memory_config(worker_limit_bytes, total_budget_bytes);
+    config::set_test_memory_config(
+        initial_worker_limit_bytes,
+        max_worker_limit_bytes,
+        total_budget_bytes,
+    );
 }
 
 fn get_or_init_pool() -> Result<&'static DaemonPool, String> {
@@ -61,6 +71,7 @@ fn get_or_init_pool() -> Result<&'static DaemonPool, String> {
                 settings.binary,
                 settings.worker_config,
                 settings.max_workers,
+                settings.max_worker_limit_bytes,
                 settings.total_budget_bytes,
             ))
         })
@@ -103,51 +114,108 @@ pub fn compile_in_subprocess(
     let pool = get_or_init_pool()
         .map_err(|debug_message| VMRunnerError::WasmCompilationUnknownError { debug_message })?;
 
-    let mut last_err = String::new();
-    for attempt in 0..MAX_REQUEST_ATTEMPTS {
+    let mut memory_limit_bytes = pool.initial_memory_limit();
+    let mut generic_retry_available = true;
+    let mut displacements = 0;
+    let mut attempts = 0;
+    let mut recovery: Option<RecoveryPermit> = None;
+    let last_err = loop {
+        attempts += 1;
         COMPILATION_PATH_TOTAL.with_label_values(&["daemon"]).inc();
-        let mut lease = match pool.lease(priority) {
-            Ok(lease) => lease,
-            Err(spawn_failure) => {
+        let lease = match &recovery {
+            Some(permit) => permit.lease(memory_limit_bytes),
+            None => pool.lease(priority),
+        };
+        let failure = match lease {
+            Ok(mut lease) => {
+                let worker_id = lease.worker_id();
+                match lease.compile_raw(&request) {
+                    Ok(Ok(bytes)) => {
+                        lease.check_in();
+                        return Ok(Ok(bytes));
+                    }
+                    Ok(Err(msg)) => {
+                        // Compilation error: the worker is healthy, not retryable.
+                        lease.check_in();
+                        return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
+                    }
+                    Err(failure) => {
+                        tracing::warn!(
+                            target: "vm",
+                            attempt = attempts,
+                            worker_id,
+                            memory_limit_bytes,
+                            cause = worker_failure_kind(&failure),
+                            err = %failure,
+                            "compiler daemon worker failed"
+                        );
+                        lease.discard();
+                        failure
+                    }
+                }
+            }
+            Err(failure) => {
                 tracing::warn!(
                     target: "vm",
-                    attempt,
-                    cause = worker_failure_kind(&spawn_failure),
-                    err = %spawn_failure,
+                    attempt = attempts,
+                    memory_limit_bytes,
+                    cause = worker_failure_kind(&failure),
+                    err = %failure,
                     "failed to spawn compiler daemon worker"
                 );
-                last_err = spawn_failure.to_string();
-                continue;
+                failure
             }
         };
-        let worker_id = lease.worker_id();
-        match lease.compile_raw(&request) {
-            Ok(Ok(bytes)) => {
-                lease.check_in();
-                return Ok(Ok(bytes));
+
+        let failure_message = failure.to_string();
+        COMPILER_DAEMON_FAILURES_TOTAL.with_label_values(&[worker_failure_kind(&failure)]).inc();
+        if matches!(&failure, WorkerFailure::LocalMemoryExhaustion) {
+            let Some(next_limit) = pool.next_memory_limit(memory_limit_bytes) else {
+                break failure_message;
+            };
+            if recovery.is_none() {
+                recovery = Some(pool.begin_recovery(priority));
             }
-            Ok(Err(msg)) => {
-                // Compilation error: the worker is healthy, not retryable.
-                lease.check_in();
-                return Ok(Err(CompilationError::WasmtimeCompileError { msg }));
-            }
-            Err(worker_failure) => {
-                tracing::warn!(
-                    target: "vm",
-                    attempt,
-                    worker_id,
-                    cause = worker_failure_kind(&worker_failure),
-                    err = %worker_failure,
-                    "compiler daemon worker failed, re-spawning"
-                );
-                last_err = worker_failure.to_string();
-                lease.discard();
-            }
+            COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL.with_label_values(&["memory_escalation"]).inc();
+            tracing::info!(
+                target: "vm",
+                attempt = attempts,
+                previous_memory_limit_bytes = memory_limit_bytes,
+                memory_limit_bytes = next_limit,
+                "escalating compiler daemon memory limit after local exhaustion"
+            );
+            memory_limit_bytes = next_limit;
+            continue;
         }
-    }
+
+        if matches!(&failure, WorkerFailure::Evicted) {
+            if displacements >= MAX_REQUEST_DISPLACEMENTS {
+                break failure_message;
+            }
+            displacements += 1;
+            COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL.with_label_values(&["displacement_retry"]).inc();
+            tracing::info!(
+                target: "vm",
+                attempt = attempts,
+                displacements,
+                memory_limit_bytes,
+                "requeueing compiler daemon request after scheduler eviction"
+            );
+            continue;
+        }
+
+        if generic_retry_available {
+            generic_retry_available = false;
+            COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL.with_label_values(&["generic_retry"]).inc();
+            continue;
+        }
+        break failure_message;
+    };
     tracing::error!(
         target: "vm",
-        attempts = MAX_REQUEST_ATTEMPTS,
+        attempts,
+        displacements,
+        memory_limit_bytes,
         err = %last_err,
         "compiler daemon failed, giving up"
     );
@@ -170,11 +238,12 @@ pub struct WorkerPoolState {
     pub idle: usize,
     pub reserved_bytes: u64,
     pub terminating: usize,
+    pub scheduler_evictions: usize,
 }
 
 #[cfg(feature = "test_features")]
 pub fn worker_pool_state() -> WorkerPoolState {
-    let (live, idle, reserved_bytes, terminating) =
+    let (live, idle, reserved_bytes, terminating, scheduler_evictions) =
         get_or_init_pool().expect("invalid compiler daemon configuration").worker_counts();
-    WorkerPoolState { live, idle, reserved_bytes, terminating }
+    WorkerPoolState { live, idle, reserved_bytes, terminating, scheduler_evictions }
 }
