@@ -11,7 +11,6 @@ use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
-use std::sync::Arc;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
@@ -30,22 +29,6 @@ pub fn is_last_pre_spice_block(
     }
     let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
-}
-
-/// The last pre-spice block in the ancestry of `block_hash`, `block_hash` itself when
-/// it is pre-spice. Errors on a chain that is spice from genesis.
-pub fn last_pre_spice_block_header(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-) -> Result<Arc<BlockHeader>, Error> {
-    let mut header = chain_store.get_block_header(block_hash)?;
-    while header.is_spice() {
-        let epoch_first_block = *epoch_manager.get_block_info(header.hash())?.epoch_first_block();
-        let epoch_first_header = chain_store.get_block_header(&epoch_first_block)?;
-        header = chain_store.get_block_header(epoch_first_header.prev_hash())?;
-    }
-    Ok(header)
 }
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block
@@ -131,9 +114,9 @@ fn write_boundary_uncertified_chunks(
     Ok(())
 }
 
-/// The seeded uncertified-chunks row of the pre-spice `block_hash`: present only for
-/// a last pre-spice block, empty otherwise.
-pub(crate) fn seeded_uncertified_chunks(
+/// The uncertified-chunks row of the pre-spice `block_hash`: the seeded row of a last
+/// pre-spice block, empty for any other pre-spice block.
+pub(crate) fn get_uncertified_chunks_of_pre_spice_block(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Vec<SpiceUncertifiedChunkInfo> {
@@ -153,7 +136,10 @@ pub(crate) fn seeded_uncertified_chunks(
 
 #[cfg(test)]
 mod tests {
-    use super::{boundary_uncertified_chunks, seed_activation_boundary, seeded_uncertified_chunks};
+    use super::{
+        boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
+        seed_activation_boundary,
+    };
     use crate::Chain;
     use crate::spice::core::record_uncertified_chunks_for_block;
     use crate::spice::tests::pre_spice::{
@@ -220,9 +206,9 @@ mod tests {
         .unwrap();
         store_update.commit();
 
-        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
+        assert_eq!(get_uncertified_chunks_of_pre_spice_block(&chain_store, parent.hash()), vec![]);
         assert_eq!(
-            seeded_uncertified_chunks(&chain_store, last_pre_spice.hash()),
+            get_uncertified_chunks_of_pre_spice_block(&chain_store, last_pre_spice.hash()),
             boundary_uncertified_chunks(epoch_manager.as_ref(), last_pre_spice.header()).unwrap()
         );
     }
@@ -256,7 +242,7 @@ mod tests {
         .unwrap();
         store_update.commit();
 
-        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
+        assert_eq!(get_uncertified_chunks_of_pre_spice_block(&chain_store, parent.hash()), vec![]);
         assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
     }
 

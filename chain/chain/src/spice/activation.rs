@@ -59,7 +59,7 @@ fn spice_activation_imminent_at_head(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
-fn spice_enabled_or_imminent_at_head(
+fn spice_enabled_at_head_or_next_epoch(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<bool, Error> {
@@ -70,7 +70,7 @@ fn spice_enabled_or_imminent_at_head(
 /// Whether spice work exists for `block_hash`: it is a spice block, or the last
 /// pre-spice block, whose boundary data legitimately arrives while it is still
 /// pre-spice. Errors when the block's header or its epoch record is not on disk.
-pub fn spice_relevant_block(
+pub fn is_spice_or_last_pre_spice_block(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
@@ -157,9 +157,10 @@ impl SpiceMessageGate {
         block_hash: &CryptoHash,
         unit: DropUnit,
     ) -> bool {
-        let enabled = match spice_relevant_block(chain_store, epoch_manager, block_hash) {
+        let enabled = match is_spice_or_last_pre_spice_block(chain_store, epoch_manager, block_hash)
+        {
             Ok(enabled) => enabled,
-            Err(_) => match spice_enabled_or_imminent_at_head(chain_store, epoch_manager) {
+            Err(_) => match spice_enabled_at_head_or_next_epoch(chain_store, epoch_manager) {
                 Ok(enabled) => enabled,
                 // Neither the block nor the head is readable: we know nothing about
                 // this chain, so we cannot claim spice is active on it.
