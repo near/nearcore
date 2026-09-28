@@ -3,6 +3,7 @@
 mod data_id;
 mod fetchable;
 mod item;
+mod pending;
 
 pub use data_id::DataId;
 pub(crate) use fetchable::DataPolicy;
@@ -17,6 +18,7 @@ use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
+pub(crate) use pending::PendingPartialData;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 

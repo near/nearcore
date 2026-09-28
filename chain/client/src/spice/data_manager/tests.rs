@@ -780,3 +780,43 @@ mod manager {
         assert!(!item.commitment_by_contributor.contains_key(&alice));
     }
 }
+
+mod pending {
+    use super::*;
+    use near_primitives::spice::partial_data::{
+        SpiceDataIdentifier, SpiceDataPart, SpiceVerifiedPartialData,
+    };
+    use std::num::NonZeroUsize;
+
+    fn message(block_hash: CryptoHash, parts: Vec<SpiceDataPart>) -> SpiceVerifiedPartialData {
+        SpiceVerifiedPartialData {
+            id: SpiceDataIdentifier::ReceiptProof {
+                block_hash,
+                from_shard_id: ShardId::new(0),
+                to_shard_id: ShardId::new(1),
+            },
+            commitment: SpiceDataCommitment {
+                hash: CryptoHash::default(),
+                root: CryptoHash::default(),
+                encoded_length: 1,
+            },
+            parts,
+            sender: account("alice"),
+        }
+    }
+
+    #[test]
+    fn empty_message_is_refused_and_not_buffered() {
+        let mut pending = PendingPartialData::new(NonZeroUsize::new(10).unwrap());
+        let block_hash = hash(b"block");
+        let part = SpiceDataPart { part_ord: 0, part: Box::new([0]), merkle_proof: Vec::new() };
+        let full = message(block_hash, vec![part]);
+
+        assert_matches!(
+            pending.insert(message(block_hash, Vec::new())),
+            Err(SenderFault::EmptyMessage)
+        );
+        pending.insert(full.clone()).unwrap();
+        assert_eq!(pending.take(&block_hash), vec![full]);
+    }
+}

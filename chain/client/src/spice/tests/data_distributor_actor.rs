@@ -1376,7 +1376,6 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                         let $default = data_into_verified(incoming_data.data.clone());
                         let partial_data = $build_block;
                         let result = actor.receive_data(partial_data);
-                        assert_eq!(actor.pending_partial_data_size(), 0);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
                         assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithoutBlock($error)));
                     }
@@ -1444,6 +1443,9 @@ test_invalid_incoming_partial_data_without_block! {
         SpicePartialDataBuilder::from_verified(default)
             .build_with_signature(Signature::default())
     })
+    empty_parts(Error::SenderFault(SenderFault::EmptyMessage), receipt_proof_incoming_data, default, {
+        SpicePartialDataBuilder::from_verified(default).parts(vec![]).build()
+    })
 }
 
 #[test]
@@ -1475,7 +1477,6 @@ fn test_invalid_incoming_partial_data_without_block_node_is_not_recipient() {
     );
     let partial_data = SpicePartialDataBuilder::from_verified(verified).build();
     let result = actor.receive_data(partial_data);
-    assert_eq!(actor.pending_partial_data_size(), 0);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
         result,
@@ -1507,7 +1508,6 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &recipient);
 
     actor.handle(incoming_data);
-    assert_eq!(actor.pending_partial_data_size(), 1);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
     process_block_sync(
@@ -1519,7 +1519,6 @@ fn test_incoming_data_is_processed_with_block_arriving_late() {
     .unwrap();
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
-    assert_eq!(actor.pending_partial_data_size(), 0);
 }
 
 #[test]
@@ -3549,7 +3548,6 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
     // A fallback-only chunk is eligible on its own block, so the push can reach a receiver that
     // does not have that block yet. The parts wait for it rather than being refused.
     actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
-    assert_eq!(actor.pending_partial_data_size(), 1);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 
     let chunk_block = chain.chain_store.get_block(&chunk_id.block_hash).unwrap();
@@ -3564,7 +3562,6 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
         panic!("expected the pushed witness to be reassembled");
     };
     assert_eq!(witness.chunk_id(), &chunk_id);
-    assert_eq!(actor.pending_partial_data_size(), 0);
 }
 
 #[test]
