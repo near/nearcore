@@ -38,8 +38,13 @@ pub(super) struct DaemonProcess {
     status: Option<DaemonStatus>,
 }
 
+pub(super) struct SpawnFailure {
+    pub(super) failure: WorkerFailure,
+    pub(super) control: Option<Arc<ProcessControl>>,
+}
+
 impl DaemonProcess {
-    pub(super) fn spawn(binary: &Path, config: WorkerConfig) -> Result<Self, WorkerFailure> {
+    pub(super) fn spawn(binary: &Path, config: WorkerConfig) -> Result<Self, SpawnFailure> {
         // Do not inherit environment-based allocator, proxy, logging, or
         // compiler configuration from neard. The variables below are the
         // explicit process-level configuration contract for the worker.
@@ -71,7 +76,10 @@ impl DaemonProcess {
                 Ok(())
             });
         }
-        let mut child = command.spawn().map_err(|err| WorkerFailure::Spawn(err.to_string()))?;
+        let mut child = command.spawn().map_err(|err| SpawnFailure {
+            failure: WorkerFailure::Spawn(err.to_string()),
+            control: None,
+        })?;
         let stdin = child.stdin.take().expect("stdio configured as piped");
         let stdout = child.stdout.take().expect("stdio configured as piped");
         let child_stderr = child.stderr.take().expect("stdio configured as piped");
@@ -88,7 +96,10 @@ impl DaemonProcess {
                     None,
                     TerminationReason::ProcessDrop,
                 );
-                return Err(WorkerFailure::Spawn(err.to_string()));
+                return Err(SpawnFailure {
+                    failure: WorkerFailure::Spawn(err.to_string()),
+                    control: Some(control),
+                });
             }
         };
         let watchdog = match ProcessWatchdog::spawn(Arc::clone(&control)) {
@@ -99,12 +110,24 @@ impl DaemonProcess {
                     stderr_thread,
                     TerminationReason::ProcessDrop,
                 );
-                return Err(WorkerFailure::Spawn(err.to_string()));
+                return Err(SpawnFailure {
+                    failure: WorkerFailure::Spawn(err.to_string()),
+                    control: Some(control),
+                });
             }
         };
         let mut process = Self { control, stdin, stdout, stderr_thread, watchdog, status: None };
-        process.status = Some(process.wait_for_startup(config)?);
-        Ok(process)
+        match process.wait_for_startup(config) {
+            Ok(status) => {
+                process.status = Some(status);
+                Ok(process)
+            }
+            Err(failure) => {
+                let control = process.control();
+                drop(process);
+                Err(SpawnFailure { failure, control: Some(control) })
+            }
+        }
     }
 
     fn wait_for_startup(&mut self, config: WorkerConfig) -> Result<DaemonStatus, WorkerFailure> {
@@ -197,6 +220,9 @@ impl DaemonProcess {
             // before deciding that cleanup must terminate a still-live child.
             natural_status = self.control.wait_for_exit(Duration::from_millis(100)).ok().flatten();
         }
+        if self.control.termination_reason() == Some(TerminationReason::SchedulerEviction) {
+            return WorkerFailure::Evicted;
+        }
         if let Some(status) = natural_status {
             #[cfg(unix)]
             if status.code() == Some(crate::compiler_daemon::WORKER_MEMORY_EXHAUSTED_EXIT_CODE) {
@@ -217,15 +243,12 @@ impl DaemonProcess {
         self.status.as_ref().expect("daemon startup status unavailable")
     }
 
-    pub(super) fn is_alive(&self) -> bool {
-        matches!(self.control.try_status(), Ok(None))
+    pub(super) fn control(&self) -> Arc<ProcessControl> {
+        Arc::clone(&self.control)
     }
 
-    /// OS process ID for diagnostic logging.
-    ///
-    /// Note: Pool bookkeeping uses leases and does not depend on this ID.
-    pub(super) fn id(&self) -> u32 {
-        self.control.id()
+    pub(super) fn is_alive(&self) -> bool {
+        matches!(self.control.try_status(), Ok(None))
     }
 }
 

@@ -80,7 +80,6 @@ fn default_pool_size(memory: MemoryConfig) -> usize {
 
 fn validate_resource_config(
     worker_config: WorkerConfig,
-    max_workers: usize,
     total_budget_bytes: u64,
 ) -> Result<(), String> {
     if worker_config.memory_limit_bytes == 0 {
@@ -99,13 +98,10 @@ fn validate_resource_config(
             return Err("compiler daemon worker memory limit must be finite".to_owned());
         }
     }
-    let reserved_bytes = worker_config
-        .memory_limit_bytes
-        .checked_mul(u64::try_from(max_workers).map_err(|_| "worker count exceeds u64")?)
-        .ok_or_else(|| "compiler daemon worker memory reservation overflowed".to_owned())?;
-    if reserved_bytes > total_budget_bytes {
+    if worker_config.memory_limit_bytes > total_budget_bytes {
         return Err(format!(
-            "compiler daemon workers reserve {reserved_bytes} bytes, exceeding the {total_budget_bytes} byte total memory budget"
+            "compiler daemon worker requires {} bytes, exceeding the {total_budget_bytes} byte total memory budget",
+            worker_config.memory_limit_bytes
         ));
     }
     Ok(())
@@ -115,6 +111,7 @@ pub(super) struct PoolSettings {
     pub(super) binary: PathBuf,
     pub(super) worker_config: WorkerConfig,
     pub(super) max_workers: usize,
+    pub(super) total_budget_bytes: u64,
 }
 
 pub(super) fn pool_settings() -> Result<PoolSettings, String> {
@@ -129,8 +126,13 @@ pub(super) fn pool_settings() -> Result<PoolSettings, String> {
         .unwrap_or_else(|| default_pool_size(memory))
         .clamp(1, MAX_POOL_SIZE);
     let worker_config = default_worker_config();
-    validate_resource_config(worker_config, max_workers, memory.total_budget_bytes)?;
-    Ok(PoolSettings { binary, worker_config, max_workers })
+    validate_resource_config(worker_config, memory.total_budget_bytes)?;
+    Ok(PoolSettings {
+        binary,
+        worker_config,
+        max_workers,
+        total_budget_bytes: memory.total_budget_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -139,19 +141,19 @@ mod tests {
     use crate::compiler_daemon::protocol::WorkerConfig;
 
     #[test]
-    fn validates_worker_memory_reservations() {
+    fn validates_worker_memory_budget() {
         let config =
             WorkerConfig { threads: 1, thread_stack_size_bytes: 1024, memory_limit_bytes: 1024 };
-        assert!(validate_resource_config(config, 4, 4096).is_ok());
-        assert!(validate_resource_config(config, 4, 4095).is_err());
+        assert!(validate_resource_config(config, 4096).is_ok());
+        assert!(validate_resource_config(config, 1023).is_err());
         assert!(
-            validate_resource_config(WorkerConfig { memory_limit_bytes: 0, ..config }, 1, 4096)
+            validate_resource_config(WorkerConfig { memory_limit_bytes: 0, ..config }, 4096)
                 .is_err()
         );
+        #[cfg(unix)]
         assert!(
             validate_resource_config(
-                WorkerConfig { memory_limit_bytes: u64::MAX / 2 + 1, ..config },
-                2,
+                WorkerConfig { memory_limit_bytes: u64::MAX, ..config },
                 u64::MAX
             )
             .is_err()

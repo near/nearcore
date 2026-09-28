@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 pub(super) enum TerminationReason {
     WatchdogTimeout { phase: &'static str, timeout: Duration },
     ProtocolCleanup,
+    SchedulerEviction,
     ProcessDrop,
 }
 

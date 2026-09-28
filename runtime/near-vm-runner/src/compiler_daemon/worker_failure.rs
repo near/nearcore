@@ -5,6 +5,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub(crate) enum WorkerFailure {
     LocalMemoryExhaustion,
+    Evicted,
     WatchdogTimeout { phase: &'static str, timeout: Duration },
     Spawn(String),
     Startup(String),
@@ -18,6 +19,7 @@ impl fmt::Display for WorkerFailure {
             Self::LocalMemoryExhaustion => {
                 f.write_str("compiler daemon exhausted its local memory limit")
             }
+            Self::Evicted => f.write_str("compiler daemon worker was evicted"),
             Self::WatchdogTimeout { phase, timeout } => write!(
                 f,
                 "compiler daemon timed out during {phase} after {} seconds",
@@ -41,6 +43,7 @@ impl fmt::Display for WorkerFailure {
 pub(crate) fn worker_failure_kind(failure: &WorkerFailure) -> &'static str {
     match failure {
         WorkerFailure::LocalMemoryExhaustion => "local_memory_exhaustion",
+        WorkerFailure::Evicted => "evicted",
         WorkerFailure::WatchdogTimeout { .. } => "watchdog_timeout",
         WorkerFailure::Spawn(_) => "spawn",
         WorkerFailure::Startup(_) => "startup",

@@ -57,7 +57,12 @@ fn get_or_init_pool() -> Result<&'static DaemonPool, String> {
     DAEMON_POOL
         .get_or_init(|| {
             let settings = pool_settings()?;
-            Ok(DaemonPool::new(settings.binary, settings.worker_config, settings.max_workers))
+            Ok(DaemonPool::new(
+                settings.binary,
+                settings.worker_config,
+                settings.max_workers,
+                settings.total_budget_bytes,
+            ))
         })
         .as_ref()
         .map_err(Clone::clone)
@@ -163,11 +168,13 @@ pub fn spawned_worker_high_water() -> usize {
 pub struct WorkerPoolState {
     pub live: usize,
     pub idle: usize,
+    pub reserved_bytes: u64,
+    pub terminating: usize,
 }
 
 #[cfg(feature = "test_features")]
 pub fn worker_pool_state() -> WorkerPoolState {
-    let (live, idle) =
+    let (live, idle, reserved_bytes, terminating) =
         get_or_init_pool().expect("invalid compiler daemon configuration").worker_counts();
-    WorkerPoolState { live, idle }
+    WorkerPoolState { live, idle, reserved_bytes, terminating }
 }
