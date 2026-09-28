@@ -45,6 +45,11 @@ mod prepare_error {
                 From::TooManyParamsPerContract => Self::TooManyParamsPerContract,
                 From::OperandStackTooLarge => Self::OperandStackTooLarge,
                 From::TooManyGlobals => Self::TooManyGlobals,
+                From::ECCSectionInvalidUTF8 => Self::ECCSectionInvalidUTF8,
+                From::ECCSectionInvalidEntry => Self::ECCSectionInvalidEntry,
+                From::ECCSectionDuplicateEntry => Self::ECCSectionDuplicateEntry,
+                From::ECCSectionUnknownFunction => Self::ECCSectionUnknownFunction,
+                From::ECCSectionRepeated => Self::ECCSectionRepeated,
             }
         }
     }

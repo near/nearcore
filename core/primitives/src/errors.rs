@@ -1501,6 +1501,19 @@ pub enum PrepareError {
     OperandStackTooLarge = 18,
     /// Contract declares too many entries in the wasm global section.
     TooManyGlobals = 19,
+    /// The `ecc_only_functions` custom section is not valid UTF-8.
+    ECCSectionInvalidUTF8 = 20,
+    /// An entry in the `ecc_only_functions` custom section is empty or
+    /// contains a character outside of ASCII `[A-Za-z0-9_]`.
+    ECCSectionInvalidEntry = 21,
+    /// The `ecc_only_functions` custom section lists the same function more
+    /// than once.
+    ECCSectionDuplicateEntry = 22,
+    /// An entry in the `ecc_only_functions` custom section names a
+    /// function not exported by the contract.
+    ECCSectionUnknownFunction = 23,
+    /// The contract contains more than one `ecc_only_functions` custom section.
+    ECCSectionRepeated = 24,
 }
 
 /// A kind of a trap happened during execution of a binary
