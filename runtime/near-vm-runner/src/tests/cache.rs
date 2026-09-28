@@ -372,16 +372,22 @@ fn test_ecc_only_functions_cached() {
     section.encode(&mut wasm);
     let code = ContractCode::new(wasm, None);
 
-    for enabled in [true, false] {
-        let mut config = test_vm_config(Some(VMKind::Wasmtime));
-        config.ecc_only_functions = enabled;
-        let cache = MockContractRuntimeCache::default();
-        let vm = WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap();
-        vm.precompile(&code, &cache).unwrap().unwrap();
+    let caches: Vec<Box<dyn ContractRuntimeCache>> = vec![
+        Box::new(MockContractRuntimeCache::default()),
+        #[cfg(not(windows))]
+        Box::new(crate::FilesystemContractRuntimeCache::test().unwrap()),
+    ];
+    for cache in caches {
+        for enabled in [true, false] {
+            let mut config = test_vm_config(Some(VMKind::Wasmtime));
+            config.ecc_only_functions = enabled;
+            let vm = WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap();
+            vm.precompile(&code, cache.as_ref()).unwrap().unwrap();
 
-        let key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
-        let record = cache.get(&key).unwrap().unwrap();
-        let expected: &[&str] = if enabled { &["b"] } else { &[] };
-        assert_eq!(record.ecc_only_functions.iter().collect::<Vec<_>>(), expected);
+            let key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
+            let record = cache.get(&key).unwrap().unwrap();
+            let expected: &[&str] = if enabled { &["b"] } else { &[] };
+            assert_eq!(record.ecc_only_functions.iter().collect::<Vec<_>>(), expected);
+        }
     }
 }

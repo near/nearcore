@@ -518,22 +518,58 @@ const ERROR_TAG: u8 = 0b00001010;
 /// [`ERROR_TAG`].
 #[cfg(not(windows))]
 const CODE_TAG: u8 = 0b10010101;
+/// Byte added after a serialized payload representing the contract code
+/// followed by a non-empty list of ECC-only functions.
+///
+/// The payload is laid out as `[code][ecc_only_functions][ecc_len: u32 LE]`,
+/// where `ecc_only_functions` is Borsh-encoded and `ecc_len` is its length in
+/// bytes. The code stays at the start of the file, so it remains well aligned.
+///
+/// Entries with an empty list use [`CODE_TAG`] instead, so the files written
+/// while the `ecc_only_functions` config flag is disabled are byte-for-byte the
+/// same as before this tag existed. Value chosen such that a couple of bit
+/// flips do not make this either of the other tags.
+#[cfg(not(windows))]
+const CODE_WITH_ECC_TAG: u8 = 0b01101011;
+
+/// Size in bytes of the length suffix after the ECC-only functions in a
+/// [`CODE_WITH_ECC_TAG`] entry.
+#[cfg(not(windows))]
+const ECC_LEN_BYTES: usize = 4;
 
 /// Total bytes [`FilesystemContractRuntimeCache::put`] writes for `value`,
 /// including the trailing tag and the `wasm_bytes` length suffix. Used to
 /// weight the on-disk LRU index.
 #[cfg(not(windows))]
 fn entry_disk_size(value: &CompiledContractInfo) -> u64 {
-    // Trailer `put` appends after the payload: one tag byte ([`CODE_TAG`] or
-    // [`ERROR_TAG`]) plus 8 bytes of little-endian `wasm_bytes`.
+    // Trailer `put` appends after the payload: one tag byte ([`CODE_TAG`],
+    // [`CODE_WITH_ECC_TAG`] or [`ERROR_TAG`]) plus 8 bytes of little-endian
+    // `wasm_bytes`.
     const PUT_TRAILER_BYTES: u64 = 1 + 8;
     let payload_bytes = match &value.compiled {
-        CompiledContract::Code(code) => code.len() as u64,
+        CompiledContract::Code(code) if value.ecc_only_functions.is_empty() => code.len() as u64,
+        CompiledContract::Code(code) => {
+            let ecc_bytes = borsh::object_length(&value.ecc_only_functions)
+                .expect("EccOnlyFunctions serialization length should be infallible");
+            (code.len() + ecc_bytes + ECC_LEN_BYTES) as u64
+        }
         CompiledContract::CompileModuleError(err) => borsh::object_length(err)
             .expect("CompilationError serialization length should be infallible")
             as u64,
     };
     payload_bytes + PUT_TRAILER_BYTES
+}
+
+/// Split the payload of a [`CODE_WITH_ECC_TAG`] entry into the code and the
+/// ECC-only functions. Returns `None` if the payload is malformed.
+#[cfg(not(windows))]
+fn decode_code_with_ecc(mut payload: Vec<u8>) -> Option<(Vec<u8>, EccOnlyFunctions)> {
+    let ecc_len_start = payload.len().checked_sub(ECC_LEN_BYTES)?;
+    let ecc_len = u32::from_le_bytes(payload[ecc_len_start..].try_into().unwrap());
+    let ecc_start = ecc_len_start.checked_sub(usize::try_from(ecc_len).ok()?)?;
+    let ecc_only_functions = borsh::from_slice(&payload[ecc_start..ecc_len_start]).ok()?;
+    payload.truncate(ecc_start);
+    Some((payload, ecc_only_functions))
 }
 
 /// Scan `dir` and build an [`LruWeightedCache`] tracking each on-disk
@@ -664,11 +700,20 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                 borsh::to_writer(&mut file, &e)?;
                 file.write_all(&[ERROR_TAG])?;
             }
-            CompiledContract::Code(bytes) => {
+            CompiledContract::Code(bytes) if value.ecc_only_functions.is_empty() => {
                 file.write_all(&bytes)?;
                 // Writing the tag at the end gives us well aligned buffer of the data above which
                 // is necessary for 0-copy deserialization later on.
                 file.write_all(&[CODE_TAG])?;
+            }
+            CompiledContract::Code(bytes) => {
+                file.write_all(&bytes)?;
+                let ecc_bytes = borsh::to_vec(&value.ecc_only_functions)?;
+                let ecc_len = u32::try_from(ecc_bytes.len())
+                    .map_err(|_| std::io::Error::other("ecc-only functions are too large"))?;
+                file.write_all(&ecc_bytes)?;
+                file.write_all(&ecc_len.to_le_bytes())?;
+                file.write_all(&[CODE_WITH_ECC_TAG])?;
             }
         }
         file.write_all(&value.wasm_bytes.to_le_bytes())?;
@@ -743,7 +788,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let tag = buffer[buffer.len() - 9];
         buffer.truncate(buffer.len() - 9);
         let value = match tag {
-            // TODO(ecc): read `ecc_only_functions` from disk (step 5).
             CODE_TAG => CompiledContractInfo {
                 wasm_bytes,
                 compiled: CompiledContract::Code(buffer),
@@ -753,6 +797,21 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                 wasm_bytes,
                 compiled: CompiledContract::CompileModuleError(borsh::from_slice(&buffer)?),
                 ecc_only_functions: EccOnlyFunctions::default(),
+            },
+            CODE_WITH_ECC_TAG => match decode_code_with_ecc(buffer) {
+                Some((code, ecc_only_functions)) => CompiledContractInfo {
+                    wasm_bytes,
+                    compiled: CompiledContract::Code(code),
+                    ecc_only_functions,
+                },
+                None => {
+                    tracing::debug!(
+                        target: "vm",
+                        message = "cached contract ecc-only functions were found to be malformed",
+                        key = %key
+                    );
+                    return Ok(None);
+                }
             },
             // File is malformed? For this code, since we're talking about a cache lets just treat
             // it as if there is no cached file as well. The cached file may eventually be
@@ -1578,6 +1637,132 @@ mod tests {
 
         // Insert the keys again and assert that the cache can be updated after clear.
         insert_and_assert_keys_exist();
+    }
+
+    // ----- on-disk format of ECC-only functions -----
+    #[cfg(not(windows))]
+    mod ecc_format {
+        use super::*;
+        use crate::logic::errors::PrepareError;
+
+        const WASM_BYTES: u64 = 1234;
+
+        fn code() -> Vec<u8> {
+            (0..=255).collect()
+        }
+
+        fn ecc(names: &[&str]) -> EccOnlyFunctions {
+            EccOnlyFunctions::from_sorted(names.iter().map(|&n| Box::from(n)).collect())
+        }
+
+        fn code_entry(ecc_only_functions: EccOnlyFunctions) -> CompiledContractInfo {
+            CompiledContractInfo {
+                wasm_bytes: WASM_BYTES,
+                compiled: CompiledContract::Code(code()),
+                ecc_only_functions,
+            }
+        }
+
+        fn file_path(
+            cache: &FilesystemContractRuntimeCache,
+            key: &CryptoHash,
+        ) -> std::path::PathBuf {
+            cache
+                .state
+                .test_temp_dir
+                .as_ref()
+                .unwrap()
+                .path()
+                .join("contract.cache")
+                .join(key.to_string())
+        }
+
+        /// Every kind of entry survives a round-trip through the filesystem,
+        /// and `entry_disk_size` matches the size of the written file.
+        #[test]
+        fn round_trip() {
+            let cache = FilesystemContractRuntimeCache::test().unwrap();
+            let entries = [
+                code_entry(ecc(&["a", "b"])),
+                code_entry(ecc(&["only"])),
+                code_entry(EccOnlyFunctions::default()),
+                CompiledContractInfo {
+                    wasm_bytes: WASM_BYTES,
+                    compiled: CompiledContract::CompileModuleError(CompilationError::PrepareError(
+                        PrepareError::Deserialization,
+                    )),
+                    ecc_only_functions: EccOnlyFunctions::default(),
+                },
+            ];
+            for (i, entry) in entries.into_iter().enumerate() {
+                let key = CryptoHash::hash_bytes(&[i as u8]);
+                cache.put(&key, entry.clone()).unwrap();
+                assert_eq!(cache.get(&key).unwrap(), Some(entry.clone()));
+                let file_size = std::fs::metadata(file_path(&cache, &key)).unwrap().len();
+                assert_eq!(file_size, entry_disk_size(&entry));
+            }
+        }
+
+        /// Entries without ECC-only functions are written exactly as before the
+        /// `ecc_only_functions` feature existed.
+        #[test]
+        fn empty_list_uses_old_format() {
+            let cache = FilesystemContractRuntimeCache::test().unwrap();
+            let key = CryptoHash::hash_bytes(b"k");
+            cache.put(&key, code_entry(EccOnlyFunctions::default())).unwrap();
+
+            let mut expected = code();
+            expected.push(CODE_TAG);
+            expected.extend(WASM_BYTES.to_le_bytes());
+            assert_eq!(std::fs::read(file_path(&cache, &key)).unwrap(), expected);
+        }
+
+        #[test]
+        fn non_empty_list_layout() {
+            let cache = FilesystemContractRuntimeCache::test().unwrap();
+            let key = CryptoHash::hash_bytes(b"k");
+            let list = ecc(&["a", "b"]);
+            cache.put(&key, code_entry(list.clone())).unwrap();
+
+            let ecc_bytes = borsh::to_vec(&list).unwrap();
+            let mut expected = code();
+            expected.extend(&ecc_bytes);
+            expected.extend((ecc_bytes.len() as u32).to_le_bytes());
+            expected.push(CODE_WITH_ECC_TAG);
+            expected.extend(WASM_BYTES.to_le_bytes());
+            let written = std::fs::read(file_path(&cache, &key)).unwrap();
+            assert_eq!(written, expected);
+            // The code stays at the start of the file.
+            assert!(written.starts_with(&code()));
+        }
+
+        /// Malformed `CODE_WITH_ECC_TAG` entries are treated as missing, so the
+        /// contract gets recompiled.
+        #[test]
+        fn malformed_entries_are_ignored() {
+            let cache = FilesystemContractRuntimeCache::test().unwrap();
+            let unsorted = borsh::to_vec(&[Box::<str>::from("b"), Box::from("a")]).unwrap();
+            let sorted = borsh::to_vec(&ecc(&["a", "b"])).unwrap();
+            let len = |n: usize| (n as u32).to_le_bytes().to_vec();
+            let payloads: [Vec<u8>; 5] = [
+                // Too short to hold the length suffix.
+                vec![1, 2, 3],
+                // Length larger than the payload.
+                [code(), len(code().len() + 5)].concat(),
+                // Unsorted list.
+                [code(), unsorted.clone(), len(unsorted.len())].concat(),
+                // Length that does not match the encoded list.
+                [code(), sorted.clone(), len(sorted.len() - 1)].concat(),
+                [code(), sorted.clone(), len(sorted.len() + 1)].concat(),
+            ];
+            for (i, mut payload) in payloads.into_iter().enumerate() {
+                let key = CryptoHash::hash_bytes(&[i as u8]);
+                payload.push(CODE_WITH_ECC_TAG);
+                payload.extend(WASM_BYTES.to_le_bytes());
+                std::fs::write(file_path(&cache, &key), payload).unwrap();
+                assert_eq!(cache.get(&key).unwrap(), None, "payload {i}");
+            }
+        }
     }
 
     // ----- on-disk eviction feature tests -----
