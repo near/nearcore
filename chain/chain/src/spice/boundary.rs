@@ -1,18 +1,12 @@
-//! Seeding and routing for the spice activation boundary: the last pre-spice block,
-//! whose chunks are the first to be certified under spice.
-//!
-//! Limitation: the boundary assumes the shard layout does not change at activation.
-//! Boundary chunk ids carry shard ids of the last pre-spice layout, while the routing
-//! helpers below resolve them against the first spice epoch, which is where their
-//! producers live. If a resharding lands on the same epoch boundary the old shard ids
-//! are absent from the new layout and every lookup fails.
+//! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
+//! are the first to be certified under spice.
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{EpochId, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -162,40 +156,6 @@ pub(crate) fn seeded_uncertified_chunks(
         "seeded uncertified chunks of {block_hash} reference another block"
     );
     uncertified_chunks
-}
-
-/// The epoch whose chunk producers produce the spice data of `block_hash`: its own,
-/// or for a last pre-spice block the next one, whose producers run the boundary
-/// bootstrap.
-///
-/// TODO(spice-resharding): for a last pre-spice block the shard id the caller looks up
-/// in the returned epoch is from the previous layout; see the module docs.
-pub fn spice_producers_epoch_id(
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-) -> Result<EpochId, Error> {
-    if is_last_pre_spice_block(epoch_manager, block_hash)? {
-        Ok(epoch_manager.get_epoch_id_from_prev_block(block_hash)?)
-    } else {
-        Ok(epoch_manager.get_epoch_id(block_hash)?)
-    }
-}
-
-/// The prev hash shard tracking of `block`'s spice applications is keyed on: `block`
-/// itself for a last pre-spice block, whose chunks are bootstrapped by the shards
-/// tracked in the first spice epoch.
-///
-/// TODO(spice-resharding): for a last pre-spice block the shard tracker resolves shard
-/// ids of the previous layout against the first spice epoch; see the module docs.
-pub fn spice_tracking_prev_hash(
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-) -> Result<CryptoHash, Error> {
-    if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        Ok(*block.hash())
-    } else {
-        Ok(*block.header().prev_hash())
-    }
 }
 
 #[cfg(test)]
