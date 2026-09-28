@@ -1667,6 +1667,11 @@ pub enum MethodResolveError {
     MethodEmptyName = 0,
     MethodNotFound = 1,
     MethodInvalidSignature = 2,
+    /// The method is ECC-only, so it can only be called through an external
+    /// contract call (or a view call).
+    MethodIsECCOnly = 3,
+    /// An external contract call targeted a method that is not ECC-only.
+    MethodIsNotECC = 4,
 }
 
 #[derive(

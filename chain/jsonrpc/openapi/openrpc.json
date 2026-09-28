@@ -7568,13 +7568,27 @@
         "type": "object"
       },
       "MethodResolveError": {
-        "enum": [
-          "MethodEmptyName",
-          "MethodNotFound",
-          "MethodInvalidSignature"
+        "oneOf": [
+          {
+            "enum": [
+              "MethodEmptyName",
+              "MethodNotFound",
+              "MethodInvalidSignature"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "MethodIsECCOnly",
+            "description": "The method is ECC-only, so it can only be called through an external\ncontract call (or a view call).",
+            "type": "string"
+          },
+          {
+            "const": "MethodIsNotECC",
+            "description": "An external contract call targeted a method that is not ECC-only.",
+            "type": "string"
+          }
         ],
-        "title": "MethodResolveError",
-        "type": "string"
+        "title": "MethodResolveError"
       },
       "MissingTrieValue": {
         "properties": {

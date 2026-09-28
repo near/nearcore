@@ -122,6 +122,11 @@ pub enum MethodResolveError {
     MethodEmptyName,
     MethodNotFound,
     MethodInvalidSignature,
+    /// The method is ECC-only, so it can only be called through an external
+    /// contract call (or a view call).
+    MethodIsECCOnly,
+    /// An external contract call targeted a method that is not ECC-only.
+    MethodIsNotECC,
 }
 
 /// The maximum message size that fits in a daemon `CompileResponse::Err` frame.

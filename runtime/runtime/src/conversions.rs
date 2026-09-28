@@ -15,6 +15,8 @@ mod method_resolve_error {
                 From::MethodEmptyName => Self::MethodEmptyName,
                 From::MethodNotFound => Self::MethodNotFound,
                 From::MethodInvalidSignature => Self::MethodInvalidSignature,
+                From::MethodIsECCOnly => Self::MethodIsECCOnly,
+                From::MethodIsNotECC => Self::MethodIsNotECC,
             }
         }
     }
