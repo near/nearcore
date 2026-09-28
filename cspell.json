@@ -562,6 +562,7 @@
     ],
     "ignoreWords": [
         "euxo",
+        "INVAL",
         "libunwind",
         "Nebulet",
         "nonblocking",
