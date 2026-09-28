@@ -9,18 +9,27 @@ use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_vm_runner::CompilePriority;
 use near_vm_runner::compiler_daemon;
+use near_vm_runner::compiler_daemon::ExitOnWorkerMemoryExhaustion;
 use near_vm_runner::logic::errors::CompilationError;
 #[cfg(feature = "test_features")]
 use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
 #[cfg(feature = "test_features")]
 use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract};
+use std::alloc::System;
+#[cfg(unix)]
+use std::borrow::Cow;
 use std::env;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 #[cfg(feature = "test_features")]
 use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
+
+#[global_allocator]
+static ALLOC: ExitOnWorkerMemoryExhaustion<System> = ExitOnWorkerMemoryExhaustion::new(System);
 
 fn main() {
     if env::args_os().nth(1).is_some_and(|arg| arg == "compile-wasm") {
@@ -30,6 +39,8 @@ fn main() {
     compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
 
+    #[cfg(unix)]
+    test_allocator_exhaustion_exit_code();
     test_startup_probe();
     test_basic_compilation();
     #[cfg(all(target_os = "linux", feature = "test_features"))]
@@ -43,6 +54,50 @@ fn main() {
     test_worker_crash_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_engine_creation_failure_is_not_cached();
+}
+
+/// Exercise the real system allocator under the worker's RLIMIT_AS and check
+/// that the adapter exits directly with the reserved, distinguishable status.
+#[cfg(unix)]
+fn test_allocator_exhaustion_exit_code() {
+    use compiler_daemon::protocol::{
+        COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
+        TestAction, read_frame, write_frame,
+    };
+
+    let mut child = Command::new(env::current_exe().unwrap())
+        .arg("compile-wasm")
+        .env_clear()
+        .env(COMPILER_DAEMON_THREADS_ENV, "1")
+        .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+
+    let startup = read_frame(&mut stdout).unwrap();
+    let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
+    assert!(matches!(startup, DaemonStartup::Ready(_)));
+
+    let request = CompileRequest {
+        prepared_code: Cow::Borrowed(&[]),
+        max_memory_pages: 1,
+        test_action: Some(TestAction::AllocationFailure),
+    };
+    write_frame(&mut stdin, &borsh::to_vec(&request).unwrap()).unwrap();
+    drop(stdin);
+    assert!(read_frame(&mut stdout).is_err(), "worker unexpectedly returned a response");
+
+    let status = child.wait().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(compiler_daemon::WORKER_MEMORY_EXHAUSTED_EXIT_CODE),
+        "worker did not report instrumented memory exhaustion: {status}"
+    );
 }
 
 fn test_startup_probe() {

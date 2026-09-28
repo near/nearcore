@@ -8,12 +8,14 @@
 //! [`child`] runs Wasmtime compilation with minimal system access and raises
 //! its `oom_score_adj` so the kernel OOM killer reaps it before neard.
 
+mod allocator;
 mod child;
 mod parent;
 pub mod protocol;
 mod sandbox;
 mod watchdog;
 
+pub use allocator::{ExitOnWorkerMemoryExhaustion, WORKER_MEMORY_EXHAUSTED_EXIT_CODE};
 pub use child::daemon_main;
 #[cfg(feature = "test_features")]
 pub use parent::{

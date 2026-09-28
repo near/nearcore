@@ -10,12 +10,15 @@
 
 #[cfg(unix)]
 use super::MIN_WORKER_MEMORY_LIMIT_BYTES;
+use super::allocator::{enable as enable_allocation_failure_exit, exit_for_memory_exhaustion};
 use super::protocol::{
     COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup,
     DaemonStatus, WorkerConfig, read_frame, write_compile_response, write_frame,
 };
 use super::sandbox::{self, SandboxStatus};
 use crate::wasmtime_runner::{compiler_compatibility_hash, create_compiler_engine};
+#[cfg(unix)]
+use rustix::io::Errno;
 use std::collections::{HashMap, hash_map};
 use std::env;
 use std::fmt::Display;
@@ -23,6 +26,7 @@ use std::io::Write;
 use std::process::exit;
 #[cfg(feature = "test_features")]
 use std::thread::park;
+use wasmtime::{Error as WasmtimeError, OutOfMemory};
 
 /// Entry point for the dedicated compiler daemon binary.
 pub fn daemon_main() -> ! {
@@ -33,6 +37,7 @@ pub fn daemon_main() -> ! {
         Err(err) => report_startup_error(&mut writer, err),
     };
 
+    enable_allocation_failure_exit();
     set_memory_limit();
     raise_oom_score_adj();
     let sandbox_status = match sandbox::apply() {
@@ -51,9 +56,8 @@ pub fn daemon_main() -> ! {
     {
         report_startup_error(&mut writer, format!("failed to create compiler thread pool: {err}"));
     }
-    let compiler_compatibility_hash = compiler_compatibility_hash().unwrap_or_else(|err| {
-        abort_worker(format!("failed to create compatibility engine: {err}"))
-    });
+    let compiler_compatibility_hash = compiler_compatibility_hash()
+        .unwrap_or_else(|err| abort_wasmtime_worker("failed to create compatibility engine", err));
     let startup = DaemonStartup::Ready(DaemonStatus {
         compiler_compatibility_hash,
         isolation: sandbox_status.isolation_status(),
@@ -133,6 +137,16 @@ fn handle_request(
             super::protocol::TestAction::EngineCreationFailure => {
                 abort_worker("failed to create engine: test engine creation failure")
             }
+            #[cfg(unix)]
+            super::protocol::TestAction::AllocationFailure => {
+                // A single allocation as large as the worker's complete
+                // address-space limit must fail without committing host memory.
+                let allocation = Vec::<u8>::with_capacity(
+                    usize::try_from(MIN_WORKER_MEMORY_LIMIT_BYTES).unwrap(),
+                );
+                std::hint::black_box(allocation);
+                abort_worker("test allocation unexpectedly succeeded")
+            }
             #[cfg(target_os = "linux")]
             super::protocol::TestAction::LandlockProbe => {
                 return match sandbox::run_probe(sandbox_status) {
@@ -154,10 +168,38 @@ fn handle_compile(
         hash_map::Entry::Occupied(e) => e.into_mut(),
         hash_map::Entry::Vacant(e) => e.insert(
             create_compiler_engine(request.max_memory_pages)
-                .unwrap_or_else(|err| abort_worker(format!("failed to create engine: {err}"))),
+                .unwrap_or_else(|err| abort_wasmtime_worker("failed to create engine", err)),
         ),
     };
-    engine.precompile_module(&request.prepared_code).map_err(|err| err.to_string())
+    engine.precompile_module(&request.prepared_code).map_err(|err| {
+        if is_memory_exhaustion(&err) {
+            exit_for_memory_exhaustion();
+        }
+        err.to_string()
+    })
+}
+
+/// Whether Wasmtime retained typed evidence of local memory exhaustion.
+///
+/// Wasmtime uses `OutOfMemory` for fallible Rust allocations. Its Unix code
+/// memory path bypasses the global allocator and preserves mmap's typed
+/// `ENOMEM` in the error chain.
+fn is_memory_exhaustion(err: &WasmtimeError) -> bool {
+    if err.is::<OutOfMemory>() {
+        return true;
+    }
+    #[cfg(unix)]
+    if err.chain().any(|cause| cause.downcast_ref::<Errno>() == Some(&Errno::NOMEM)) {
+        return true;
+    }
+    false
+}
+
+fn abort_wasmtime_worker(context: &str, err: WasmtimeError) -> ! {
+    if is_memory_exhaustion(&err) {
+        exit_for_memory_exhaustion();
+    }
+    abort_worker(format!("{context}: {err}"))
 }
 
 /// Exit the worker process with a message to its local stderr.

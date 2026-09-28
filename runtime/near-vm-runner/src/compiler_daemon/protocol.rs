@@ -16,6 +16,9 @@ pub enum TestAction {
     Abort,
     Timeout,
     EngineCreationFailure,
+    /// Breach RLIMIT_AS with an allocation.
+    #[cfg(unix)]
+    AllocationFailure,
     #[cfg(target_os = "linux")]
     LandlockProbe,
 }
