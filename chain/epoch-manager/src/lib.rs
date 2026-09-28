@@ -391,6 +391,8 @@ pub(crate) fn blacklist_for_epoch(
     shard_layout: &ShardLayout,
     blocks_into_epoch: BlockHeight,
 ) -> ChunkProducerBlacklist {
+    // Both checks are redundant in production: `chunk_producer_blacklist_at_anchor` returns
+    // on them before its walk. Kept as defense in depth for direct callers.
     if aggregator.epoch_id != *target_epoch_id {
         return ChunkProducerBlacklist::empty();
     }
@@ -2338,8 +2340,11 @@ impl EpochManager {
         }))
     }
 
-    /// Use consensus assignments for kickout stats. Fall back to the legacy sampler
-    /// when the grandparent anchor or its producer rows are unavailable.
+    /// Chunk producers of the block built on `prev_block_info`, read from the rows seeded at
+    /// its grandparent, so kickout stats count the producers consensus resolved. Returns
+    /// `None` when EarlyKickout is off, the parent is missing or genesis, or the grandparent is
+    /// missing or in another epoch. The caller then samples at `prev_height + 1`. A shard whose
+    /// row is missing or names an unknown account is sampled at `anchor.height + 2`.
     fn anchored_chunk_producers_for_aggregator(
         &self,
         epoch_id: &EpochId,

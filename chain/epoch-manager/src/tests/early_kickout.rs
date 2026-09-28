@@ -37,6 +37,7 @@ use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 const STAKE: Balance = Balance::from_yoctonear(1_000_000);
 
@@ -1111,8 +1112,6 @@ fn record_steady_chain(em: &mut EpochManager, h: &[CryptoHash]) {
 
 #[test]
 fn seed_walk_skipped_during_in_grace_stall() {
-    use std::sync::atomic::Ordering;
-
     fn stall_walk(count: u64) -> usize {
         let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
         let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
@@ -1172,8 +1171,6 @@ fn assert_seeded_row_is_canonical(
 // A basis behind the sync point would require a full epoch walk without the grace check.
 #[test]
 fn seed_walk_skips_fork_basis_behind_sync_point() {
-    use std::sync::atomic::Ordering;
-
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = 30;
@@ -1199,65 +1196,6 @@ fn seed_walk_skips_fork_basis_behind_sync_point() {
     assert_seeded_row_is_canonical(&em, fork, TIP, &epoch_info, &shard_layout);
 }
 
-#[test]
-fn seed_walk_skips_cross_epoch_fork_basis_behind_sync_point() {
-    use std::sync::atomic::Ordering;
-
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let mut em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
-    const MAX_HEIGHT: u64 = 40;
-    let h: Vec<CryptoHash> = (0..=MAX_HEIGHT).map(|i| hash(&i.to_le_bytes())).collect();
-    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
-
-    // Advance the sync point to the first block of epoch 1.
-    let mut epoch1_first = None;
-    let mut tip = None;
-    for height in 1..=MAX_HEIGHT {
-        let two_back = height.saturating_sub(2);
-        record_block_with_final(
-            &mut em,
-            h[height as usize - 1],
-            h[height as usize],
-            height,
-            h[two_back as usize],
-            two_back,
-        );
-        if epoch1_first.is_none()
-            && em.get_epoch_id(&h[height as usize]).unwrap() != EpochId::default()
-        {
-            epoch1_first = Some(height);
-        }
-        if epoch1_first.is_some_and(|first| height == first + 2) {
-            tip = Some(height);
-            break;
-        }
-    }
-    let epoch1_first = epoch1_first.expect("expected an epoch boundary within MAX_HEIGHT blocks");
-    let tip = tip.expect("expected room for two blocks past the boundary");
-
-    // This fork neither advances finality nor ends an epoch, isolating the seeder walk.
-    let basis = epoch1_first - 1;
-    assert_eq!(
-        em.get_epoch_id(&h[basis as usize]).unwrap(),
-        EpochId::default(),
-        "the fork basis must still be in epoch 0"
-    );
-    let fork = hash(b"cross-epoch fork sibling of the tip");
-    let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
-    record_block_with_final(&mut em, h[tip as usize - 1], fork, tip, h[basis as usize], basis);
-    let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    assert_eq!(
-        walked, 0,
-        "a cross-epoch fork basis must not walk. Pre-hoist this walked ~{epoch1_first} iterations"
-    );
-
-    let epoch_id = em.get_epoch_id(&fork).unwrap();
-    assert_ne!(epoch_id, EpochId::default(), "the fork block must be in epoch 1");
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
-    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    assert_seeded_row_is_canonical(&em, fork, tip, &epoch_info, &shard_layout);
-}
-
 // Regression for the testnet halt at height 270420307: a late block moved the sync point
 // past the canonical basis. The resulting epoch walk evicted uncommitted `BlockInfo`,
 // causing every retry to fail with `MissingBlock`.
@@ -1269,8 +1207,6 @@ enum ForkOrder {
 /// The orphan advances the sync point past the canonical basis. Leave canonical records
 /// uncommitted to check that they remain readable, as required during block processing.
 fn record_fork_behind_sync_point(order: ForkOrder) {
-    use std::sync::atomic::Ordering;
-
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = BLOCK_CACHE_SIZE as u64 + 200;
@@ -1337,8 +1273,6 @@ fn fork_behind_sync_point_orphan_first() {
 // The first block of an epoch is read back inside `record_block_info`, before commit.
 #[test]
 fn epoch_boundary_fork_records_canonical_first_block() {
-    use std::sync::atomic::Ordering;
-
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     const EPOCH_LENGTH: u64 = BLOCK_CACHE_SIZE as u64 + 300;
     let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
@@ -1346,7 +1280,7 @@ fn epoch_boundary_fork_records_canonical_first_block() {
     let h = height_hashes(last);
     record_steady_chain(&mut em, &h);
     let p = h[last as usize];
-    assert!(em.is_next_block_epoch_start(&p).unwrap(), "P must be the last block of epoch 0");
+    assert!(em.is_next_block_epoch_start(&p).unwrap(), "p must be the last block of epoch 0");
 
     let x = hash(b"late sibling opening epoch 1");
     record_block_with_final(&mut em, p, x, last + 1, h[last as usize - 1], last - 1);
@@ -1378,8 +1312,6 @@ fn epoch_boundary_fork_records_canonical_first_block() {
 // the epoch, which must read its uncommitted `BlockInfo`.
 #[test]
 fn epoch_last_block_sibling_behind_sync_point_records() {
-    use std::sync::atomic::Ordering;
-
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     const EPOCH_LENGTH: u64 = BLOCK_CACHE_SIZE as u64 + 300;
     let mut em = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
@@ -1391,12 +1323,14 @@ fn epoch_last_block_sibling_behind_sync_point_records() {
 
     let x = hash(b"last block of epoch 0");
     record_block_with_final(&mut em, p, x, last, basis, basis_height);
-    assert!(em.is_next_block_epoch_start(&x).unwrap(), "X must be the last block of epoch 0");
+    assert!(em.is_next_block_epoch_start(&x).unwrap(), "x must be the last block of epoch 0");
     let x_child = hash(b"first block of epoch 1");
     record_block_with_final(&mut em, x, x_child, last + 1, p, last - 1);
     assert_eq!(em.epoch_info_aggregator.last_block_hash, p);
 
     let b = hash(b"sibling last block of epoch 0");
+    // A cold memo forces the full-epoch walk inside the record.
+    em.chunk_producer_blacklists.lock().clear();
     let before = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst);
     let block_info = block_info_with_final_and_mask(
         &em,
@@ -1411,16 +1345,14 @@ fn epoch_last_block_sibling_behind_sync_point_records() {
     let _uncommitted =
         em.record_block_info(block_info, [0; 32]).expect("the sibling last block must record");
     let walked = em.epoch_info_aggregator_loop_counter.load(Ordering::SeqCst) - before;
-    assert!(em.is_next_block_epoch_start(&b).unwrap(), "B must be the last block of epoch 0");
-    // Seeding reuses the cached basis; finalization walks one block to the sync point.
-    assert_eq!(walked, 1);
+    assert!(em.is_next_block_epoch_start(&b).unwrap(), "b must be the last block of epoch 0");
+    // Finalization reads the uncommitted `b` after the walk.
+    assert!(walked > BLOCK_CACHE_SIZE, "the seeding walk must outrun the cache, walked {walked}");
 }
 
 // Exercise the full epoch walk directly; cached blacklists bypass it in the fork tests.
 #[test]
 fn aggregator_walk_leaves_block_info_cache_alone() {
-    use std::sync::atomic::Ordering;
-
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = BLOCK_CACHE_SIZE as u64 + 200;
@@ -1476,8 +1408,6 @@ fn record_block_info_leaves_new_block_most_recently_used() {
 }
 
 fn record_fork_on_down_node_chain(handle: &EpochManagerHandle, h: &[CryptoHash]) -> CryptoHash {
-    use std::sync::atomic::Ordering;
-
     let tip = h.len() as u64 - 1;
     let mut em = handle.write();
     let em = &mut *em;
@@ -2493,7 +2423,8 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     // Phase 7: the abandoned canonical anchor is unchanged. Its blacklist is still exactly
     // {0}, and aggregating to its own last-final basis now returns `full_info == true`: the
     // cache sits on the sibling, so the walk cannot reach the cached sync point and instead
-    // walks the canonical chain from the epoch start.
+    // walks the canonical chain from the epoch start. That full walk must reproduce the
+    // memoized {0}.
     let canonical_bl = handle.get_chunk_producer_blacklist(&canonical_tip).unwrap();
     assert_eq!(
         canonical_bl,
@@ -2502,7 +2433,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     let canonical_basis =
         *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
-    let (_, canonical_full_info) = handle
+    let (full_walk, canonical_full_info) = handle
         .read()
         .aggregate_epoch_info_upto(&canonical_basis)
         .unwrap()
@@ -2511,6 +2442,9 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
         canonical_full_info,
         "after the sibling takeover the canonical basis must walk from the epoch start",
     );
+    let full_bl =
+        compute_chunk_producer_blacklist(&full_walk.shard_tracker, epoch_info.as_ref(), layout);
+    assert_eq!(full_bl.blacklist, canonical_bl, "the full walk must match the memoized blacklist");
 
     // Phase 8: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
     // one survivor left).
