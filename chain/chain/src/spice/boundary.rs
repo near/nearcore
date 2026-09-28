@@ -50,11 +50,6 @@ pub fn last_pre_spice_block_header(
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block
 /// or a first spice block; a no-op otherwise.
-///
-/// A first spice block seeds its parent's uncertified-chunks row again. The parent is
-/// a last pre-spice block by definition, and its own postprocessing may have run on a
-/// binary without this seeding: a node that upgrades late stalls at the first spice
-/// block and resumes here. The row is deterministic, so the repeat is harmless.
 pub fn seed_activation_boundary(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -62,14 +57,12 @@ pub fn seed_activation_boundary(
     prev_header: &BlockHeader,
 ) -> Result<(), Error> {
     if block.is_spice_block() {
-        if !prev_header.is_spice() {
-            write_boundary_uncertified_chunks(store_update, epoch_manager, prev_header)?;
-            seed_execution_heads_at_activation(store_update, block, prev_header)?;
-        }
+        seed_execution_heads_at_activation(store_update, block, prev_header)
     } else if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())?;
+        write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 /// Seeds the spice execution heads when `block` is a first spice block, i.e. when
@@ -161,12 +154,17 @@ pub(crate) fn seeded_uncertified_chunks(
 #[cfg(test)]
 mod tests {
     use super::{boundary_uncertified_chunks, seed_activation_boundary, seeded_uncertified_chunks};
+    use crate::Chain;
+    use crate::spice::core::record_uncertified_chunks_for_block;
     use crate::spice::tests::{
         add_pre_spice_block, grow_to_last_pre_spice_block, setup_pre_spice_chain,
         setup_pre_spice_chain_with_epoch_length,
     };
     use near_async::time::Clock;
+    use near_chain_primitives::Error;
+    use near_primitives::block::Block;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::types::SpiceUncertifiedChunkInfo;
     use near_primitives::version::ProtocolFeature;
     use near_store::DBCol;
     use near_store::adapter::StoreAdapter;
@@ -229,12 +227,11 @@ mod tests {
         );
     }
 
-    /// A first spice block whose pre-spice parent has no row yet, as on a node that
-    /// postprocessed the parent before it had this seeding, writes the parent's row along
-    /// with the execution heads.
+    /// A first spice block seeds the execution heads and nothing else: its parent's row
+    /// is the parent's own postprocessing's to write.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_seeding_at_the_first_spice_block_writes_the_missing_parent_row() {
+    fn test_seeding_at_the_first_spice_block_writes_the_execution_heads_only() {
         let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -247,7 +244,7 @@ mod tests {
         .protocol_version(ProtocolFeature::Spice.protocol_version())
         .build();
         let chain_store = chain.chain_store.store().chain_store();
-        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
+        assert!(chain_store.spice_execution_head().is_err());
 
         let mut store_update = chain.chain_store.store().store_update();
         seed_activation_boundary(
@@ -259,10 +256,107 @@ mod tests {
         .unwrap();
         store_update.commit();
 
-        assert_eq!(
-            seeded_uncertified_chunks(&chain_store, parent.hash()),
-            boundary_uncertified_chunks(epoch_manager.as_ref(), parent.header()).unwrap()
-        );
+        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
         assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
+    }
+
+    /// Recording the first spice block's row in the order of block postprocessing, with
+    /// its parent's row committed by the parent's own postprocessing, carries the
+    /// parent's seeded chunks over unchanged alongside the block's own.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_recording_the_first_spice_block_carries_seeded_boundary_chunks() {
+        let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+        let epoch_manager = chain.epoch_manager.clone();
+        let (last_pre_spice, parent) = grow_to_last_pre_spice_block(&mut chain);
+        let first_spice = build_first_spice_block(&chain, &last_pre_spice);
+
+        // The last pre-spice block's postprocessing.
+        let mut store_update = chain.chain_store.store().store_update();
+        seed_activation_boundary(
+            &mut store_update,
+            epoch_manager.as_ref(),
+            &last_pre_spice,
+            parent.header(),
+        )
+        .unwrap();
+        store_update.commit();
+
+        // The first spice block's postprocessing: seeding, then recording, one commit.
+        let mut boundary_update = chain.chain_store.store().store_update();
+        let mut chain_store_update = chain.chain_store.store_update();
+        seed_activation_boundary(
+            &mut boundary_update,
+            epoch_manager.as_ref(),
+            &first_spice,
+            last_pre_spice.header(),
+        )
+        .unwrap();
+        chain_store_update.merge(boundary_update);
+        record_uncertified_chunks_for_block(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            &first_spice,
+        )
+        .unwrap();
+        chain_store_update.commit().unwrap();
+
+        let seeded =
+            boundary_uncertified_chunks(epoch_manager.as_ref(), last_pre_spice.header()).unwrap();
+        let recorded: Vec<SpiceUncertifiedChunkInfo> = chain
+            .chain_store
+            .store()
+            .get_ser(DBCol::uncertified_chunks(), first_spice.hash().as_ref())
+            .unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(first_spice.header().epoch_id()).unwrap();
+        assert_eq!(recorded.len(), seeded.len() + shard_layout.num_shards() as usize);
+        assert_eq!(&recorded[..seeded.len()], &seeded[..]);
+        assert!(
+            recorded[seeded.len()..]
+                .iter()
+                .all(|chunk| &chunk.chunk_id.block_hash == first_spice.hash())
+        );
+    }
+
+    /// Recording the first spice block's row without its parent's seeded row is an
+    /// error: continuing would drop the boundary chunks from certification for good.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_record_first_spice_block_errors_without_seeded_parent_row() {
+        let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+        let epoch_manager = chain.epoch_manager.clone();
+        let (last_pre_spice, _parent) = grow_to_last_pre_spice_block(&mut chain);
+        let first_spice = build_first_spice_block(&chain, &last_pre_spice);
+
+        let mut chain_store_update = chain.chain_store.store_update();
+        let result = record_uncertified_chunks_for_block(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            &first_spice,
+        );
+        let Err(Error::Other(message)) = result else {
+            panic!("expected a missing seeded row error, got {result:?}");
+        };
+        assert!(
+            message.contains("missing seeded uncertified chunks of last pre-spice block"),
+            "{message}"
+        );
+    }
+
+    /// Fabricates the first spice block on top of `last_pre_spice` without saving it.
+    fn build_first_spice_block(chain: &Chain, last_pre_spice: &Block) -> Arc<Block> {
+        let epoch_manager = chain.epoch_manager.as_ref();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
+        let next_epoch_id =
+            epoch_manager.get_next_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
+        TestBlockBuilder::from_prev_block(
+            Clock::real(),
+            last_pre_spice,
+            Arc::new(create_test_signer("test1")),
+        )
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
+        .protocol_version(ProtocolFeature::Spice.protocol_version())
+        .build()
     }
 }

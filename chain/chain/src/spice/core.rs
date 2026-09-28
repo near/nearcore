@@ -1020,6 +1020,15 @@ pub fn record_uncertified_chunks_for_block(
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
         get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    // A pre-spice parent is a last pre-spice block, whose own postprocessing seeded its
+    // row with one entry per shard. An empty row means the parent was committed without
+    // the seeding; recording on top of it would leave its chunks uncertified for good.
+    let prev_header = chain_store_update.chain_store().get_block_header(prev_hash)?;
+    if !prev_header.is_genesis() && !prev_header.is_spice() && uncertified_chunks.is_empty() {
+        return Err(Error::Other(format!(
+            "missing seeded uncertified chunks of last pre-spice block {prev_hash}"
+        )));
+    }
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {
