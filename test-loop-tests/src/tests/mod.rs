@@ -33,6 +33,7 @@ mod early_kickout_boundary;
 #[cfg(feature = "test_features")]
 mod early_kickout_e2e;
 mod early_kickout_probe;
+mod early_kickout_withheld_block;
 mod early_prepare_transactions;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
