@@ -328,6 +328,11 @@ pub enum Parameter {
     // they are handled correctly. All other inputs were already handled
     // correctly.
     Bls12381NotInGroupFix,
+
+    // Enable the `EccOnlyFunctions` protocol feature: read the
+    // `ecc_only_functions` custom section and restrict the listed functions to
+    // external contract calls.
+    EccOnlyFunctions,
 }
 
 #[derive(

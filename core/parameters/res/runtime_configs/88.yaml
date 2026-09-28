@@ -1,1 +1,2 @@
 max_globals_per_contract: { new: 65_536 }
+ecc_only_functions: { old: false, new: true }

@@ -311,3 +311,4 @@ sha3_host_fns                           true
 yield_with_id_host_fns                  true
 chain_id_host_fn                        true
 bls12381_not_in_group_fix               false
+ecc_only_functions                      true

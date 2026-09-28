@@ -13522,6 +13522,10 @@
             "description": "Deprecated: custom sections are always discarded, so this is always `true`.",
             "type": "boolean"
           },
+          "ecc_only_functions": {
+            "description": "See [VMConfig::ecc_only_functions](crate::vm::Config::ecc_only_functions).",
+            "type": "boolean"
+          },
           "eth_implicit_accounts": {
             "description": "Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.",
             "type": "boolean"

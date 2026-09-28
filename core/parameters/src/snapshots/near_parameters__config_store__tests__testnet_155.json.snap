@@ -225,6 +225,7 @@ snapshot_kind: text
     "yield_with_id_host_fns": true,
     "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": true,
+    "ecc_only_functions": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

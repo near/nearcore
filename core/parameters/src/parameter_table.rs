@@ -465,6 +465,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
                 chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
+                ecc_only_functions: params.get(Parameter::EccOnlyFunctions)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

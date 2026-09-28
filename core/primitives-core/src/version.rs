@@ -152,6 +152,11 @@ pub enum ProtocolFeature {
     /// If an account references the global contract hash of the old eth-wallet
     /// contract then it will automatically resolve to the new version instead.
     UpdatedEthWalletContract,
+    /// Let contracts mark functions as callable only through external
+    /// contract calls (ECC) by listing them in the `ecc_only_functions` custom
+    /// wasm section. Such functions cannot be called by `FunctionCall`
+    /// actions. See [ECC tracking issue:](https://github.com/near/nearcore/issues/16423).
+    EccOnlyFunctions,
 }
 
 impl ProtocolFeature {
@@ -190,6 +195,7 @@ impl ProtocolFeature {
             ProtocolFeature::FailCallToMissingGlobalContract => 88,
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 88,
             ProtocolFeature::UpdatedEthWalletContract => 88,
+            ProtocolFeature::EccOnlyFunctions => 88,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

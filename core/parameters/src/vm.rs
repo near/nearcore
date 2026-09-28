@@ -291,6 +291,12 @@ pub struct Config {
     /// inputs were already handled correctly.
     pub bls12381_not_in_group_fix: bool,
 
+    /// Enable the `EccOnlyFunctions` protocol feature: parse the
+    /// `ecc_only_functions` custom section during contract preparation and
+    /// restrict the listed functions to external contract calls (ECC). When
+    /// disabled, the section is ignored.
+    pub ecc_only_functions: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -328,6 +334,7 @@ impl Config {
         self.yield_with_id_host_fns = true;
         self.chain_id_host_fn = true;
         self.bls12381_not_in_group_fix = true;
+        self.ecc_only_functions = true;
     }
 }
 

@@ -266,6 +266,8 @@ pub struct VMConfigView {
     pub chain_id_host_fn: bool,
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
+    /// See [VMConfig::ecc_only_functions](crate::vm::Config::ecc_only_functions).
+    pub ecc_only_functions: bool,
 
     /// Deprecated: contract storage is always read through flat storage, so this is
     /// always `FlatStorage`.
@@ -312,6 +314,7 @@ impl From<crate::vm::Config> for VMConfigView {
             yield_with_id_host_fns: config.yield_with_id_host_fns,
             chain_id_host_fn: config.chain_id_host_fn,
             bls12381_not_in_group_fix: config.bls12381_not_in_group_fix,
+            ecc_only_functions: config.ecc_only_functions,
         }
     }
 }
