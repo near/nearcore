@@ -18,8 +18,11 @@ isolation status, and Wasmtime compatibility hash. The parent rejects a worker
 whose acknowledgement does not match its request. A worker's thread count,
 stack size, and address-space limit are immutable for its lifetime.
 
-Waiting requests are admitted in `Critical`, `Interactive`, then `Background`
-order. The coordinator tracks starting, idle, leased, and terminating workers.
+Ordinary waiting requests are admitted in `Critical`, `Interactive`, then
+`Background` order. The admitted recovery owner bypasses this waiter ordering so
+it can reclaim capacity even when higher-priority ordinary requests are waiting
+for it. Recovery still cannot evict higher-priority active work. The coordinator
+tracks starting, idle, leased, and terminating workers.
 It reserves both a process slot and the worker's configured address-space limit
 before spawning. The aggregate reservation is a conservative virtual-memory
 admission budget, not a limit on physical RSS or on the rest of `neard`.

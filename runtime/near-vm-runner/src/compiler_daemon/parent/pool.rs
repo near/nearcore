@@ -193,7 +193,9 @@ impl DaemonPool {
         }
 
         loop {
-            if !priority_may_checkout(priority, &inner.waiters) {
+            // Recovery must be able to reclaim capacity even when a higher-
+            // priority ordinary caller is waiting for that same capacity.
+            if !protected && !priority_may_checkout(priority, &inner.waiters) {
                 self.capacity_changed.wait(&mut inner);
                 continue;
             }
@@ -810,6 +812,84 @@ mod tests {
         assert_eq!(inner.waiters, [0; CompilePriority::COUNT]);
         assert_eq!(inner.recovery_waiters, [0; CompilePriority::COUNT]);
         assert!(!inner.recovery_owner);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_evicts_with_higher_priority_waiter() {
+        use crate::compiler_daemon::watchdog::{ProcessControl, TerminationReason};
+        use std::process::{Command, Stdio};
+        use std::sync::Arc;
+
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1, memory_limit_bytes: 10 };
+        let pool: &'static DaemonPool = Box::leak(Box::new(DaemonPool::new(
+            PathBuf::from("compiler-daemon-binary-that-does-not-exist"),
+            config,
+            1,
+            20,
+            20,
+        )));
+        // Model a background compilation that cannot finish on its own. Holding
+        // stdin outside Child keeps it open even when waiting for the child.
+        let mut child = Command::new("sh")
+            .args(["-c", "read line"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let control = Arc::new(ProcessControl::new(child));
+        let id = {
+            let mut inner = pool.inner.lock();
+            let id = reserve_worker(&mut inner, 10);
+            let entry = inner.registry.get_mut(&id).unwrap();
+            entry.state =
+                WorkerState::Leased { priority: CompilePriority::Background, protected: false };
+            entry.control = Some(Arc::clone(&control));
+            id
+        };
+
+        // The critical caller has priority but no capacity, and cannot evict.
+        let (ordinary_tx, ordinary_rx) = channel();
+        let ordinary = spawn(move || {
+            ordinary_tx.send(pool.lease(CompilePriority::Critical).is_err()).unwrap();
+        });
+        wait_for_pool(pool, |inner| inner.waiters[CompilePriority::Critical.index()] == 1);
+
+        let owner = pool.begin_recovery(CompilePriority::Interactive);
+        let (owner_tx, owner_rx) = channel();
+        let recovery = spawn(move || {
+            owner_tx.send(owner.lease(20).is_err()).unwrap();
+        });
+        wait_for_pool(pool, |inner| inner.recovery_request.is_some());
+
+        // Recovery must evict despite the critical waiter, before the test
+        // releases any capacity. Capture the outcome, then clean up even when
+        // the regression prevents eviction so no child or waiter is left behind.
+        let timeout = Duration::from_secs(5);
+        let evicted_status = control.wait_for_exit(timeout).unwrap();
+        let termination_reason = control.termination_reason();
+        DaemonPool::mark_terminating(&mut pool.inner.lock(), id);
+        control.terminate(TerminationReason::ProcessDrop).unwrap();
+        assert!(control.wait_for_exit(timeout).unwrap().is_some());
+        drop(stdin);
+        pool.finish_termination(id);
+
+        // Intentional spawn errors prove both callers passed admission. Either
+        // may win the reclaimed capacity. Recovery need not run before Critical.
+        assert!(ordinary_rx.recv_timeout(timeout).unwrap());
+        assert!(owner_rx.recv_timeout(timeout).unwrap());
+        ordinary.join().unwrap();
+        recovery.join().unwrap();
+        let inner = pool.inner.lock();
+        assert!(inner.registry.is_empty());
+        assert_eq!(inner.reserved_bytes, 0);
+        assert_eq!(inner.waiters, [0; CompilePriority::COUNT]);
+        assert!(!inner.recovery_owner);
+        assert!(evicted_status.is_some(), "recovery did not evict the background worker");
+        assert_eq!(termination_reason, Some(TerminationReason::SchedulerEviction));
     }
 
     #[test]

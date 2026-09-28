@@ -320,3 +320,45 @@ fn raise_oom_score_adj() {
 
 #[cfg(not(target_os = "linux"))]
 fn raise_oom_score_adj() {}
+
+#[cfg(test)]
+mod tests {
+    use super::is_memory_exhaustion;
+    #[cfg(unix)]
+    use rustix::io::Errno;
+    use wasmtime::{Error as WasmtimeError, OutOfMemory};
+
+    #[test]
+    fn recognizes_out_of_memory_with_context() {
+        let err = WasmtimeError::new(OutOfMemory::new(1));
+        assert!(is_memory_exhaustion(&err));
+        assert!(is_memory_exhaustion(&err.context("compiling module")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recognizes_enomem_with_context() {
+        let err = WasmtimeError::new(Errno::NOMEM);
+        assert!(is_memory_exhaustion(&err));
+        assert!(is_memory_exhaustion(
+            &err.context("allocating code memory").context("compiling module")
+        ));
+    }
+
+    #[test]
+    fn rejects_untyped_errors() {
+        for message in ["invalid wasm", "out of memory", "ENOMEM"] {
+            let err = WasmtimeError::msg(message);
+            assert!(!is_memory_exhaustion(&err));
+            assert!(!is_memory_exhaustion(&err.context("compiling module")));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_unrelated_errno() {
+        let err = WasmtimeError::new(Errno::INVAL);
+        assert!(!is_memory_exhaustion(&err));
+        assert!(!is_memory_exhaustion(&err.context("out of memory")));
+    }
+}
