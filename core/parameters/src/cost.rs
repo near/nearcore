@@ -774,7 +774,6 @@ impl StorageUsageConfig {
 /// We can assume that no overflow will happen here.
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
-    eth_implicit_accounts_enabled: bool,
     universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
@@ -791,11 +790,7 @@ pub fn transfer_exec_fee(
         // No account will be created, just a regular transfer.
         AccountType::UniversalAccount => transfer_fee,
         // Extra fee for the CreateAccount.
-        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
-            transfer_fee.checked_add(create_account_fee).unwrap()
-        }
-        // No account will be created, just a regular transfer.
-        AccountType::EthImplicitAccount => transfer_fee,
+        AccountType::EthImplicitAccount => transfer_fee.checked_add(create_account_fee).unwrap(),
         // Extra fees for the CreateAccount and AddFullAccessKey.
         AccountType::NearImplicitAccount => transfer_fee
             .checked_add(create_account_fee)
@@ -812,7 +807,6 @@ pub fn transfer_exec_fee(
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
-    eth_implicit_accounts_enabled: bool,
     universal_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> ParameterCost {
@@ -829,11 +823,7 @@ pub fn transfer_send_fee(
         // No account will be created, just a regular transfer.
         AccountType::UniversalAccount => transfer_fee,
         // Extra fee for the CreateAccount.
-        AccountType::EthImplicitAccount if eth_implicit_accounts_enabled => {
-            transfer_fee.checked_add(create_account_fee).unwrap()
-        }
-        // No account will be created, just a regular transfer.
-        AccountType::EthImplicitAccount => transfer_fee,
+        AccountType::EthImplicitAccount => transfer_fee.checked_add(create_account_fee).unwrap(),
         // Extra fees for the CreateAccount and AddFullAccessKey.
         AccountType::NearImplicitAccount => transfer_fee
             .checked_add(create_account_fee)
@@ -988,17 +978,17 @@ mod tests {
         let create_exec = cfg.fee(ActionCosts::create_account).exec_fee();
 
         assert_eq!(
-            transfer_exec_fee(&cfg, true, false, AccountType::UniversalAccount),
+            transfer_exec_fee(&cfg, false, AccountType::UniversalAccount),
             transfer_exec,
             "a 0u receiver costs a plain transfer before the feature is on"
         );
         assert_eq!(
-            transfer_exec_fee(&cfg, true, true, AccountType::UniversalAccount),
+            transfer_exec_fee(&cfg, true, AccountType::UniversalAccount),
             transfer_exec.checked_add(create_exec).unwrap(),
             "and one create_account once it is"
         );
         assert_eq!(
-            transfer_exec_fee(&cfg, true, true, AccountType::NamedAccount),
+            transfer_exec_fee(&cfg, true, AccountType::NamedAccount),
             transfer_exec,
             "the flag on its own does not price another receiver as a creation"
         );

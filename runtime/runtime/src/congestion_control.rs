@@ -22,7 +22,6 @@ use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 pub(crate) enum ReceiptSink {
@@ -311,14 +310,7 @@ impl ReceiptSinkV2WithInfo {
         )? {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
-                self.sink.buffer_receipt(
-                    receipt,
-                    size,
-                    gas,
-                    state_update,
-                    shard,
-                    apply_state.config.use_state_stored_receipt,
-                )?;
+                self.sink.buffer_receipt(receipt, size, gas, state_update, shard)?;
             }
         }
         Ok(())
@@ -470,18 +462,10 @@ impl ReceiptSinkV2 {
         gas: Gas,
         state_update: &mut TrieUpdate,
         shard: ShardId,
-        use_state_stored_receipt: bool,
     ) -> Result<(), RuntimeError> {
-        let receipt = match use_state_stored_receipt {
-            true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
-                let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
-                receipt
-            }
-            false => ReceiptOrStateStoredReceipt::Receipt(std::borrow::Cow::Owned(receipt)),
-        };
+        let metadata = StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+        let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
 
         self.own_congestion_info.add_receipt_bytes(size)?;
         self.own_congestion_info.add_buffered_receipt_gas(gas)?;
@@ -848,15 +832,9 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
         // TODO It would be great to have this method take owned Receipt and
         // get rid of the Cow from the Receipt and StateStoredReceipt.
-        let receipt = match config.use_state_stored_receipt {
-            true => {
-                let metadata =
-                    StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
-                ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
-            }
-            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
-        };
+        let metadata = StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
+        let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
+        let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
 
         self.new_delayed_gas = self.new_delayed_gas.checked_add(gas).ok_or(IntegerOverflowError)?;
         self.new_delayed_bytes =

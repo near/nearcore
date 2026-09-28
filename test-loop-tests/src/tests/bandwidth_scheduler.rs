@@ -12,11 +12,10 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
-use crate::setup::state::NodeExecutionData;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::receipts::action_receipt_v1_to_latest;
-use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
+use crate::utils::transactions::TransactionRunner;
 use bytesize::ByteSize;
-use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
@@ -172,8 +171,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let mut workload_generator = WorkloadGenerator::init(
         shard_accounts,
         tx_concurrency,
-        &mut env.test_loop,
-        &env.node_datas,
+        &mut env,
         0,
         scenario.link_generators,
     );
@@ -517,8 +515,7 @@ impl WorkloadGenerator {
     pub fn init(
         shard_accounts: BTreeMap<ShardIndex, AccountId>,
         concurrency: usize,
-        test_loop: &mut TestLoopV2,
-        node_datas: &[NodeExecutionData],
+        env: &mut TestLoopEnv,
         random_seed: u64,
         link_generators: LinkGenerators,
     ) -> Self {
@@ -529,10 +526,10 @@ impl WorkloadGenerator {
         };
 
         // Deploy the test contract on all accounts
-        generator.deploy_contracts(test_loop, node_datas);
+        generator.deploy_contracts(env);
 
         // Generate and add access keys to the workload accounts
-        let account_signers = generator.generate_access_keys(test_loop, node_datas, concurrency);
+        let account_signers = generator.generate_access_keys(env, concurrency);
 
         let link_generators = Rc::new(RefCell::new(link_generators));
 
@@ -553,9 +550,9 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
+    fn deploy_contracts(&self, env: &mut TestLoopEnv) {
         tracing::info!(target: "scheduler_test", "deploying contracts");
-        let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
+        let (last_block_hash, nonce) = get_last_block_and_nonce(env);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
             .shard_accounts
             .values()
@@ -569,7 +566,7 @@ impl WorkloadGenerator {
                 )
             })
             .collect();
-        run_txs_parallel(test_loop, deploy_contracts_txs, &node_datas, Duration::seconds(30));
+        env.node_runner(0).run_txs_parallel(deploy_contracts_txs, Duration::seconds(30));
         tracing::info!(target: "scheduler_test", "contracts deployed");
     }
 
@@ -578,8 +575,7 @@ impl WorkloadGenerator {
     /// high concurrency.
     fn generate_access_keys(
         &self,
-        test_loop: &mut TestLoopV2,
-        node_datas: &[NodeExecutionData],
+        env: &mut TestLoopEnv,
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
         tracing::info!(target: "scheduler_test", "adding access keys");
@@ -614,7 +610,7 @@ impl WorkloadGenerator {
             let mut add_key_txs: Vec<SignedTransaction> = Vec::new();
             let mut new_signers = Vec::new();
 
-            let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
+            let (last_block_hash, nonce) = get_last_block_and_nonce(env);
             tracing::info!(target: "scheduler_test", %nonce, "adding access keys with nonce");
 
             for (account, usable_signers) in &available_signers {
@@ -640,7 +636,7 @@ impl WorkloadGenerator {
                 }
             }
 
-            run_txs_parallel(test_loop, add_key_txs, node_datas, Duration::seconds(20));
+            env.node_runner(0).run_txs_parallel(add_key_txs, Duration::seconds(20));
 
             tracing::info!(target: "scheduler_test", access_keys = %new_signers.len(), "added access keys");
             for (account, new_signer) in new_signers {
@@ -846,10 +842,6 @@ fn get_last_block_and_nonce_from_client(client: &Client) -> (CryptoHash, Nonce) 
     (last_block_hash, nonce)
 }
 
-fn get_last_block_and_nonce(
-    test_loop: &TestLoopV2,
-    node_datas: &[NodeExecutionData],
-) -> (CryptoHash, Nonce) {
-    let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
-    get_last_block_and_nonce_from_client(client)
+fn get_last_block_and_nonce(env: &TestLoopEnv) -> (CryptoHash, Nonce) {
+    get_last_block_and_nonce_from_client(env.node(0).client())
 }

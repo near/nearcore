@@ -204,13 +204,11 @@ inventory = "0.3.15"
 itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
+landlock = "0.4.5"
+libc = "0.2"
 lru = "0.18.2"
 named-lock = "0.4.1"
-near-account-id = { version = "3.0.0", features = [
-    "internal_unstable",
-    "serde",
-    "borsh",
-] }
+near-account-id = { version = "3.0.0", features = ["serde", "borsh"] }
 near-gas = { version = "0.3.2" }
 near-token = { version = "0.3.2" }
 near-database-tool = { path = "tools/database" }

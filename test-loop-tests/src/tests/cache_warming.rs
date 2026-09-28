@@ -33,7 +33,7 @@ fn slow_test_cache_warming_across_vm_config_change() {
     let base_store = RuntimeConfigStore::new(None);
     let old_runtime_config = base_store.get_config(old_protocol).clone();
     let mut new_wasm = old_runtime_config.wasm_config.as_ref().clone();
-    new_wasm.discard_custom_sections = !new_wasm.discard_custom_sections;
+    new_wasm.regular_op_cost += 1;
     let new_runtime_config = Arc::new(RuntimeConfig {
         wasm_config: Arc::new(new_wasm),
         ..old_runtime_config.as_ref().clone()

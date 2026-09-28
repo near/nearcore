@@ -1,8 +1,3 @@
-mod all_stake_fallback;
-mod core;
-mod core_writer_actor;
-mod header_chunk_endorsements;
-
 use crate::spice::boundary::is_last_pre_spice_block;
 use crate::test_utils::{get_chain_with_genesis, get_fake_next_block_chunk_headers};
 use crate::{Chain, ChainStoreAccess};
@@ -19,6 +14,12 @@ use near_primitives::test_utils::{
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumShards, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use std::sync::Arc;
+
+mod all_stake_fallback;
+mod core;
+mod core_writer_actor;
+mod header_chunk_endorsements;
+pub(crate) mod pre_spice;
 
 /// Saves the block and records it in the epoch manager the way block postprocessing
 /// does, so epoch lookups keyed on its hash resolve and epochs end, without running

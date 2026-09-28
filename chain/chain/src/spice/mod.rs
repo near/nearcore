@@ -3,6 +3,7 @@ pub mod all_stake_fallback;
 mod ancestry_endorsements;
 pub mod block_application;
 pub mod boundary;
+pub mod boundary_synthesis;
 pub mod chain;
 pub mod chunk_application;
 pub mod chunk_validation;

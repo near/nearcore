@@ -1,6 +1,5 @@
 use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
-use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::hash_map::DefaultHasher;
@@ -53,6 +52,11 @@ impl VMKind {
 pub enum StorageGetMode {
     FlatStorage,
     Trie,
+}
+
+/// The only value `LimitConfig::account_id_validity_rules_version` takes.
+fn default_account_id_validity_rules_version() -> u64 {
+    2
 }
 
 /// Describes limits for VM and Runtime.
@@ -190,10 +194,10 @@ pub struct LimitConfig {
     /// section) a contract may declare.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_globals_per_contract: Option<u64>,
-    /// Whether to enforce account_id well-formed-ness where it wasn't enforced
-    /// historically.
-    #[serde(default = "AccountIdValidityRulesVersion::v0")]
-    pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
+    /// Deprecated: full account id validation is always enforced, so this is
+    /// always `2`.
+    #[serde(default = "default_account_id_validity_rules_version")]
+    pub account_id_validity_rules_version: u64,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
@@ -238,22 +242,11 @@ pub struct Config {
     /// `Module::deserialize`.
     pub fix_contract_loading_error: bool,
 
-    /// Enable the `EthImplicitAccounts` protocol feature.
-    // TODO(eth-implicit): delete this. MIN_SUPPORTED_PROTOCOL_VERSION is past
-    // protocol version 70, where the feature is enabled.
-    pub eth_implicit_accounts: bool,
-
     /// Enable the `UniversalAccounts` protocol feature, which makes `0u` ids
     /// implicit so a transfer can fund one before its state init is applied.
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
     // past protocol version 87, where the feature is enabled.
     pub universal_accounts: bool,
-
-    /// Whether to discard custom sections.
-    pub discard_custom_sections: bool,
-
-    /// Whether to enable global contract related host functions.
-    pub global_contract_host_fns: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
@@ -326,9 +319,7 @@ impl Config {
 
     /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
-        self.eth_implicit_accounts = true;
         self.universal_accounts = true;
-        self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
         self.fix_ml_dsa_cost_charging = true;
         self.p256_verify_host_fn = true;

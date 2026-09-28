@@ -614,6 +614,30 @@ impl<'a> NodeRunner<'a> {
         res.unwrap()
     }
 
+    /// Submits all transactions and runs until each one succeeds. Panics if any fails.
+    /// Unlike `run_tx`, resubmits a transaction rejected for shard congestion.
+    pub fn run_txs_parallel(&mut self, txs: Vec<SignedTransaction>, maximum_duration: Duration) {
+        let tx_processor_sender = self.node_data.rpc_handler_sender.clone();
+        let mut tx_runners: Vec<_> =
+            txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect();
+        let future_spawner = self.test_loop.future_spawner("TransactionRunner");
+        self.run_until(
+            |node| {
+                let mut all_ready = true;
+                for tx_runner in &mut tx_runners {
+                    if tx_runner
+                        .poll_assert_success(&tx_processor_sender, node.client(), &future_spawner)
+                        .is_pending()
+                    {
+                        all_ready = false;
+                    }
+                }
+                all_ready
+            },
+            maximum_duration,
+        );
+    }
+
     /// Run until the future is resolved, return the result.
     pub fn run_future<T: Send + 'static>(
         &mut self,

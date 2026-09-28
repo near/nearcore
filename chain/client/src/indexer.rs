@@ -220,8 +220,8 @@ pub async fn build_streamer_message(
     //
     // TODO: eliminate leftovers entirely by addressing (a) and (b) above
     // and emitting these outcomes through the per-chunk loop.
-    if !shards_outcomes.is_empty() {
-        let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
+    let leftover_outcomes: usize = shards_outcomes.values().map(Vec::len).sum();
+    if leftover_outcomes > 0 {
         tracing::warn!(
             target: INDEXER,
             block_hash = %block.header.hash,
