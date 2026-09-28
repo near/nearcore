@@ -156,6 +156,35 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as
+    /// of `block`: the height of the block before the shard's oldest uncertified chunk, or
+    /// `block`'s own height when none of the shard's chunks is uncertified. The uncertified
+    /// chunks are listed oldest first, so only each shard's first entry is read.
+    pub fn highest_certified_heights(
+        &self,
+        block: &BlockHeader,
+    ) -> Result<HashMap<ShardId, BlockHeight>, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
+        let mut certified_frontier: HashMap<ShardId, BlockHeight> =
+            shard_layout.shard_ids().map(|shard_id| (shard_id, block.height())).collect();
+        let mut resolved: HashSet<ShardId> = HashSet::new();
+        for chunk_info in self.get_uncertified_chunks(block.hash())? {
+            if resolved.len() == certified_frontier.len() {
+                break;
+            }
+            let shard_id = chunk_info.chunk_id.shard_id;
+            if !resolved.insert(shard_id) {
+                continue;
+            }
+            let chunk_header =
+                self.chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?;
+            let certified_height =
+                self.chain_store.get_block_header(chunk_header.prev_hash())?.height();
+            certified_frontier.insert(shard_id, certified_height);
+        }
+        Ok(certified_frontier)
+    }
+
     /// `chunk_id`'s record as of `carrying_prev_hash`, absent once the chunk is certified there.
     pub fn uncertified_chunk_info(
         &self,

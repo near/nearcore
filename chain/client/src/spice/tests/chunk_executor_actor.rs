@@ -956,29 +956,37 @@ fn test_an_invalid_network_receipt_is_dropped() {
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
 }
 
-/// A receipt for a tracked shard that arrives before anything created that shard's
-/// executor is buffered, not dropped.
+/// A pulled receipt proof can be delivered before the first processed block creates the
+/// destination shard's executor (a restart, or an epoch boundary).
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_receipt_arriving_before_its_executor_exists_is_buffered() {
+fn test_receipt_delivered_before_the_first_processed_block_is_saved_once_results_land() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis_block = actors[0].chain.genesis_block();
     let block = produce_block(&mut actors, &genesis_block);
-    // Only the other actor executes, so this one never reconciles its tracked shards.
+    // Only the source shard's node executes; the recipient has not processed a block yet.
     actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     assert!(block_executed(&actors[1], &block));
-    assert_eq!(actors[0].actor.pending_receipts_count(), 0);
-
     let to_shard_id = tracked_shard(&actors[0], &block);
     let receipt_proof = outgoing_receipt_proof_to(&mut outgoing_rc, to_shard_id);
     let from_shard_id = receipt_proof.1.from_shard_id;
     let data_id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    let store = actors[0].chain.chain_store.store();
 
     actors[0]
         .handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof });
 
+    // Buffered, not dropped: the source block's execution results are not in yet.
+    assert!(!receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
     assert_eq!(actors[0].actor.pending_receipts_count(), 1);
+
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert!(block_executed(&actors[0], &block));
+    record_endorsements(&mut actors, &block);
+    actors[0].handle_with_internal_events(ExecutionResultEndorsed { block_hash: *block.hash() });
+
+    assert!(receipt_proof_exists(&store, block.hash(), to_shard_id, from_shard_id));
 }
 
 /// A receipt for a shard this node does not track is dropped, not buffered: an early
