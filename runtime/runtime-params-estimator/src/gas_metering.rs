@@ -3,6 +3,7 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::MethodCallKind;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -149,7 +150,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         let gas_counter = fake_context.make_gas_counter(&vm_config_gas);
         let runtime = vm_kind.runtime(vm_config_gas.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, "hello")
+            .prepare(&fake_external, cache, gas_counter, "hello", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         if let Some(err) = &result.aborted {
@@ -164,7 +165,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         let gas_counter = fake_context.make_gas_counter(&vm_config_gas);
         let runtime = vm_kind.runtime(vm_config_gas.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, "hello")
+            .prepare(&fake_external, cache, gas_counter, "hello", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());
@@ -177,7 +178,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         let runtime_free_gas =
             vm_kind.runtime(vm_config_free.clone()).expect("runtime has not been enabled");
         let result = runtime_free_gas
-            .prepare(&fake_external, cache, gas_counter, "hello")
+            .prepare(&fake_external, cache, gas_counter, "hello", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());
@@ -190,7 +191,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         let runtime_free_gas =
             vm_kind.runtime(vm_config_free.clone()).expect("runtime has not been enabled");
         let result = runtime_free_gas
-            .prepare(&fake_external, cache, gas_counter, "hello")
+            .prepare(&fake_external, cache, gas_counter, "hello", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());

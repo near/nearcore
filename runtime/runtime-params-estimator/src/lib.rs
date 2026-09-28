@@ -109,6 +109,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
+use near_vm_runner::MethodCallKind;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
@@ -1081,7 +1082,13 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
-            .prepare(&fake_external, Some(&cache), gas_counter, "cpu_ram_soak_test")
+            .prepare(
+                &fake_external,
+                Some(&cache),
+                gas_counter,
+                "cpu_ram_soak_test",
+                MethodCallKind::Internal,
+            )
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(vm_result.aborted.is_some());

@@ -1,5 +1,6 @@
 use super::test_vm_config;
 use crate::ContractCode;
+use crate::MethodCallKind;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
 use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
@@ -56,21 +57,17 @@ pub fn test_read_write() {
 
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
-        let result = runtime.prepare(&fake_external, None, gas_counter, "write_key_value").run(
-            &mut fake_external,
-            &context,
-            Arc::clone(&fees),
-        );
+        let result = runtime
+            .prepare(&fake_external, None, gas_counter, "write_key_value", MethodCallKind::Internal)
+            .run(&mut fake_external, &context, Arc::clone(&fees));
         assert_run_result(result, 0);
 
         let context = create_context(encode(&[10u64]));
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
-        let result = runtime.prepare(&fake_external, None, gas_counter, "read_value").run(
-            &mut fake_external,
-            &context,
-            Arc::clone(&fees),
-        );
+        let result = runtime
+            .prepare(&fake_external, None, gas_counter, "read_value", MethodCallKind::Internal)
+            .run(&mut fake_external, &context, Arc::clone(&fees));
         assert_run_result(result, 20);
     });
 }
@@ -122,7 +119,7 @@ fn run_test_ext(
     let gas_counter = context.make_gas_counter(&config);
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     let outcome = runtime
-        .prepare(&fake_external, None, gas_counter, &method)
+        .prepare(&fake_external, None, gas_counter, &method, MethodCallKind::Internal)
         .run(&mut fake_external, &context, Arc::clone(&fees))
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
@@ -225,7 +222,7 @@ pub fn test_out_of_memory() {
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
         let result = runtime
-            .prepare(&fake_external, None, gas_counter, "out_of_memory")
+            .prepare(&fake_external, None, gas_counter, "out_of_memory", MethodCallKind::Internal)
             .run(&mut fake_external, &context, fees)
             .expect("execution failed");
         assert_eq!(
@@ -258,7 +255,13 @@ fn attach_unspent_gas_but_use_all_gas() {
 
         let gas_counter = context.make_gas_counter(&config);
         let outcome = runtime
-            .prepare(&external, None, gas_counter, "attach_unspent_gas_but_use_all_gas")
+            .prepare(
+                &external,
+                None,
+                gas_counter,
+                "attach_unspent_gas_but_use_all_gas",
+                MethodCallKind::Internal,
+            )
             .run(&mut external, &context, fees)
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 

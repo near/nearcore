@@ -1,5 +1,6 @@
 use super::test_vm_config;
 use crate::ContractCode;
+use crate::MethodCallKind;
 use crate::logic::External;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::gas_counter::FreeGasCounter;
@@ -23,11 +24,9 @@ pub fn test_ts_contract() {
         // Call method that panics.
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
-        let result = runtime.prepare(&fake_external, None, gas_counter, "try_panic").run(
-            &mut fake_external,
-            &context,
-            Arc::clone(&fees),
-        );
+        let result = runtime
+            .prepare(&fake_external, None, gas_counter, "try_panic", MethodCallKind::Internal)
+            .run(&mut fake_external, &context, Arc::clone(&fees));
         let outcome = result.expect("execution failed");
         assert_eq!(
             outcome.aborted,
@@ -41,7 +40,13 @@ pub fn test_ts_contract() {
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
         runtime
-            .prepare(&fake_external, None, gas_counter, "try_storage_write")
+            .prepare(
+                &fake_external,
+                None,
+                gas_counter,
+                "try_storage_write",
+                MethodCallKind::Internal,
+            )
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
@@ -58,7 +63,13 @@ pub fn test_ts_contract() {
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let gas_counter = context.make_gas_counter(&config);
         let outcome = runtime
-            .prepare(&fake_external, None, gas_counter, "try_storage_read")
+            .prepare(
+                &fake_external,
+                None,
+                gas_counter,
+                "try_storage_read",
+                MethodCallKind::Internal,
+            )
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 

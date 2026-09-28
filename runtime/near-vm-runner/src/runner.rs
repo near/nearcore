@@ -8,6 +8,26 @@ use near_parameters::vm::{Config, VMKind};
 use near_primitives_core::hash::CryptoHash;
 use std::sync::Arc;
 
+/// How a contract method is being invoked. Decides whether ECC-only methods
+/// (see [`crate::EccOnlyFunctions`]) may be called:
+///
+/// | Call kind  | Normal method      | ECC-only method     |
+/// |------------|--------------------|---------------------|
+/// | `View`     | allowed            | allowed             |
+/// | `Internal` | allowed            | `MethodIsECCOnly`   |
+/// | `External` | `MethodIsNotECC`   | allowed             |
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MethodCallKind {
+    /// A view call (`call_function` RPC query).
+    View,
+    /// A call from a `FunctionCall` action, whether it comes directly from a
+    /// signed transaction or from a cross-contract receipt.
+    #[default]
+    Internal,
+    /// A call made through an external contract call (ECC) transaction.
+    External,
+}
+
 /// Returned by VM::run method.
 ///
 /// `VMRunnerError` means nearcore is buggy or the data base has been corrupted.
@@ -58,6 +78,7 @@ pub fn prepare(
     cache: Option<&dyn ContractRuntimeCache>,
     gas_counter: crate::logic::GasCounter,
     method: &str,
+    call_kind: MethodCallKind,
 ) -> Box<dyn crate::PreparedContract> {
     prepare_with_priority(
         contract,
@@ -65,6 +86,7 @@ pub fn prepare(
         cache,
         gas_counter,
         method,
+        call_kind,
         CompilePriority::default(),
     )
 }
@@ -75,6 +97,7 @@ pub fn prepare_with_priority(
     cache: Option<&dyn ContractRuntimeCache>,
     gas_counter: crate::logic::GasCounter,
     method: &str,
+    call_kind: MethodCallKind,
     priority: CompilePriority,
 ) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
@@ -82,7 +105,7 @@ pub fn prepare_with_priority(
         panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
     });
     runtime.set_compile_priority(priority);
-    runtime.prepare(contract, cache, gas_counter, method)
+    runtime.prepare(contract, cache, gas_counter, method, call_kind)
 }
 
 /// Validate and run the specified contract.
@@ -185,13 +208,15 @@ pub trait VM {
     /// ## Return
     ///
     /// This method does not report any errors. If the contract is invalid in any way, the errors
-    /// will be reported when the returned value is `run`.
+    /// will be reported when the returned value is `run`. This includes calls that `call_kind`
+    /// does not allow for `method`, see [`MethodCallKind`].
     fn prepare(
         self: Box<Self>,
         ext: &dyn Contract,
         cache: Option<&dyn ContractRuntimeCache>,
         gas_counter: crate::logic::GasCounter,
         method: &str,
+        call_kind: MethodCallKind,
     ) -> Box<dyn PreparedContract>;
 
     /// Precompile a WASM contract to a VM specific format and store the result

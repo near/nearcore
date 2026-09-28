@@ -6,6 +6,7 @@
 //! tests cannot.
 
 use crate::ContractCode;
+use crate::MethodCallKind;
 use crate::logic::Config;
 use crate::logic::External;
 use crate::logic::mocks::mock_external::MockedExternal;
@@ -30,7 +31,7 @@ fn test_chain_id_integration_returns_chain_id() {
         let gas_counter = context.make_gas_counter(&config);
         let runtime = vm_kind.runtime(Arc::<Config>::clone(&config)).expect("no runtime");
         let outcome = runtime
-            .prepare(&fake_external, None, gas_counter, "ext_chain_id")
+            .prepare(&fake_external, None, gas_counter, "ext_chain_id", MethodCallKind::Internal)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 

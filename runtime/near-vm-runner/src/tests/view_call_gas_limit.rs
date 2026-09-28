@@ -12,6 +12,7 @@
 //! The fix bounds `prepaid_gas` by `max_gas_burnt` in view mode, so the guest
 //! gas global reflects the cap and an unbounded loop aborts promptly.
 
+use crate::MethodCallKind;
 use crate::logic::VMContext;
 use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
@@ -61,7 +62,7 @@ fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
     let fees = Arc::new(RuntimeFeesConfig::test());
     let runtime = VMKind::Wasmtime.runtime(Arc::clone(&config)).expect("wasmtime not compiled in");
     runtime
-        .prepare(&ext, None, gas_counter, "burn")
+        .prepare(&ext, None, gas_counter, "burn", MethodCallKind::Internal)
         .run(&mut ext, &context, fees)
         .expect("execution failed")
 }

@@ -4,6 +4,7 @@ use crate::vm_estimator::create_context;
 use near_parameters::RuntimeConfigStore;
 use near_parameters::vm::VMKind;
 use near_primitives::types::ProtocolVersion;
+use near_vm_runner::MethodCallKind;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -80,7 +81,7 @@ fn compute_function_call_cost(
         let gas_counter = fake_context.make_gas_counter(&vm_config);
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, "hello0")
+            .prepare(&fake_external, cache, gas_counter, "hello0", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal error");
         assert!(result.aborted.is_none());
@@ -91,7 +92,7 @@ fn compute_function_call_cost(
         let gas_counter = fake_context.make_gas_counter(&vm_config);
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
-            .prepare(&fake_external, cache, gas_counter, "hello0")
+            .prepare(&fake_external, cache, gas_counter, "hello0", MethodCallKind::Internal)
             .run(&mut fake_external, &fake_context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_none());

@@ -3,6 +3,8 @@ mod chain_id_integration;
 mod compile_errors;
 #[cfg(feature = "wasmtime_vm")]
 mod compiler_daemon;
+#[cfg(feature = "wasmtime_vm")]
+mod ecc_only_functions;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod ml_dsa_verify_integration;

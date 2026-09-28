@@ -1,4 +1,5 @@
 use super::test_builder::test_builder;
+use crate::MethodCallKind;
 use crate::logic::errors::{FunctionCallError, VMRunnerError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::VMKindExt;
@@ -37,7 +38,7 @@ fn test_max_core_instance_size_breached() {
             vm_kind
                 .runtime(config)
                 .unwrap()
-                .prepare(&ext, None, gas_counter, "main")
+                .prepare(&ext, None, gas_counter, "main", MethodCallKind::Internal)
                 .run(&mut ext, &context, fees)
         };
 

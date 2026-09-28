@@ -42,7 +42,8 @@ pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
 pub use runner::{
-    Contract, PreparedContract, VM, contract_cached, prepare, prepare_with_priority, run,
+    Contract, MethodCallKind, PreparedContract, VM, contract_cached, prepare,
+    prepare_with_priority, run,
 };
 
 #[cfg(any(feature = "prepare", feature = "wasmtime_vm"))]

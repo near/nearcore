@@ -7,6 +7,7 @@
 //! so the cross-check against it is a test-loop test.
 
 use crate::ContractCode;
+use crate::MethodCallKind;
 use crate::logic::Config;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
@@ -64,7 +65,7 @@ fn run_wat(wat: &str, enabled: bool, expected: Option<&str>) {
         let gas_counter = context.make_gas_counter(&config);
         let runtime = vm_kind.runtime(Arc::<Config>::clone(&config)).expect("no runtime");
         let outcome = runtime
-            .prepare(&fake_external, None, gas_counter, "main")
+            .prepare(&fake_external, None, gas_counter, "main", MethodCallKind::Internal)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("execution failed");
 

@@ -21,7 +21,7 @@ use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
-use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
+use near_vm_runner::{CompilePriority, ContractRuntimeCache, MethodCallKind, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
@@ -247,6 +247,7 @@ impl ReceiptPreparationPipeline {
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let call_kind = method_call_kind(view_config.as_ref());
                     let entry = match self.map.entry(key) {
                         std::collections::btree_map::Entry::Vacant(v) => v,
                         // Already been submitted.
@@ -299,6 +300,7 @@ impl ReceiptPreparationPipeline {
                             gas_counter,
                             identifier,
                             &method_name,
+                            call_kind,
                             priority,
                         );
                         near_vm_runner::report_metrics(shard_id, "pipelining");
@@ -363,6 +365,7 @@ impl ReceiptPreparationPipeline {
         let Some(task) = self.map.get(&key).filter(|t| t.expected_hash == identifier.hash()) else {
             let start = Instant::now();
             let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+            let call_kind = method_call_kind(view_config.as_ref());
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(
                     target: "runtime::pipelining",
@@ -378,6 +381,7 @@ impl ReceiptPreparationPipeline {
                 gas_counter,
                 identifier,
                 &function_call.method_name,
+                call_kind,
                 self.priority,
             );
             near_vm_runner::report_metrics(self.shard_id, "pipelining");
@@ -401,6 +405,7 @@ impl ReceiptPreparationPipeline {
                         action_index
                     );
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
+                    let call_kind = method_call_kind(view_config.as_ref());
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let method_name = function_call.method_name.clone();
                     let contract = prepare_function_call(
@@ -410,6 +415,7 @@ impl ReceiptPreparationPipeline {
                         gas_counter,
                         identifier,
                         &method_name,
+                        call_kind,
                         self.priority,
                     );
                     near_vm_runner::report_metrics(self.shard_id, "pipelining");
@@ -452,6 +458,12 @@ impl ReceiptPreparationPipeline {
     }
 }
 
+/// View calls may call ECC-only methods; every other function call runs as
+/// [`MethodCallKind::Internal`].
+fn method_call_kind(view_config: Option<&ViewConfig>) -> MethodCallKind {
+    if view_config.is_some() { MethodCallKind::View } else { MethodCallKind::Internal }
+}
+
 fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
@@ -459,6 +471,7 @@ fn prepare_function_call(
     gas_counter: GasCounter,
     identifier: RuntimeContractIdentifier,
     method_name: &str,
+    call_kind: MethodCallKind,
     priority: CompilePriority,
 ) -> Box<dyn PreparedContract> {
     let code_ext = RuntimeContractExt { storage: contract_storage.clone(), identifier };
@@ -468,6 +481,7 @@ fn prepare_function_call(
         cache,
         gas_counter,
         method_name,
+        call_kind,
         priority,
     )
 }

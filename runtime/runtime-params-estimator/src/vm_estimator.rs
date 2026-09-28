@@ -5,6 +5,7 @@ use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::MethodCallKind;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
@@ -207,7 +208,7 @@ fn measure_instantiation_overhead(
         vm_kind
             .runtime(config.clone())
             .unwrap()
-            .prepare(&fake_external, Some(&cache), gas_counter, "main")
+            .prepare(&fake_external, Some(&cache), gas_counter, "main", MethodCallKind::Internal)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("fatal_error")
     };
@@ -261,7 +262,7 @@ fn measure_op_loop(metric: GasMetric, vm_kind: VMKind, contract_bytes: &[u8]) ->
         let result = vm_kind
             .runtime(config.clone())
             .unwrap()
-            .prepare(&fake_external, Some(&cache), gas_counter, "main")
+            .prepare(&fake_external, Some(&cache), gas_counter, "main", MethodCallKind::Internal)
             .run(&mut fake_external, &context, Arc::clone(&fees))
             .expect("fatal_error");
         assert!(result.aborted.is_some(), "expected gas exhaustion but contract finished cleanly");

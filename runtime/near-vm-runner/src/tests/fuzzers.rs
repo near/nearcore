@@ -1,5 +1,6 @@
 use super::test_vm_config;
 use crate::ContractCode;
+use crate::MethodCallKind;
 use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
@@ -75,7 +76,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut res = vm_kind
         .runtime(config.into())
         .unwrap()
-        .prepare(&fake_external, None, gas_counter, &method_name)
+        .prepare(&fake_external, None, gas_counter, &method_name, MethodCallKind::Internal)
         .run(&mut fake_external, &context, Arc::clone(&fees));
 
     // Remove the VMError message details as they can differ between runtimes

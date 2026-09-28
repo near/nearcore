@@ -12,7 +12,7 @@ use crate::logic::{
 };
 use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
 use crate::prepare::PreparedCode;
-use crate::runner::VMResult;
+use crate::runner::{MethodCallKind, VMResult};
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
     EXPORT_PREFIX, MEMORY_EXPORT, NoContractRuntimeCache, REMAINING_GAS_EXPORT, START_EXPORT,
@@ -498,10 +498,6 @@ struct PreparedModule {
     num_tables: u32,
     /// Behind an `Arc` because the in-memory cache clones the whole
     /// `PreparedModule` on every lookup.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by method resolution in a later change")
-    )]
     ecc_only_functions: Arc<EccOnlyFunctions>,
 }
 
@@ -981,21 +977,22 @@ impl crate::runner::VM for WasmtimeVM {
         cache: Option<&dyn ContractRuntimeCache>,
         gas_counter: GasCounter,
         method: &str,
+        call_kind: MethodCallKind,
     ) -> Box<dyn crate::PreparedContract> {
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
         let prepd =
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    // TODO(ecc): reject calls by call kind using `ecc_only_functions` (step 8).
                     Ok(PreparedModule {
                         pre,
                         memory,
                         remaining_gas,
                         start,
                         num_tables,
-                        ecc_only_functions: _,
+                        ecc_only_functions,
                     }) => {
+                        let is_ecc_only = ecc_only_functions.contains(method);
                         let method = format!("{EXPORT_PREFIX}{method}");
                         let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
                         else {
@@ -1010,6 +1007,24 @@ impl crate::runner::VM for WasmtimeVM {
                                 MethodResolveError::MethodInvalidSignature,
                             );
                             let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                            return Ok(PreparedContract { config, gas_counter, result });
+                        }
+                        let call_kind_error = match (call_kind, is_ecc_only) {
+                            (MethodCallKind::Internal, true) => {
+                                Some(MethodResolveError::MethodIsECCOnly)
+                            }
+                            (MethodCallKind::External, false) => {
+                                Some(MethodResolveError::MethodIsNotECC)
+                            }
+                            (MethodCallKind::View, _)
+                            | (MethodCallKind::Internal, false)
+                            | (MethodCallKind::External, true) => None,
+                        };
+                        if self.config.ecc_only_functions
+                            && let Some(e) = call_kind_error
+                        {
+                            let e = FunctionCallError::MethodResolveError(e);
+                            let result = PreparationResult::OutcomeAbort(e);
                             return Ok(PreparedContract { config, gas_counter, result });
                         }
 

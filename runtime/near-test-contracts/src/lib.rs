@@ -5,10 +5,10 @@ use rand::{Fill, SeedableRng};
 use std::borrow::Cow;
 use std::sync::OnceLock;
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
-    ExportKind, ExportSection, Function, FunctionSection, GlobalSection, GlobalType, Ieee64,
-    ImportSection, Instruction, MemorySection, MemoryType, Module, RefType, TableSection,
-    TableType, TypeSection, ValType,
+    BlockType, CodeSection, ConstExpr, CustomSection, DataSection, ElementSection, Elements,
+    Encode, EntityType, ExportKind, ExportSection, Function, FunctionSection, GlobalSection,
+    GlobalType, Ieee64, ImportSection, Instruction, MemorySection, MemoryType, Module, RefType,
+    Section, TableSection, TableType, TypeSection, ValType,
 };
 
 /// Parse a WASM contract from WAT representation.
@@ -247,6 +247,17 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     code_section.function(&f);
     module.section(&code_section);
     module.finish()
+}
+
+/// A contract exporting two methods that do nothing, `normal` and `ecc`, with
+/// `ecc` listed in the `ecc_only_functions` custom section.
+pub fn ecc_only_functions_contract() -> Vec<u8> {
+    let mut wasm = wat_contract(r#"(module (func (export "normal")) (func (export "ecc")))"#);
+    let section =
+        CustomSection { name: Cow::Borrowed("ecc_only_functions"), data: Cow::Borrowed(b"ecc") };
+    wasm.push(section.id());
+    section.encode(&mut wasm);
+    wasm
 }
 
 /// Many zero-initialized globals.

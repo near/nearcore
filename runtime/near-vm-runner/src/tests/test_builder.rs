@@ -1,3 +1,4 @@
+use crate::MethodCallKind;
 use crate::logic::{
     ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
@@ -205,7 +206,13 @@ impl TestBuilder {
                 };
                 println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
-                    .prepare(&fake_external, None, gas_counter, &self.method)
+                    .prepare(
+                        &fake_external,
+                        None,
+                        gas_counter,
+                        &self.method,
+                        MethodCallKind::Internal,
+                    )
                     .run(&mut fake_external, &context, fees)
                     .expect("execution failed");
 
