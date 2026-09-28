@@ -156,7 +156,7 @@ mod tests {
     use super::{boundary_uncertified_chunks, seed_activation_boundary, seeded_uncertified_chunks};
     use crate::Chain;
     use crate::spice::core::record_uncertified_chunks_for_block;
-    use crate::spice::tests::{
+    use crate::spice::tests::pre_spice::{
         add_pre_spice_block, grow_to_last_pre_spice_block, setup_pre_spice_chain,
         setup_pre_spice_chain_with_epoch_length,
     };

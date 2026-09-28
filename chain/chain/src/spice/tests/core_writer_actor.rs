@@ -7,7 +7,7 @@ use crate::spice::tests::all_stake_fallback::{
     grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
 };
 use crate::spice::tests::core::endorse_chunk;
-use crate::spice::tests::{
+use crate::spice::tests::pre_spice::{
     build_pre_spice_block, grow_to_last_pre_spice_block, save_and_record_block,
     setup_pre_spice_chain_with_epoch_length,
 };
