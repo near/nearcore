@@ -496,6 +496,13 @@ struct PreparedModule {
     remaining_gas: Option<ModuleExport>,
     start: Option<ModuleExport>,
     num_tables: u32,
+    /// Behind an `Arc` because the in-memory cache clones the whole
+    /// `PreparedModule` on every lookup.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "read by method resolution in a later change")
+    )]
+    ecc_only_functions: Arc<EccOnlyFunctions>,
 }
 
 impl WasmtimeVM {
@@ -775,34 +782,39 @@ impl WasmtimeVM {
             || {
                 is_memory_hit = false;
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                let (wasm_bytes, module) =
-                    // TODO(ecc): carry `ecc_only_functions` into `PreparedModule` (step 6).
-                    if let Some(CompiledContractInfo { wasm_bytes, compiled, .. }) = cache_record {
-                        match compiled {
-                            CompiledContract::CompileModuleError(err) => {
-                                return Ok((
-                                    err.size_bytes_approximate() as u64,
-                                    to_any((wasm_bytes, Err(err))),
-                                ));
-                            }
-                            CompiledContract::Code(module) => (wasm_bytes, module),
+                let (wasm_bytes, module, ecc_only_functions) = if let Some(CompiledContractInfo {
+                    wasm_bytes,
+                    compiled,
+                    ecc_only_functions,
+                }) = cache_record
+                {
+                    match compiled {
+                        CompiledContract::CompileModuleError(err) => {
+                            return Ok((
+                                err.size_bytes_approximate() as u64,
+                                to_any((wasm_bytes, Err(err))),
+                            ));
                         }
-                    } else {
-                        is_cache_hit = false;
-                        let Some(code) = contract.get_code() else {
-                            return Err(VMRunnerError::ContractCodeNotPresent);
-                        };
-                        let wasm_bytes = code.code().len() as u64;
-                        match self.compile_and_cache(&code, cache)? {
-                            CachedArtifact::CompilerError(err) => {
-                                return Ok((
-                                    err.size_bytes_approximate() as u64,
-                                    to_any((wasm_bytes, Err(err))),
-                                ));
-                            }
-                            CachedArtifact::CompiledBytes { bytes, .. } => (wasm_bytes, bytes),
-                        }
+                        CompiledContract::Code(module) => (wasm_bytes, module, ecc_only_functions),
+                    }
+                } else {
+                    is_cache_hit = false;
+                    let Some(code) = contract.get_code() else {
+                        return Err(VMRunnerError::ContractCodeNotPresent);
                     };
+                    let wasm_bytes = code.code().len() as u64;
+                    match self.compile_and_cache(&code, cache)? {
+                        CachedArtifact::CompilerError(err) => {
+                            return Ok((
+                                err.size_bytes_approximate() as u64,
+                                to_any((wasm_bytes, Err(err))),
+                            ));
+                        }
+                        CachedArtifact::CompiledBytes { bytes, ecc_only_functions } => {
+                            (wasm_bytes, bytes, ecc_only_functions)
+                        }
+                    }
+                };
                 // (UN-)SAFETY: the `module` must have been produced by
                 // a prior call to `serialize`.
                 //
@@ -864,6 +876,7 @@ impl WasmtimeVM {
                                     remaining_gas,
                                     start,
                                     num_tables,
+                                    ecc_only_functions: Arc::new(ecc_only_functions),
                                 })),
                             )),
                         ))
@@ -974,7 +987,15 @@ impl crate::runner::VM for WasmtimeVM {
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
                 match pre {
-                    Ok(PreparedModule { pre, memory, remaining_gas, start, num_tables }) => {
+                    // TODO(ecc): reject calls by call kind using `ecc_only_functions` (step 8).
+                    Ok(PreparedModule {
+                        pre,
+                        memory,
+                        remaining_gas,
+                        start,
+                        num_tables,
+                        ecc_only_functions: _,
+                    }) => {
                         let method = format!("{EXPORT_PREFIX}{method}");
                         let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
                         else {
@@ -1374,5 +1395,66 @@ mod tests {
             "f64 NaN payload not canonicalized: 0x{:016x}",
             out.to_bits(),
         );
+    }
+
+    /// `with_compiled_and_loaded` hands the ECC-only functions to the closure on
+    /// a cache miss, a disk cache hit and a memory cache hit.
+    #[test]
+    fn test_ecc_only_functions_loaded() {
+        use crate::ecc::ECC_ONLY_FUNCTIONS_SECTION;
+        use crate::logic::mocks::mock_external::MockedExternal;
+        use crate::tests::test_vm_config;
+        use crate::{FilesystemContractRuntimeCache, MockContractRuntimeCache};
+        use std::borrow::Cow;
+        use wasm_encoder::{CustomSection, Encode, Section};
+
+        let mut wasm =
+            wat::parse_str(r#"(module (func (export "a")) (func (export "b")))"#).unwrap();
+        let section = CustomSection {
+            name: Cow::Borrowed(ECC_ONLY_FUNCTIONS_SECTION),
+            data: Cow::Borrowed(b"b"),
+        };
+        wasm.push(section.id());
+        section.encode(&mut wasm);
+        let contract = MockedExternal::with_code(ContractCode::new(wasm, None));
+
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
+        config.ecc_only_functions = true;
+        let config = Arc::new(config);
+        let vm = WasmtimeVM::new(Arc::clone(&config));
+
+        let load = |cache: &dyn ContractRuntimeCache| -> Vec<String> {
+            let gas_counter = GasCounter::new(
+                config.ext_costs.clone(),
+                Gas::MAX,
+                config.regular_op_cost,
+                Gas::from_teragas(300),
+                false,
+            );
+            let mut loaded = None;
+            vm.with_compiled_and_loaded(cache, &contract, gas_counter, "a", |gas_counter, pre| {
+                let module = pre.expect("contract should load");
+                loaded = Some(module.ecc_only_functions.iter().map(String::from).collect());
+                let err = FunctionCallError::LinkError { msg: "unused".into() };
+                let result = PreparationResult::OutcomeAbort(err);
+                Ok(PreparedContract { config: Arc::clone(&config), gas_counter, result })
+            })
+            .unwrap();
+            loaded.expect("closure should run")
+        };
+
+        // `MockContractRuntimeCache` has no memory cache: the first load
+        // compiles the contract, the second reads it from the cache record.
+        let cache = MockContractRuntimeCache::default();
+        assert_eq!(load(&cache), ["b"]);
+        assert_eq!(cache.put_count(), 1);
+        assert_eq!(load(&cache), ["b"]);
+        assert_eq!(cache.put_count(), 1);
+
+        // `FilesystemContractRuntimeCache` has a memory cache, so the second
+        // load is a memory hit.
+        let cache = FilesystemContractRuntimeCache::test().unwrap();
+        assert_eq!(load(&cache), ["b"]);
+        assert_eq!(load(&cache), ["b"]);
     }
 }
