@@ -593,8 +593,9 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
-        // A pre-spice block carries no core statements and needs no certification,
-        // so there is nothing to record for it.
+        // A pre-spice block carries no core statements. The last pre-spice block's chunks
+        // still certify under spice, so endorsements that arrived for it before the block
+        // did are recorded now.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
             self.handle_processed_last_pre_spice_block(&block_hash)?;
             return Ok(());

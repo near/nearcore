@@ -17,7 +17,9 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        self.reconcile_tracked_shards(block_hash)?;
+        // The block was applied the pre-spice way, keyed on its own prev hash like any
+        // other block: the shards tracked in its epoch hold its results.
+        self.reconcile_tracked_shards(block.header().prev_hash())?;
         for executor in self.per_shard_executors.values() {
             if let Err(err) =
                 executor.endorse_and_send_receipts_and_witness_for_last_pre_spice_block(&block)

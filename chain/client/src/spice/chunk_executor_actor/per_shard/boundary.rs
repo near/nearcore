@@ -53,13 +53,11 @@ impl PerShardChunkExecutor {
         if let Some(my_signer) = self.validator_signer.get() {
             self.endorse_boundary_execution_result(block, &my_signer, execution_result)?;
 
-            // Distribution keys the boundary data's producers on the next block's
-            // epoch
-            let next_block_epoch_id =
-                self.epoch_manager.get_epoch_id_from_prev_block(block.hash())?;
+            // Distribution keys the boundary data's producers on the block's own
+            // epoch, whose chunk producers applied it and hold its state transition.
             let epoch_producers = self
                 .epoch_manager
-                .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, shard_id)?;
+                .get_epoch_chunk_producers_for_shard(block.header().epoch_id(), shard_id)?;
             if epoch_producers.contains(my_signer.validator_id()) {
                 self.send_outgoing_receipts(block, receipt_proofs);
                 self.distribute_boundary_witness(block)?;
