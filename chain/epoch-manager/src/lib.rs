@@ -65,7 +65,6 @@ mod validator_stats;
 
 const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
-/// Retain recent bases for forks arriving after a propagation delay.
 const CHUNK_PRODUCER_BLACKLIST_CACHE_SIZE: usize = 128;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
@@ -163,7 +162,9 @@ impl Drop for EarlyKickoutThresholdGuard {
 
 /// Overrides the early-kickout thresholds for the CALLING THREAD, which for a test-loop
 /// test is the thread the whole chain runs on. `None` keeps the production constant. Call
-/// before the chain starts producing blocks and hold the returned guard for the whole test.
+/// before creating any `EpochManager` and hold the returned guard for the whole test. Every
+/// thread that uses a manager must keep the same thresholds, because the blacklist cache does
+/// not include them.
 ///
 /// Never expose this through a runtime control (e.g. an adversarial RPC): overriding on a
 /// live node would give each thread its own consensus math.
@@ -267,17 +268,6 @@ impl ChunkProducerBlacklist {
     fn empty() -> Self {
         ChunkProducerBlacklist { blacklist: HashMap::new(), shard_stats: HashMap::new() }
     }
-}
-
-/// A basis has immutable ancestry, so the blacklist is independent of the aggregator position.
-/// Include thresholds because tests can override them.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct ChunkProducerBlacklistKey {
-    final_hash: CryptoHash,
-    final_height: BlockHeight,
-    epoch_id: EpochId,
-    min_misses: u64,
-    epoch_grace_blocks: u64,
 }
 
 /// The block a set of chunks is anchored at, plus its last-final block. The last-final block
@@ -490,8 +480,9 @@ pub struct EpochManager {
     /// Cache for chunk_validators
     chunk_validators_cache:
         SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidatorAssignments>>,
-    /// Avoid repeated epoch walks when fork siblings share a last-final basis.
-    chunk_producer_blacklists: SyncLruCache<ChunkProducerBlacklistKey, Arc<ChunkProducerBlacklist>>,
+    /// Cache for chunk producer blacklists, keyed by last final block hash. Used to avoid
+    /// repeated epoch walks when fork siblings share a last final block.
+    chunk_producer_blacklists: SyncLruCache<CryptoHash, Arc<ChunkProducerBlacklist>>,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
     /// Used for tests as a bit of white-box testing.
@@ -2440,41 +2431,32 @@ impl EpochManager {
         }
         // Skip the epoch walk when the blacklist is empty by rule. At the sync point,
         // use the aggregator: epoch sync may leave that block without `BlockInfo`.
-        let basis_epoch_id = if *final_hash == self.epoch_info_aggregator.last_block_hash {
+        let final_epoch_id = if *final_hash == self.epoch_info_aggregator.last_block_hash {
             self.epoch_info_aggregator.epoch_id
         } else {
             *self.get_block_info(final_hash)?.epoch_id()
         };
-        if basis_epoch_id != *epoch.epoch_id {
+        if final_epoch_id != *epoch.epoch_id {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
         }
         // Fork siblings can overwrite `DBCol::EpochStart`; derive the start from ancestry.
-        // Propagate missing-basis errors: treating them as grace could change consensus.
+        // A missing last final block is an error, because treating it as grace could change
+        // consensus.
         let epoch_start = self.get_epoch_start_height(final_hash)?;
         let blocks_into_epoch = final_height.saturating_sub(epoch_start);
         if blocks_into_epoch < early_kickout_epoch_grace_blocks() {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
         }
-        let key = ChunkProducerBlacklistKey {
-            final_hash: *final_hash,
-            final_height,
-            epoch_id: *epoch.epoch_id,
-            min_misses: early_kickout_min_misses(),
-            epoch_grace_blocks: early_kickout_epoch_grace_blocks(),
-        };
-        if let Some(blacklist) = self.chunk_producer_blacklists.get(&key) {
-            return Ok(blacklist);
-        }
-        let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
-        let blacklist = Arc::new(blacklist_for_epoch(
-            &aggregator,
-            epoch.epoch_id,
-            epoch.epoch_info,
-            epoch.shard_layout,
-            blocks_into_epoch,
-        ));
-        self.chunk_producer_blacklists.put(key, Arc::clone(&blacklist));
-        Ok(blacklist)
+        self.chunk_producer_blacklists.get_or_try_put(*final_hash, |_| {
+            let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
+            Ok(Arc::new(blacklist_for_epoch(
+                &aggregator,
+                epoch.epoch_id,
+                epoch.epoch_info,
+                epoch.shard_layout,
+                blocks_into_epoch,
+            )))
+        })
     }
 
     /// Seed `DBCol::ChunkProducers` for chunks anchored at `anchor.hash` (the

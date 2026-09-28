@@ -15,8 +15,8 @@ use crate::test_utils::{
     setup_default_epoch_manager, setup_default_epoch_manager_at_version,
 };
 use crate::{
-    BLOCK_CACHE_SIZE, ChunkProducerBlacklist, ChunkProducerBlacklistKey, EpochManager,
-    EpochManagerAdapter, EpochManagerHandle, compute_chunk_producer_blacklist,
+    BLOCK_CACHE_SIZE, ChunkProducerBlacklist, EpochManager, EpochManagerAdapter,
+    EpochManagerHandle, compute_chunk_producer_blacklist,
 };
 use crate::{SampleEpoch, SeedAnchor};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -1479,34 +1479,11 @@ fn memoized_blacklist_matches_restarted_manager() {
     }
 }
 
-#[cfg(feature = "test_features")]
-#[test]
-fn memoized_blacklist_is_keyed_by_thresholds() {
-    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
-    let handle = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60).into_handle();
-    const TIP: u64 = 1200;
-    let h = drive_down_node(&handle, TIP, 0);
-
-    let em = handle.read();
-    let epoch_id = em.get_epoch_id(&h[TIP as usize]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
-    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    let epoch =
-        SampleEpoch { epoch_id: &epoch_id, epoch_info: &epoch_info, shard_layout: &shard_layout };
-    let (basis, basis_height) = (h[TIP as usize - 2], TIP - 2);
-    let production = em.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
-    assert!(!production.blacklist.is_empty());
-
-    let _guard = set_early_kickout_thresholds_for_testing(Some(u64::MAX), None);
-    let raised = em.chunk_producer_blacklist_at_anchor(&basis, basis_height, &epoch).unwrap();
-    assert!(raised.blacklist.values().all(HashSet::is_empty), "got {:?}", raised.blacklist);
-}
-
 // Forks can have final blocks at the same height with different hashes. The memo must not
 // reuse one fork's blacklist for the other.
 #[cfg(feature = "test_features")]
 #[test]
-fn memoized_blacklist_is_keyed_by_basis_hash() {
+fn memoized_blacklist_is_keyed_by_last_final_block() {
     let _guard = set_early_kickout_thresholds_for_testing(Some(10), Some(20));
     let fx = ForkFixture::new();
     let only = |id: ValidatorId| HashMap::from([(fx.shard_id, HashSet::from([id]))]);
@@ -1521,26 +1498,30 @@ fn memoized_blacklist_is_keyed_by_basis_hash() {
         fx.drive_until(fx.genesis, 0, 2, 1, 256, "branch 2 -> {1} past branch 1", |h, tip| {
             height_of(h, tip) > height_1 && h.get_chunk_producer_blacklist(&tip).unwrap() == only(1)
         });
-    // Advance branch 1 to the same tip height, so both tips have bases at one height.
+    // Advance branch 1 to the same tip height, so both tips have last final blocks at one height.
     let (tip_1, _) = fx.drive_until(tip_1, height_1, 1, 0, 256, "branch 1 catches up", |h, tip| {
         height_of(h, tip) == height_2
     });
-    let basis = |tip: CryptoHash| {
+    let last_final = |tip: CryptoHash| {
         let info = fx.handle.read().get_block_info(&tip).unwrap();
         (*info.last_final_block_hash(), info.last_finalized_height())
     };
-    let ((hash_1, basis_height_1), (hash_2, basis_height_2)) = (basis(tip_1), basis(tip_2));
-    assert_eq!(basis_height_1, basis_height_2, "both tips must have bases at the same height");
-    assert_ne!(hash_1, hash_2, "the bases must be different blocks");
+    let ((hash_1, final_height_1), (hash_2, final_height_2)) =
+        (last_final(tip_1), last_final(tip_2));
+    assert_eq!(
+        final_height_1, final_height_2,
+        "both tips must have last final blocks at the same height"
+    );
+    assert_ne!(hash_1, hash_2, "the last final blocks must differ");
     assert_eq!(
         fx.handle.get_chunk_producer_blacklist(&tip_1).unwrap(),
         only(0),
-        "branch 1 must resolve its own basis"
+        "branch 1 must get its own blacklist"
     );
     assert_eq!(
         fx.handle.get_chunk_producer_blacklist(&tip_2).unwrap(),
         only(1),
-        "branch 2 must resolve its own basis"
+        "branch 2 must get its own blacklist"
     );
 }
 
@@ -1548,14 +1529,8 @@ fn memoized_blacklist_is_keyed_by_basis_hash() {
 fn epoch_sync_clears_memoized_blacklists() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let em = setup_default_epoch_manager(validators, 10, 1, 3, 90, 60);
-    let key = ChunkProducerBlacklistKey {
-        final_hash: hash(b"memoized basis"),
-        final_height: 1,
-        epoch_id: EpochId::default(),
-        min_misses: 0,
-        epoch_grace_blocks: 0,
-    };
-    em.chunk_producer_blacklists.put(key, Arc::new(ChunkProducerBlacklist::empty()));
+    em.chunk_producer_blacklists
+        .put(hash(b"memoized final block"), Arc::new(ChunkProducerBlacklist::empty()));
     let fx = epoch_sync_fixture_on(em);
     assert!(fx.em.chunk_producer_blacklists.is_empty());
 }
