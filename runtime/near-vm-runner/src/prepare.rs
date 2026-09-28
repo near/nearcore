@@ -7,6 +7,49 @@ use near_parameters::vm::{Config, VMKind};
 mod instrument_v3;
 mod prepare_v3;
 
+/// Name of the custom section in which a contract lists its ECC-only functions.
+pub(crate) const ECC_ONLY_FUNCTIONS_SECTION: &str = "ecc_only_functions";
+
+/// Functions a contract marks as callable only through external contract calls
+/// (ECC), read from the `ecc_only_functions` custom section.
+///
+/// Names are the original, unprefixed export names, kept sorted so lookups can
+/// use binary search.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EccOnlyFunctions(Box<[Box<str>]>);
+
+impl EccOnlyFunctions {
+    /// `names` must be sorted and free of duplicates.
+    fn from_sorted(names: Box<[Box<str>]>) -> Self {
+        debug_assert!(names.is_sorted_by(|a, b| a < b));
+        Self(names)
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.binary_search_by(|n| n.as_ref().cmp(name)).is_ok()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|n| n.as_ref())
+    }
+}
+
+/// A contract after preparation, together with metadata extracted from the
+/// original code.
+#[derive(Debug)]
+pub struct PreparedCode {
+    /// The validated and instrumented wasm module.
+    pub code: Vec<u8>,
+    /// List of functions tagged as ECC-only
+    /// (see [ECC tracking issue:](https://github.com/near/nearcore/issues/16423)).
+    /// This list is always empty when the `ecc_only_functions` config flag is disabled.
+    pub ecc_only_functions: EccOnlyFunctions,
+}
+
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
 ///
@@ -18,11 +61,14 @@ mod prepare_v3;
 /// - functions number does not exceed limit specified in Config,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
+///
+/// When the `ecc_only_functions` config flag is enabled, this also reads and
+/// validates the `ecc_only_functions` custom section.
 pub fn prepare_contract(
     original_code: &[u8],
     config: &Config,
     kind: VMKind,
-) -> Result<Vec<u8>, PrepareError> {
+) -> Result<PreparedCode, PrepareError> {
     let features = crate::features::WasmFeatures::new(config);
     prepare_v3::prepare_contract(original_code, features, config, kind)
 }
@@ -39,7 +85,7 @@ mod tests {
         config: &Config,
         vm_kind: VMKind,
         wat: &str,
-    ) -> Result<Vec<u8>, PrepareError> {
+    ) -> Result<PreparedCode, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         prepare_contract(wasm.as_ref(), &config, vm_kind)
     }
@@ -412,7 +458,7 @@ mod tests {
             // set a meaningful threshold.
             config.limit_config.max_instrumented_code_size = None;
             let wasm = contract_with_many_blocks(200);
-            let instrumented = prepare_contract(&wasm, &config, kind).unwrap();
+            let instrumented = prepare_contract(&wasm, &config, kind).unwrap().code;
             let threshold = instrumented.len() as u64;
 
             // With a limit just below the instrumented size, preparation should
@@ -527,5 +573,124 @@ mod tests {
             let r = parse_and_prepare_wat(&config, kind, &wat);
             assert_matches!(r, Ok(_));
         })
+    }
+
+    /// Module used by the `ecc_only_functions` tests: exports functions `a` and
+    /// `b`, and a global `g`.
+    const ECC_TEST_MODULE: &str = r#"(module
+        (func (export "a"))
+        (func (export "b"))
+        (global (export "g") i32 (i32.const 0))
+    )"#;
+
+    fn encode_custom_section(name: &str, data: &[u8]) -> Vec<u8> {
+        let section = CustomSection { name: Cow::Borrowed(name), data: Cow::Owned(data.to_vec()) };
+        let mut bytes = vec![section.id()];
+        section.encode(&mut bytes);
+        bytes
+    }
+
+    /// Returns `ECC_TEST_MODULE` with an `ecc_only_functions` custom section
+    /// for each entry of `sections`, appended after all other sections.
+    fn ecc_test_module(sections: &[&[u8]]) -> Vec<u8> {
+        let mut wasm = wat::parse_str(ECC_TEST_MODULE).unwrap();
+        for data in sections {
+            wasm.extend(encode_custom_section(ECC_ONLY_FUNCTIONS_SECTION, data));
+        }
+        wasm
+    }
+
+    fn ecc_test_config(enabled: bool) -> Config {
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
+        config.ecc_only_functions = enabled;
+        config
+    }
+
+    fn prepare_ecc(config: &Config, wasm: &[u8]) -> Result<EccOnlyFunctions, PrepareError> {
+        prepare_contract(wasm, config, VMKind::Wasmtime).map(|p| p.ecc_only_functions)
+    }
+
+    #[test]
+    fn ecc_only_functions_valid() {
+        let config = ecc_test_config(true);
+        let ecc = prepare_ecc(&config, &ecc_test_module(&[b"b,a"])).unwrap();
+        assert_eq!(ecc.iter().collect::<Vec<_>>(), ["a", "b"]);
+        assert!(ecc.contains("a"));
+        assert!(ecc.contains("b"));
+        assert!(!ecc.contains("g"));
+        assert!(!ecc.contains(""));
+
+        let ecc = prepare_ecc(&config, &ecc_test_module(&[b"a"])).unwrap();
+        assert_eq!(ecc.iter().collect::<Vec<_>>(), ["a"]);
+    }
+
+    /// The export section may come after the custom section.
+    #[test]
+    fn ecc_only_functions_before_export_section() {
+        let config = ecc_test_config(true);
+        let module = wat::parse_str(ECC_TEST_MODULE).unwrap();
+        // Insert the custom section right after the 8-byte module header.
+        let (header, rest) = module.split_at(8);
+        let mut wasm = header.to_vec();
+        wasm.extend(encode_custom_section(ECC_ONLY_FUNCTIONS_SECTION, b"a"));
+        wasm.extend_from_slice(rest);
+        let ecc = prepare_ecc(&config, &wasm).unwrap();
+        assert_eq!(ecc.iter().collect::<Vec<_>>(), ["a"]);
+    }
+
+    #[test]
+    fn ecc_only_functions_absent() {
+        let config = ecc_test_config(true);
+        let ecc = prepare_ecc(&config, &ecc_test_module(&[])).unwrap();
+        assert!(ecc.is_empty());
+
+        // Custom sections with other names are ignored.
+        let mut wasm = ecc_test_module(&[]);
+        wasm.extend(encode_custom_section("ecc_only_functions_", b"not valid"));
+        let ecc = prepare_ecc(&config, &wasm).unwrap();
+        assert!(ecc.is_empty());
+    }
+
+    /// With the config flag disabled the section is not parsed or validated.
+    #[test]
+    fn ecc_only_functions_disabled() {
+        let config = ecc_test_config(false);
+        for sections in [&[&b"a"[..]][..], &[b"\xff"], &[b"a b"], &[b"c"], &[b"a", b"b"]] {
+            let ecc = prepare_ecc(&config, &ecc_test_module(sections)).unwrap();
+            assert!(ecc.is_empty());
+        }
+    }
+
+    #[test]
+    fn ecc_only_functions_invalid() {
+        let config = ecc_test_config(true);
+        let cases: &[(&[&[u8]], PrepareError)] = &[
+            (&[b"\xff"], PrepareError::ECCSectionInvalidUTF8),
+            (&[b"a,\xc3"], PrepareError::ECCSectionInvalidUTF8),
+            (&[b""], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a,,b"], PrepareError::ECCSectionInvalidEntry),
+            (&[b",a"], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a,"], PrepareError::ECCSectionInvalidEntry),
+            (&[b" a"], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a, b"], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a\n"], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a-b"], PrepareError::ECCSectionInvalidEntry),
+            (&["\u{e1}".as_bytes()], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a\0"], PrepareError::ECCSectionInvalidEntry),
+            (&[b"a,a"], PrepareError::ECCSectionDuplicateEntry),
+            (&[b"a,b,a"], PrepareError::ECCSectionDuplicateEntry),
+            (&[b"c"], PrepareError::ECCSectionUnknownFunction),
+            (&[b"a,c"], PrepareError::ECCSectionUnknownFunction),
+            // `g` is exported, but it is a global rather than a function.
+            (&[b"g"], PrepareError::ECCSectionUnknownFunction),
+            // The memory is exported under this name after preparation, not before.
+            (&[b"memory"], PrepareError::ECCSectionUnknownFunction),
+            (&[b"a", b"b"], PrepareError::ECCSectionRepeated),
+            (&[b"a", b"a"], PrepareError::ECCSectionRepeated),
+        ];
+        for (sections, expected) in cases {
+            let result = prepare_ecc(&config, &ecc_test_module(sections));
+            assert_eq!(result, Err(expected.clone()), "sections: {sections:?}");
+        }
     }
 }

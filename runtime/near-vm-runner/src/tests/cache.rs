@@ -171,7 +171,7 @@ fn test_wasmtime_artifact_output_stability() {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
         let config = test_vm_config(Some(VMKind::Wasmtime));
         let prepared_code =
-            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap().code;
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
         got_prepared_hashes.push(this_hash);
         if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
@@ -250,7 +250,7 @@ fn test_wasmtime_sparse_contract_stability() {
     let contract = ContractCode::new(sparse_wasm_contract(), None);
     let config = test_vm_config(Some(VMKind::Wasmtime));
     let prepared_code =
-        prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+        prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap().code;
     let prepared_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
     let vm =
         WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into())).unwrap();

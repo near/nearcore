@@ -12,7 +12,7 @@ fn test_compiled_bytes_same_as_in_process_engine() {
 
     // Compile with the daemon's non-pooled engine (same as child process).
     let daemon_engine = create_compiler_engine(config.limit_config.max_memory_pages).unwrap();
-    let prepared = prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+    let prepared = prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap().code;
     let daemon_artifact = daemon_engine.precompile_module(&prepared).unwrap();
 
     // Compile with the node's in-process pooled engine.

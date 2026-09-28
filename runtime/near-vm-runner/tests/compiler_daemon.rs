@@ -75,13 +75,13 @@ fn prepared_module(config: &near_parameters::vm::Config, seed: usize, num_funcs:
     }
     wat.push_str(")\n");
     let wasm = wat::parse_str(&wat).unwrap();
-    prepare::prepare_contract(&wasm, config, VMKind::Wasmtime).unwrap()
+    prepare::prepare_contract(&wasm, config, VMKind::Wasmtime).unwrap().code
 }
 
 fn test_basic_compilation() {
     let config = test_config();
     let wasm = wat::parse_str(r#"(module (func (export "main")))"#).unwrap();
-    let prepared = prepare::prepare_contract(&wasm, &config, VMKind::Wasmtime).unwrap();
+    let prepared = prepare::prepare_contract(&wasm, &config, VMKind::Wasmtime).unwrap().code;
 
     let result = compiler_daemon::compile_in_subprocess(
         &prepared,

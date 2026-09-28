@@ -1,8 +1,10 @@
 use super::instrument_v3::InstrumentContext;
+use super::{ECC_ONLY_FUNCTIONS_SECTION, EccOnlyFunctions, PreparedCode};
 use crate::logic::errors::PrepareError;
 use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm_6::{Fee, wasmparser as wp};
 use near_parameters::vm::{Config, VMKind};
+use std::collections::HashSet;
 use wasm_encoder::{Encode, Section, SectionId};
 
 struct PrepareContext<'a> {
@@ -21,6 +23,12 @@ struct PrepareContext<'a> {
     before_import_section: bool,
     before_memory_section: bool,
     before_export_section: bool,
+    /// Entries of the `ecc_only_functions` custom section, sorted. Only set
+    /// when the `ecc_only_functions` config flag is enabled.
+    ecc_only_functions: Option<Vec<Box<str>>>,
+    /// Names of the exported functions. Only collected when the
+    /// `ecc_only_functions` config flag is enabled.
+    func_exports: HashSet<&'a str>,
 }
 
 impl<'a> PrepareContext<'a> {
@@ -51,6 +59,8 @@ impl<'a> PrepareContext<'a> {
             before_import_section: true,
             before_memory_section: true,
             before_export_section: true,
+            ecc_only_functions: None,
+            func_exports: HashSet::new(),
         }
     }
 
@@ -59,7 +69,7 @@ impl<'a> PrepareContext<'a> {
     /// Must happen before the finite-wasm analysis and is applicable to all runtimes.
     ///
     /// This will validate the module, normalize the memories within, apply limits.
-    fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
+    fn run(&mut self) -> Result<(Vec<u8>, EccOnlyFunctions), PrepareError> {
         self.before_import_section = true;
         self.before_memory_section = true;
         let parser = wp::Parser::new(0);
@@ -159,6 +169,9 @@ impl<'a> PrepareContext<'a> {
                     for res in reader {
                         let wp::Export { name, kind, index } =
                             res.map_err(|_| PrepareError::Deserialization)?;
+                        if self.config.ecc_only_functions && kind == wp::ExternalKind::Func {
+                            self.func_exports.insert(name);
+                        }
                         let prefix = (self.config.vm_kind == VMKind::Wasmtime)
                             .then_some(EXPORT_PREFIX)
                             .unwrap_or_default();
@@ -274,6 +287,15 @@ impl<'a> PrepareContext<'a> {
                     func_validator.validate(&func).map_err(|_| PrepareError::Deserialization)?;
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
+                wp::Payload::CustomSection(reader)
+                    if self.config.ecc_only_functions
+                        && reader.name() == ECC_ONLY_FUNCTIONS_SECTION =>
+                {
+                    if self.ecc_only_functions.is_some() {
+                        return Err(PrepareError::ECCSectionRepeated);
+                    }
+                    self.ecc_only_functions = Some(parse_ecc_only_functions(reader.data())?);
+                }
                 wp::Payload::CustomSection(_) => {}
 
                 // Extensions not supported.
@@ -297,7 +319,8 @@ impl<'a> PrepareContext<'a> {
             }
         }
         self.ensure_export_section();
-        Ok(std::mem::replace(&mut self.output_code, Vec::new()))
+        let ecc_only_functions = self.take_ecc_only_functions()?;
+        Ok((std::mem::replace(&mut self.output_code, Vec::new()), ecc_only_functions))
     }
 
     fn transform_import_section(
@@ -388,10 +411,45 @@ impl<'a> PrepareContext<'a> {
         self.copy(range)
     }
 
+    /// Check the parsed `ecc_only_functions` entries against the exported
+    /// functions. The export section may come after the custom section, so this
+    /// can only run once the whole module has been read.
+    fn take_ecc_only_functions(&mut self) -> Result<EccOnlyFunctions, PrepareError> {
+        let Some(names) = self.ecc_only_functions.take() else {
+            return Ok(EccOnlyFunctions::default());
+        };
+        if names.iter().any(|name| !self.func_exports.contains(name.as_ref())) {
+            return Err(PrepareError::ECCSectionUnknownFunction);
+        }
+        Ok(EccOnlyFunctions::from_sorted(names.into_boxed_slice()))
+    }
+
     /// Copy over the payload to the output binary without significant processing.
     fn copy(&mut self, range: std::ops::Range<usize>) -> Result<(), PrepareError> {
         Ok(self.output_code.extend(self.code.get(range).ok_or(PrepareError::Deserialization)?))
     }
+}
+
+/// Parse the content of the `ecc_only_functions` custom section: a comma
+/// separated list of function names, each made of ASCII `[A-Za-z0-9_]` only.
+///
+/// Returns the names sorted.
+fn parse_ecc_only_functions(data: &[u8]) -> Result<Vec<Box<str>>, PrepareError> {
+    let data = std::str::from_utf8(data).map_err(|_| PrepareError::ECCSectionInvalidUTF8)?;
+    let mut names = Vec::new();
+    for name in data.split(',') {
+        let is_valid =
+            !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        if !is_valid {
+            return Err(PrepareError::ECCSectionInvalidEntry);
+        }
+        names.push(Box::<str>::from(name));
+    }
+    names.sort_unstable();
+    if names.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(PrepareError::ECCSectionDuplicateEntry);
+    }
+    Ok(names)
 }
 
 pub(crate) fn prepare_contract(
@@ -399,8 +457,9 @@ pub(crate) fn prepare_contract(
     features: crate::features::WasmFeatures,
     config: &Config,
     kind: VMKind,
-) -> Result<Vec<u8>, PrepareError> {
-    let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
+) -> Result<PreparedCode, PrepareError> {
+    let (lightly_steamed, ecc_only_functions) =
+        PrepareContext::new(original_code, features, config).run()?;
 
     let analysis = finite_wasm_6::Analysis::new()
         .with_stack(SimpleMaxStackCfg)
@@ -453,7 +512,7 @@ pub(crate) fn prepare_contract(
             return Err(PrepareError::InstrumentedCodeTooLarge);
         }
     }
-    Ok(res)
+    Ok(PreparedCode { code: res, ecc_only_functions })
 }
 
 fn max_locals(code: &[u8], config: &Config) -> Option<u64> {

@@ -588,7 +588,8 @@ impl WasmtimeVM {
         let path = if daemon_configured { "daemon" } else { "in_process" };
         let prepared_code =
             match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
-                Ok(code) => code,
+                // TODO(ecc): carry `ecc_only_functions` into the cache (step 4).
+                Ok(prepared) => prepared.code,
                 Err(err) => {
                     COMPILATION_TOTAL.with_label_values(&[path, "compile_error"]).inc();
                     return Ok(CachedArtifact::CompilerError(CompilationError::PrepareError(err)));

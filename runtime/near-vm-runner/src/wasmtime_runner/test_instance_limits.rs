@@ -74,7 +74,8 @@ fn assert_prepared_metadata_high_water_loads(function_kind: FunctionKind) {
 
 fn compile_and_load(config: Arc<Config>, wasm: &[u8]) -> WasmtimeResult<Module> {
     let prepared = prepare_contract(wasm, config.as_ref(), VMKind::Wasmtime)
-        .expect("module at the combined protocol limits must prepare");
+        .expect("module at the combined protocol limits must prepare")
+        .code;
     let vm = WasmtimeVM::new(config);
 
     // Compilation alone does not exercise the pooling allocator's module
