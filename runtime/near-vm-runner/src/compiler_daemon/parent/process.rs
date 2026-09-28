@@ -33,14 +33,21 @@ pub(super) struct DaemonProcess {
     control: Arc<ProcessControl>,
     stdin: ChildStdin,
     stdout: ChildStdout,
-    stderr_thread: Option<JoinHandle<()>>,
+    teardown: Option<ProcessTeardown>,
     watchdog: ProcessWatchdog,
     status: Option<DaemonStatus>,
 }
 
 pub(super) struct SpawnFailure {
     pub(super) failure: WorkerFailure,
-    pub(super) control: Option<Arc<ProcessControl>>,
+    pub(super) teardown: Option<ProcessTeardown>,
+}
+
+/// Sole owner of final process cleanup, including reservation-release notification.
+/// Failed spawns return this to the coordinator before any teardown begins.
+pub(super) struct ProcessTeardown {
+    control: Arc<ProcessControl>,
+    stderr_thread: Option<JoinHandle<()>>,
 }
 
 impl DaemonProcess {
@@ -78,7 +85,7 @@ impl DaemonProcess {
         }
         let mut child = command.spawn().map_err(|err| SpawnFailure {
             failure: WorkerFailure::Spawn(err.to_string()),
-            control: None,
+            teardown: None,
         })?;
         let stdin = child.stdin.take().expect("stdio configured as piped");
         let stdout = child.stdout.take().expect("stdio configured as piped");
@@ -91,41 +98,32 @@ impl DaemonProcess {
         {
             Ok(thread) => Some(thread),
             Err(err) => {
-                supervise_process_teardown(
-                    Arc::clone(&control),
-                    None,
-                    TerminationReason::ProcessDrop,
-                );
                 return Err(SpawnFailure {
                     failure: WorkerFailure::Spawn(err.to_string()),
-                    control: Some(control),
+                    teardown: Some(ProcessTeardown { control, stderr_thread: None }),
                 });
             }
         };
         let watchdog = match ProcessWatchdog::spawn(Arc::clone(&control)) {
             Ok(watchdog) => watchdog,
             Err(err) => {
-                supervise_process_teardown(
-                    Arc::clone(&control),
-                    stderr_thread,
-                    TerminationReason::ProcessDrop,
-                );
                 return Err(SpawnFailure {
                     failure: WorkerFailure::Spawn(err.to_string()),
-                    control: Some(control),
+                    teardown: Some(ProcessTeardown { control, stderr_thread }),
                 });
             }
         };
-        let mut process = Self { control, stdin, stdout, stderr_thread, watchdog, status: None };
+        let teardown = Some(ProcessTeardown { control: Arc::clone(&control), stderr_thread });
+        let mut process = Self { control, stdin, stdout, teardown, watchdog, status: None };
         match process.wait_for_startup(config) {
             Ok(status) => {
                 process.status = Some(status);
                 Ok(process)
             }
             Err(failure) => {
-                let control = process.control();
-                drop(process);
-                Err(SpawnFailure { failure, control: Some(control) })
+                process.watchdog.shutdown();
+                let teardown = process.teardown.take();
+                Err(SpawnFailure { failure, teardown })
             }
         }
     }
@@ -134,25 +132,30 @@ impl DaemonProcess {
         self.watchdog.arm(DAEMON_STARTUP_TIMEOUT, "startup");
         let result = read_frame(&mut self.stdout)
             .map_err(|err| format!("failed to read startup response: {err}"))
-            .and_then(|bytes| {
-                let startup: DaemonStartup = borsh::from_slice(&bytes)
-                    .map_err(|err| format!("failed to deserialize startup response: {err}"))?;
+            .map(|bytes| -> Result<DaemonStatus, WorkerFailure> {
+                // A complete response carries an explicit startup or
+                // configuration result. Keep those errors distinct from
+                // transport failures classified from the child exit.
+                let startup: DaemonStartup = borsh::from_slice(&bytes).map_err(|err| {
+                    WorkerFailure::Startup(format!("failed to deserialize startup response: {err}"))
+                })?;
                 match startup {
-                    DaemonStartup::Ready(status) => validate_daemon_status(status, config),
-                    DaemonStartup::Err(err) => Err(err),
+                    DaemonStartup::Ready(status) => {
+                        validate_daemon_status(status, config).map_err(WorkerFailure::Startup)
+                    }
+                    DaemonStartup::Err(err) => Err(WorkerFailure::Startup(err)),
                 }
             });
         match self.watchdog.finish(result) {
-            Ok(status) => Ok(status),
+            Ok(result) => result,
             Err(WatchdogError::Timeout { phase, timeout }) => {
                 Err(self.finish_failed_ipc(String::new(), Some((phase, timeout))))
             }
             Err(WatchdogError::Operation(err)) => {
-                if self.control.try_status().ok().flatten().is_some() {
-                    Err(self.finish_failed_ipc(err, None))
-                } else {
-                    Err(WorkerFailure::Startup(err))
-                }
+                // EOF can become visible before the corresponding wait status.
+                // Use the same bounded exit-classification grace period as
+                // compilation IPC rather than losing a startup OOM classification.
+                Err(self.finish_failed_ipc(err, None))
             }
         }
     }
@@ -239,6 +242,15 @@ impl DaemonProcess {
         WorkerFailure::Protocol { error: protocol_error, cleanup_status }
     }
 
+    pub(super) fn retire(
+        mut self,
+        reason: TerminationReason,
+        on_reaped: impl FnOnce() + Send + 'static,
+    ) {
+        self.watchdog.shutdown();
+        self.teardown.take().expect("process teardown already taken").finish(reason, on_reaped);
+    }
+
     pub(super) fn status(&self) -> &DaemonStatus {
         self.status.as_ref().expect("daemon startup status unavailable")
     }
@@ -320,45 +332,63 @@ fn compilation_request_timeout(_request: &CompileRequest<'_>) -> Option<Duration
 impl Drop for DaemonProcess {
     fn drop(&mut self) {
         self.watchdog.shutdown();
-        supervise_process_teardown(
-            Arc::clone(&self.control),
-            self.stderr_thread.take(),
-            TerminationReason::ProcessDrop,
-        );
+        if let Some(teardown) = self.teardown.take() {
+            teardown.finish(TerminationReason::ProcessDrop, || {});
+        }
     }
 }
 
-fn supervise_process_teardown(
-    control: Arc<ProcessControl>,
-    stderr_thread: Option<JoinHandle<()>>,
-    reason: TerminationReason,
-) {
-    let _ = control.terminate(reason);
-    let reaped = control.wait_for_exit(PROCESS_TEARDOWN_TIMEOUT).ok().flatten().is_some();
-    if reaped {
-        if let Some(stderr_thread) = stderr_thread {
-            let _ = stderr_thread.join();
-        }
-        return;
+impl ProcessTeardown {
+    pub(super) fn finish(
+        self,
+        reason: TerminationReason,
+        on_reaped: impl FnOnce() + Send + 'static,
+    ) {
+        let _ = self.control.terminate(reason);
+        self.wait_for_exit(PROCESS_TEARDOWN_TIMEOUT, on_reaped);
     }
 
-    // Keep the caller-facing teardown bounded. A detached supervisor owns the
-    // final blocking reap and stderr join, avoiding both a zombie and an
-    // indefinitely blocked compiler caller if kill unexpectedly fails.
-    let worker_id = control.id();
-    if Builder::new()
-        .name("compiler-daemon-reaper".to_owned())
-        .spawn(move || {
-            if let Err(err) = control.reap() {
-                tracing::warn!(target: "vm", worker_id, %err, "failed to reap compiler daemon");
+    fn wait_for_exit(self, timeout: Duration, on_reaped: impl FnOnce() + Send + 'static) {
+        let Self { control, stderr_thread } = self;
+        let reaped = control.wait_for_exit(timeout).ok().flatten().is_some();
+        let mut on_reaped = Some(on_reaped);
+        if reaped {
+            on_reaped.take().unwrap()();
+            if stderr_thread.as_ref().is_none_or(JoinHandle::is_finished) {
+                if let Some(thread) = stderr_thread {
+                    let _ = thread.join();
+                }
+                return;
             }
-            if let Some(stderr_thread) = stderr_thread {
-                let _ = stderr_thread.join();
-            }
-        })
-        .is_err()
-    {
-        tracing::warn!(target: "vm", worker_id, "failed to start compiler daemon reaper");
+        }
+
+        // One owner completes both process cleanup and reservation release.
+        // Neither blocking reap nor a slow stderr relay can hold up the caller.
+        let worker_id = control.id();
+        let reaper = control.take_reaper();
+        if Builder::new()
+            .name("compiler-daemon-reaper".to_owned())
+            .spawn(move || {
+                match reaper.reap() {
+                    Ok(_) => {
+                        if let Some(on_reaped) = on_reaped {
+                            on_reaped();
+                        }
+                    }
+                    Err(err) => tracing::warn!(
+                        target: "vm", worker_id, %err,
+                        "failed to reap compiler daemon; retaining its reservation"
+                    ),
+                }
+                if let Some(thread) = stderr_thread {
+                    let _ = thread.join();
+                }
+            })
+            .is_err()
+        {
+            // Do not fall back to an unbounded wait on the compilation caller.
+            tracing::warn!(target: "vm", worker_id, "failed to start compiler daemon reaper; retaining any unreaped reservation");
+        }
     }
 }
 
@@ -445,6 +475,105 @@ mod tests {
         let count = read_retrying_on_interrupt(&mut input, &mut buffer).unwrap();
 
         assert_eq!(&buffer[..count], b"daemon output");
+    }
+
+    #[cfg(unix)]
+    mod unix_tests {
+        use super::super::{DaemonProcess, ProcessTeardown};
+        use crate::compiler_daemon::WORKER_MEMORY_EXHAUSTED_EXIT_CODE;
+        use crate::compiler_daemon::protocol::WorkerConfig;
+        use crate::compiler_daemon::watchdog::{
+            ProcessControl, ProcessWatchdog, TerminationReason,
+        };
+        use crate::compiler_daemon::worker_failure::WorkerFailure;
+        use std::process::{Command, Stdio};
+        use std::sync::Arc;
+        use std::sync::mpsc::{TryRecvError, channel};
+        use std::thread::spawn;
+        use std::time::Duration;
+
+        #[test]
+        fn transport_failure_observes_delayed_memory_exhaustion_exit() {
+            // Close stdout first so EOF is observable before the exit status,
+            // reproducing the kernel-interface race from worker startup.
+            let mut child = Command::new("sh")
+                .args([
+                    "-c",
+                    &format!("exec 1>&-; sleep 0.02; exit {WORKER_MEMORY_EXHAUSTED_EXIT_CODE}"),
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let control = Arc::new(ProcessControl::new(child));
+            let watchdog = ProcessWatchdog::spawn(Arc::clone(&control)).unwrap();
+            let teardown =
+                Some(ProcessTeardown { control: Arc::clone(&control), stderr_thread: None });
+            let mut process =
+                DaemonProcess { control, stdin, stdout, teardown, watchdog, status: None };
+            let config =
+                WorkerConfig { threads: 1, thread_stack_size_bytes: 1, memory_limit_bytes: 1 };
+
+            let failure = process.wait_for_startup(config).unwrap_err();
+
+            assert!(matches!(failure, WorkerFailure::LocalMemoryExhaustion));
+        }
+
+        #[test]
+        fn detached_reap_keeps_status_nonblocking_and_notifies_only_after_exit() {
+            // Hold stdin outside Child so wait() cannot close it. The child
+            // cannot exit until the test releases it, regardless of scheduling.
+            let mut child = Command::new("sh")
+                .args(["-c", "read line; exit 0"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let control = Arc::new(ProcessControl::new(child));
+            let teardown = ProcessTeardown { control: Arc::clone(&control), stderr_thread: None };
+            let (reaped_tx, reaped_rx) = channel();
+            let (returned_tx, returned_rx) = channel();
+            let caller = spawn(move || {
+                // Enter the post-termination wait directly to model a child
+                // whose exit is delayed even after a termination request.
+                teardown.wait_for_exit(Duration::ZERO, move || reaped_tx.send(()).unwrap());
+                returned_tx.send(()).unwrap();
+            });
+            let timeout = Duration::from_secs(5);
+            returned_rx.recv_timeout(timeout).expect("teardown caller remained blocked");
+            assert_eq!(reaped_rx.try_recv(), Err(TryRecvError::Empty));
+
+            // Child ownership has already transferred before teardown returns.
+            // Status inspection must not contend with the reaper's wait().
+            let (status_tx, status_rx) = channel();
+            let observer_control = Arc::clone(&control);
+            let observer = spawn(move || {
+                status_tx.send(observer_control.try_status().unwrap()).unwrap();
+            });
+            assert_eq!(status_rx.recv_timeout(timeout).unwrap(), None);
+            drop(stdin);
+            reaped_rx.recv_timeout(timeout).expect("reap did not release the reservation");
+            assert!(control.try_status().unwrap().unwrap().success());
+            caller.join().unwrap();
+            observer.join().unwrap();
+        }
+
+        #[test]
+        fn already_reaped_worker_notifies_synchronously() {
+            let child = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
+            let control = Arc::new(ProcessControl::new(child));
+            assert!(control.wait_for_exit(Duration::from_secs(5)).unwrap().is_some());
+            let teardown = ProcessTeardown { control, stderr_thread: None };
+            let (tx, rx) = channel();
+            teardown.finish(TerminationReason::ProcessDrop, move || tx.send(()).unwrap());
+            rx.try_recv().expect("confirmed reap did not release the reservation synchronously");
+            assert_eq!(rx.try_recv(), Err(TryRecvError::Disconnected));
+        }
     }
 
     #[test]

@@ -27,7 +27,8 @@ pub(super) enum WatchdogError {
 }
 
 struct ProcessState {
-    child: Child,
+    /// Taken by the sole detached reaper before its blocking wait.
+    child: Option<Child>,
     status: Option<ExitStatus>,
     termination_reason: Option<TerminationReason>,
 }
@@ -37,23 +38,31 @@ struct ProcessState {
 /// Pipe I/O is deliberately not kept here: a watchdog may request termination
 /// without contending with a lease blocked on an IPC operation.
 pub(super) struct ProcessControl {
+    id: u32,
     state: Mutex<ProcessState>,
 }
 
 impl ProcessControl {
     pub(super) fn new(child: Child) -> Self {
-        Self { state: Mutex::new(ProcessState { child, status: None, termination_reason: None }) }
+        Self {
+            id: child.id(),
+            state: Mutex::new(ProcessState {
+                child: Some(child),
+                status: None,
+                termination_reason: None,
+            }),
+        }
     }
 
     pub(super) fn id(&self) -> u32 {
-        self.state.lock().child.id()
+        self.id
     }
 
     /// Observe and reap a natural exit if one is already available.
     pub(super) fn try_status(&self) -> io::Result<Option<ExitStatus>> {
         let mut state = self.state.lock();
-        if state.status.is_none() {
-            state.status = state.child.try_wait()?;
+        if let Some(child) = state.child.as_mut() {
+            state.status = child.try_wait()?;
         }
         Ok(state.status)
     }
@@ -65,8 +74,8 @@ impl ProcessControl {
     /// exits naturally immediately before the kill reaches the kernel.
     pub(super) fn terminate(&self, reason: TerminationReason) -> io::Result<Option<ExitStatus>> {
         let mut state = self.state.lock();
-        if state.status.is_none() {
-            state.status = state.child.try_wait()?;
+        if let Some(child) = state.child.as_mut() {
+            state.status = child.try_wait()?;
         }
         if state.status.is_some() {
             return Ok(state.status);
@@ -74,12 +83,17 @@ impl ProcessControl {
         if state.termination_reason.is_none() {
             state.termination_reason = Some(reason);
         }
-        match state.child.kill() {
+        // A detached reaper has exclusive child ownership after termination
+        // was requested. Status queries remain nonblocking while it waits.
+        let Some(child) = state.child.as_mut() else {
+            return Ok(None);
+        };
+        match child.kill() {
             Ok(()) => Ok(None),
             Err(err) => {
                 // The process may have exited between try_wait and kill. Keep
                 // its real status when that race is observable.
-                state.status = state.child.try_wait()?;
+                state.status = child.try_wait()?;
                 if state.status.is_some() { Ok(state.status) } else { Err(err) }
             }
         }
@@ -104,15 +118,23 @@ impl ProcessControl {
         }
     }
 
-    /// Used only by a detached last-resort reaper after bounded supervision has
-    /// expired. No compiler caller waits for this operation.
-    pub(super) fn reap(&self) -> io::Result<ExitStatus> {
-        let mut state = self.state.lock();
-        if let Some(status) = state.status {
-            return Ok(status);
-        }
-        let status = state.child.wait()?;
-        state.status = Some(status);
+    /// Transfer child ownership before dispatching the sole detached reaper.
+    /// Shared status inspection never contends with its blocking wait.
+    pub(super) fn take_reaper(self: &Arc<Self>) -> ProcessReaper {
+        let child = self.state.lock().child.take().expect("process already has a reaper");
+        ProcessReaper { child, control: Arc::clone(self) }
+    }
+}
+
+pub(super) struct ProcessReaper {
+    child: Child,
+    control: Arc<ProcessControl>,
+}
+
+impl ProcessReaper {
+    pub(super) fn reap(mut self) -> io::Result<ExitStatus> {
+        let status = self.child.wait()?;
+        self.control.state.lock().status = Some(status);
         Ok(status)
     }
 }

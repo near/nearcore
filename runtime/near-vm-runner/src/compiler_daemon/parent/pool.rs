@@ -16,12 +16,10 @@ use crate::metrics::{
     COMPILER_DAEMON_RESERVED_MEMORY_BYTES, COMPILER_DAEMON_WORKERS,
 };
 use parking_lot::{Condvar, Mutex};
-use std::array::from_fn;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::thread::Builder;
 use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -74,9 +72,10 @@ pub(super) struct DaemonPool {
     max_worker_limit_bytes: u64,
     total_budget_bytes: u64,
     inner: Mutex<PoolInner>,
-    /// One wait queue per priority class; index by `CompilePriority::index`.
-    avail: [Condvar; CompilePriority::COUNT],
-    recovery_avail: [Condvar; CompilePriority::COUNT],
+    /// All checkout predicates are rechecked after a capacity/state change.
+    capacity_changed: Condvar,
+    /// Only callers waiting to become the recovery owner wait here.
+    recovery_admission: Condvar,
 }
 
 impl DaemonPool {
@@ -109,8 +108,8 @@ impl DaemonPool {
             max_worker_limit_bytes,
             total_budget_bytes,
             inner: Mutex::new(inner),
-            avail: from_fn(|_| Condvar::new()),
-            recovery_avail: from_fn(|_| Condvar::new()),
+            capacity_changed: Condvar::new(),
+            recovery_admission: Condvar::new(),
         }
     }
 
@@ -137,7 +136,7 @@ impl DaemonPool {
         inner.recovery_waiters[idx] += 1;
         while inner.recovery_owner || highest_priority_waiter(&inner.recovery_waiters) != Some(idx)
         {
-            self.recovery_avail[idx].wait(&mut inner);
+            self.recovery_admission.wait(&mut inner);
         }
         inner.recovery_waiters[idx] -= 1;
         inner.recovery_owner = true;
@@ -195,7 +194,7 @@ impl DaemonPool {
 
         loop {
             if !priority_may_checkout(priority, &inner.waiters) {
-                self.avail[idx].wait(&mut inner);
+                self.capacity_changed.wait(&mut inner);
                 continue;
             }
 
@@ -214,9 +213,7 @@ impl DaemonPool {
                     assert_eq!(entry.state, WorkerState::Idle);
                     entry.state = WorkerState::Leased { priority, protected };
                     inner.waiters[idx] -= 1;
-                    if !dead_workers.is_empty() || !inner.idle.is_empty() {
-                        self.wake_one(&inner);
-                    }
+                    self.notify_capacity_changed();
                     drop(inner);
                     for worker in dead_workers {
                         self.retire(worker, TerminationReason::ProcessDrop);
@@ -242,7 +239,7 @@ impl DaemonPool {
                     priority.index() >= recovery_priority.index()
                 })
             {
-                self.avail[idx].wait(&mut inner);
+                self.capacity_changed.wait(&mut inner);
                 continue;
             }
 
@@ -255,14 +252,7 @@ impl DaemonPool {
                 {
                     inner.high_water = inner.high_water.max(inner.registry.len());
                 }
-                if can_reserve(
-                    &inner,
-                    self.max_workers,
-                    self.total_budget_bytes,
-                    memory_limit_bytes,
-                ) {
-                    self.wake_one(&inner);
-                }
+                self.notify_capacity_changed();
                 drop(inner);
 
                 let config = WorkerConfig { memory_limit_bytes, ..self.worker_config };
@@ -270,18 +260,15 @@ impl DaemonPool {
                     Ok(process) => process,
                     Err(spawn_failure) => {
                         let mut inner = self.inner.lock();
-                        if let Some(control) = spawn_failure.control {
-                            let entry = inner
-                                .registry
-                                .get_mut(&id)
-                                .expect("worker reservation disappeared");
-                            entry.state = WorkerState::Terminating;
-                            entry.control = Some(Arc::clone(&control));
+                        if let Some(teardown) = spawn_failure.teardown {
+                            Self::mark_terminating(&mut inner, id);
                             drop(inner);
-                            self.wait_for_reap(id, control);
+                            teardown.finish(TerminationReason::ProcessDrop, move || {
+                                self.finish_termination(id);
+                            });
                         } else {
                             release_reservation(&mut inner, id);
-                            self.wake_one(&inner);
+                            self.notify_capacity_changed();
                         }
                         return Err(spawn_failure.failure);
                     }
@@ -300,7 +287,7 @@ impl DaemonPool {
                 }
                 assert_eq!(entry.state, WorkerState::Starting);
                 entry.state = WorkerState::Leased { priority, protected };
-                self.wake_one(&inner);
+                self.notify_capacity_changed();
                 return Ok(RegisteredWorker { id, process });
             }
 
@@ -351,23 +338,14 @@ impl DaemonPool {
 
             // All count or byte capacity is reserved. Terminating workers are
             // deliberately included until their process has been reaped.
-            if protected {
-                self.recovery_avail[idx].wait(&mut inner);
-            } else {
-                self.avail[idx].wait(&mut inner);
-            }
+            self.capacity_changed.wait(&mut inner);
         }
     }
 
-    fn wake_one(&self, inner: &PoolInner) {
-        if inner.recovery_owner {
-            for condvar in &self.recovery_avail {
-                condvar.notify_one();
-            }
-        }
-        if let Some(idx) = highest_priority_waiter(&inner.waiters) {
-            self.avail[idx].notify_one();
-        }
+    fn notify_capacity_changed(&self) {
+        // Waiters have different priority, tier and recovery predicates. Waking
+        // just one could select an ineligible caller and strand available capacity.
+        self.capacity_changed.notify_all();
     }
 
     fn finish_recovery(&self) {
@@ -375,10 +353,8 @@ impl DaemonPool {
         assert!(inner.recovery_owner, "recovery ownership was already released");
         inner.recovery_owner = false;
         inner.recovery_request = None;
-        if let Some(idx) = highest_priority_waiter(&inner.recovery_waiters) {
-            self.recovery_avail[idx].notify_one();
-        }
-        self.wake_one(&inner);
+        self.recovery_admission.notify_all();
+        self.notify_capacity_changed();
     }
 
     fn mark_terminating(inner: &mut PoolInner, id: WorkerId) {
@@ -417,46 +393,8 @@ impl DaemonPool {
     /// Terminate and reap a worker without holding the coordinator lock.
     /// Capacity is released only after a confirmed reap.
     fn retire(&'static self, worker: RegisteredWorker, reason: TerminationReason) {
-        let id = worker.id;
-        let control = worker.process.control();
-        let _ = control.terminate(reason);
-        drop(worker);
-
-        self.wait_for_reap(id, control);
-    }
-
-    fn wait_for_reap(&'static self, id: WorkerId, control: Arc<ProcessControl>) {
-        if control.try_status().ok().flatten().is_some() {
-            self.finish_termination(id);
-            return;
-        }
-
-        let reaper_control = Arc::clone(&control);
-        let spawn_result = Builder::new()
-            .name("compiler-daemon-reservation-reaper".to_owned())
-            .spawn(move || match reaper_control.reap() {
-                Ok(_) => self.finish_termination(id),
-                Err(err) => tracing::warn!(
-                    target: "vm",
-                    worker_id = id.0,
-                    %err,
-                    "failed to reap compiler daemon; retaining its reservation"
-                ),
-            });
-        if spawn_result.is_err() {
-            // Thread creation failure must not leak the process. Blocking here
-            // is safe because no coordinator lock is held. Keep the reservation
-            // if the process still cannot be confirmed reaped.
-            match control.reap() {
-                Ok(_) => self.finish_termination(id),
-                Err(err) => tracing::warn!(
-                    target: "vm",
-                    worker_id = id.0,
-                    %err,
-                    "failed to reap compiler daemon; retaining its reservation"
-                ),
-            }
-        }
+        let RegisteredWorker { id, process } = worker;
+        process.retire(reason, move || self.finish_termination(id));
     }
 
     fn finish_termination(&self, id: WorkerId) {
@@ -464,7 +402,7 @@ impl DaemonPool {
         let entry = inner.registry.get(&id).expect("reaped worker is missing from registry");
         assert_eq!(entry.state, WorkerState::Terminating);
         release_reservation(&mut inner, id);
-        self.wake_one(&inner);
+        self.notify_capacity_changed();
     }
 
     fn check_in(&'static self, worker: RegisteredWorker) {
@@ -474,7 +412,7 @@ impl DaemonPool {
             WorkerState::Leased { .. } => {
                 entry.state = WorkerState::Idle;
                 inner.idle.push(worker);
-                self.wake_one(&inner);
+                self.notify_capacity_changed();
             }
             WorkerState::Terminating => {
                 drop(inner);
@@ -775,6 +713,9 @@ mod tests {
     use crate::compiler_daemon::protocol::WorkerConfig;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::mpsc::channel;
+    use std::thread::{sleep, spawn};
+    use std::time::{Duration, Instant};
 
     fn empty_inner() -> PoolInner {
         PoolInner {
@@ -791,6 +732,84 @@ mod tests {
             #[cfg(feature = "test_features")]
             scheduler_evictions: 0,
         }
+    }
+
+    fn wait_for_pool(pool: &DaemonPool, predicate: impl Fn(&PoolInner) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !predicate(&pool.inner.lock()) {
+            assert!(Instant::now() < deadline, "pool did not reach the expected state");
+            sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn capacity_release_wakes_recovery_owner_with_other_waiters() {
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1, memory_limit_bytes: 10 };
+        let pool: &'static DaemonPool = Box::leak(Box::new(DaemonPool::new(
+            PathBuf::from("compiler-daemon-binary-that-does-not-exist"),
+            config,
+            1,
+            20,
+            20,
+        )));
+        let priority = CompilePriority::Interactive;
+        let idx = priority.index();
+        let owner = pool.begin_recovery(priority);
+        // A synthetic terminating worker holds all process capacity until we
+        // explicitly simulate its reap. No subprocess timing is involved.
+        let id = {
+            let mut inner = pool.inner.lock();
+            let id = reserve_worker(&mut inner, 10);
+            DaemonPool::mark_terminating(&mut inner, id);
+            id
+        };
+
+        // Queue another recovery first: it must not consume the capacity wake
+        // intended for the current owner, nor acquire ownership prematurely.
+        let (admitted_tx, admitted_rx) = channel();
+        let next_recovery = spawn(move || {
+            let _permit = pool.begin_recovery(priority);
+            admitted_tx.send(()).unwrap();
+        });
+        wait_for_pool(pool, |inner| inner.recovery_waiters[idx] == 1);
+
+        let (owner_tx, owner_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let recovery = spawn(move || {
+            owner_tx.send(owner.lease(20).is_err()).unwrap();
+            release_rx.recv().unwrap();
+            drop(owner);
+        });
+        wait_for_pool(pool, |inner| inner.waiters[idx] == 1);
+
+        // This ordinary same-priority caller also waits for capacity, but the
+        // recovery request prevents it from spawning before the owner finishes.
+        let (ordinary_tx, ordinary_rx) = channel();
+        let ordinary = spawn(move || {
+            ordinary_tx.send(pool.lease(priority).is_err()).unwrap();
+        });
+        wait_for_pool(pool, |inner| inner.waiters[idx] == 2);
+        assert_eq!(pool.inner.lock().reserved_bytes, 10);
+
+        pool.finish_termination(id);
+        let timeout = Duration::from_secs(5);
+        // Reaching the intentional spawn error proves admission made progress.
+        assert!(owner_rx.recv_timeout(timeout).unwrap());
+        assert!(admitted_rx.try_recv().is_err());
+        assert!(ordinary_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+        admitted_rx.recv_timeout(timeout).unwrap();
+        assert!(ordinary_rx.recv_timeout(timeout).unwrap());
+        recovery.join().unwrap();
+        next_recovery.join().unwrap();
+        ordinary.join().unwrap();
+        let inner = pool.inner.lock();
+        assert!(inner.registry.is_empty());
+        assert_eq!(inner.reserved_bytes, 0);
+        assert_eq!(inner.waiters, [0; CompilePriority::COUNT]);
+        assert_eq!(inner.recovery_waiters, [0; CompilePriority::COUNT]);
+        assert!(!inner.recovery_owner);
     }
 
     #[test]

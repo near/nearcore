@@ -24,6 +24,11 @@ It reserves both a process slot and the worker's configured address-space limit
 before spawning. The aggregate reservation is a conservative virtual-memory
 admission budget, not a limit on physical RSS or on the rest of `neard`.
 
+Worker checkout uses one shared capacity-change notification. Every awakened
+caller rechecks priority, recovery protection, and resource availability under
+the coordinator lock. Requests waiting to become the sole recovery owner use a
+separate admission notification, they cannot consume the owner's capacity wake.
+
 ## Failure and recovery
 
 A normal compiler error is returned as a compilation result. Process, startup,
@@ -51,7 +56,13 @@ bounded displacement count.
 
 Starting and terminating workers keep their process and memory reservations.
 Capacity is released only after the parent has observed the child exit and
-reaped it. Teardown waits are bounded for compilation callers. If necessary, a
-detached reaper completes the wait. If reaping cannot be confirmed, the
+reaped it. One process teardown path owns cleanup and notifies the coordinator
+to release the reservation, including after failed startup. Teardown waits are
+bounded for compilation callers. If necessary, a single detached reaper takes
+exclusive ownership of the child and completes the wait without holding the
+shared process-control lock. Status inspection remains nonblocking while it
+waits. The same teardown path handles the stderr relay. A slow relay does not
+block the caller or delay release of a confirmed-reaped reservation. If reaping
+cannot be confirmed, or the detached reaper cannot be started, an unreaped
 reservation is deliberately retained rather than risking budget
-oversubscription.
+oversubscription. There is no unbounded synchronous fallback.
