@@ -1,42 +1,12 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
+use crate::ecc::EccOnlyFunctions;
 use crate::logic::errors::PrepareError;
 use near_parameters::vm::{Config, VMKind};
 
 mod instrument_v3;
 mod prepare_v3;
-
-/// Name of the custom section in which a contract lists its ECC-only functions.
-pub(crate) const ECC_ONLY_FUNCTIONS_SECTION: &str = "ecc_only_functions";
-
-/// Functions a contract marks as callable only through external contract calls
-/// (ECC), read from the `ecc_only_functions` custom section.
-///
-/// Names are the original, unprefixed export names, kept sorted so lookups can
-/// use binary search.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EccOnlyFunctions(Box<[Box<str>]>);
-
-impl EccOnlyFunctions {
-    /// `names` must be sorted and free of duplicates.
-    fn from_sorted(names: Box<[Box<str>]>) -> Self {
-        debug_assert!(names.is_sorted_by(|a, b| a < b));
-        Self(names)
-    }
-
-    pub fn contains(&self, name: &str) -> bool {
-        self.0.binary_search_by(|n| n.as_ref().cmp(name)).is_ok()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.0.iter().map(|n| n.as_ref())
-    }
-}
 
 /// A contract after preparation, together with metadata extracted from the
 /// original code.
@@ -76,6 +46,7 @@ pub fn prepare_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecc::ECC_ONLY_FUNCTIONS_SECTION;
     use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
     use std::borrow::Cow;

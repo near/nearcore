@@ -1,5 +1,6 @@
 use crate::cache::get_contract_cache_key;
 use crate::compile_priority::CompilePriority;
+use crate::ecc::EccOnlyFunctions;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
@@ -10,6 +11,7 @@ use crate::logic::{
     Config, ExecutionResultState, External, GasCounter, HostCtx, VMContext, VMOutcome,
 };
 use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
+use crate::prepare::PreparedCode;
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -95,7 +97,7 @@ static VMS: LazyLock<RwLock<HashMap<VMKey, WasmtimeVM>>> = LazyLock::new(RwLock:
 /// One cache entry: the serialized wasmtime module bytes, or the cached
 /// [`CompilationError`] from a prior failed compile of the same code.
 pub(crate) enum CachedArtifact {
-    CompiledBytes(Vec<u8>),
+    CompiledBytes { bytes: Vec<u8>, ecc_only_functions: EccOnlyFunctions },
     CompilerError(CompilationError),
 }
 
@@ -157,7 +159,9 @@ fn read_cache(
     key: &CryptoHash,
 ) -> Result<Option<CachedArtifact>, CacheError> {
     Ok(cache.get(key).map_err(CacheError::ReadError)?.map(|info| match info.compiled {
-        CompiledContract::Code(module) => CachedArtifact::CompiledBytes(module),
+        CompiledContract::Code(bytes) => {
+            CachedArtifact::CompiledBytes { bytes, ecc_only_functions: info.ecc_only_functions }
+        }
         CompiledContract::CompileModuleError(err) => CachedArtifact::CompilerError(err),
     }))
 }
@@ -586,10 +590,9 @@ impl WasmtimeVM {
         let start = std::time::Instant::now();
         let daemon_configured = compiler_daemon::is_daemon_configured();
         let path = if daemon_configured { "daemon" } else { "in_process" };
-        let prepared_code =
+        let PreparedCode { code: prepared_code, ecc_only_functions } =
             match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
-                // TODO(ecc): carry `ecc_only_functions` into the cache (step 4).
-                Ok(prepared) => prepared.code,
+                Ok(prepared) => prepared,
                 Err(err) => {
                     COMPILATION_TOTAL.with_label_values(&[path, "compile_error"]).inc();
                     return Ok(CachedArtifact::CompilerError(CompilationError::PrepareError(err)));
@@ -651,7 +654,7 @@ impl WasmtimeVM {
         );
 
         crate::metrics::compilation_duration(elapsed);
-        Ok(CachedArtifact::CompiledBytes(serialized))
+        Ok(CachedArtifact::CompiledBytes { bytes: serialized, ecc_only_functions })
     }
 
     #[tracing::instrument(
@@ -726,16 +729,18 @@ impl WasmtimeVM {
         // Failures which prevent compilation from returning a result propagate
         // without producing a cache record.
         let artifact = self.compile_uncached(code)?;
+        let (compiled, ecc_only_functions) = match &artifact {
+            CachedArtifact::CompiledBytes { bytes, ecc_only_functions } => {
+                (CompiledContract::Code(bytes.clone()), ecc_only_functions.clone())
+            }
+            CachedArtifact::CompilerError(err) => {
+                (CompiledContract::CompileModuleError(err.clone()), EccOnlyFunctions::default())
+            }
+        };
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
-            compiled: match &artifact {
-                CachedArtifact::CompiledBytes(serialized) => {
-                    CompiledContract::Code(serialized.clone())
-                }
-                CachedArtifact::CompilerError(err) => {
-                    CompiledContract::CompileModuleError(err.clone())
-                }
-            },
+            compiled,
+            ecc_only_functions,
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
         Ok(artifact)
@@ -771,7 +776,8 @@ impl WasmtimeVM {
                 is_memory_hit = false;
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let (wasm_bytes, module) =
-                    if let Some(CompiledContractInfo { wasm_bytes, compiled }) = cache_record {
+                    // TODO(ecc): carry `ecc_only_functions` into `PreparedModule` (step 6).
+                    if let Some(CompiledContractInfo { wasm_bytes, compiled, .. }) = cache_record {
                         match compiled {
                             CompiledContract::CompileModuleError(err) => {
                                 return Ok((
@@ -794,7 +800,7 @@ impl WasmtimeVM {
                                     to_any((wasm_bytes, Err(err))),
                                 ));
                             }
-                            CachedArtifact::CompiledBytes(module) => (wasm_bytes, module),
+                            CachedArtifact::CompiledBytes { bytes, .. } => (wasm_bytes, bytes),
                         }
                     };
                 // (UN-)SAFETY: the `module` must have been produced by
@@ -929,7 +935,9 @@ impl crate::runner::VM for WasmtimeVM {
             return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
         }
         Ok(match self.compile_and_cache(code, cache)? {
-            CachedArtifact::CompiledBytes(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+            CachedArtifact::CompiledBytes { .. } => {
+                Ok(ContractPrecompilatonResult::ContractCompiled)
+            }
             CachedArtifact::CompilerError(err) => Err(err),
         })
     }
@@ -947,7 +955,7 @@ impl crate::runner::VM for WasmtimeVM {
             // check and the inner one, or another thread holds the per-key lock
             // and is compiling — both cases resolve to `ContractAlreadyInCache`.
             None => Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
-            Some(CachedArtifact::CompiledBytes(_)) => {
+            Some(CachedArtifact::CompiledBytes { .. }) => {
                 Ok(Ok(ContractPrecompilatonResult::ContractCompiled))
             }
             Some(CachedArtifact::CompilerError(err)) => Ok(Err(err)),

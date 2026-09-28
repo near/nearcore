@@ -6,6 +6,7 @@ mod cache;
 mod compile_priority;
 #[cfg(feature = "wasmtime_vm")]
 pub mod compiler_daemon;
+mod ecc;
 mod errors;
 mod features;
 mod imports;
@@ -23,6 +24,7 @@ mod utils;
 mod wasmtime_runner;
 
 pub use crate::compile_priority::CompilePriority;
+pub use crate::ecc::EccOnlyFunctions;
 pub use crate::logic::with_ext_cost_counter;
 #[cfg(not(windows))]
 pub use cache::FilesystemContractRuntimeCache;

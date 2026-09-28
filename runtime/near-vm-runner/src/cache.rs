@@ -3,6 +3,7 @@
 
 use crate::ContractCode;
 use crate::compile_priority::CompilePriority;
+use crate::ecc::EccOnlyFunctions;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::Config;
 use crate::logic::errors::{CompilationError, VMRunnerError};
@@ -107,6 +108,9 @@ impl CompiledContract {
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
     pub compiled: CompiledContract,
+    /// Functions the contract marks as ECC-only. Always empty when `compiled`
+    /// is a [`CompiledContract::CompileModuleError`].
+    pub ecc_only_functions: EccOnlyFunctions,
 }
 
 impl CompiledContractInfo {
@@ -739,12 +743,16 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let tag = buffer[buffer.len() - 9];
         buffer.truncate(buffer.len() - 9);
         let value = match tag {
-            CODE_TAG => {
-                CompiledContractInfo { wasm_bytes, compiled: CompiledContract::Code(buffer) }
-            }
+            // TODO(ecc): read `ecc_only_functions` from disk (step 5).
+            CODE_TAG => CompiledContractInfo {
+                wasm_bytes,
+                compiled: CompiledContract::Code(buffer),
+                ecc_only_functions: EccOnlyFunctions::default(),
+            },
             ERROR_TAG => CompiledContractInfo {
                 wasm_bytes,
                 compiled: CompiledContract::CompileModuleError(borsh::from_slice(&buffer)?),
+                ecc_only_functions: EccOnlyFunctions::default(),
             },
             // File is malformed? For this code, since we're talking about a cache lets just treat
             // it as if there is no cached file as well. The cached file may eventually be
@@ -1541,11 +1549,13 @@ mod tests {
         let compiled_contract1 = CompiledContractInfo {
             wasm_bytes: 100,
             compiled: CompiledContract::Code(contract1.code().to_vec()),
+            ecc_only_functions: EccOnlyFunctions::default(),
         };
 
         let compiled_contract2 = CompiledContractInfo {
             wasm_bytes: 200,
             compiled: CompiledContract::Code(contract2.code().to_vec()),
+            ecc_only_functions: EccOnlyFunctions::default(),
         };
 
         let insert_and_assert_keys_exist = || {
@@ -1581,6 +1591,7 @@ mod tests {
             CompiledContractInfo {
                 wasm_bytes: TEST_PAYLOAD_LEN as u64,
                 compiled: CompiledContract::Code(vec![filler; TEST_PAYLOAD_LEN]),
+                ecc_only_functions: EccOnlyFunctions::default(),
             }
         }
 
@@ -1679,6 +1690,7 @@ mod tests {
             let oversized = CompiledContractInfo {
                 wasm_bytes: 2 * TEST_PAYLOAD_LEN as u64,
                 compiled: CompiledContract::Code(vec![0x22; 2 * TEST_PAYLOAD_LEN]),
+                ecc_only_functions: EccOnlyFunctions::default(),
             };
             cache.put(&k, oversized).unwrap();
 

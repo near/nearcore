@@ -17,7 +17,7 @@ fn test_compiled_bytes_same_as_in_process_engine() {
 
     // Compile with the node's in-process pooled engine.
     let pooled_vm = WasmtimeVM::new_for_target(Arc::new(config), None).unwrap();
-    let CachedArtifact::CompiledBytes(pooled_artifact) =
+    let CachedArtifact::CompiledBytes { bytes: pooled_artifact, .. } =
         pooled_vm.compile_uncached(&contract).unwrap()
     else {
         panic!("contract compilation failed");

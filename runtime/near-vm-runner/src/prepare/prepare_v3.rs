@@ -1,5 +1,6 @@
+use super::PreparedCode;
 use super::instrument_v3::InstrumentContext;
-use super::{ECC_ONLY_FUNCTIONS_SECTION, EccOnlyFunctions, PreparedCode};
+use crate::ecc::{ECC_ONLY_FUNCTIONS_SECTION, EccOnlyFunctions};
 use crate::logic::errors::PrepareError;
 use crate::{EXPORT_PREFIX, MEMORY_EXPORT};
 use finite_wasm_6::{Fee, wasmparser as wp};

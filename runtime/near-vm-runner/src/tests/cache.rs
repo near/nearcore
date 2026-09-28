@@ -270,7 +270,7 @@ impl crate::wasmtime_runner::CachedArtifact {
     /// Convenience helper for tests
     fn unwrap(self) -> Vec<u8> {
         match self {
-            Self::CompiledBytes(bytes) => bytes,
+            Self::CompiledBytes { bytes, .. } => bytes,
             Self::CompilerError(_) => {
                 panic!("contract compilation failed")
             }
@@ -351,4 +351,37 @@ fn test_no_duplicate_compilation() {
         !compilation_locks().contains_key(&cache_key),
         "lock entry for this contract should be cleaned up"
     );
+}
+
+/// Compiling a contract stores its ECC-only functions in the cache record.
+#[test]
+fn test_ecc_only_functions_cached() {
+    use crate::cache::get_contract_cache_key;
+    use crate::ecc::ECC_ONLY_FUNCTIONS_SECTION;
+    use crate::runner::VM;
+    use crate::wasmtime_runner::WasmtimeVM;
+    use std::borrow::Cow;
+    use wasm_encoder::{CustomSection, Encode, Section};
+
+    let mut wasm = wat::parse_str(r#"(module (func (export "a")) (func (export "b")))"#).unwrap();
+    let section = CustomSection {
+        name: Cow::Borrowed(ECC_ONLY_FUNCTIONS_SECTION),
+        data: Cow::Borrowed(b"b"),
+    };
+    wasm.push(section.id());
+    section.encode(&mut wasm);
+    let code = ContractCode::new(wasm, None);
+
+    for enabled in [true, false] {
+        let mut config = test_vm_config(Some(VMKind::Wasmtime));
+        config.ecc_only_functions = enabled;
+        let cache = MockContractRuntimeCache::default();
+        let vm = WasmtimeVM::new_for_target(Arc::new(config.clone()), None).unwrap();
+        vm.precompile(&code, &cache).unwrap().unwrap();
+
+        let key = get_contract_cache_key(*code.hash(), &config, vm.vm_hash());
+        let record = cache.get(&key).unwrap().unwrap();
+        let expected: &[&str] = if enabled { &["b"] } else { &[] };
+        assert_eq!(record.ecc_only_functions.iter().collect::<Vec<_>>(), expected);
+    }
 }
