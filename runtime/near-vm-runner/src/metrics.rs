@@ -63,6 +63,36 @@ pub(crate) static COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL: LazyLock<IntCounterVec>
         .unwrap()
     });
 
+pub(crate) static COMPILER_DAEMON_RESERVED_MEMORY_BYTES: LazyLock<IntGaugeVec> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "near_vm_compiler_daemon_reserved_bytes",
+            "Configured virtual-address-space limits reserved by compiler daemon workers",
+            &[],
+        )
+        .unwrap()
+    });
+
+pub(crate) static COMPILER_DAEMON_WORKERS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_vm_compiler_daemon_workers",
+        "Number of compiler daemon workers by bounded lifecycle state",
+        &["state"],
+    )
+    .unwrap()
+});
+
+pub(crate) static COMPILER_DAEMON_RECOVERY_WAIT_SECONDS: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_vm_compiler_daemon_recovery_wait_seconds",
+            "Time spent waiting to own serialized compiler daemon memory recovery",
+            &[],
+            Some(vec![0.001, 0.01, 0.1, 1.0, 10.0, 60.0]),
+        )
+        .unwrap()
+    });
+
 pub(crate) static COMPILATION_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_vm_compilation_total",

@@ -11,9 +11,13 @@ use crate::compile_priority::CompilePriority;
 use crate::compiler_daemon::protocol::{CompileRequest, DaemonStatus, WorkerConfig};
 use crate::compiler_daemon::watchdog::{ProcessControl, TerminationReason};
 use crate::compiler_daemon::worker_failure::WorkerFailure;
-use crate::metrics::COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL;
+use crate::metrics::{
+    COMPILER_DAEMON_RECOVERY_EVENTS_TOTAL, COMPILER_DAEMON_RECOVERY_WAIT_SECONDS,
+    COMPILER_DAEMON_RESERVED_MEMORY_BYTES, COMPILER_DAEMON_WORKERS,
+};
 use parking_lot::{Condvar, Mutex};
 use std::array::from_fn;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,26 +87,28 @@ impl DaemonPool {
         max_worker_limit_bytes: u64,
         total_budget_bytes: u64,
     ) -> Self {
+        let inner = PoolInner {
+            idle: Vec::new(),
+            registry: HashMap::new(),
+            reserved_bytes: 0,
+            next_worker_id: 0,
+            waiters: [0; CompilePriority::COUNT],
+            recovery_waiters: [0; CompilePriority::COUNT],
+            recovery_owner: false,
+            recovery_request: None,
+            #[cfg(feature = "test_features")]
+            high_water: 0,
+            #[cfg(feature = "test_features")]
+            scheduler_evictions: 0,
+        };
+        observe_pool_resources(&inner);
         Self {
             binary,
             worker_config,
             max_workers,
             max_worker_limit_bytes,
             total_budget_bytes,
-            inner: Mutex::new(PoolInner {
-                idle: Vec::new(),
-                registry: HashMap::new(),
-                reserved_bytes: 0,
-                next_worker_id: 0,
-                waiters: [0; CompilePriority::COUNT],
-                recovery_waiters: [0; CompilePriority::COUNT],
-                recovery_owner: false,
-                recovery_request: None,
-                #[cfg(feature = "test_features")]
-                high_water: 0,
-                #[cfg(feature = "test_features")]
-                scheduler_evictions: 0,
-            }),
+            inner: Mutex::new(inner),
             avail: from_fn(|_| Condvar::new()),
             recovery_avail: from_fn(|_| Condvar::new()),
         }
@@ -135,10 +141,14 @@ impl DaemonPool {
         }
         inner.recovery_waiters[idx] -= 1;
         inner.recovery_owner = true;
+        let recovery_wait = started.elapsed();
+        COMPILER_DAEMON_RECOVERY_WAIT_SECONDS
+            .with_label_values::<&str>(&[])
+            .observe(recovery_wait.as_secs_f64());
         tracing::info!(
             target: "vm",
             priority = ?priority,
-            recovery_wait_ms = started.elapsed().as_millis(),
+            recovery_wait_ms = recovery_wait.as_millis(),
             reserved_bytes = inner.reserved_bytes,
             live_workers = inner.registry.len(),
             "admitted compiler daemon memory recovery"
@@ -374,6 +384,7 @@ impl DaemonPool {
     fn mark_terminating(inner: &mut PoolInner, id: WorkerId) {
         let entry = inner.registry.get_mut(&id).expect("worker is missing from registry");
         entry.state = WorkerState::Terminating;
+        observe_pool_resources(inner);
     }
 
     /// Mark a worker before asking its process to stop.
@@ -539,9 +550,7 @@ fn select_recovery_victims(
     //  - Idle first.
     //  - Lower priorities before equal.
     //  - Larger reservations win ties so the scheduler kills no more than needed.
-    candidates.sort_by(|left, right| {
-        right.1.cmp(&left.1).then_with(|| right.2.cmp(&left.2)).then_with(|| right.3.cmp(&left.3))
-    });
+    candidates.sort_by(compare_recovery_candidates);
 
     let mut selected = Vec::new();
     for (id, _, _, bytes) in candidates {
@@ -587,6 +596,13 @@ fn select_recovery_victims(
         }
     }
     victims
+}
+
+fn compare_recovery_candidates(
+    left: &(WorkerId, bool, usize, u64),
+    right: &(WorkerId, bool, usize, u64),
+) -> Ordering {
+    right.1.cmp(&left.1).then_with(|| right.2.cmp(&left.2)).then_with(|| right.3.cmp(&left.3))
 }
 
 fn recovery_victim_rank(
@@ -635,6 +651,7 @@ fn reserve_worker(inner: &mut PoolInner, memory_limit_bytes: u64) -> WorkerId {
             .is_none(),
         "worker generation was reused"
     );
+    observe_pool_resources(inner);
     id
 }
 
@@ -644,6 +661,21 @@ fn release_reservation(inner: &mut PoolInner, id: WorkerId) {
         .reserved_bytes
         .checked_sub(entry.memory_limit_bytes)
         .expect("worker memory reservation underflowed");
+    observe_pool_resources(inner);
+}
+
+fn observe_pool_resources(inner: &PoolInner) {
+    let terminating =
+        inner.registry.values().filter(|entry| entry.state == WorkerState::Terminating).count();
+    COMPILER_DAEMON_RESERVED_MEMORY_BYTES
+        .with_label_values::<&str>(&[])
+        .set(inner.reserved_bytes.min(i64::MAX as u64) as i64);
+    COMPILER_DAEMON_WORKERS
+        .with_label_values(&["live"])
+        .set(inner.registry.len().min(i64::MAX as usize) as i64);
+    COMPILER_DAEMON_WORKERS
+        .with_label_values(&["terminating"])
+        .set(terminating.min(i64::MAX as usize) as i64);
 }
 
 /// Index of the highest-priority class with at least one waiter.
@@ -735,11 +767,14 @@ impl Drop for Lease {
 #[cfg(test)]
 mod tests {
     use super::{
-        PoolInner, WorkerState, can_reserve, highest_priority_waiter, priority_may_checkout,
-        recovery_victim_rank, release_reservation, reserve_worker,
+        DaemonPool, PoolInner, WorkerId, WorkerState, can_reserve, compare_recovery_candidates,
+        highest_priority_waiter, priority_may_checkout, recovery_victim_rank, release_reservation,
+        reserve_worker,
     };
     use crate::compile_priority::CompilePriority;
+    use crate::compiler_daemon::protocol::WorkerConfig;
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
     fn empty_inner() -> PoolInner {
         PoolInner {
@@ -802,6 +837,24 @@ mod tests {
     }
 
     #[test]
+    fn recovery_victim_order_prefers_idle_then_priority_then_larger_reservation() {
+        let mut candidates = [
+            (WorkerId(0), false, CompilePriority::Interactive.index(), 20),
+            (WorkerId(1), true, usize::MAX, 10),
+            (WorkerId(2), false, CompilePriority::Background.index(), 10),
+            (WorkerId(3), true, usize::MAX, 30),
+            (WorkerId(4), false, CompilePriority::Background.index(), 40),
+        ];
+
+        candidates.sort_by(compare_recovery_candidates);
+
+        assert_eq!(
+            candidates.iter().map(|candidate| candidate.0).collect::<Vec<_>>(),
+            vec![WorkerId(3), WorkerId(1), WorkerId(4), WorkerId(2), WorkerId(0)]
+        );
+    }
+
+    #[test]
     fn count_and_byte_reservations_are_atomic() {
         let mut inner = empty_inner();
         assert!(can_reserve(&inner, 2, 30, 10));
@@ -819,6 +872,35 @@ mod tests {
         assert!(can_reserve(&inner, 3, 30, 10));
         release_reservation(&mut inner, second);
         assert_eq!(inner.reserved_bytes, 0);
+    }
+
+    #[test]
+    fn failed_spawn_without_child_releases_reservation() {
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1, memory_limit_bytes: 10 };
+        let pool = Box::leak(Box::new(DaemonPool::new(
+            PathBuf::from("compiler-daemon-binary-that-does-not-exist"),
+            config,
+            1,
+            40,
+            40,
+        )));
+
+        assert!(pool.lease(CompilePriority::Critical).is_err());
+        let inner = pool.inner.lock();
+        assert!(inner.registry.is_empty());
+        assert_eq!(inner.reserved_bytes, 0);
+    }
+
+    #[test]
+    fn memory_escalation_stops_at_configured_maximum() {
+        let config =
+            WorkerConfig { threads: 1, thread_stack_size_bytes: 1, memory_limit_bytes: 10 };
+        let pool = DaemonPool::new(PathBuf::new(), config, 1, 40, 40);
+
+        assert_eq!(pool.next_memory_limit(10), Some(20));
+        assert_eq!(pool.next_memory_limit(20), Some(40));
+        assert_eq!(pool.next_memory_limit(40), None);
     }
 
     #[test]

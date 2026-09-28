@@ -133,6 +133,7 @@ fn handle_request(
     engines: &mut HashMap<u32, wasmtime::Engine>,
     request: CompileRequest<'_>,
     sandbox_status: &SandboxStatus,
+    #[cfg_attr(not(feature = "test_features"), allow(unused_variables))]
     worker_config: WorkerConfig,
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "test_features")]

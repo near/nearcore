@@ -76,6 +76,8 @@ fn main() {
     test_unknown_sigkill_is_not_memory_exhaustion();
     #[cfg(all(unix, feature = "test_features"))]
     test_live_protocol_failure_has_bounded_cleanup();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_local_memory_exhaustion_is_not_cached();
     #[cfg(feature = "test_features")]
     test_engine_creation_failure_is_not_cached();
 }
@@ -198,6 +200,24 @@ fn prepared_module(config: &near_parameters::vm::Config, seed: usize, num_funcs:
     wat.push_str(")\n");
     let wasm = wat::parse_str(&wat).unwrap();
     prepare::prepare_contract(&wasm, config, VMKind::Wasmtime).unwrap()
+}
+
+#[cfg(all(unix, feature = "test_features"))]
+fn assert_pool_eventually_settles() {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = compiler_daemon::worker_pool_state();
+        if state.terminating == 0 && state.live == state.idle {
+            assert_eq!(
+                state.reserved_bytes,
+                state.live as u64 * TEST_MEMORY_LIMIT_BYTES,
+                "settled pool retained an unexpected reservation: {state:?}"
+            );
+            return;
+        }
+        assert!(Instant::now() < deadline, "compiler daemon pool did not settle: {state:?}");
+        sleep(Duration::from_millis(10));
+    }
 }
 
 fn test_basic_compilation() {
@@ -418,6 +438,7 @@ fn test_worker_memory_escalation_succeeds() {
     assert_eq!(compiled, expected, "memory escalation changed the artifact");
     let state = compiler_daemon::worker_pool_state();
     assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
 }
 
 /// Under a constrained budget, a protected larger retry evicts an active
@@ -479,6 +500,7 @@ fn test_memory_escalation_evicts_active_sibling() {
     }
     let state = compiler_daemon::worker_pool_state();
     assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
 }
 
 /// Concurrent local OOMs share one protected recovery owner and both callers
@@ -512,6 +534,7 @@ fn test_concurrent_memory_recoveries_are_serialized() {
     }
     let state = compiler_daemon::worker_pool_state();
     assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
 }
 
 /// The reserved allocator exit remains distinguishable after pipe teardown,
@@ -533,6 +556,7 @@ fn test_worker_memory_exhaustion_is_preserved() {
     assert!(debug_message.contains("exhausted its local memory limit"), "{debug_message}");
     let state = compiler_daemon::worker_pool_state();
     assert_eq!(state.live, state.idle, "memory exhaustion leaked a worker permit: {state:?}");
+    assert_pool_eventually_settles();
 }
 
 /// SIGKILL without trustworthy per-worker evidence must stay an ordinary crash.
@@ -576,6 +600,28 @@ fn test_live_protocol_failure_has_bounded_cleanup() {
     assert!(started.elapsed() < Duration::from_secs(5), "protocol cleanup took too long");
     let state = compiler_daemon::worker_pool_state();
     assert_eq!(state.live, state.idle, "protocol failure leaked a worker permit: {state:?}");
+}
+
+/// Exhausting every configured worker tier is a resource failure, not a
+/// deterministic contract compilation error, and must never be cached.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_local_memory_exhaustion_is_not_cached() {
+    let config = Arc::new(test_config());
+    let code = ContractCode::new(
+        wat::parse_str(r#"(module (func (export "oom_cache_probe")))"#).unwrap(),
+        None,
+    );
+    let cache = MockContractRuntimeCache::default();
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::AllocationFailure,
+    );
+    let result = precompile_contract(&code, config, Some(&cache));
+
+    assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    assert_eq!(cache.len(), 0, "local memory exhaustion was cached");
+    assert_eq!(cache.put_count(), 0, "local memory exhaustion attempted a cache write");
+    assert_pool_eventually_settles();
 }
 
 /// Engine construction depends on local process resources and configuration.
