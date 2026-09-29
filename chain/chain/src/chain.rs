@@ -6,7 +6,7 @@ use crate::block_processing_utils::{
     BlocksInProcessing, OptimisticBlockInfo,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
-use crate::chain_update::ChainUpdate;
+use crate::chain_update::{ChainUpdate, PostprocessedBlock};
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
@@ -1883,7 +1883,7 @@ impl Chain {
         block: Arc<Block>,
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
-    ) -> Result<(Option<Tip>, HashMap<ShardId, BlockHeight>), Error> {
+    ) -> Result<PostprocessedBlock, Error> {
         // Save state transition data to the database only if it might later be needed
         // for generating a state witness. Storage space optimization.
         let should_save_state_transition_data =
@@ -1892,18 +1892,18 @@ impl Chain {
         let sandbox_patch_gen = block_preprocess_info.sandbox_patch_generation;
         let mut chain_update = self.chain_update();
         let block_hash = *block.hash();
-        let (new_head, certified_frontier) = chain_update.postprocess_block(
+        let postprocessed = chain_update.postprocess_block(
             block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
         )?;
-        if new_head.is_some() {
+        if postprocessed.new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
         chain_update.commit()?;
         self.sandbox_patches.mark_committed(sandbox_patch_gen);
-        Ok((new_head, certified_frontier))
+        Ok(postprocessed)
     }
 
     /// Run postprocessing on this block, which stores the block on chain.
@@ -1947,7 +1947,7 @@ impl Chain {
                 }
             }
         }
-        let (new_head, certified_frontier) = match self.postprocess_block_only(
+        let PostprocessedBlock { new_head, certified_frontier } = match self.postprocess_block_only(
             Arc::clone(&block),
             block_preprocess_info,
             apply_results,

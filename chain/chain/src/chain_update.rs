@@ -38,6 +38,14 @@ use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 
+pub(crate) struct PostprocessedBlock {
+    /// The new head, if the block became one.
+    pub new_head: Option<Tip>,
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as of
+    /// the block. Empty for a pre-spice block.
+    pub certified_frontier: HashMap<ShardId, BlockHeight>,
+}
+
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
@@ -214,8 +222,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_incoming_receipt(hash, shard_id, receipt_proof);
     }
     /// This is the last step of process_block_single, where we take the preprocess block info
-    /// apply chunk results and store the results on chain. Returns the new head, if the block
-    /// became one, and the certified frontier as of the block (empty for a pre-spice block).
+    /// apply chunk results and store the results on chain.
     #[tracing::instrument(
         level = "debug",
         target = "chain",
@@ -228,7 +235,7 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
-    ) -> Result<(Option<Tip>, HashMap<ShardId, BlockHeight>), Error> {
+    ) -> Result<PostprocessedBlock, Error> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
@@ -308,22 +315,21 @@ impl<'a> ChainUpdate<'a> {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let (spice_certification_lag, certified_frontier) =
-            if ProtocolFeature::Spice.enabled(protocol_version) {
-                let (certification_lag, certified_frontier) = record_uncertified_chunks_for_block(
-                    &mut self.chain_store_update,
-                    self.epoch_manager.as_ref(),
-                    &block,
-                )?;
-                record_spice_endorsement_stats_for_block(
-                    &mut self.chain_store_update,
-                    self.epoch_manager.as_ref(),
-                    &block,
-                )?;
-                (Some(certification_lag), certified_frontier)
-            } else {
-                (None, HashMap::new())
-            };
+        let certification_status = if ProtocolFeature::Spice.enabled(protocol_version) {
+            let status = record_uncertified_chunks_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
+            record_spice_endorsement_stats_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
+            Some(status)
+        } else {
+            None
+        };
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
@@ -351,11 +357,16 @@ impl<'a> ChainUpdate<'a> {
             let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
             SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
             SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
-            if let Some(certification_lag) = spice_certification_lag {
-                metrics::SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
+            if let Some(status) = &certification_status {
+                metrics::SPICE_CERTIFICATION_LAG.set(status.certification_lag as i64);
             }
         }
-        Ok((res, certified_frontier))
+        Ok(PostprocessedBlock {
+            new_head: res,
+            certified_frontier: certification_status
+                .map(|status| status.certified_frontier)
+                .unwrap_or_default(),
+        })
     }
 
     pub fn create_light_client_block(

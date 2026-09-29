@@ -31,7 +31,6 @@ use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
-use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
@@ -295,6 +294,15 @@ impl WaitingOnDataEntry {
     }
 }
 
+/// Sent once a block is processed.
+#[derive(Debug)]
+pub struct ProcessedBlockWithFrontier {
+    pub block_hash: CryptoHash,
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as
+    /// of this block. Empty for a pre-spice block.
+    pub certified_frontier: HashMap<ShardId, BlockHeight>,
+}
+
 #[derive(Debug)]
 pub struct SpiceDistributorOutgoingReceipts {
     pub block_hash: CryptoHash,
@@ -452,8 +460,11 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
     }
 }
 
-impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
-    fn handle(&mut self, ProcessedBlock { block_hash, .. }: ProcessedBlock) {
+impl Handler<ProcessedBlockWithFrontier> for SpiceDataDistributorActor {
+    fn handle(
+        &mut self,
+        ProcessedBlockWithFrontier { block_hash, .. }: ProcessedBlockWithFrontier,
+    ) {
         match is_spice_or_last_pre_spice_block(
             &self.chain_store,
             self.epoch_manager.as_ref(),

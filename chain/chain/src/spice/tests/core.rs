@@ -1,11 +1,11 @@
 use crate::spice::core::{
-    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, certified_frontier,
+    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, certification_status,
     compute_spice_endorsement_stats, credit_chunk_endorsement_stats,
     find_newly_certified_block_hashes, fold_endorsement_stats, record_uncertified_chunks_for_block,
 };
-use crate::spice::core_writer_actor::SpiceCoreWriterActor;
+use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync, processed_block,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
 use crate::{BlockProcessingArtifact, Chain, Provenance};
 use assert_matches::assert_matches;
@@ -1004,7 +1004,7 @@ fn certified_frontier_after_a_split_is_each_new_shards_oldest_uncertified_entry(
         chunk(&block2, child1),
         chunk(&block2, child2),
     ];
-    let certified_frontier = certified_frontier(
+    let (status, oldest_uncertified_block_hash) = certification_status(
         &chain.chain_store().store().chain_store(),
         &new_layout,
         block3.header(),
@@ -1017,7 +1017,7 @@ fn certified_frontier_after_a_split_is_each_new_shards_oldest_uncertified_entry(
     assert_eq!(
         new_layout
             .shard_ids()
-            .map(|shard_id| (shard_id, certified_frontier[&shard_id]))
+            .map(|shard_id| (shard_id, status.certified_frontier[&shard_id]))
             .collect::<HashMap<_, _>>(),
         HashMap::from([
             (retained, genesis_height),
@@ -1025,6 +1025,57 @@ fn certified_frontier_after_a_split_is_each_new_shards_oldest_uncertified_entry(
             (child2, block1_height),
         ])
     );
+    assert_eq!(status.certification_lag, block3.header().height() - block1_height);
+    assert_eq!(oldest_uncertified_block_hash, *block1.hash());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn uncertified_chunks_are_grouped_by_block_oldest_first_on_every_fork() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block1 = build_block(&chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+    let block2 = build_block(&chain, &block1, vec![]);
+    process_block(&mut chain, block2.clone());
+
+    let shard_ids: Vec<ShardId> =
+        block1.chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    let certification_of = |block: &Block, shard_id: ShardId| -> Vec<SpiceCoreStatement> {
+        block_certification_core_statements(block)
+            .into_iter()
+            .filter(|statement| statement.chunk_id().shard_id == shard_id)
+            .collect()
+    };
+
+    // Two forks off block 2, each certifying different chunks of blocks 1 and 2.
+    let mut tips = [block2.clone(), block2.clone()];
+    let fork_certifications = [
+        [certification_of(&block1, shard_ids[0]), certification_of(&block1, shard_ids[1])],
+        [certification_of(&block1, shard_ids[2]), certification_of(&block2, shard_ids[2])],
+    ];
+    for (tip, certifications) in tips.iter_mut().zip(fork_certifications) {
+        for core_statements in certifications {
+            let block = build_block(&chain, tip, core_statements);
+            process_block(&mut chain, block.clone());
+            *tip = block;
+
+            let uncertified_chunks = core_reader.get_uncertified_chunks(tip.hash()).unwrap();
+            let block_hashes: Vec<CryptoHash> = uncertified_chunks
+                .iter()
+                .map(|chunk_info| chunk_info.chunk_id.block_hash)
+                .dedup()
+                .collect();
+            let heights: Vec<BlockHeight> = block_hashes
+                .iter()
+                .map(|block_hash| chain.get_block_header(block_hash).unwrap().height())
+                .collect();
+            assert!(heights.is_sorted_by(|a, b| a < b), "not grouped oldest first: {heights:?}");
+            assert_eq!(block_hashes.first(), Some(block1.hash()));
+            assert_eq!(block_hashes.last(), Some(tip.hash()));
+        }
+    }
+    assert_ne!(tips[0].hash(), tips[1].hash());
 }
 
 #[test]
@@ -1043,7 +1094,7 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
 
     let fork_block = build_block(&mut chain, &block, vec![core_endorsement.clone()]);
     process_block(&mut chain, fork_block.clone());
-    core_writer_actor.handle(processed_block(*fork_block.hash()));
+    core_writer_actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![core_endorsement]);
@@ -1744,7 +1795,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_executio
     let core_statements = block_certification_core_statements(&block);
     let next_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
-    core_writer_actor.handle(processed_block(*next_block.hash()));
+    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     // B1 was already certified in next_block's ancestry, so no newly certified blocks.
     let execution_results = core_reader
@@ -1787,7 +1838,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_old_bloc
     let core_statements = block_certification_core_statements(&block);
     let mut last_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, last_block.clone());
-    core_writer_actor.handle(processed_block(*last_block.hash()));
+    core_writer_actor.handle(ProcessedBlock { block_hash: *last_block.hash() });
 
     for _ in 0..3 {
         let new_block = build_block(&chain, &last_block, vec![]);
@@ -1824,7 +1875,7 @@ fn test_get_newly_certified_block_execution_results_for_next_block_with_certific
 
     let next_block = build_block(&mut chain, &block, next_block_core_statements);
     process_block(&mut chain, next_block.clone());
-    core_writer_actor.handle(processed_block(*next_block.hash()));
+    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     let last_shard_core_statements = SpiceCoreStatements::new(last_shard_core_statements);
     let execution_results = core_reader
@@ -1934,7 +1985,7 @@ fn test_get_newly_certified_block_execution_results_multi_block_incremental() {
     let b1_cert = block_certification_core_statements(&b1);
     let b3 = build_block(&mut chain, &b2, b1_cert);
     process_block(&mut chain, b3.clone());
-    core_writer_actor.handle(processed_block(*b3.hash()));
+    core_writer_actor.handle(ProcessedBlock { block_hash: *b3.hash() });
 
     // For B4: certify B2. Should return vec![B2_results] only, since B1 was already certified.
     let b2_cert = SpiceCoreStatements::new(block_certification_core_statements(&b2));

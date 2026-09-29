@@ -33,6 +33,7 @@ use near_primitives::utils::{
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -147,8 +148,8 @@ impl SpiceCoreReader {
         }
     }
 
-    /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis and for pre-spice blocks other than the last
+    /// Returns the list of uncertified chunks as of the given block, grouped by block, oldest
+    /// block first. Returns an empty vec for genesis and for pre-spice blocks other than the last
     /// pre-spice block, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
@@ -953,6 +954,8 @@ pub(crate) fn get_execution_result_from_store(
     chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
 }
 
+/// Grouped by block, oldest block first: see [`record_uncertified_chunks_for_block`]. The last
+/// pre-spice block's seeded row holds only that block's chunks.
 fn get_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
@@ -978,16 +981,25 @@ fn get_uncertified_chunks(
     }
 }
 
+/// Certification as of a block, derived while recording its uncertified chunks.
+#[derive(Debug)]
+pub struct CertificationStatus {
+    /// Height distance from the recorded block to the oldest block with uncertified chunks, 0
+    /// when nothing older awaits certification.
+    pub certification_lag: BlockHeight,
+    /// Per shard, the height of the highest block whose chunk of that shard is certified as of
+    /// the recorded block.
+    pub certified_frontier: HashMap<ShardId, BlockHeight>,
+}
+
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
-/// Returns the certification lag (height distance from `block` to the oldest block with
-/// uncertified chunks, 0 when nothing older awaits certification) and the certified frontier
-/// as of `block`: per shard, the height of the highest block whose chunk of that shard is
-/// certified.
+/// The stored list is the parent's list without the chunks `block` certifies, followed by
+/// `block`'s own chunks, so it is grouped by block, oldest block first.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
-) -> Result<(BlockHeight, HashMap<ShardId, BlockHeight>), Error> {
+) -> Result<CertificationStatus, Error> {
     let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
         block.spice_core_statements().iter_execution_results().collect();
     let mut block_endorsements: HashMap<
@@ -1067,18 +1079,8 @@ pub fn record_uncertified_chunks_for_block(
     // one, so its designated validators can act from this block on. Computed before this block's
     // own chunks are added: they are the oldest only when nothing carries over, and this block's
     // header is not in the store yet.
-    let oldest_uncertified_header = find_oldest_uncertified_block_header(
-        chain_store_update.chain_store(),
-        &uncertified_chunks,
-    )?;
-    let certification_lag = oldest_uncertified_header
-        .as_ref()
-        .map_or(0, |header| block.header().height().saturating_sub(header.height()));
-    let oldest_uncertified_block_hash =
-        oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
-
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
-    let certified_frontier = certified_frontier(
+    let (status, oldest_uncertified_block_hash) = certification_status(
         chain_store_update.chain_store(),
         &shard_layout,
         block.header(),
@@ -1124,26 +1126,34 @@ pub fn record_uncertified_chunks_for_block(
         &uncertified_chunks,
     );
     chain_store_update.merge(store_update);
-    Ok((certification_lag, certified_frontier))
+    Ok(status)
 }
 
-/// Per shard, the height of the highest block whose chunk of that shard is certified as of
-/// `block`: the height before the shard's oldest entry in `uncertified_chunks`, the list
-/// before `block`'s own chunks are added, or the parent's height when the shard has none.
-pub(crate) fn certified_frontier(
+/// Certification as of `block` from `uncertified_chunks`, the list before `block`'s own chunks are
+/// added, and the hash of the oldest block in it (`block`'s own when it is empty). A shard's
+/// frontier is the height before its first entry, or the parent's height when it has none. Reads
+/// one header per block holding a shard's first entry.
+pub(crate) fn certification_status(
     chain_store: &ChainStoreAdapter,
     shard_layout: &ShardLayout,
     block: &BlockHeader,
     uncertified_chunks: &[SpiceUncertifiedChunkInfo],
-) -> Result<HashMap<ShardId, BlockHeight>, Error> {
+) -> Result<(CertificationStatus, CryptoHash), Error> {
+    let mut oldest_uncertified_header: Option<Arc<BlockHeader>> = None;
+    let mut last_read_header: Option<Arc<BlockHeader>> = None;
     let mut certified_frontier = HashMap::new();
     for chunk_info in uncertified_chunks {
-        let shard_id = chunk_info.chunk_id.shard_id;
-        if certified_frontier.contains_key(&shard_id) {
+        let Entry::Vacant(entry) = certified_frontier.entry(chunk_info.chunk_id.shard_id) else {
             continue;
-        }
-        let header = chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?;
-        certified_frontier.insert(shard_id, prev_height(&header)?);
+        };
+        let block_hash = &chunk_info.chunk_id.block_hash;
+        let header = match &last_read_header {
+            Some(header) if header.hash() == block_hash => Arc::clone(header),
+            _ => chain_store.get_block_header(block_hash)?,
+        };
+        entry.insert(prev_height(&header)?);
+        oldest_uncertified_header.get_or_insert_with(|| Arc::clone(&header));
+        last_read_header = Some(header);
     }
     let parent_height = prev_height(block)?;
     // TODO(spice-resharding): a shard of the previous layout drops out of the map once its last
@@ -1152,7 +1162,15 @@ pub(crate) fn certified_frontier(
     for shard_id in shard_layout.shard_ids() {
         certified_frontier.entry(shard_id).or_insert(parent_height);
     }
-    Ok(certified_frontier)
+    let certification_lag = oldest_uncertified_header
+        .as_ref()
+        .map_or(0, |header| block.height().saturating_sub(header.height()));
+    let oldest_uncertified_block_hash =
+        oldest_uncertified_header.map_or_else(|| *block.hash(), |header| *header.hash());
+    Ok((
+        CertificationStatus { certification_lag, certified_frontier },
+        oldest_uncertified_block_hash,
+    ))
 }
 
 fn prev_height(header: &BlockHeader) -> Result<BlockHeight, Error> {
@@ -1353,18 +1371,15 @@ pub fn record_spice_endorsement_stats_for_block(
     Ok(())
 }
 
+/// The block of the first entry, which is the oldest: see [`get_uncertified_chunks`].
 fn find_oldest_uncertified_block_header(
     chain_store: &ChainStoreAdapter,
     uncertified_chunks: &[SpiceUncertifiedChunkInfo],
 ) -> Result<Option<Arc<BlockHeader>>, Error> {
-    let uncertified_block_hashes: HashSet<_> =
-        uncertified_chunks.iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
-    let uncertified_block_headers: Vec<_> = uncertified_block_hashes
-        .iter()
-        // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
-        .map(|block_hash| chain_store.get_block_header(block_hash))
-        .collect::<Result<Vec<_>, Error>>()?;
-    Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
+    let Some(chunk_info) = uncertified_chunks.first() else {
+        return Ok(None);
+    };
+    Ok(Some(chain_store.get_block_header(&chunk_info.chunk_id.block_hash)?))
 }
 
 /// Returns block hashes that became fully certified due to the execution results

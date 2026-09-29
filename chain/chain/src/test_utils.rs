@@ -1,7 +1,6 @@
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::runtime::NightshadeRuntime;
-use crate::spice::core_writer_actor::ProcessedBlock;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
@@ -33,13 +32,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::sync::Arc;
-
-/// A processed-block message with an empty certified frontier.
-pub fn processed_block(block_hash: CryptoHash) -> ProcessedBlock {
-    ProcessedBlock { block_hash, certified_frontier: HashMap::new() }
-}
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)

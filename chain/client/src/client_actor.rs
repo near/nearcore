@@ -14,6 +14,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::data_distributor_actor::ProcessedBlockWithFrontier;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -154,7 +155,7 @@ pub struct StartClientResult {
 pub struct SpiceClientConfig {
     pub chunk_executor_sender: Sender<ProcessedBlock>,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
-    pub spice_data_distributor_sender: Sender<ProcessedBlock>,
+    pub spice_data_distributor_sender: Sender<ProcessedBlockWithFrontier>,
     pub spice_core_writer_sender: Sender<ProcessedBlock>,
 }
 
@@ -351,7 +352,7 @@ pub struct ClientActor {
     /// With spice spice data distributor receives spice data; for that it requires block
     /// information. Since data may arrive before blocks it needs to be aware of new blocks.
     /// Without spice should be a noop sender.
-    spice_data_distributor_sender: Sender<ProcessedBlock>,
+    spice_data_distributor_sender: Sender<ProcessedBlockWithFrontier>,
 
     /// With spice, spice core writer processes all core statements.
     /// Should be noop sender otherwise.
@@ -433,7 +434,7 @@ impl ClientActor {
         sync_jobs_sender: SyncJobsSenderForClient,
         chunk_executor_sender: Sender<ProcessedBlock>,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
-        spice_data_distributor_sender: Sender<ProcessedBlock>,
+        spice_data_distributor_sender: Sender<ProcessedBlockWithFrontier>,
         spice_core_writer_sender: Sender<ProcessedBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
@@ -1701,11 +1702,11 @@ impl ClientActor {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block());
-            let processed_block = ProcessedBlock { block_hash, certified_frontier };
-            self.chunk_executor_sender.send(processed_block.clone());
-            self.spice_chunk_validator_sender.send(processed_block.clone());
-            self.spice_data_distributor_sender.send(processed_block.clone());
-            self.spice_core_writer_sender.send(processed_block);
+            self.chunk_executor_sender.send(ProcessedBlock { block_hash });
+            self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash });
+            self.spice_data_distributor_sender
+                .send(ProcessedBlockWithFrontier { block_hash, certified_frontier });
+            self.spice_core_writer_sender.send(ProcessedBlock { block_hash });
         }
     }
 

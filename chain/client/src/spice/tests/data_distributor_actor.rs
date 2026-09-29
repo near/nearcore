@@ -4,8 +4,8 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
-    SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    MAX_REQUESTED_PARTS, MalformedDataRequest, ProcessedBlockWithFrontier,
+    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
 use assert_matches::assert_matches;
@@ -23,7 +23,7 @@ use near_chain::spice::all_stake_fallback::{
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync, processed_block,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
 use near_chain::types::Tip;
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
@@ -86,6 +86,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+/// A processed-block message with an empty certified frontier.
+fn processed_block(block_hash: CryptoHash) -> ProcessedBlockWithFrontier {
+    ProcessedBlockWithFrontier { block_hash, certified_frontier: HashMap::new() }
+}
 
 fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> Arc<Block> {
     build_block_with_core_statements(epoch_manager, prev_block, vec![])
