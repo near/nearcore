@@ -31,9 +31,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (155, include_config!("155.yaml")),
 ];
 
-/// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
-pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
-
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
@@ -127,18 +124,10 @@ impl RuntimeConfigStore {
 
     /// Create store of runtime configs for the given chain id.
     ///
-    /// For mainnet and other chains except testnet we don't need to override runtime config for
-    /// first protocol versions.
-    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
-    /// need to override it specifically to preserve compatibility.
     /// In benchmarknet, we are measuring the peak throughput that the NEAR network can handle while still being stable.
     /// This requires increasing the limits below that are set too conservatively.
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
-            near_primitives_core::chains::TESTNET => {
-                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-                Self::new(Some(&genesis_runtime_config))
-            }
             near_primitives_core::chains::BENCHMARKNET => {
                 let mut config_store = Self::new(None);
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
@@ -379,21 +368,6 @@ mod tests {
                 }).is_err();
             });
         }
-
-        // Testnet initial config for old version was different, thus needs separate testing
-        let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
-        let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
-        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
-
-        for version in testnet_store.store.keys() {
-            let snapshot_name = format!("testnet_{version}.json");
-            let config_view =
-                RuntimeConfigView::from(testnet_store.get_config(*version).as_ref().clone());
-            any_failure |= std::panic::catch_unwind(|| {
-                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
-            })
-            .is_err();
-        }
         if any_failure {
             panic!("some snapshot assertions failed");
         }
@@ -414,6 +388,19 @@ mod tests {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
         assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, u64::MAX);
+    }
+
+    #[test]
+    fn testnet_config_matches_mainnet_config_for_supported_versions() {
+        let testnet_store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::TESTNET);
+        let mainnet_store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::MAINNET);
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
+            assert_eq!(
+                testnet_store.get_config(version),
+                mainnet_store.get_config(version),
+                "protocol version {version}"
+            );
+        }
     }
 
     /// Make sure that protocol feature flag and runtime config are in sync for universal accounts.
