@@ -24,9 +24,10 @@ struct PrepareContext<'a> {
     before_import_section: bool,
     before_memory_section: bool,
     before_export_section: bool,
-    /// Entries of the `ecc_only_functions` custom section, sorted. Only set
-    /// when the `ecc_only_functions` config flag is enabled.
-    ecc_only_functions: Option<Vec<Box<str>>>,
+    /// Entries of the `ecc_only_functions` custom section, in the order they
+    /// appear in the section. Only set when the `ecc_only_functions` config
+    /// flag is enabled.
+    ecc_only_functions: Option<Vec<&'a str>>,
     /// Names of the exported functions. Only collected when the
     /// `ecc_only_functions` config flag is enabled.
     func_exports: HashSet<&'a str>,
@@ -295,7 +296,8 @@ impl<'a> PrepareContext<'a> {
                     if self.ecc_only_functions.is_some() {
                         return Err(PrepareError::ECCSectionRepeated);
                     }
-                    self.ecc_only_functions = Some(parse_ecc_only_functions(reader.data())?);
+                    let limit = self.config.limit_config.max_number_bytes_method_names;
+                    self.ecc_only_functions = Some(parse_ecc_only_functions(reader.data(), limit)?);
                 }
                 wp::Payload::CustomSection(_) => {}
 
@@ -413,16 +415,21 @@ impl<'a> PrepareContext<'a> {
     }
 
     /// Check the parsed `ecc_only_functions` entries against the exported
-    /// functions. The export section may come after the custom section, so this
-    /// can only run once the whole module has been read.
+    /// functions, then sort them and reject duplicates. The export section may
+    /// come after the custom section, so this can only run once the whole
+    /// module has been read.
     fn take_ecc_only_functions(&mut self) -> Result<EccOnlyFunctions, PrepareError> {
-        let Some(names) = self.ecc_only_functions.take() else {
+        let Some(mut names) = self.ecc_only_functions.take() else {
             return Ok(EccOnlyFunctions::default());
         };
-        if names.iter().any(|name| !self.func_exports.contains(name.as_ref())) {
+        if names.iter().any(|name| !self.func_exports.contains(name)) {
             return Err(PrepareError::ECCSectionUnknownFunction);
         }
-        Ok(EccOnlyFunctions::from_sorted(names.into_boxed_slice()))
+        names.sort_unstable();
+        if names.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(PrepareError::ECCSectionDuplicateEntry);
+        }
+        Ok(EccOnlyFunctions::from_sorted(names.into_iter().map(Box::from).collect()))
     }
 
     /// Copy over the payload to the output binary without significant processing.
@@ -433,9 +440,15 @@ impl<'a> PrepareContext<'a> {
 
 /// Parse the content of the `ecc_only_functions` custom section: a comma
 /// separated list of function names, each made of ASCII `[A-Za-z0-9_]` only.
+/// The section may be at most `size_limit` bytes long.
 ///
-/// Returns the names sorted.
-fn parse_ecc_only_functions(data: &[u8]) -> Result<Vec<Box<str>>, PrepareError> {
+/// Returns the names in the order they appear in the section. Checking them
+/// against the exports and for duplicates happens in
+/// `PrepareContext::take_ecc_only_functions`.
+fn parse_ecc_only_functions(data: &[u8], size_limit: u64) -> Result<Vec<&str>, PrepareError> {
+    if data.len() as u64 > size_limit {
+        return Err(PrepareError::ECCSectionTooLarge);
+    }
     let data = std::str::from_utf8(data).map_err(|_| PrepareError::ECCSectionInvalidUTF8)?;
     let mut names = Vec::new();
     for name in data.split(',') {
@@ -444,11 +457,7 @@ fn parse_ecc_only_functions(data: &[u8]) -> Result<Vec<Box<str>>, PrepareError> 
         if !is_valid {
             return Err(PrepareError::ECCSectionInvalidEntry);
         }
-        names.push(Box::<str>::from(name));
-    }
-    names.sort_unstable();
-    if names.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(PrepareError::ECCSectionDuplicateEntry);
+        names.push(name);
     }
     Ok(names)
 }

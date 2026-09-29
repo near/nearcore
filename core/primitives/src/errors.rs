@@ -1514,6 +1514,9 @@ pub enum PrepareError {
     ECCSectionUnknownFunction = 23,
     /// The contract contains more than one `ecc_only_functions` custom section.
     ECCSectionRepeated = 24,
+    /// The `ecc_only_functions` custom section is larger than
+    /// `max_number_bytes_method_names`.
+    ECCSectionTooLarge = 25,
 }
 
 /// A kind of a trap happened during execution of a binary

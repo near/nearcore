@@ -7378,7 +7378,7 @@
             "type": "integer"
           },
           "max_number_bytes_method_names": {
-            "description": "Max total length of all method names (including terminating character) for a function call\npermission access key.",
+            "description": "Max total length of all method names (including terminating character) for a function call\npermission access key.\n\nAlso limits the size in bytes of a contract's `ecc_only_functions` custom section, which\nis a comma-separated list of method names. Changing this value changes which contracts\npass preparation.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -8169,6 +8169,11 @@
           {
             "const": "ECCSectionRepeated",
             "description": "The contract contains more than one `ecc_only_functions` custom section.",
+            "type": "string"
+          },
+          {
+            "const": "ECCSectionTooLarge",
+            "description": "The `ecc_only_functions` custom section is larger than\n`max_number_bytes_method_names`.",
             "type": "string"
           }
         ],

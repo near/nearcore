@@ -103,6 +103,10 @@ pub struct LimitConfig {
     pub max_deploy_actions_per_receipt: u64,
     /// Max total length of all method names (including terminating character) for a function call
     /// permission access key.
+    ///
+    /// Also limits the size in bytes of a contract's `ecc_only_functions` custom section, which
+    /// is a comma-separated list of method names. Changing this value changes which contracts
+    /// pass preparation.
     pub max_number_bytes_method_names: u64,
     /// Max length of any method name (without terminating character).
     pub max_length_method_name: u64,

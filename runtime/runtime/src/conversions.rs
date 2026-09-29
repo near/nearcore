@@ -52,6 +52,7 @@ mod prepare_error {
                 From::ECCSectionDuplicateEntry => Self::ECCSectionDuplicateEntry,
                 From::ECCSectionUnknownFunction => Self::ECCSectionUnknownFunction,
                 From::ECCSectionRepeated => Self::ECCSectionRepeated,
+                From::ECCSectionTooLarge => Self::ECCSectionTooLarge,
             }
         }
     }

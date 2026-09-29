@@ -652,6 +652,9 @@ mod tests {
             (&[b"a,b,a"], PrepareError::ECCSectionDuplicateEntry),
             (&[b"c"], PrepareError::ECCSectionUnknownFunction),
             (&[b"a,c"], PrepareError::ECCSectionUnknownFunction),
+            // Unknown functions are reported before duplicates.
+            (&[b"c,c"], PrepareError::ECCSectionUnknownFunction),
+            (&[b"a,a,c"], PrepareError::ECCSectionUnknownFunction),
             // `g` is exported, but it is a global rather than a function.
             (&[b"g"], PrepareError::ECCSectionUnknownFunction),
             // The memory is exported under this name after preparation, not before.
@@ -663,5 +666,31 @@ mod tests {
             let result = prepare_ecc(&config, &ecc_test_module(sections));
             assert_eq!(result, Err(expected.clone()), "sections: {sections:?}");
         }
+    }
+
+    /// The section may be at most `max_number_bytes_method_names` bytes long.
+    /// The size is checked before anything else about the section.
+    #[test]
+    fn ecc_only_functions_size_limit() {
+        let mut config = ecc_test_config(true);
+        // `a,b` is 3 bytes.
+        config.limit_config.max_number_bytes_method_names = 3;
+        let ecc = prepare_ecc(&config, &ecc_test_module(&[b"a,b"])).unwrap();
+        assert_eq!(ecc.iter().collect::<Vec<_>>(), ["a", "b"]);
+
+        config.limit_config.max_number_bytes_method_names = 2;
+        for section in [&b"a,b"[..], b"\xff\xff\xff", b"a b", b"a,a", b"c,d"] {
+            let result = prepare_ecc(&config, &ecc_test_module(&[section]));
+            assert_eq!(result, Err(PrepareError::ECCSectionTooLarge), "section: {section:?}");
+        }
+
+        // A repeated section is reported before the size of the second one.
+        let result = prepare_ecc(&config, &ecc_test_module(&[b"a", b"a,b"]));
+        assert_eq!(result, Err(PrepareError::ECCSectionRepeated));
+
+        // With the config flag disabled the size is not checked either.
+        config.ecc_only_functions = false;
+        let ecc = prepare_ecc(&config, &ecc_test_module(&[b"a,b"])).unwrap();
+        assert!(ecc.is_empty());
     }
 }
