@@ -57,7 +57,7 @@ The `Genesis::json_hash` (a SHA-256 over pretty-serialized config + records via 
 1. Parse `BASE_CONFIG` (`res/runtime_configs/parameters.yaml`) into a `ParameterTable`; materialize it as the config for version 0 (`config_store.rs:88-101`).
 2. For each `(version, diff)` in `CONFIG_DIFFS` (`config_store.rs:26-66`, versions 46…85 plus nightly 129/155), apply the YAML diff onto the running table **in ascending version order** and snapshot the resulting `RuntimeConfig` under that version (:117-153). `apply_diff` verifies each edit's declared `old` value matches the current table, erroring with `WrongOldValue`/`NoOldValueExists`/`OldValueExists` otherwise — `parameter_table.rs:526` — `ParameterTable::apply_diff`.
 3. `RuntimeConfig::try_from(&ParameterTable)` assembles every sub-config by reading typed parameters — `parameter_table.rs:409`. Notably `wasm_config.limit_config` is built by re-serializing the vm-limit parameters to YAML (`parameter_table.rs:457`), and flags like `eth_implicit_global_contract`, `gas_key_host_fns`, `use_state_stored_receipt`, `account_creation_charge`, `min_gas_purchase_price` are read directly from parameters (:465, :467, :494-:496) — i.e. version-gated *behavior* is baked into the config values, not read from `ProtocolFeature` at execution time.
-4. `for_chain_id` overrides version-0 for testnet with `INITIAL_TESTNET_CONFIG` (historically divergent), and builds special configs for benchmarknet (disables congestion/witness/bandwidth limits) and congestion-control-test — `config_store.rs:170`.
+4. `for_chain_id` builds special configs for benchmarknet (disables congestion/witness/bandwidth limits) and congestion-control-test; all other chains, including testnet, use `RuntimeConfigStore::new(None)` — `config_store.rs:170`.
 
 `get_config(version)` floors to the greatest stored key `<= version` (`config_store.rs:240`). Config selection semantics are owned by [protocol-versioning](protocol-versioning.md).
 
@@ -79,7 +79,7 @@ The `Genesis::json_hash` (a SHA-256 over pretty-serialized config + records via 
 ### 7. Chain differences (mainnet / testnet / localnet)
 
 - `GenesisConfig::use_production_config()` is true for `chain_id == mainnet | testnet` (or an explicit `use_production_config` flag), routing to the hardcoded production epoch-config overrides — `genesis_config.rs:236`.
-- Runtime-config genesis (version-0) differs only for testnet, which is patched with `INITIAL_TESTNET_CONFIG` for historical compatibility — `config_store.rs:170`.
+- The runtime config is the same for mainnet and testnet at every protocol version; `for_chain_id` has no testnet case — `config_store.rs:170`.
 - Mainnet/testnet genesis state roots are hard-asserted at init (Behavior §3.5); localnet/other chains compute freely.
 - Mainnet/testnet genesis protocol version is `PROD_GENESIS_PROTOCOL_VERSION = 29` (`core/primitives-core/src/version.rs:597`); the protocol upgrade vote schedule is chain-specific and lives in [protocol-versioning](protocol-versioning.md).
 
@@ -141,7 +141,7 @@ There is **no** `FixContractLoadingError` variant on 2.13.0; `FixContractLoading
 | `core/store/src/genesis/state_applier.rs:345` | `GenesisStateApplier::apply` | records → trie → state root |
 | `core/parameters/src/config.rs:17` | `RuntimeConfig` | materialized per-version runtime params |
 | `core/parameters/src/config_store.rs:88` | `RuntimeConfigStore::new` | build versioned config map from base + diffs |
-| `core/parameters/src/config_store.rs:170` | `RuntimeConfigStore::for_chain_id` | chain-specific overrides (testnet/benchmarknet) |
+| `core/parameters/src/config_store.rs:170` | `RuntimeConfigStore::for_chain_id` | chain-specific overrides (benchmarknet/congestion-control-test) |
 | `core/parameters/src/config_store.rs:240` | `RuntimeConfigStore::get_config` | floor lookup by version |
 | `core/parameters/src/config_store.rs:26` | `CONFIG_DIFFS` | ordered (version, diff-file) list |
 | `core/parameters/src/parameter_table.rs:409` | `TryFrom<&ParameterTable> for RuntimeConfig` | assemble config from typed params |

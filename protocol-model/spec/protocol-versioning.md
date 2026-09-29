@@ -52,7 +52,7 @@ Two distinct mechanisms, and only one is authoritative for mainnet consensus:
 
 Lookup: `get_config(version)` does a `BTreeMap::range((Unbounded, Included(version))).next_back()` — the greatest key `<=` version — and panics if none exists (`config_store.rs:240-248`). So versions *between* two diff entries reuse the lower entry's config. On this tree `CONFIG_DIFFS` runs through `85.yaml`, then `129.yaml` and `155.yaml` for nightly (`config_store.rs:63-65`); there is no separate `86.yaml`, so PV 86 reuses the v85 config.
 
-`for_chain_id` (`config_store.rs:170`) layers chain-specific overrides on top: testnet overrides genesis (v0) config for historical compatibility (`config_store.rs:172-175`); benchmarknet/congestion-control-test mutate the `PROTOCOL_VERSION` entry (`config_store.rs:176-206`).
+`for_chain_id` (`config_store.rs:170`) layers chain-specific overrides on top: benchmarknet/congestion-control-test mutate the `PROTOCOL_VERSION` entry (`config_store.rs:176-206`). All other chains, including testnet, use `RuntimeConfigStore::new(None)`, so mainnet and testnet have the same config at every version.
 
 ### 3. What a node votes for (client side)
 
