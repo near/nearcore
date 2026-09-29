@@ -163,16 +163,6 @@ impl From<EpochError> for Error {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum ReceiveDataError {
-    #[error("failed receiving data with relevant block available")]
-    ReceivingDataWithBlock(Error),
-    #[error("failed receiving data with no block available")]
-    ReceivingDataWithoutBlock(Error),
-    #[error("Near chain error: {0}")]
-    NearChainError(#[from] near_chain::Error),
-}
-
 /// Blocks between the all-stake fallback opening for a chunk and a non-designated validator
 /// starting to request its witness. The producers push the witness when the fallback opens, so the
 /// request only covers a push that did not arrive.
@@ -381,16 +371,8 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             return;
         }
         let sender = data.sender().clone();
-        let inner = match self.receive_data(data) {
-            Ok(()) => return,
-            Err(ReceiveDataError::NearChainError(err)) => {
-                tracing::warn!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to read the block of partial data");
-                return;
-            }
-            Err(
-                ReceiveDataError::ReceivingDataWithBlock(inner)
-                | ReceiveDataError::ReceivingDataWithoutBlock(inner),
-            ) => inner,
+        let Err(inner) = self.receive_data(data) else {
+            return;
         };
         match inner {
             Error::DataIsIrrelevant(data_id) => {
@@ -406,7 +388,18 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
             | Error::NodeIsNotRecipient => {
                 tracing::debug!(target: "spice_data_distribution", err = ?inner, ?block_hash, ?sender, "partial data does not match this node's epoch view");
             }
-            _ => {
+            Error::InvalidWitnessShardId
+            | Error::InvalidDecodedWitnessShardId
+            | Error::InvalidDecodedWitnessBlockHash
+            | Error::InvalidCommitment
+            | Error::InvalidCommitmentHash
+            | Error::InvalidReceiptToShardId
+            | Error::InvalidReceiptFromShardId
+            | Error::IdAndDataMismatch
+            | Error::InvalidPartialDataSignature
+            | Error::DecodeError(_)
+            | Error::MalformedRequest(_)
+            | Error::SenderFault(_) => {
                 // TODO(spice): Implement banning or de-prioritization of nodes from which we
                 // receive invalid data.
                 tracing::debug!(target: "spice_data_distribution", err = ?inner, ?block_hash, ?sender, "rejected invalid partial data");
@@ -684,18 +677,13 @@ impl SpiceDataDistributorActor {
         Ok((recipients_set, producers))
     }
 
-    pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), ReceiveDataError> {
-        let block_hash = data.block_hash();
-        let block = match self.chain_store.get_block(block_hash) {
+    pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
+        let block = match self.chain_store.get_block(data.block_hash()) {
             Ok(block) => block,
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
-                return self
-                    .add_pending_partial_data(data)
-                    .map_err(ReceiveDataError::ReceivingDataWithoutBlock);
-            }
+            Err(near_chain::Error::DBNotFoundErr(_)) => return self.add_pending_partial_data(data),
             Err(err) => return Err(err.into()),
         };
-        self.receive_data_with_block(data, &block).map_err(ReceiveDataError::ReceivingDataWithBlock)
+        self.receive_data_with_block(data, &block)
     }
 
     fn add_pending_partial_data(&mut self, data: SpicePartialData) -> Result<(), Error> {
@@ -772,7 +760,7 @@ impl SpiceDataDistributorActor {
                     Ok(PartsOutcome::Decoded(SpiceData::StateWitness(_))) => {
                         unreachable!("decode checked the data against its receipt-proof id")
                     }
-                    Ok(PartsOutcome::Collecting | PartsOutcome::Settled) => Ok(()),
+                    Ok(PartsOutcome::Collecting | PartsOutcome::AlreadySettled) => Ok(()),
                     Ok(PartsOutcome::NotWanted) => Err(Error::DataIsIrrelevant(id)),
                     Err(err) => Err(err.into()),
                 }

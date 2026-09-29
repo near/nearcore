@@ -19,7 +19,7 @@ use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -30,6 +30,10 @@ mod tests;
 pub(crate) enum SenderFault {
     #[error("message carries no parts")]
     EmptyMessage,
+    #[error("message carries more parts than the commitment has")]
+    TooManyParts,
+    #[error("message carries the same part ordinal twice")]
+    DuplicateOrdinal,
     #[error("commitment settled as garbage: {0}")]
     GarbageCommitment(AssembledDataError),
     #[error("part merkle proof does not verify against the commitment root")]
@@ -47,7 +51,7 @@ pub(crate) enum PartsOutcome {
     /// A commitment decoded to this data, which matches the committed hash and the id.
     Decoded(SpiceData),
     /// The commitment was already settled, to data or to garbage; a late or re-sent part.
-    Settled,
+    AlreadySettled,
     /// No item tracks the id.
     NotWanted,
 }
@@ -134,11 +138,11 @@ impl SpiceDataManager {
         Ok(())
     }
 
-    /// The only insert path for received units. Verifies every part's proof against the
-    /// commitment before inserting any; a part failing its proof rejects the whole message
-    /// and leaves the item untouched, as does an empty message. A decoding insert checks
-    /// the decoded data against the committed hash and the id, settles the commitment
-    /// either way, and returns matching data.
+    /// Handles incoming parts: verifies every part's proof against the commitment before
+    /// inserting any; a part failing its proof rejects the whole message and leaves the item
+    /// untouched, as does an empty message, one with more than `total_parts` parts, or one
+    /// repeating an ordinal. A decoding insert checks the decoded data against the committed
+    /// hash and the id, settles the commitment either way, and returns matching data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
@@ -150,11 +154,18 @@ impl SpiceDataManager {
         if parts.is_empty() {
             return Err(SenderFault::EmptyMessage);
         }
+        if parts.len() > total_parts {
+            return Err(SenderFault::TooManyParts);
+        }
         let Some(item) = self.items.get_mut(id) else {
             return Ok(PartsOutcome::NotWanted);
         };
+        let mut ordinals = HashSet::with_capacity(parts.len());
         let mut verified = Vec::with_capacity(parts.len());
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
+            if !ordinals.insert(part_ord) {
+                return Err(SenderFault::DuplicateOrdinal);
+            }
             let part =
                 VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)
                     .ok_or(SenderFault::InvalidMerkleProof)?;
@@ -172,7 +183,7 @@ impl SpiceDataManager {
                 PartInsertResult::ConflictingCommitment => {
                     return Err(SenderFault::ConflictingCommitment);
                 }
-                PartInsertResult::Settled => return Ok(PartsOutcome::Settled),
+                PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
                 PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
             }
         }

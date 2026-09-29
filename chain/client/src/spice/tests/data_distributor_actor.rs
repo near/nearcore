@@ -4,7 +4,7 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MAX_REQUESTED_DATA_IDS,
-    MAX_REQUESTED_PARTS, MalformedDataRequest, ReceiveDataError, SpiceDataDistributorActor,
+    MAX_REQUESTED_PARTS, MalformedDataRequest, SpiceDataDistributorActor,
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
 };
 use crate::spice::data_manager::{AssembledDataError, DataId, SenderFault};
@@ -946,9 +946,10 @@ macro_rules! test_invalid_incoming_partial_data {
                     {
                         let $default = data_into_verified(incoming_data.data.clone());
                         let partial_data = $build_block;
+                        assert!(chain.chain_store.block_exists(partial_data.block_hash()));
                         let result = actor.receive_data(partial_data);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-                        assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithBlock($error)));
+                        assert_matches!(result, Err($error));
                     }
                     actor.handle(incoming_data);
                     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -1039,13 +1040,17 @@ test_invalid_incoming_partial_data! {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_a_garbage_decode_delivers_nothing_and_the_item_keeps_collecting() {
-    let (_genesis, chain) = setup(2, 0);
+    // Two producers per shard, so each producer's own part decodes on its own.
+    let (_genesis, chain) = setup(4, 0);
     let block = latest_block(&chain);
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
     let default = data_into_verified(incoming_data.data);
-    let data_id = test_receipt_proof_data_id(&block);
+    let honest_proof = new_test_receipt_proof(&block);
+    let producers = producers_of_receipt_proof(&chain, &block, &honest_proof);
+    assert_eq!(producers.len(), 2);
+    let honest_producer = producers.into_iter().find(|p| p != &default.sender).unwrap();
     let mut commitment = default.commitment.clone();
     commitment.hash = CryptoHash::default();
     let data = SpicePartialDataBuilder::from_verified(default).commitment(commitment).build();
@@ -1055,13 +1060,23 @@ fn test_a_garbage_decode_delivers_nothing_and_the_item_keeps_collecting() {
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
     assert_matches!(
         result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::SenderFault(
-            SenderFault::GarbageCommitment(AssembledDataError::HashMismatch)
-        )))
+        Err(Error::SenderFault(SenderFault::GarbageCommitment(AssembledDataError::HashMismatch)))
     );
-    // The garbage decode settled only its commitment; the item keeps collecting.
-    assert!(actor.is_tracking(&data_id));
     assert_matches!(actor.receive_data(data), Ok(()));
+
+    let (honest_data, _) = get_incoming_data(
+        &honest_producer,
+        &chain,
+        SpiceDistributorOutgoingReceipts {
+            block_hash: *block.hash(),
+            receipt_proofs: vec![honest_proof],
+        },
+    );
+    actor.handle(honest_data);
+    assert_matches!(
+        outgoing_rc.try_recv(),
+        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
+    );
 }
 
 #[test]
@@ -1133,10 +1148,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
     let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsIrrelevant(_)))
-    );
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
 }
 
 fn test_execution_result() -> ChunkExecutionResult {
@@ -1179,10 +1191,7 @@ fn test_incoming_partial_data_for_already_endorsed_witness() {
     let SpiceIncomingPartialData { data, .. } = incoming_data;
     let result = actor.receive_data(data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsIrrelevant(_)))
-    );
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
 }
 
 #[test]
@@ -1205,8 +1214,8 @@ fn test_incoming_partial_data_for_witness_with_receipt_id() {
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
         assert_matches!(
             result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::SenderFault(
-                SenderFault::GarbageCommitment(AssembledDataError::IdAndDataMismatch)
+            Err(Error::SenderFault(SenderFault::GarbageCommitment(
+                AssembledDataError::IdAndDataMismatch
             )))
         );
     }
@@ -1244,10 +1253,7 @@ fn test_incoming_partial_data_for_receipt_with_witness_id() {
             .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(
-            result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::IdAndDataMismatch))
-        );
+        assert_matches!(result, Err(Error::IdAndDataMismatch));
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -1299,10 +1305,7 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
             .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(
-            result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessShardId))
-        );
+        assert_matches!(result, Err(Error::InvalidDecodedWitnessShardId));
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -1336,10 +1339,7 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
             .build();
         let result = actor.receive_data(data);
         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-        assert_matches!(
-            result,
-            Err(ReceiveDataError::ReceivingDataWithBlock(Error::InvalidDecodedWitnessBlockHash))
-        );
+        assert_matches!(result, Err(Error::InvalidDecodedWitnessBlockHash));
     }
     actor.handle(incoming_data);
     assert_matches!(outgoing_rc.try_recv(), Ok(_));
@@ -1375,9 +1375,10 @@ macro_rules! test_invalid_incoming_partial_data_without_block {
                     {
                         let $default = data_into_verified(incoming_data.data.clone());
                         let partial_data = $build_block;
+                        assert!(!receiver_chain.chain_store.block_exists(partial_data.block_hash()));
                         let result = actor.receive_data(partial_data);
                         assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-                        assert_matches!(result, Err(ReceiveDataError::ReceivingDataWithoutBlock($error)));
+                        assert_matches!(result, Err($error));
                     }
                 }
             )+
@@ -1476,12 +1477,10 @@ fn test_invalid_incoming_partial_data_without_block_node_is_not_recipient() {
         &AccountId::from_str("non-validator").unwrap(),
     );
     let partial_data = SpicePartialDataBuilder::from_verified(verified).build();
+    assert!(!receiver_chain.chain_store.block_exists(partial_data.block_hash()));
     let result = actor.receive_data(partial_data);
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-    assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithoutBlock(Error::NodeIsNotRecipient))
-    );
+    assert_matches!(result, Err(Error::NodeIsNotRecipient));
 }
 
 #[test]
@@ -3609,10 +3608,7 @@ fn test_pushed_fallback_witness_is_dropped_when_head_is_beyond_the_lookahead() {
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
     let result = actor.receive_data(data);
 
-    assert_matches!(
-        result,
-        Err(ReceiveDataError::ReceivingDataWithBlock(Error::DataIsIrrelevant(_)))
-    );
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
     assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 

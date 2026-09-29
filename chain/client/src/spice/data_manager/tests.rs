@@ -197,7 +197,7 @@ fn part_of_the_wrong_width_settles_its_commitment_and_binds_its_sender() {
     // A later claim on a settled commitment is not needed, and binds too.
     let late =
         item.insert_part(&encoder, &item_id(), &account("carol.near"), in_range_parts.remove(0));
-    assert_matches!(late, PartInsertResult::Settled);
+    assert_matches!(late, PartInsertResult::AlreadySettled);
     assert_eq!(
         item.contributors(&in_range_commitment),
         HashSet::from([&account("alice.near"), &account("carol.near")])
@@ -312,7 +312,7 @@ fn decode_settles_the_commitment_and_refuses_later_parts_under_it() {
     // A re-sent part under the settled commitment is not needed, from anyone.
     for (part, sender) in late_parts.into_iter().zip(["producer-0.near", "late.near"]) {
         let result = item.insert_part(&encoder, &item_id(), &account(sender), part);
-        assert_matches!(result, PartInsertResult::Settled);
+        assert_matches!(result, PartInsertResult::AlreadySettled);
     }
     // Its contributors stay bound to it.
     let result =
@@ -416,7 +416,7 @@ fn garbage_decode_settles_the_commitment_and_leaves_the_others_tracked() {
     // A re-sent garbage part under the settled commitment is not needed.
     for (part, sender) in late_garbage_parts.into_iter().zip(["liar-0.near", "late.near"]) {
         let result = item.insert_part(&encoder, &item_id(), &account(sender), part);
-        assert_matches!(result, PartInsertResult::Settled);
+        assert_matches!(result, PartInsertResult::AlreadySettled);
     }
     assert_eq!(tracked_commitments(&item), HashSet::from([&honest]));
 }
@@ -665,7 +665,7 @@ mod manager {
             late_part,
             TOTAL_PARTS,
         );
-        assert_matches!(result, Ok(PartsOutcome::Settled));
+        assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
         assert!(manager.is_tracking(&id));
     }
 
@@ -724,7 +724,7 @@ mod manager {
             late_part,
             TOTAL_PARTS,
         );
-        assert_matches!(result, Ok(PartsOutcome::Settled));
+        assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
     }
 
     #[test]
@@ -756,6 +756,52 @@ mod manager {
             assert!(item.commitments.is_empty());
             assert!(!item.commitment_by_contributor.contains_key(&alice));
         }
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_message_with_more_parts_than_total_is_rejected_before_any_proof_check() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let id = receipt_id(&blocks[0], 0, 1);
+        let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+        let alice = account("alice.near");
+        let mut manager = manager(&chain);
+        manager.track_block(blocks[0].header()).unwrap();
+        let mut bad = parts[0].clone();
+        bad.part[0] ^= 1;
+        let mut message = vec![bad];
+        message.extend(parts);
+        assert_eq!(message.len(), TOTAL_PARTS + 1);
+
+        let result = manager.on_parts_received(&alice, &id, &commitment, message, TOTAL_PARTS);
+
+        assert_matches!(result, Err(SenderFault::TooManyParts));
+        let item = &manager.items[&id];
+        assert!(item.commitments.is_empty());
+        assert!(!item.commitment_by_contributor.contains_key(&alice));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_repeated_ordinal_rejects_the_message_whole() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let id = receipt_id(&blocks[0], 0, 1);
+        let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+        let alice = account("alice.near");
+        let mut manager = manager(&chain);
+        manager.track_block(blocks[0].header()).unwrap();
+        let good: Vec<u64> = (0..DATA_PARTS as u64).collect();
+        let mut message = parts_with_ordinals(&parts, &good);
+        message.insert(1, message[0].clone());
+
+        let result = manager.on_parts_received(&alice, &id, &commitment, message, TOTAL_PARTS);
+
+        // Enough distinct parts to decode were in the message; none landed and the sender is
+        // not bound.
+        assert_matches!(result, Err(SenderFault::DuplicateOrdinal));
+        let item = &manager.items[&id];
+        assert!(item.commitments.is_empty());
+        assert!(!item.commitment_by_contributor.contains_key(&alice));
     }
 
     #[test]

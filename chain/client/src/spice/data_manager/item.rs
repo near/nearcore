@@ -74,7 +74,7 @@ impl FetchItem {
         self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
-            return PartInsertResult::Settled;
+            return PartInsertResult::AlreadySettled;
         }
         // TODO(spice-data-distribution): cap encoded_length against the max payload size;
         // the only cap today is MAX_ENCODED_LENGTH inside the decode.
@@ -100,7 +100,7 @@ impl FetchItem {
             }
             PartInsertResult::Accepted
             | PartInsertResult::Duplicate
-            | PartInsertResult::Settled
+            | PartInsertResult::AlreadySettled
             | PartInsertResult::ConflictingCommitment => {}
         }
         if let PartInsertResult::Garbage(error) = &result {
@@ -214,7 +214,7 @@ pub(crate) enum PartInsertResult {
     Accepted,
     Duplicate,
     /// The commitment was already settled, to data or to garbage; the part was not needed.
-    Settled,
+    AlreadySettled,
     /// The commitment decoded to this data, which matches the committed hash and the id.
     Decoded(SpiceData),
     /// The commitment settled without data.
