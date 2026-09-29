@@ -1,10 +1,17 @@
 use super::dependencies::StorageAccessTracker;
 use super::dependencies::sealed::StorageAccessTrackerSeal;
-use super::errors::{HostError, VMLogicError};
+use super::errors::{
+    CompilationError, FunctionCallError, HostError, MethodResolveError, VMLogicError,
+};
+use super::{ExecutionResultState, VMContext, VMOutcome};
 use crate::ProfileDataV3;
+use near_parameters::vm::Config;
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig, GasKeyAddFee, ParameterCost};
 use near_primitives_core::types::{Compute, Gas};
 use std::collections::HashMap;
+use std::fmt;
+use std::result::Result as StdResult;
+use std::sync::Arc;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -226,49 +233,37 @@ impl GasCounter {
         self.pay_base(ExtCosts::contract_loading_base)
     }
 
-    /// VM independent setup before loading the executable.
+    /// Charge the loading base, before any contract metadata is read.
     ///
-    /// Does VM independent checks that happen after the host state has been set
-    /// up but before loading the executable. This includes pre-charging gas
-    /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(feature = "wasmtime_vm")]
-    pub(crate) fn before_loading_executable(
-        &mut self,
-        config: &near_parameters::vm::Config,
+    /// Used with `FixContractLoadingCost`. The byte fee follows through
+    /// [`ContractLoadingBaseCharged::charge_bytes`].
+    pub fn charge_loading_base(
+        mut self,
         method_name: &str,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+    ) -> StdResult<ContractLoadingBaseCharged, ContractLoadingAbort> {
         if method_name.is_empty() {
-            let error = super::errors::FunctionCallError::MethodResolveError(
-                super::errors::MethodResolveError::MethodEmptyName,
-            );
-            return Err(error);
+            let error = FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self), error });
         }
-        if config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                let error =
-                    super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
-                return Err(error);
-            }
+        if self.pay_base(ExtCosts::contract_loading_base).is_err() {
+            let error = FunctionCallError::HostError(HostError::GasExceeded);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self), error });
         }
-        Ok(())
+        Ok(ContractLoadingBaseCharged(self))
     }
 
-    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    #[cfg(feature = "wasmtime_vm")]
-    pub(crate) fn after_loading_executable(
-        &mut self,
-        config: &near_parameters::vm::Config,
-        wasm_code_bytes: u64,
-    ) -> std::result::Result<(), super::errors::FunctionCallError> {
+    /// Prepare the counter for a contract whose code length is known, for tests and estimations.
+    pub fn prepare_for_contract(
+        self,
+        config: &Config,
+        method_name: &str,
+        code_len: u64,
+    ) -> StdResult<PreparedContractGasCounter, ContractLoadingAbort> {
         if !config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
-                return Err(super::errors::FunctionCallError::HostError(
-                    super::HostError::GasExceeded,
-                ));
-            }
+            return Ok(PreparedContractGasCounter::Legacy(self));
         }
-        Ok(())
+        let loading_fee_paid = self.charge_loading_base(method_name)?.charge_bytes(code_len)?;
+        Ok(PreparedContractGasCounter::Paid(loading_fee_paid))
     }
 
     #[inline]
@@ -410,6 +405,72 @@ impl StorageAccessTracker for GasCounter {
     }
     fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()> {
         self.pay_per(ExtCosts::storage_remove_ret_value_byte, bytes)
+    }
+}
+
+/// Gas counter passed to VM contract preparation.
+pub enum PreparedContractGasCounter {
+    /// Before `FixContractLoadingCost`: the VM charges the loading fee after the cache lookup.
+    Legacy(GasCounter),
+    Paid(LoadingFeePaid),
+}
+
+/// The loading base and bytes are paid. Only [`ContractLoadingBaseCharged::charge_bytes`]
+/// creates it.
+pub struct LoadingFeePaid {
+    gas_counter: GasCounter,
+    code_len: u64,
+}
+
+impl LoadingFeePaid {
+    pub(crate) fn into_parts(self) -> (GasCounter, u64) {
+        (self.gas_counter, self.code_len)
+    }
+}
+
+/// The loading base is paid, the byte fee is not.
+pub struct ContractLoadingBaseCharged(GasCounter);
+
+impl ContractLoadingBaseCharged {
+    pub fn charge_bytes(
+        mut self,
+        code_len: u64,
+    ) -> StdResult<LoadingFeePaid, ContractLoadingAbort> {
+        if self.0.pay_per(ExtCosts::contract_loading_bytes, code_len).is_err() {
+            let error = FunctionCallError::HostError(HostError::GasExceeded);
+            return Err(ContractLoadingAbort { gas_counter: Box::new(self.0), error });
+        }
+        Ok(LoadingFeePaid { gas_counter: self.0, code_len })
+    }
+
+    /// No code exists. The call fails with the loading base burnt.
+    pub fn without_code(self, account_id: &str) -> ContractLoadingAbort {
+        let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+            account_id: account_id.into(),
+        });
+        ContractLoadingAbort { gas_counter: Box::new(self.0), error }
+    }
+}
+
+/// A call that fails before VM preparation, with the gas burnt so far.
+pub struct ContractLoadingAbort {
+    gas_counter: Box<GasCounter>,
+    error: FunctionCallError,
+}
+
+impl fmt::Debug for ContractLoadingAbort {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("ContractLoadingAbort").field("error", &self.error).finish()
+    }
+}
+
+impl ContractLoadingAbort {
+    pub fn into_parts(self) -> (GasCounter, FunctionCallError) {
+        (*self.gas_counter, self.error)
+    }
+
+    pub fn into_outcome(self, context: &VMContext, config: Arc<Config>) -> VMOutcome {
+        VMOutcome::abort(ExecutionResultState::new(context, *self.gas_counter, config), self.error)
     }
 }
 
