@@ -1525,6 +1525,46 @@ fn memoized_blacklist_is_keyed_by_last_final_block() {
     );
 }
 
+// Epoch 0 ends with validator 0 blacklisted, and the result is memoized. After a skipped
+// height, the first block of epoch 1 has the same last final block. Its blacklist must still
+// be empty, because validator ids are local to an epoch.
+#[test]
+fn memoized_blacklist_does_not_cross_epoch_boundary() {
+    let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
+    const EPOCH_LENGTH: u64 = EARLY_KICKOUT_EPOCH_GRACE_BLOCKS + 300;
+    let handle = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60).into_handle();
+    let last = EPOCH_LENGTH;
+    let h = drive_down_node(&handle, last, 0);
+    let p = h[last as usize];
+    assert!(handle.is_next_block_epoch_start(&p).unwrap(), "p must be the last block of epoch 0");
+    let shard_id =
+        handle.get_shard_layout(&EpochId::default()).unwrap().shard_ids().next().unwrap();
+    assert_eq!(
+        handle.get_chunk_producer_blacklist(&p).unwrap(),
+        HashMap::from([(shard_id, HashSet::from([0]))]),
+        "epoch 0 must end with a non-empty blacklist, or this test proves nothing"
+    );
+    let final_hash = h[last as usize - 2];
+    assert!(
+        handle.read().chunk_producer_blacklists.contains(&final_hash),
+        "epoch 0's blacklist must be memoized before b is recorded, or this test proves nothing"
+    );
+
+    // Skip a height, so b keeps p's last final block.
+    let b = hash(b"canonical block opening epoch 1");
+    record_block_with_final(&mut handle.write(), p, b, last + 2, final_hash, last - 2);
+
+    let epoch_1 = *handle.get_block_info(&b).unwrap().epoch_id();
+    assert_ne!(epoch_1, EpochId::default(), "b must open epoch 1");
+    assert!(
+        handle.get_chunk_producer_blacklist(&b).unwrap().is_empty(),
+        "a last final block in epoch 0 must not blacklist anyone in epoch 1"
+    );
+    let epoch_info = handle.get_epoch_info(&epoch_1).unwrap();
+    let shard_layout = handle.get_shard_layout(&epoch_1).unwrap();
+    assert_seeded_row_is_canonical(&handle.read(), b, last + 2, &epoch_info, &shard_layout);
+}
+
 #[test]
 fn epoch_sync_clears_memoized_blacklists() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
