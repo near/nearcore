@@ -6,9 +6,10 @@ use crate::spice::chunk_executor_actor::storage::save_witness_and_contract_acces
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::spice::boundary::{
+use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::boundary_synthesis::{
     PreSpiceChunkApplyBlocks, execution_result_and_receipt_proofs_from_pre_spice_apply,
-    get_last_new_chunk_block_and_old_chunk_blocks, is_last_pre_spice_block,
+    get_last_new_chunk_block_and_old_chunk_blocks,
 };
 use near_chain::{Block, Error, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_network::client::SpiceChunkEndorsementMessage;

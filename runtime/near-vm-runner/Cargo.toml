@@ -28,6 +28,7 @@ parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
+rayon = { workspace = true, optional = true }
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
@@ -55,6 +56,12 @@ near-schema-checker-lib.workspace = true
 
 bytesize.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+
 [dev-dependencies]
 arbitrary.workspace = true
 ark-bls12-381.workspace = true
@@ -76,7 +83,7 @@ wat.workspace = true
 
 [features]
 default = ["wasmtime_vm"]
-wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
+wasmtime_vm = ["wasmtime", "anyhow", "prepare", "rayon"]
 prepare = [
     "finite-wasm-6",
     "wasm-encoder",
@@ -108,6 +115,11 @@ costs_counting = []
 name = "bench-contracts-compilation"
 path = "benchmarks/compile_contracts.rs"
 required-features = ["wasmtime_vm"]
+
+[[test]]
+name = "compiler_daemon"
+harness = false
+required-features = ["wasmtime_vm", "test_features"]
 
 [package.metadata.cargo-machete]
 ignored = ["prometheus"]

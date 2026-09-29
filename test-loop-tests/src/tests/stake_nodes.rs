@@ -2,7 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
 };
-use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
+use crate::utils::transactions::get_shared_block_hash;
 use crate::utils::validators::get_epoch_all_validators_sorted;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -80,7 +80,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         create_test_signer(accounts[1].as_str()).public_key(),
         block_hash,
     );
-    run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
+    env.runner_for_account(&accounts[0]).run_tx(tx, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
 
@@ -161,7 +161,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
             )
         })
         .collect();
-    run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
+    env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator2".to_string(), "validator3".to_string()];
 
@@ -270,7 +270,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
             block_hash,
         ),
     ];
-    run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
+    env.node_runner(0).run_txs_parallel(txs, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator0".to_string(), "validator2".to_string()];
 

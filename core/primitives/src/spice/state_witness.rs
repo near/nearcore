@@ -77,9 +77,10 @@ pub struct SpiceBoundaryChunkStateWitness {
     /// Recorded partial state before the chunk's main state transition.
     pub pre_state: PartialState,
     /// One proof per chunk included between the target shard's previous inclusion
-    /// (exclusive) and the anchor (inclusive), keyed by chunk hash and verified
-    /// against that chunk's `prev_outgoing_receipts_root`, as in the pre-spice
-    /// witness.
+    /// (exclusive) and the anchor (inclusive), as in the pre-spice witness. Each proof
+    /// carries the receipts the shard's preceding chunk produced, is keyed by the hash
+    /// of the chunk that follows it, and is verified against that following chunk's
+    /// `prev_outgoing_receipts_root`.
     pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
     /// Hash of the borsh-encoded receipts to apply, in application order.
     pub applied_receipts_hash: CryptoHash,

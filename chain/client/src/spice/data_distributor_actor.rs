@@ -23,7 +23,8 @@ use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
-    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_relevant_block,
+    SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
+    spice_enabled_at_head_on_startup,
 };
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
@@ -453,7 +454,11 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        match spice_relevant_block(&self.chain_store, self.epoch_manager.as_ref(), &block_hash) {
+        match is_spice_or_last_pre_spice_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &block_hash,
+        ) {
             Ok(true) => {}
             Ok(false) => return,
             Err(err) => {

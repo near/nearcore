@@ -7,6 +7,7 @@ use near_cache::SyncLruCache;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
@@ -51,6 +52,7 @@ pub struct SpiceCoreWriterActor {
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
@@ -101,6 +103,7 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
         core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
@@ -111,6 +114,7 @@ impl SpiceCoreWriterActor {
             core_reader,
             chain_store,
             epoch_manager,
+            shard_tracker,
             validator_signer,
             chunk_executor_sender,
             spice_chunk_validator_sender,

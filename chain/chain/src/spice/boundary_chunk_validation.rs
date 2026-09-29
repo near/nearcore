@@ -2,7 +2,7 @@
 
 use crate::chain::{NewChunkData, ShardContext, StorageContext};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
-use crate::spice::boundary::{
+use crate::spice::boundary_synthesis::{
     PreSpiceChunkApplyBlocks, get_incoming_receipt_blocks_for_shard,
     get_last_new_chunk_block_and_old_chunk_blocks,
 };
@@ -282,10 +282,10 @@ pub(super) fn replay_boundary_implicit_transitions(
 /// is missing.
 mod tests {
     use super::*;
-    use crate::spice::boundary::execution_result_from_pre_spice_child;
+    use crate::spice::boundary_synthesis::execution_result_from_pre_spice_child;
     use crate::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
-    use crate::spice::tests::{
-        pre_spice_chunk_endorsements, save_and_record_block, setup_pre_spice_chain,
+    use crate::spice::tests::pre_spice::{
+        save_and_record_block, setup_pre_spice_chain, unsigned_chunk_endorsement_slots,
     };
     use near_async::time::Clock;
     use near_o11y::testonly::init_test_logger;
@@ -435,7 +435,7 @@ mod tests {
                 })
                 .collect();
             let chunk_endorsements =
-                pre_spice_chunk_endorsements(&self.chain, prev_block, height, &chunks);
+                unsigned_chunk_endorsement_slots(&self.chain, prev_block, height, &chunks);
             let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                 .chunks(chunks)
                 .chunk_endorsements(chunk_endorsements)

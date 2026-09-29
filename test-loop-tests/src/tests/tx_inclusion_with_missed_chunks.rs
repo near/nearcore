@@ -1,7 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::utils::run_for_number_of_blocks;
-use crate::utils::transactions::{TransactionRunner, execute_tx};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -90,13 +89,6 @@ fn slow_test_tx_inclusion_with_missed_chunks() {
     );
     let client_actor = env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle());
     let block_time = client_actor.client.config.max_block_production_delay.get();
-    let tx_outcome = execute_tx(
-        &mut env.test_loop,
-        rpc_id,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        block_time * 5,
-    )
-    .unwrap();
+    let tx_outcome = env.runner_for_account(rpc_id).execute_tx(tx, block_time * 5).unwrap();
     assert_matches!(tx_outcome.status, FinalExecutionStatus::SuccessValue(_));
 }

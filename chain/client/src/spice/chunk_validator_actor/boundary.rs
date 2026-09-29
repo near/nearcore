@@ -2,7 +2,7 @@
 //! pre-spice block's chunk.
 
 use super::{SpiceChunkValidatorActor, WitnessValidationContext};
-use near_chain::spice::boundary::{
+use near_chain::spice::boundary_synthesis::{
     PreSpiceChunkApplyBlocks, execution_result_from_pre_spice_child,
     get_last_new_chunk_block_and_old_chunk_blocks,
 };

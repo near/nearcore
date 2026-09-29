@@ -21,7 +21,7 @@ use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
-use near_vm_runner::{ContractRuntimeCache, PreparedContract};
+use near_vm_runner::{CompilePriority, ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
@@ -81,6 +81,9 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// Shard ID for metric labels, formatted at report time.
     shard_id: ShardId,
 
+    /// Priority for compilations triggered by this pipeline's preparations.
+    priority: CompilePriority,
+
     current_protocol_version: ProtocolVersion,
 }
 
@@ -118,6 +121,7 @@ impl ReceiptPreparationPipeline {
         storage: ContractStorage,
         chain_id: String,
         shard_id: ShardId,
+        priority: CompilePriority,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         debug_assert!(
@@ -138,6 +142,7 @@ impl ReceiptPreparationPipeline {
             storage,
             chain_id,
             shard_id,
+            priority,
             current_protocol_version,
         }
     }
@@ -275,6 +280,7 @@ impl ReceiptPreparationPipeline {
                     entry.insert(Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
                     let shard_id = self.shard_id;
+                    let priority = self.priority;
                     contract_compilation_pool().spawn_boxed(Box::new(move || {
                         let task_status = {
                             let mut status = task.status.lock();
@@ -293,6 +299,7 @@ impl ReceiptPreparationPipeline {
                             gas_counter,
                             identifier,
                             &method_name,
+                            priority,
                         );
                         near_vm_runner::report_metrics(shard_id, "pipelining");
                         let mut status = task.status.lock();
@@ -371,6 +378,7 @@ impl ReceiptPreparationPipeline {
                 gas_counter,
                 identifier,
                 &function_call.method_name,
+                self.priority,
             );
             near_vm_runner::report_metrics(self.shard_id, "pipelining");
             PIPELINING_ACTIONS_NOT_SUBMITTED.inc_by(1);
@@ -402,6 +410,7 @@ impl ReceiptPreparationPipeline {
                         gas_counter,
                         identifier,
                         &method_name,
+                        self.priority,
                     );
                     near_vm_runner::report_metrics(self.shard_id, "pipelining");
                     PIPELINING_ACTIONS_PREPARED_IN_MAIN_THREAD.inc_by(1);
@@ -450,7 +459,15 @@ fn prepare_function_call(
     gas_counter: GasCounter,
     identifier: RuntimeContractIdentifier,
     method_name: &str,
+    priority: CompilePriority,
 ) -> Box<dyn PreparedContract> {
     let code_ext = RuntimeContractExt { storage: contract_storage.clone(), identifier };
-    near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name)
+    near_vm_runner::prepare_with_priority(
+        &code_ext,
+        config,
+        cache,
+        gas_counter,
+        method_name,
+        priority,
+    )
 }

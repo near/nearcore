@@ -3,7 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
-use crate::spice::boundary::{last_pre_spice_block_header, seeded_uncertified_chunks};
+use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -321,13 +321,9 @@ impl SpiceCoreReader {
         if !all_present && !last_certified.is_genesis() {
             let relevant_blocks = HashSet::from([*last_certified.hash()]);
             let mut results_by_block = HashMap::new();
-            let stop_header = self.get_last_certified_block_header_or_last_pre_spice_block(
-                block_hash,
-                &last_certified,
-            )?;
             self.collect_certified_execution_results_from_ancestry(
                 block_hash,
-                &stop_header,
+                &last_certified,
                 &relevant_blocks,
                 &mut results_by_block,
             )?;
@@ -346,20 +342,6 @@ impl SpiceCoreReader {
             state_roots.push(*result.chunk_extra.state_root());
         }
         Ok(Some(merklize(&state_roots).0))
-    }
-
-    /// Where an ancestry walk for core statements from `block_hash` stops: the last
-    /// certified block, or the last pre-spice block when the certified one is still
-    /// pre-spice, since no core statements exist at or below the activation boundary.
-    fn get_last_certified_block_header_or_last_pre_spice_block(
-        &self,
-        block_hash: &CryptoHash,
-        last_certified: &Arc<BlockHeader>,
-    ) -> Result<Arc<BlockHeader>, Error> {
-        if last_certified.is_spice() {
-            return Ok(Arc::clone(last_certified));
-        }
-        last_pre_spice_block_header(&self.chain_store, self.epoch_manager.as_ref(), block_hash)
     }
 
     /// Walks the canonical ancestry backwards from `from_hash` down to (but excluding)
@@ -980,7 +962,7 @@ fn get_uncertified_chunks(
     if block.header().is_genesis() {
         Ok(vec![])
     } else if !block.is_spice_block() {
-        Ok(seeded_uncertified_chunks(chain_store, block_hash))
+        Ok(get_uncertified_chunks_of_pre_spice_block(chain_store, block_hash))
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
@@ -1020,6 +1002,15 @@ pub fn record_uncertified_chunks_for_block(
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
         get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    // A pre-spice parent is a last pre-spice block, whose own postprocessing seeded its
+    // row with one entry per shard. An empty row means the parent was committed without
+    // the seeding; recording on top of it would leave its chunks uncertified for good.
+    let prev_header = chain_store_update.chain_store().get_block_header(prev_hash)?;
+    if !prev_header.is_genesis() && !prev_header.is_spice() && uncertified_chunks.is_empty() {
+        return Err(Error::Other(format!(
+            "missing seeded uncertified chunks of last pre-spice block {prev_hash}"
+        )));
+    }
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {

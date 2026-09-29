@@ -901,21 +901,8 @@ fn get_account_type(account_id: &AccountId, config: &RuntimeConfig) -> AccountTy
     match account_id.get_account_type() {
         AccountType::NamedAccount => AccountType::NamedAccount,
         AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
-        AccountType::EthImplicitAccount => {
-            if config.wasm_config.eth_implicit_accounts {
-                AccountType::EthImplicitAccount
-            } else {
-                AccountType::NamedAccount
-            }
-        }
-        // Deterministic accounts have no separate flag and re-use `eth_implicit_accounts`
-        AccountType::NearDeterministicAccount => {
-            if config.wasm_config.eth_implicit_accounts {
-                AccountType::NearDeterministicAccount
-            } else {
-                AccountType::NamedAccount
-            }
-        }
+        AccountType::EthImplicitAccount => AccountType::EthImplicitAccount,
+        AccountType::NearDeterministicAccount => AccountType::NearDeterministicAccount,
         AccountType::UniversalAccount => {
             if config.wasm_config.universal_accounts {
                 AccountType::UniversalAccount
@@ -2498,10 +2485,9 @@ mod tests {
         );
     }
 
-    fn config_with(eth_implicit_accounts: bool, universal_accounts: bool) -> RuntimeConfig {
+    fn config_with(universal_accounts: bool) -> RuntimeConfig {
         let mut config = RuntimeConfig::test();
         let wasm_config = Arc::make_mut(&mut config.wasm_config);
-        wasm_config.eth_implicit_accounts = eth_implicit_accounts;
         wasm_config.universal_accounts = universal_accounts;
         config
     }
@@ -2519,27 +2505,26 @@ mod tests {
         let universal = encode_universal_account_id(&[0x33; 32]);
 
         let cases = [
-            (&named, false, false, AccountType::NamedAccount),
-            (&named, true, true, AccountType::NamedAccount),
-            // NEAR-implicit accounts predate the flags and have none of their own.
-            (&near_implicit, false, false, AccountType::NearImplicitAccount),
-            (&near_implicit, true, true, AccountType::NearImplicitAccount),
-            (&eth, true, false, AccountType::EthImplicitAccount),
-            (&eth, false, true, AccountType::NamedAccount),
-            // A deterministic account has no flag of its own and rides the eth one.
-            (&deterministic, true, false, AccountType::NearDeterministicAccount),
-            (&deterministic, false, true, AccountType::NamedAccount),
-            (&universal, false, true, AccountType::UniversalAccount),
-            (&universal, true, false, AccountType::NamedAccount),
+            (&named, false, AccountType::NamedAccount),
+            (&named, true, AccountType::NamedAccount),
+            // These kinds are enabled in every supported protocol version and have
+            // no flag of their own.
+            (&near_implicit, false, AccountType::NearImplicitAccount),
+            (&near_implicit, true, AccountType::NearImplicitAccount),
+            (&eth, false, AccountType::EthImplicitAccount),
+            (&eth, true, AccountType::EthImplicitAccount),
+            (&deterministic, false, AccountType::NearDeterministicAccount),
+            (&deterministic, true, AccountType::NearDeterministicAccount),
+            (&universal, true, AccountType::UniversalAccount),
+            (&universal, false, AccountType::NamedAccount),
         ];
 
-        for (account_id, eth_implicit_accounts, universal_accounts, expected) in cases {
-            let config = config_with(eth_implicit_accounts, universal_accounts);
+        for (account_id, universal_accounts, expected) in cases {
+            let config = config_with(universal_accounts);
             assert_eq!(
                 get_account_type(account_id, &config),
                 expected,
-                "{account_id} with eth_implicit_accounts={eth_implicit_accounts}, \
-                 universal_accounts={universal_accounts}"
+                "{account_id} with universal_accounts={universal_accounts}"
             );
         }
     }
@@ -2556,17 +2541,11 @@ mod tests {
         let alone = ReceiptShape { is_refund: false, is_the_only_action: true };
 
         assert_eq!(
-            check_account_existence(
-                &transfer,
-                &None,
-                &account_id,
-                &config_with(true, false),
-                alone
-            ),
+            check_account_existence(&transfer, &None, &account_id, &config_with(false), alone),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
         );
         assert_eq!(
-            check_account_existence(&transfer, &None, &account_id, &config_with(true, true), alone),
+            check_account_existence(&transfer, &None, &account_id, &config_with(true), alone),
             Ok(())
         );
     }

@@ -7,7 +7,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{TransactionRunner, execute_tx};
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -90,15 +89,7 @@ fn process_tx(env: &TestLoopEnv, tx: SignedTransaction) -> ProcessTxResponse {
 /// outcome (panics on rejection before execution).
 fn execute_setup_tx(env: &mut TestLoopEnv, tx: SignedTransaction) -> FinalExecutionStatus {
     let node_account: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
-    execute_tx(
-        &mut env.test_loop,
-        &node_account,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        Duration::seconds(40),
-    )
-    .unwrap()
-    .status
+    env.runner_for_account(&node_account).execute_tx(tx, Duration::seconds(40)).unwrap().status
 }
 
 fn head_chunk(node: &TestLoopNode, shard_id: ShardId) -> ShardChunk {

@@ -1,24 +1,16 @@
 //! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
 //! are the first to be certified under spice.
 
-use crate::{Chain, byzantine_assert};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    ChunkExecutionResult, ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
-};
+use near_primitives::types::{SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, StoreUpdate};
-use std::sync::Arc;
 
 /// Whether `block_hash` is a last pre-spice block: a last block of a pre-spice epoch
 /// whose next epoch is spice, so every child of it is a first spice block. The
@@ -39,29 +31,8 @@ pub fn is_last_pre_spice_block(
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
 }
 
-/// The last pre-spice block in the ancestry of `block_hash`, `block_hash` itself when
-/// it is pre-spice. Errors on a chain that is spice from genesis.
-pub fn last_pre_spice_block_header(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block_hash: &CryptoHash,
-) -> Result<Arc<BlockHeader>, Error> {
-    let mut header = chain_store.get_block_header(block_hash)?;
-    while header.is_spice() {
-        let epoch_first_block = *epoch_manager.get_block_info(header.hash())?.epoch_first_block();
-        let epoch_first_header = chain_store.get_block_header(&epoch_first_block)?;
-        header = chain_store.get_block_header(epoch_first_header.prev_hash())?;
-    }
-    Ok(header)
-}
-
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block
 /// or a first spice block; a no-op otherwise.
-///
-/// A first spice block seeds its parent's uncertified-chunks row again. The parent is
-/// a last pre-spice block by definition, and its own postprocessing may have run on a
-/// binary without this seeding: a node that upgrades late stalls at the first spice
-/// block and resumes here. The row is deterministic, so the repeat is harmless.
 pub fn seed_activation_boundary(
     store_update: &mut StoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -69,14 +40,12 @@ pub fn seed_activation_boundary(
     prev_header: &BlockHeader,
 ) -> Result<(), Error> {
     if block.is_spice_block() {
-        if !prev_header.is_spice() {
-            write_boundary_uncertified_chunks(store_update, epoch_manager, prev_header)?;
-            seed_execution_heads_at_activation(store_update, block, prev_header)?;
-        }
+        seed_execution_heads_at_activation(store_update, block, prev_header)
     } else if is_last_pre_spice_block(epoch_manager, block.hash())? {
-        write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())?;
+        write_boundary_uncertified_chunks(store_update, epoch_manager, block.header())
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 /// Seeds the spice execution heads when `block` is a first spice block, i.e. when
@@ -145,9 +114,9 @@ fn write_boundary_uncertified_chunks(
     Ok(())
 }
 
-/// The seeded uncertified-chunks row of the pre-spice `block_hash`: present only for
-/// a last pre-spice block, empty otherwise.
-pub(crate) fn seeded_uncertified_chunks(
+/// The uncertified-chunks row of the pre-spice `block_hash`: the seeded row of a last
+/// pre-spice block, empty for any other pre-spice block.
+pub(crate) fn get_uncertified_chunks_of_pre_spice_block(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Vec<SpiceUncertifiedChunkInfo> {
@@ -165,215 +134,23 @@ pub(crate) fn seeded_uncertified_chunks(
     uncertified_chunks
 }
 
-/// The `ChunkExecutionResult` of shard `shard_id` of the last pre-spice block `block`,
-/// synthesized from artifacts its pre-spice apply committed.
-fn execution_result_from_pre_spice_apply(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-    shard_id: ShardId,
-) -> Result<ChunkExecutionResult, Error> {
-    Ok(execution_result_and_receipt_proofs_from_pre_spice_apply(
-        chain_store,
-        epoch_manager,
-        block,
-        shard_id,
-    )?
-    .0)
-}
-
-/// Same as [`execution_result_from_pre_spice_apply`], also returning the receipt proofs the
-/// result's receipts root commits to, for persisting at the boundary.
-pub fn execution_result_and_receipt_proofs_from_pre_spice_apply(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-    shard_id: ShardId,
-) -> Result<(ChunkExecutionResult, Vec<ReceiptProof>), Error> {
-    let epoch_id = block.header().epoch_id();
-    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id)?;
-    let chunk_extra = chain_store.chunk_store().get_chunk_extra(block.hash(), &shard_uid)?;
-
-    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-    let shard_index = shard_layout.get_shard_index(shard_id)?;
-    let chunks = block.chunks();
-    let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    let mut inclusion_header = chain_store.get_block_header(block.hash())?;
-    while inclusion_header.height() != chunk_header.height_included() {
-        inclusion_header = chain_store.get_block_header(inclusion_header.prev_hash())?;
-    }
-    let outgoing_receipts =
-        chain_store.get_outgoing_receipts(inclusion_header.hash(), shard_id)?.to_vec();
-
-    let next_shard_layout = epoch_manager.get_shard_layout_from_prev_block(block.hash())?;
-    let (outgoing_receipts_root, receipt_proofs) =
-        Chain::create_receipts_proofs_from_outgoing_receipts(
-            &next_shard_layout,
-            shard_id,
-            outgoing_receipts,
-        )?;
-    Ok((
-        ChunkExecutionResult { chunk_extra: chunk_extra.as_ref().clone(), outgoing_receipts_root },
-        receipt_proofs,
-    ))
-}
-
-/// The execution result of shard `shard_id`'s previous chunk, read off the chunk
-/// header the pre-spice `block` carries for that shard.
-pub fn execution_result_from_pre_spice_child(
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-    shard_id: ShardId,
-) -> Result<Option<ChunkExecutionResult>, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
-    let shard_index = shard_layout.get_shard_index(shard_id)?;
-    let chunks = block.chunks();
-    let chunk_header = chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-    if !chunk_header.is_new_chunk(block.header().height()) {
-        return Ok(None);
-    }
-    let chunk_extra = ChunkExtra::new(
-        &chunk_header.prev_state_root(),
-        *chunk_header.prev_outcome_root(),
-        chunk_header.prev_validator_proposals().collect(),
-        chunk_header.prev_gas_used(),
-        chunk_header.gas_limit(),
-        chunk_header.prev_balance_burnt(),
-        Some(chunk_header.congestion_info()),
-        chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-        chunk_header.proposed_split().cloned(),
-    );
-    Ok(Some(ChunkExecutionResult {
-        chunk_extra,
-        outgoing_receipts_root: *chunk_header.prev_outgoing_receipts_root(),
-    }))
-}
-
-/// The blocks a boundary witness of `block` for shard `shard_id` covers.
-pub struct PreSpiceChunkApplyBlocks {
-    /// The block carrying the shard's chunk the witness applies; `block` itself when it
-    /// includes one.
-    pub last_new_chunk_block: Arc<Block>,
-    /// The blocks after it, oldest first, whose old-chunk applications the witness
-    /// replays.
-    pub old_chunk_blocks: Vec<Arc<Block>>,
-}
-
-pub fn get_last_new_chunk_block_and_old_chunk_blocks(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    block: &Block,
-    shard_id: ShardId,
-) -> Result<PreSpiceChunkApplyBlocks, Error> {
-    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
-    let shard_index = shard_layout.get_shard_index(shard_id)?;
-    let chunks = block.chunks();
-    let height_included =
-        chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
-
-    let mut old_chunk_blocks = Vec::new();
-    let mut last_new_chunk_block = chain_store.get_block(block.hash())?;
-    while last_new_chunk_block.header().height() > height_included {
-        let prev_hash = *last_new_chunk_block.header().prev_hash();
-        old_chunk_blocks.push(last_new_chunk_block);
-        last_new_chunk_block = chain_store.get_block(&prev_hash)?;
-    }
-    old_chunk_blocks.reverse();
-    Ok(PreSpiceChunkApplyBlocks { last_new_chunk_block, old_chunk_blocks })
-}
-
-/// The blocks whose incoming receipts the chunk of `shard_id` at
-/// `last_new_chunk_block` consumed.
-pub fn get_incoming_receipt_blocks_for_shard(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    last_new_chunk_block: &Block,
-    shard_id: ShardId,
-) -> Result<Vec<Arc<Block>>, Error> {
-    let prev_block = chain_store.get_block(last_new_chunk_block.header().prev_hash())?;
-    let prev_shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
-    let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
-    let prev_chunks = prev_block.chunks();
-    let previous_inclusion_height =
-        prev_chunks.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.height_included();
-
-    let mut source_blocks = Vec::new();
-    let mut block = chain_store.get_block(last_new_chunk_block.header().hash())?;
-    while block.header().height() > previous_inclusion_height {
-        let prev_hash = *block.header().prev_hash();
-        source_blocks.push(block);
-        block = chain_store.get_block(&prev_hash)?;
-    }
-    Ok(source_blocks)
-}
-
-/// Consistency check between the two sources of truth at the boundary: a certified
-/// execution result of a pre-spice chunk must match what this node synthesizes from
-/// its own pre-spice apply.
-pub fn check_pre_spice_execution_result(
-    chain_store: &ChainStoreAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    chunk_id: &SpiceChunkId,
-    execution_result: &ChunkExecutionResult,
-) -> Result<(), Error> {
-    // A block this node does not hold is nothing to check against, same as a chunk
-    // it never applied below.
-    let block = match chain_store.get_block(&chunk_id.block_hash) {
-        Ok(block) => block,
-        Err(Error::DBNotFoundErr(_)) => return Ok(()),
-        Err(err) => return Err(err),
-    };
-    if block.is_spice_block() {
-        return Ok(());
-    }
-    let synthesized = match execution_result_from_pre_spice_apply(
-        chain_store,
-        epoch_manager,
-        &block,
-        chunk_id.shard_id,
-    ) {
-        Ok(result) => result,
-        Err(Error::DBNotFoundErr(_)) => return Ok(()),
-        Err(err) => return Err(err),
-    };
-    if &synthesized != execution_result {
-        byzantine_assert!(false);
-        return Err(Error::Other(format!(
-            "certified execution result for pre-spice chunk {:?} does not match local synthesis",
-            chunk_id
-        )));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        boundary_uncertified_chunks, check_pre_spice_execution_result,
-        execution_result_from_pre_spice_apply, execution_result_from_pre_spice_child,
-        seed_activation_boundary, seeded_uncertified_chunks,
+        boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
+        seed_activation_boundary,
     };
     use crate::Chain;
-    use crate::spice::tests::{
+    use crate::spice::core::record_uncertified_chunks_for_block;
+    use crate::spice::tests::pre_spice::{
         add_pre_spice_block, grow_to_last_pre_spice_block, setup_pre_spice_chain,
         setup_pre_spice_chain_with_epoch_length,
     };
     use near_async::time::Clock;
-    use near_crypto::{KeyType, SecretKey};
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::gas::Gas;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::merkle::merklize;
-    use near_primitives::receipt::Receipt;
-    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-    use near_primitives::test_utils::{
-        TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
-    };
-    use near_primitives::types::Balance;
-    use near_primitives::types::SpiceChunkId;
-    use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_chain_primitives::Error;
+    use near_primitives::block::Block;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+    use near_primitives::types::SpiceUncertifiedChunkInfo;
     use near_primitives::version::ProtocolFeature;
     use near_store::DBCol;
     use near_store::adapter::StoreAdapter;
@@ -429,19 +206,18 @@ mod tests {
         .unwrap();
         store_update.commit();
 
-        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
+        assert_eq!(get_uncertified_chunks_of_pre_spice_block(&chain_store, parent.hash()), vec![]);
         assert_eq!(
-            seeded_uncertified_chunks(&chain_store, last_pre_spice.hash()),
+            get_uncertified_chunks_of_pre_spice_block(&chain_store, last_pre_spice.hash()),
             boundary_uncertified_chunks(epoch_manager.as_ref(), last_pre_spice.header()).unwrap()
         );
     }
 
-    /// A first spice block whose pre-spice parent has no row yet, as on a node that
-    /// postprocessed the parent before it had this seeding, writes the parent's row along
-    /// with the execution heads.
+    /// A first spice block seeds the execution heads and nothing else: its parent's row
+    /// is the parent's own postprocessing's to write.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_seeding_at_the_first_spice_block_writes_the_missing_parent_row() {
+    fn test_seeding_at_the_first_spice_block_writes_the_execution_heads_only() {
         let mut chain = setup_pre_spice_chain(1);
         let epoch_manager = chain.epoch_manager.clone();
         let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -454,7 +230,7 @@ mod tests {
         .protocol_version(ProtocolFeature::Spice.protocol_version())
         .build();
         let chain_store = chain.chain_store.store().chain_store();
-        assert_eq!(seeded_uncertified_chunks(&chain_store, parent.hash()), vec![]);
+        assert!(chain_store.spice_execution_head().is_err());
 
         let mut store_update = chain.chain_store.store().store_update();
         seed_activation_boundary(
@@ -466,224 +242,107 @@ mod tests {
         .unwrap();
         store_update.commit();
 
-        assert_eq!(
-            seeded_uncertified_chunks(&chain_store, parent.hash()),
-            boundary_uncertified_chunks(epoch_manager.as_ref(), parent.header()).unwrap()
-        );
+        assert_eq!(get_uncertified_chunks_of_pre_spice_block(&chain_store, parent.hash()), vec![]);
         assert_eq!(&chain_store.spice_execution_head().unwrap().last_block_hash, parent.hash());
     }
 
-    /// The synthesized result must be the chunk extra the pre-spice apply wrote plus
-    /// the receipts root a producer of the next block's chunk would compute.
+    /// Recording the first spice block's row in the order of block postprocessing, with
+    /// its parent's row committed by the parent's own postprocessing, carries the
+    /// parent's seeded chunks over unchanged alongside the block's own.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_execution_result_from_pre_spice_apply_with_included_and_missing_chunk() {
-        let mut chain = setup_pre_spice_chain(1);
+    fn test_recording_the_first_spice_block_carries_seeded_boundary_chunks() {
+        let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
         let epoch_manager = chain.epoch_manager.clone();
-        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        let shard_layout =
-            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
-        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
+        let (last_pre_spice, parent) = grow_to_last_pre_spice_block(&mut chain);
+        let first_spice = build_first_spice_block(&chain, &last_pre_spice);
 
-        // The first block includes a new chunk; the second copies the first's chunk
-        // headers, so its chunk is missing (last included height stays at the first).
-        let block_with_chunk = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
-        let block_missing_chunk = add_pre_spice_block(&mut chain, &block_with_chunk, &[]);
-        let shard_id = shard_layout.shard_ids().next().unwrap();
-        let shard_uid = shard_layout.shard_uids().next().unwrap();
-
-        let receipts =
-            vec![Receipt::new_balance_refund(&"user".parse().unwrap(), Balance::from_near(1))];
-        let extra_with_chunk = ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a"));
-        let extra_missing_chunk =
-            ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"b"));
-        let mut store_update = chain.chain_store.store_update();
-        store_update.save_outgoing_receipt(block_with_chunk.hash(), shard_id, receipts.clone());
-        store_update.save_chunk_extra(
-            block_with_chunk.hash(),
-            &shard_uid,
-            extra_with_chunk.clone().into(),
-        );
-        store_update.save_chunk_extra(
-            block_missing_chunk.hash(),
-            &shard_uid,
-            extra_missing_chunk.clone().into(),
-        );
-        store_update.commit().unwrap();
-
-        let expected_root =
-            merklize(&Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap()).0;
-        let empty_root = merklize(&Chain::build_receipts_hashes(&[], &shard_layout).unwrap()).0;
-        assert_ne!(expected_root, empty_root, "the roots must discriminate the read block");
-
-        let chain_store = chain.chain_store.store().chain_store();
-        let result = execution_result_from_pre_spice_apply(
-            &chain_store,
+        // The last pre-spice block's postprocessing.
+        let mut store_update = chain.chain_store.store().store_update();
+        seed_activation_boundary(
+            &mut store_update,
             epoch_manager.as_ref(),
-            &block_with_chunk,
-            shard_id,
+            &last_pre_spice,
+            parent.header(),
         )
         .unwrap();
-        assert_eq!(result.chunk_extra, extra_with_chunk);
-        assert_eq!(result.outgoing_receipts_root, expected_root);
+        store_update.commit();
 
-        // The missing chunk produced no receipts row of its own: the root still covers
-        // the last included chunk's receipts, while the chunk extra is the block's own
-        // (applying a missed chunk writes one).
-        let result = execution_result_from_pre_spice_apply(
-            &chain_store,
+        // The first spice block's postprocessing: seeding, then recording, one commit.
+        let mut boundary_update = chain.chain_store.store().store_update();
+        let mut chain_store_update = chain.chain_store.store_update();
+        seed_activation_boundary(
+            &mut boundary_update,
             epoch_manager.as_ref(),
-            &block_missing_chunk,
-            shard_id,
+            &first_spice,
+            last_pre_spice.header(),
         )
         .unwrap();
-        assert_eq!(result.chunk_extra, extra_missing_chunk);
-        assert_eq!(result.outgoing_receipts_root, expected_root);
+        chain_store_update.merge(boundary_update);
+        record_uncertified_chunks_for_block(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            &first_spice,
+        )
+        .unwrap();
+        chain_store_update.commit().unwrap();
+
+        let seeded =
+            boundary_uncertified_chunks(epoch_manager.as_ref(), last_pre_spice.header()).unwrap();
+        let recorded: Vec<SpiceUncertifiedChunkInfo> = chain
+            .chain_store
+            .store()
+            .get_ser(DBCol::uncertified_chunks(), first_spice.hash().as_ref())
+            .unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(first_spice.header().epoch_id()).unwrap();
+        assert_eq!(recorded.len(), seeded.len() + shard_layout.num_shards() as usize);
+        assert_eq!(&recorded[..seeded.len()], &seeded[..]);
+        assert!(
+            recorded[seeded.len()..]
+                .iter()
+                .all(|chunk| &chunk.chunk_id.block_hash == first_spice.hash())
+        );
     }
 
-    /// The consistency check accepts a certified pre-spice result equal to the local synthesis,
-    /// rejects one that differs, and skips a shard this node cannot synthesize.
+    /// Recording the first spice block's row without its parent's seeded row is an
+    /// error: continuing would drop the boundary chunks from certification for good.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_pre_spice_execution_result_consistency_check() {
-        let mut chain = setup_pre_spice_chain(1);
+    fn test_record_first_spice_block_errors_without_seeded_parent_row() {
+        let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
         let epoch_manager = chain.epoch_manager.clone();
-        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        let shard_layout =
-            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
-        let all_shards: Vec<_> = shard_layout.shard_ids().collect();
+        let (last_pre_spice, _parent) = grow_to_last_pre_spice_block(&mut chain);
+        let first_spice = build_first_spice_block(&chain, &last_pre_spice);
 
-        // Applied by this node: chunk extra and receipts on disk, synthesis possible.
-        let applied_block = add_pre_spice_block(&mut chain, &genesis_block, &all_shards);
-        // Never applied by this node: no chunk extra, synthesis impossible.
-        let unapplied_block = add_pre_spice_block(&mut chain, &applied_block, &[]);
-        let shard_id = shard_layout.shard_ids().next().unwrap();
-        let shard_uid = shard_layout.shard_uids().next().unwrap();
-        let mut store_update = chain.chain_store.store_update();
-        store_update.save_outgoing_receipt(applied_block.hash(), shard_id, vec![]);
-        store_update.save_chunk_extra(
-            applied_block.hash(),
-            &shard_uid,
-            ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a")).into(),
+        let mut chain_store_update = chain.chain_store.store_update();
+        let result = record_uncertified_chunks_for_block(
+            &mut chain_store_update,
+            epoch_manager.as_ref(),
+            &first_spice,
         );
-        store_update.commit().unwrap();
-
-        let chain_store = chain.chain_store.store().chain_store();
-        let chunk_id = SpiceChunkId { block_hash: *applied_block.hash(), shard_id };
-        let synthesized = execution_result_from_pre_spice_apply(
-            &chain_store,
-            epoch_manager.as_ref(),
-            &applied_block,
-            shard_id,
-        )
-        .unwrap();
-
-        check_pre_spice_execution_result(
-            &chain_store,
-            epoch_manager.as_ref(),
-            &chunk_id,
-            &synthesized,
-        )
-        .unwrap();
-
-        let mut forged = synthesized;
-        forged.outgoing_receipts_root = CryptoHash::hash_bytes(b"forged root");
-        check_pre_spice_execution_result(&chain_store, epoch_manager.as_ref(), &chunk_id, &forged)
-            .unwrap_err();
-
-        // A forged result for the unapplied block passes: nothing local to check
-        // against, and learning untracked results from certification is the point.
-        let unapplied_chunk_id = SpiceChunkId { block_hash: *unapplied_block.hash(), shard_id };
-        check_pre_spice_execution_result(
-            &chain_store,
-            epoch_manager.as_ref(),
-            &unapplied_chunk_id,
-            &forged,
-        )
-        .unwrap();
+        let Err(Error::Other(message)) = result else {
+            panic!("expected a missing seeded row error, got {result:?}");
+        };
+        assert!(
+            message.contains("missing seeded uncertified chunks of last pre-spice block"),
+            "{message}"
+        );
     }
 
-    /// Every field of the reconstructed result must come from the corresponding
-    /// prev_* header field, and a missing chunk must yield `None` rather than the older chunk's stale fields.
-    #[test]
-    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn test_execution_result_from_pre_spice_child() {
-        let signer = Arc::new(create_test_signer("test1"));
-        let chain = setup_pre_spice_chain(1);
-        let epoch_manager = chain.epoch_manager.clone();
-        let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-        let shard_layout =
-            epoch_manager.get_shard_layout(genesis_block.header().epoch_id()).unwrap();
-        let shard_id = shard_layout.shard_ids().next().unwrap();
-
-        // A header with every prev_* field distinct, so a swapped mapping cannot pass.
-        let proposals = vec![ValidatorStake::new(
-            "test1".parse().unwrap(),
-            SecretKey::from_seed(KeyType::ED25519, "test1").public_key(),
-            Balance::from_yoctonear(17),
-        )];
-        let congestion_info = CongestionInfo::default();
-        let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            *genesis_block.hash(),
-            CryptoHash::hash_bytes(b"state root"),
-            CryptoHash::hash_bytes(b"outcome root"),
-            CryptoHash::default(),
-            0,
-            1,
-            shard_id,
-            Gas::from_gas(7),
-            Gas::from_gas(1_000_000),
-            Balance::from_yoctonear(42),
-            CryptoHash::hash_bytes(b"receipts root"),
-            CryptoHash::default(),
-            proposals.clone(),
-            congestion_info,
-            BandwidthRequests::empty(),
-            None,
-            &signer,
-            pre_spice_protocol_version(),
-        ));
-        *chunk_header.height_included_mut() = 1;
-        let block_with_chunk = TestBlockBuilder::from_prev_block(
+    /// Fabricates the first spice block on top of `last_pre_spice` without saving it.
+    fn build_first_spice_block(chain: &Chain, last_pre_spice: &Block) -> Arc<Block> {
+        let epoch_manager = chain.epoch_manager.as_ref();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
+        let next_epoch_id =
+            epoch_manager.get_next_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
+        TestBlockBuilder::from_prev_block(
             Clock::real(),
-            genesis_block.as_ref(),
-            signer.clone(),
+            last_pre_spice,
+            Arc::new(create_test_signer("test1")),
         )
-        .chunks(vec![chunk_header])
-        .protocol_version(pre_spice_protocol_version())
-        .build();
-
-        let result = execution_result_from_pre_spice_child(
-            epoch_manager.as_ref(),
-            &block_with_chunk,
-            shard_id,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(result.chunk_extra.state_root(), &CryptoHash::hash_bytes(b"state root"));
-        assert_eq!(result.chunk_extra.outcome_root(), &CryptoHash::hash_bytes(b"outcome root"));
-        assert_eq!(result.chunk_extra.validator_proposals().collect::<Vec<_>>(), proposals,);
-        assert_eq!(result.chunk_extra.gas_used(), Gas::from_gas(7));
-        assert_eq!(result.chunk_extra.gas_limit(), Gas::from_gas(1_000_000));
-        assert_eq!(result.chunk_extra.balance_burnt(), Balance::from_yoctonear(42));
-        assert_eq!(result.chunk_extra.congestion_info(), congestion_info);
-        assert_eq!(result.chunk_extra.bandwidth_requests(), Some(&BandwidthRequests::empty()));
-        assert_eq!(result.chunk_extra.proposed_split(), None);
-        assert_eq!(result.outgoing_receipts_root, CryptoHash::hash_bytes(b"receipts root"));
-
-        // The next block carries the same header (chunk missing): no result.
-        let block_missing_chunk =
-            TestBlockBuilder::from_prev_block(Clock::real(), block_with_chunk.as_ref(), signer)
-                .protocol_version(pre_spice_protocol_version())
-                .build();
-        assert_eq!(
-            execution_result_from_pre_spice_child(
-                epoch_manager.as_ref(),
-                &block_missing_chunk,
-                shard_id,
-            )
-            .unwrap(),
-            None,
-        );
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
+        .protocol_version(ProtocolFeature::Spice.protocol_version())
+        .build()
     }
 }

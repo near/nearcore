@@ -7,7 +7,7 @@ use crate::spice::tests::all_stake_fallback::{
     grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
 };
 use crate::spice::tests::core::endorse_chunk;
-use crate::spice::tests::{
+use crate::spice::tests::pre_spice::{
     build_pre_spice_block, grow_to_last_pre_spice_block, save_and_record_block,
     setup_pre_spice_chain_with_epoch_length,
 };
@@ -588,6 +588,7 @@ fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_b
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),
@@ -843,6 +844,7 @@ fn setup_with_senders(
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         chunk_executor_sender,
@@ -856,6 +858,7 @@ fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(&chain),
         noop().into_sender(),

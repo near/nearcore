@@ -1,7 +1,8 @@
 //! Core writer handling of the spice activation boundary.
 
 use super::SpiceCoreWriterActor;
-use crate::spice::boundary::{check_pre_spice_execution_result, is_last_pre_spice_block};
+use crate::spice::boundary::is_last_pre_spice_block;
+use crate::spice::boundary_synthesis::check_pre_spice_execution_result;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{ChunkExecutionResult, ShardId, SpiceChunkId};
@@ -18,6 +19,7 @@ impl SpiceCoreWriterActor {
         let Err(err) = check_pre_spice_execution_result(
             &self.chain_store,
             self.epoch_manager.as_ref(),
+            &self.shard_tracker,
             &SpiceChunkId { block_hash: *block_hash, shard_id },
             execution_result,
         ) else {

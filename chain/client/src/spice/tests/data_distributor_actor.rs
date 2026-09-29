@@ -1218,6 +1218,7 @@ fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &Account
     let mut core_writer_actor = SpiceCoreWriterActor::new(
         chain.runtime_adapter.store().chain_store(),
         chain.epoch_manager.clone(),
+        chain.shard_tracker.clone(),
         MutableConfigValue::new(None, "validator_signer"),
         core_reader(chain),
         noop().into_sender(),
