@@ -48,9 +48,19 @@ In order to implement this action, the runtime will:
 - parse, validate and instrument the contract code (see [Preparation](./Preparation.md));
 - optionally, convert the contract code to a different executable format;
 - instantiate the WASM module, linking runtime-provided functions defined in the
-  [Bindings Spec](Components/BindingsSpec/BindingsSpec.md) & running the start function; and
+  [Bindings Spec](Components/BindingsSpec/BindingsSpec.md) & running the start function;
+- check that the function named in the `FunctionCall.method_name` field may be called by a
+  `FunctionCall` action; and
 - invoke the function that has been exported from the wasm module with the name matching
   that specified in the `FunctionCall.method_name` field.
+
+A contract may mark some of its exported functions as ECC-only by listing them in the
+`ecc_only_functions` custom section (see [Preparation](./Preparation.md#ecc-only-functions)). Such
+functions are meant to be called only through external contract calls (ECC). A `FunctionCall` action
+invoking an ECC-only function fails with a `MethodResolveError::MethodIsECCOnly` error, regardless
+of whether the action comes directly from a transaction or from a cross-contract call. This check
+happens after checking that the function exists and has a valid signature, and the
+contract-loading fee is charged when it fails. View calls may invoke ECC-only functions.
 
 Note that some of these steps may be executed during the
 [`DeployContractAction`](./Actions.md#deploycontractaction) instead. This is largely an
@@ -160,7 +170,10 @@ it includes the following errors:
 
 - `CompilationError` includes errors that can occur during the compilation of wasm binary.
 - `LinkError` is returned when wasmer runtime is unable to link the wasm module with provided imports.
-- `MethodResolveError` occurs when the method in the action cannot be found in the contract code.
+- `MethodResolveError` occurs when the method in the action cannot be found in the contract code,
+  does not have a valid signature, or may not be called in this way. In particular,
+  `MethodIsECCOnly` is returned when the method is [ECC-only](#execution), and `MethodIsNotECC` is
+  reserved for external contract calls that target a method that is not ECC-only.
 - `WasmTrap` error happens when a trap occurs during the execution of the binary. Traps here include
 
   ```rust

@@ -67,6 +67,35 @@ sections:
 
 * All imports may only import from the `env` module.
 
+## ECC-only functions
+
+A contract may mark some of its exported functions as callable only through external contract
+calls (ECC) by listing them in a custom section named `ecc_only_functions`. Such functions cannot be
+invoked by a [`FunctionCall`] action (see [Function Call](./FunctionCall.md#execution)). This
+section only has an effect from the protocol version that enables the `EccOnlyFunctions` protocol
+feature. At earlier protocol versions it is ignored like any other custom section, and is not
+validated.
+
+The content of the section is a comma-separated list of function names. The following requirements
+are imposed on it, and the contract preparation fails with the given `PrepareError` if any of them
+is violated:
+
+* The section must be valid UTF-8 (`ECCSectionInvalidUTF8`);
+* Each entry must be non-empty and consist only of the ASCII characters `A-Z`, `a-z`, `0-9` and `_`
+  (`ECCSectionInvalidEntry`). In particular, whitespace is not allowed anywhere, an empty section
+  is invalid and so is a leading, trailing or repeated `,`;
+* No entry may be listed more than once (`ECCSectionDuplicateEntry`);
+* Each entry must be the name of a function exported by the module (`ECCSectionUnknownFunction`).
+  Exports of other kinds, such as globals, do not count;
+* The module may contain at most one `ecc_only_functions` section (`ECCSectionRepeated`).
+
+The first three requirements are checked for each `ecc_only_functions` section where it occurs in the
+binary encoding of the module, after checking that it is not a repeated section. Whether each entry
+names an exported function is checked once the entire module has been parsed, since the export
+section may come after the custom section.
+
+[`FunctionCall`]: ./Actions.md#functioncallaction
+
 ## Memory normalization
 
 All near contracts have the same amount of memory made available for execution. The exact amount is
