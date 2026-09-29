@@ -2,7 +2,7 @@
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::utils::account::create_account_id;
+use crate::utils::account::{create_account_id, create_validator_ids};
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_last_pre_spice_block;
@@ -12,6 +12,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{Action, StakeAction};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -613,6 +614,131 @@ fn test_protocol_upgrade_to_spice_with_validators_tracking_a_shard_from_activati
         },
         Duration::seconds(60),
     );
+}
+
+/// The upgrade with the validator set changing exactly at activation: one validator
+/// joins in the first spice epoch and one leaves after the last pre-spice epoch.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_protocol_upgrade_to_spice_with_validator_set_change_at_activation() {
+    init_test_logger();
+
+    // Long enough for every producer to vote in the genesis epoch, so activation is
+    // decided at its end, at the same time as the validator set the stake changes below
+    // define: both land two epochs later.
+    let epoch_length = 20;
+    let num_producers = 4;
+    let validators = create_validator_ids(num_producers);
+    let joiner = create_account_id("joiner");
+    let leaver = validators[num_producers - 1].clone();
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, 0)
+        .enable_rpc()
+        .num_shards(2)
+        .epoch_length(epoch_length)
+        .protocol_version(pre_spice_protocol_version())
+        .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(
+            ProtocolFeature::Spice.protocol_version(),
+        ))
+        .add_non_validator_client(&joiner)
+        .add_user_account(&joiner, Balance::from_near(20_000))
+        // The leaver's account needs a user access key to sign its unstake.
+        .add_user_account(&leaver, Balance::from_near(1_000))
+        .build();
+
+    // Stake changes in the genesis epoch define the validator set of the epoch after
+    // next, which under the immediate vote is the first spice epoch.
+    let leaver_stake = {
+        let node = env.node(0);
+        let genesis_epoch_id = node.head().epoch_id;
+        node.client()
+            .epoch_manager
+            .get_epoch_all_validators(&genesis_epoch_id)
+            .unwrap()
+            .into_iter()
+            .find(|stake| stake.account_id() == &leaver)
+            .expect("leaver must validate at genesis")
+            .stake()
+    };
+    let stake_tx = |account_id: &AccountId, stake: Balance| {
+        let public_key = create_test_signer(account_id.as_str()).public_key();
+        env.rpc_node().tx_from_actions(
+            account_id,
+            account_id,
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
+        )
+    };
+    let txs = vec![stake_tx(&joiner, leaver_stake), stake_tx(&leaver, Balance::ZERO)];
+    for tx in txs {
+        env.rpc_node().submit_tx(tx);
+    }
+
+    // Cross the boundary, then locate the last pre-spice block under the head.
+    env.node_runner(0).run_until(|node| node.head_block().is_spice_block(), Duration::seconds(120));
+    let last_pre_spice = {
+        let node = env.node(0);
+        let chain_store = node.client().chain.chain_store();
+        let mut header = node.head_block().header().clone();
+        while header.is_spice() {
+            header = BlockHeader::clone(&chain_store.get_block_header(header.prev_hash()).unwrap());
+        }
+        header
+    };
+    let boundary_height = last_pre_spice.height();
+
+    // The change must land exactly at activation, or the test shows nothing.
+    let spice_epoch_id = {
+        let node = env.node(0);
+        let epoch_manager = node.client().epoch_manager.clone();
+        let pre_spice_epoch_id = last_pre_spice.epoch_id();
+        let spice_epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(last_pre_spice.hash()).unwrap();
+        let validates_in = |epoch_id, account_id: &AccountId| {
+            epoch_manager
+                .get_epoch_all_validators(epoch_id)
+                .unwrap()
+                .iter()
+                .any(|stake| stake.account_id() == account_id)
+        };
+        assert!(!validates_in(pre_spice_epoch_id, &joiner), "joiner must not validate pre-spice");
+        assert!(validates_in(&spice_epoch_id, &joiner), "joiner must validate under spice");
+        assert!(validates_in(pre_spice_epoch_id, &leaver), "leaver must validate pre-spice");
+        assert!(!validates_in(&spice_epoch_id, &leaver), "leaver must be gone under spice");
+        spice_epoch_id
+    };
+
+    // Certification must cross the boundary under the old set, and the first spice
+    // epoch must complete under the new one, with the leaver following as a
+    // non-validator.
+    env.node_runner(0).run_until_certified(boundary_height + 2);
+    let target_height = boundary_height + epoch_length + 1;
+    env.node_runner(0).run_until_head_height(target_height);
+    env.runner_for_account(&joiner).run_until_head_height(target_height);
+    env.runner_for_account(&leaver).run_until_head_height(target_height);
+
+    // Past the first couple of spice blocks, the new set produces every chunk, the
+    // joiner among its chunk producers.
+    {
+        let node = env.node(0);
+        let epoch_manager = node.client().epoch_manager.clone();
+        let shard_layout = epoch_manager.get_shard_layout(&spice_epoch_id).unwrap();
+        let joiner_produces = shard_layout.shard_ids().any(|shard_id| {
+            epoch_manager
+                .get_epoch_chunk_producers_for_shard(&spice_epoch_id, shard_id)
+                .unwrap()
+                .contains(&joiner)
+        });
+        assert!(joiner_produces, "joiner must produce chunks under spice");
+        let mut block = node.head_block();
+        while block.header().height() > boundary_height + 2 {
+            assert!(
+                block.header().chunk_mask().iter().all(|present| *present),
+                "chunk missing at height {} under the new validator set",
+                block.header().height(),
+            );
+            block = node.client().chain.get_block(block.header().prev_hash()).unwrap();
+        }
+    }
 }
 
 /// The deposit each trickled transfer carries.
