@@ -118,6 +118,23 @@ pub(crate) fn grow_to_last_pre_spice_block(chain: &mut Chain) -> (Arc<Block>, Ar
     panic!("chain should reach the last pre-spice block within {MAX_BLOCKS} blocks");
 }
 
+/// Fabricates, saves and records full pre-spice blocks voting for spice on top of
+/// genesis until the tip is at `height`. Returns the tip.
+pub(crate) fn grow_voting_for_spice_to_height(
+    chain: &mut Chain,
+    height: BlockHeight,
+) -> Arc<Block> {
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let all_shards: Vec<ShardId> =
+        chain.genesis_block().chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    let mut block = chain.genesis_block();
+    while block.header().height() < height {
+        block = build_pre_spice_block(chain, &block, &all_shards, spice_protocol_version);
+        save_and_record_block(chain, &block, pre_spice_protocol_version());
+    }
+    block
+}
+
 /// Fabricates, saves and records the next pre-spice block: shards in
 /// `new_chunk_shards` get a new (fake) chunk header, every other shard carries the
 /// previous block's header, i.e. its chunk is missing.

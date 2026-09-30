@@ -1,5 +1,8 @@
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
+use crate::spice::boundary_chunk_validation::{
+    BoundaryReplay, pre_validate_boundary_chunk_state_witness, replay_boundary_implicit_transitions,
+};
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::MaybePinnedMemtrieRoot;
@@ -30,7 +33,10 @@ use std::sync::Arc;
 use tracing::Span;
 
 pub struct SpicePreValidationOutput {
-    new_chunk_data: NewChunkData,
+    pub(super) new_chunk_data: NewChunkData,
+    /// Old-chunk replays of a boundary witness, oldest first; empty for a regular
+    /// witness.
+    pub(super) boundary_replays: Vec<BoundaryReplay>,
 }
 
 pub fn spice_pre_validate_chunk_state_witness(
@@ -45,14 +51,16 @@ pub fn spice_pre_validate_chunk_state_witness(
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
     let witness = match state_witness {
         SpiceChunkStateWitness::V1(witness) => witness,
-        // TODO(spice): replaced by boundary pre-validation, which replays the
-        // pre-spice application the boundary witness attests.
-        SpiceChunkStateWitness::Boundary(_) => {
-            return Err(Error::InvalidChunkStateWitness(
-                "boundary state witness is not supported yet".to_string(),
-            ));
+        SpiceChunkStateWitness::Boundary(witness) => {
+            return pre_validate_boundary_chunk_state_witness(witness, block, epoch_manager, store);
         }
     };
+    // Genesis is rejected below as on any spice chain.
+    if !block.is_spice_block() && !block.header().is_genesis() {
+        return Err(Error::InvalidChunkStateWitness(
+            "regular witness for a pre-spice block".to_string(),
+        ));
+    }
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
     let shard_id = state_witness.chunk_id().shard_id;
 
@@ -187,7 +195,7 @@ pub fn spice_pre_validate_chunk_state_witness(
         }
     };
 
-    Ok(SpicePreValidationOutput { new_chunk_data })
+    Ok(SpicePreValidationOutput { new_chunk_data, boundary_replays: Vec::new() })
 }
 
 #[tracing::instrument(
@@ -216,12 +224,13 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice): Similar to non-spice validation consider using cache to avoid re-evaluating
     // the same witnesses.
+    let SpicePreValidationOutput { new_chunk_data, boundary_replays } = pre_validation_output;
     let (chunk_extra, outgoing_receipts) = {
-        let gas_limit = pre_validation_output.new_chunk_data.gas_limit;
+        let gas_limit = new_chunk_data.gas_limit;
         let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
             ApplyChunkReason::ValidateChunkStateWitness,
             &Span::current(),
-            pre_validation_output.new_chunk_data,
+            new_chunk_data,
             ShardContext { shard_uid, should_apply_chunk: true },
             runtime_adapter,
             // Recorded-storage replay; no memtrie path.
@@ -232,6 +241,16 @@ pub fn spice_validate_chunk_state_witness(
         let chunk_extra = main_apply_result.to_chunk_extra(gas_limit);
 
         (chunk_extra, outgoing_receipts)
+    };
+
+    let chunk_extra = match &state_witness {
+        SpiceChunkStateWitness::V1(_) => chunk_extra,
+        SpiceChunkStateWitness::Boundary(witness) => replay_boundary_implicit_transitions(
+            witness,
+            boundary_replays,
+            chunk_extra,
+            runtime_adapter,
+        )?,
     };
 
     // TODO(spice-resharding): Handle possible resharding transitions.
@@ -357,7 +376,7 @@ fn validate_source_receipts_proofs(
     Ok(receipt_proofs.into_iter().map(|proof| proof.0).flatten().collect())
 }
 
-fn validate_receipt_proof(
+pub(super) fn validate_receipt_proof(
     receipt_proof: &ReceiptProof,
     from_shard_id: ShardId,
     target_chunk_shard_id: ShardId,
