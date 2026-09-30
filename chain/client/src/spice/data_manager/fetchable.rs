@@ -1,4 +1,4 @@
-use super::item::DataId;
+use super::DataId;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use near_chain::Error;
 use near_chain_primitives::ApplyChunksMode;

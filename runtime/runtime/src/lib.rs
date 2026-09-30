@@ -2864,6 +2864,7 @@ impl Runtime {
             &state_update,
             &shard_layout,
             true,
+            apply_state.current_protocol_version,
             &mut stats,
         )?;
 
