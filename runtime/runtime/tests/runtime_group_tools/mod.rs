@@ -102,6 +102,7 @@ impl StandaloneRuntime {
             .collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
+        let apply_config = Arc::new(runtime_config);
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
@@ -114,7 +115,8 @@ impl StandaloneRuntime {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(runtime_config),
+            config: Arc::clone(&apply_config),
+            refund_config: apply_config,
             next_wasm_config: None,
             cache: None,
             is_new_chunk: true,

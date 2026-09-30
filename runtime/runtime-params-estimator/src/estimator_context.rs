@@ -187,6 +187,7 @@ impl<'c> EstimatorContext<'c> {
         let congestion_info = [(shard_id, ExtendedCongestionInfo::default())].into();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
+        let apply_config = Arc::new(runtime_config);
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             // Put each runtime into a separate shard.
@@ -201,7 +202,8 @@ impl<'c> EstimatorContext<'c> {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(runtime_config),
+            config: Arc::clone(&apply_config),
+            refund_config: apply_config,
             next_wasm_config: None,
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
