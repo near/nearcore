@@ -466,10 +466,6 @@ impl fmt::Debug for ContractLoadingAbort {
 }
 
 impl ContractLoadingAbort {
-    pub fn into_parts(self) -> (GasCounter, FunctionCallError) {
-        (*self.gas_counter, self.error)
-    }
-
     pub fn into_outcome(self, context: &VMContext, config: Arc<Config>) -> VMOutcome {
         VMOutcome::abort(ExecutionResultState::new(context, *self.gas_counter, config), self.error)
     }

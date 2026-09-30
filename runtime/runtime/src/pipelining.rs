@@ -299,7 +299,7 @@ impl ReceiptPreparationPipeline {
                             &code_ext,
                             cache.as_deref(),
                             config,
-                            gas_counter,
+                            *gas_counter,
                             &method_name,
                             priority,
                         );
@@ -356,7 +356,7 @@ impl ReceiptPreparationPipeline {
                 protocol_version,
             )?;
             let contract = RuntimeContractExt { storage: self.storage.clone(), identifier };
-            let gas_counter = PreparedContractGasCounter::Legacy(gas_counter);
+            let gas_counter = Box::new(PreparedContractGasCounter::Legacy(gas_counter));
             return Ok(ContractPreparation::Ready { contract, gas_counter });
         }
         let base_charged = match gas_counter.charge_loading_base(&function_call.method_name) {
@@ -382,7 +382,7 @@ impl ReceiptPreparationPipeline {
             Err(abort) => return Ok(ContractPreparation::Aborted(abort)),
         };
         let contract = RuntimeContractExt { storage: self.storage.clone(), identifier };
-        let gas_counter = PreparedContractGasCounter::Paid(loading_fee_paid);
+        let gas_counter = Box::new(PreparedContractGasCounter::Paid(loading_fee_paid));
         Ok(ContractPreparation::Ready { contract, gas_counter })
     }
 
@@ -537,11 +537,10 @@ fn prepare_function_call(
 }
 
 /// Metadata preparation either permits loading or produces an early abort.
-#[allow(clippy::large_enum_variant)]
 pub(crate) enum ContractPreparation {
     Ready {
         contract: RuntimeContractExt,
-        gas_counter: PreparedContractGasCounter,
+        gas_counter: Box<PreparedContractGasCounter>,
     },
     /// Empty method, loading fee not covered, or no code. Nothing is loaded or recorded.
     Aborted(ContractLoadingAbort),

@@ -91,7 +91,7 @@ pub(crate) fn action_function_call(
             let contract = preparation_pipeline.get_contract(
                 receipt,
                 code_ext,
-                gas_counter,
+                *gas_counter,
                 action_index,
                 None,
             );
