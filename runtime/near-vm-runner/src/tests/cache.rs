@@ -25,13 +25,12 @@ fn test_caches_compilation_error() {
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
         let outcome1 = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             Some(&code),
             "method_name1",
             terragas,
@@ -43,7 +42,7 @@ fn test_caches_compilation_error() {
         let outcome2 = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             None,
             "method_name2",
             terragas,
@@ -65,7 +64,6 @@ fn test_does_not_cache_io_error() {
 
         let code = near_test_contracts::trivial_contract();
         let code = ContractCode::new(code.to_vec(), None);
-        let code_hash = *code.hash();
         let prepaid_gas = 10u64.pow(12);
         let cache = FaultingContractRuntimeCache::default();
 
@@ -73,7 +71,7 @@ fn test_does_not_cache_io_error() {
         let result = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             None,
             "main",
             prepaid_gas,
@@ -89,7 +87,7 @@ fn test_does_not_cache_io_error() {
         let result = make_cached_contract_call_vm(
             Arc::clone(&config),
             &cache,
-            code_hash,
+            &code,
             Some(&code),
             "main",
             prepaid_gas,
@@ -106,12 +104,13 @@ fn test_does_not_cache_io_error() {
 fn make_cached_contract_call_vm(
     config: Arc<Config>,
     cache: &dyn ContractRuntimeCache,
-    code_hash: CryptoHash,
+    source: &ContractCode,
     code: Option<&ContractCode>,
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> VMResult {
+    let code_hash = *source.hash();
     let mut fake_external = if let Some(code) = code {
         MockedExternal::with_code_and_hash(code_hash, code.clone_for_tests())
     } else {
@@ -121,7 +120,10 @@ fn make_cached_contract_call_vm(
     let mut context = create_context(vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = near_primitives_core::types::Gas::from_gas(prepaid_gas);
-    let gas_counter = context.make_gas_counter(&config);
+    let gas_counter = context
+        .make_gas_counter(&config)
+        .prepare_for_contract(&config, method_name, source.code().len() as u64)
+        .expect("contract loading charge failed");
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime.prepare(&fake_external, Some(cache), gas_counter, method_name).run(
         &mut fake_external,

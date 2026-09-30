@@ -1077,7 +1077,10 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let gas_counter = context.make_gas_counter(&config);
+        let gas_counter = context
+            .make_gas_counter(&config)
+            .prepare_for_contract(&config, "cpu_ram_soak_test", fake_external.code_len())
+            .expect("contract loading charge failed");
         let vm_result = vm_kind
             .runtime(config.clone())
             .unwrap()
