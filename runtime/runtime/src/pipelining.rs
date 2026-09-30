@@ -537,6 +537,7 @@ fn prepare_function_call(
 }
 
 /// Metadata preparation either permits loading or produces an early abort.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ContractPreparation {
     Ready {
         contract: RuntimeContractExt,

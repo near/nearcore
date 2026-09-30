@@ -423,6 +423,7 @@ pub struct LoadingFeePaid {
 }
 
 impl LoadingFeePaid {
+    #[cfg_attr(not(feature = "wasmtime_vm"), allow(dead_code))]
     pub(crate) fn into_parts(self) -> (GasCounter, u64) {
         (self.gas_counter, self.code_len)
     }

@@ -57,6 +57,9 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    #[cfg(feature = "test_features")]
+    apply_recorded_storage_garbage(function_call, state_update);
+
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
@@ -93,10 +96,6 @@ pub(crate) fn action_function_call(
                 None,
             );
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
-
-            #[cfg(feature = "test_features")]
-            apply_recorded_storage_garbage(function_call, runtime_ext.trie_update);
-
             execute_function_call(
                 contract,
                 &contract_id,
