@@ -6,7 +6,7 @@ use crate::access_keys::{
 use crate::actions::*;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
-    total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_fees_gas, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::contract_code::RuntimeContractIdentifier;
@@ -22,7 +22,7 @@ pub use crate::verifier::{
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
-use config::{total_prepaid_send_fees, tx_cost};
+use config::tx_cost;
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use global_contracts::{
@@ -190,6 +190,10 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime config whose fees refunds are capped at, see
+    /// `ProtocolFeature::CapRefundAtPrevEpochFees`. The same as `config` when there
+    /// was no protocol upgrade between current and previous epoch.
+    pub refund_config: Arc<RuntimeConfig>,
     /// If `Some`, the next epoch's `wasm_config` differs from the current one
     /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
     /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
@@ -1065,6 +1069,7 @@ impl Runtime {
                 &action_receipt,
                 &mut result,
                 &apply_state.config,
+                &apply_state.refund_config,
                 created_new_account,
                 apply_state.current_protocol_version,
             )?
@@ -1288,31 +1293,34 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
         result: &mut ActionReceiptResult,
-        config: &RuntimeConfig,
+        config: &Arc<RuntimeConfig>,
+        refund_config: &Arc<RuntimeConfig>,
         created_account: bool,
         protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions())?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
-            .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
+        let actions = action_receipt.actions();
+        let mut prepaid_fee_gas = total_prepaid_fees_gas(config, &actions, receipt.receiver_id())?;
+        let refund_capped = ProtocolFeature::CapRefundAtPrevEpochFees.enabled(protocol_version)
+            && !Arc::ptr_eq(config, refund_config);
+        if refund_capped {
+            // The receipt may have been funded under the previous epoch's fees.
+            // Never refund more than the cheaper schedule would have charged.
+            let refund_fee_gas =
+                total_prepaid_fees_gas(refund_config, &actions, receipt.receiver_id())?;
+            prepaid_fee_gas = prepaid_fee_gas.min(refund_fee_gas);
+        }
+        let prepaid_gas = total_prepaid_gas(&actions)?
+            .checked_add(prepaid_fee_gas)
             .ok_or(IntegerOverflowError)?;
-        let prepaid_exec_gas =
-            total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?
-                .checked_add(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())
-                .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
-        let gross_gas_refund = if result.result.is_err() {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas.gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_burnt)
-                .unwrap()
+        let gas_spent = if result.result.is_err() { result.gas_burnt } else { result.gas_used };
+        let gross_gas_refund = if refund_capped {
+            // The executed actions can cost more under the current fees than
+            // what was prepaid for them, in which case nothing is left to refund.
+            prepaid_gas.saturating_sub(gas_spent)
         } else {
-            prepaid_gas
-                .checked_add(prepaid_exec_gas.gas)
-                .ok_or(IntegerOverflowError)?
-                .checked_sub(result.gas_used)
-                .unwrap()
+            prepaid_gas.checked_sub(gas_spent).unwrap()
         };
 
         // NEP-536 also adds a penalty to gas refund.

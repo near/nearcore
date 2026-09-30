@@ -207,6 +207,7 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            refund_config: self.runtime_config.clone(),
             next_wasm_config: None,
             cache: None,
             is_new_chunk: true,

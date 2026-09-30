@@ -198,6 +198,31 @@ impl NightshadeRuntime {
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
+    /// Runtime config whose fees refunds are capped at: the one of the epoch
+    /// before the block being applied, so that a receipt funded in the previous
+    /// epoch is not refunded more than it paid. Returns the current config when
+    /// there is nothing to cap. See `ProtocolFeature::CapRefundAtPrevEpochFees`.
+    fn get_refund_runtime_config(
+        &self,
+        prev_block_hash: &CryptoHash,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<Arc<RuntimeConfig>, Error> {
+        let current_config = self.runtime_config_store.get_config(current_protocol_version);
+        // Only saves the epoch lookups below, the runtime decides whether to cap.
+        if !ProtocolFeature::CapRefundAtPrevEpochFees.enabled(current_protocol_version) {
+            return Ok(current_config.clone());
+        }
+        // The block right after genesis has no previous epoch.
+        if self.epoch_manager.get_block_info(prev_block_hash)?.is_genesis() {
+            return Ok(current_config.clone());
+        }
+        let prev_epoch_id =
+            self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
+        let prev_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+        Ok(self.runtime_config_store.get_config(prev_protocol_version).clone())
+    }
+
     /// Processes state update.
     #[instrument(target = "runtime", level = "debug", "process_state_update", skip_all)]
     fn process_state_update(
@@ -285,6 +310,8 @@ impl NightshadeRuntime {
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
+        let refund_config =
+            self.get_refund_runtime_config(prev_block_hash, current_protocol_version)?;
         let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
         let proposed_split = self.compute_proposed_split(
             &trie,
@@ -336,6 +363,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: config.clone(),
+            refund_config,
             next_wasm_config,
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,

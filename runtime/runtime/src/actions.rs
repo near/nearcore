@@ -1366,6 +1366,7 @@ mod tests {
     }
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
+        let apply_config = Arc::new(RuntimeConfig::test());
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
@@ -1378,7 +1379,8 @@ mod tests {
             gas_limit: None,
             random_seed: CryptoHash::default(),
             current_protocol_version: 1,
-            config: Arc::new(RuntimeConfig::test()),
+            config: Arc::clone(&apply_config),
+            refund_config: apply_config,
             next_wasm_config: None,
             cache: None,
             is_new_chunk: false,
