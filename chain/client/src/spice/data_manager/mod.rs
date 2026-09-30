@@ -1,11 +1,13 @@
 //! Fetch-engine state for SPICE data distribution.
 
+mod data_id;
 mod fetchable;
 mod item;
+mod pending;
 
+pub use data_id::DataId;
 pub(crate) use fetchable::DataPolicy;
 use fetchable::ReceiptProofPolicy;
-pub use item::DataId;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
 use item::{FetchItem, PartInsertResult};
 use near_chain::Error;
@@ -16,22 +18,26 @@ use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{BTreeMap, HashMap};
+pub(crate) use pending::PendingPartialData;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
+/// What the signed message got wrong. Every variant is attributable to its sender.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DataManagerError {
-    #[error("commitment decoded to garbage: {0}")]
+pub(crate) enum SenderFault {
+    #[error("message carries no parts")]
+    EmptyMessage,
+    #[error("message carries more parts than the commitment has")]
+    TooManyParts,
+    #[error("message carries the same part ordinal twice")]
+    DuplicateOrdinal,
+    #[error("commitment settled as garbage: {0}")]
     GarbageCommitment(AssembledDataError),
     #[error("part merkle proof does not verify against the commitment root")]
     InvalidMerkleProof,
-    #[error("part was verified against a different total parts count")]
-    WrongTotalParts,
-    #[error("part length does not match the commitment's encoded length")]
-    WrongPartLength,
     #[error("sender already backed another commitment")]
     ConflictingCommitment,
 }
@@ -39,13 +45,13 @@ pub(crate) enum DataManagerError {
 /// Outcome of accepting parts for an item.
 #[must_use]
 #[derive(Debug)]
-pub(crate) enum ReceivedParts {
+pub(crate) enum PartsOutcome {
     /// Parts accepted; no commitment decoded.
     Collecting,
     /// A commitment decoded to this data, which matches the committed hash and the id.
     Decoded(SpiceData),
-    /// The commitment was already decoded; a late or re-sent part.
-    Settled,
+    /// The commitment was already settled, to data or to garbage; a late or re-sent part.
+    AlreadySettled,
     /// No item tracks the id.
     NotWanted,
 }
@@ -116,7 +122,7 @@ impl SpiceDataManager {
     }
 
     /// Starts tracking every item this node needs from `block` and doesn't already have or track. Idempotent.
-    pub(crate) fn on_block(&mut self, block: &BlockHeader) -> Result<(), Error> {
+    pub(crate) fn track_block(&mut self, block: &BlockHeader) -> Result<(), Error> {
         let height = block.height();
         // The chain is past the block, so its data can never be applied.
         if self.final_execution_head.is_some_and(|head| height <= head) {
@@ -132,10 +138,11 @@ impl SpiceDataManager {
         Ok(())
     }
 
-    /// The only insert path for received units. Verifies each part against the
-    /// commitment and inserts it. A decoding insert checks the decoded data against the
-    /// committed hash and the id, settles the commitment either way, and returns matching
-    /// data.
+    /// Handles incoming parts: verifies every part's proof against the commitment before
+    /// inserting any; a part failing its proof rejects the whole message and leaves the item
+    /// untouched, as does an empty message, one with more than `total_parts` parts, or one
+    /// repeating an ordinal. A decoding insert checks the decoded data against the committed
+    /// hash and the id, settles the commitment either way, and returns matching data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
@@ -143,32 +150,48 @@ impl SpiceDataManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
         total_parts: usize,
-    ) -> Result<ReceivedParts, DataManagerError> {
+    ) -> Result<PartsOutcome, SenderFault> {
+        if parts.is_empty() {
+            return Err(SenderFault::EmptyMessage);
+        }
+        if parts.len() > total_parts {
+            return Err(SenderFault::TooManyParts);
+        }
         let Some(item) = self.items.get_mut(id) else {
-            return Ok(ReceivedParts::NotWanted);
+            return Ok(PartsOutcome::NotWanted);
         };
-        let encoder = self.encoders.entry(total_parts);
-        // TODO(spice-data-distribution): verify every part before inserting any; today
-        // the first bad part aborts the loop without undoing earlier inserts (#16275).
+        let mut ordinals = HashSet::with_capacity(parts.len());
+        let mut verified = Vec::with_capacity(parts.len());
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
-            let verified =
-                VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)?;
-            match item.insert_part(&encoder, id, sender, verified)? {
+            if !ordinals.insert(part_ord) {
+                return Err(SenderFault::DuplicateOrdinal);
+            }
+            let part =
+                VerifiedCodedPart::verify(commitment, total_parts, part_ord, part, &merkle_proof)
+                    .ok_or(SenderFault::InvalidMerkleProof)?;
+            verified.push(part);
+        }
+        let encoder = self.encoders.entry(total_parts);
+        for part in verified {
+            match item.insert_part(&encoder, id, sender, part) {
                 PartInsertResult::Decoded(data) => {
-                    return Ok(ReceivedParts::Decoded(data));
+                    return Ok(PartsOutcome::Decoded(data));
                 }
                 PartInsertResult::Garbage(error) => {
-                    return Err(DataManagerError::GarbageCommitment(error));
+                    return Err(SenderFault::GarbageCommitment(error));
                 }
-                PartInsertResult::Settled => return Ok(ReceivedParts::Settled),
+                PartInsertResult::ConflictingCommitment => {
+                    return Err(SenderFault::ConflictingCommitment);
+                }
+                PartInsertResult::AlreadySettled => return Ok(PartsOutcome::AlreadySettled),
                 PartInsertResult::Accepted | PartInsertResult::Duplicate => {}
             }
         }
-        Ok(ReceivedParts::Collecting)
+        Ok(PartsOutcome::Collecting)
     }
 
     /// The final execution head advanced: the chain is past every item at or below it,
-    /// so their data can no longer be applied. Removes them, and [`Self::on_block`] refuses
+    /// so their data can no longer be applied. Removes them, and [`Self::track_block`] refuses
     /// them from now on.
     pub(crate) fn on_final_execution_head(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));
