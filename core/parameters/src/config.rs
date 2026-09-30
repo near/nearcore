@@ -52,7 +52,7 @@ impl RuntimeConfig {
     }
 
     pub fn test_protocol_version(protocol_version: ProtocolVersion) -> Self {
-        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let config_store = super::config_store::RuntimeConfigStore::new();
         let runtime_config = config_store.get_config(protocol_version);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
@@ -72,7 +72,7 @@ impl RuntimeConfig {
     }
 
     pub fn free() -> Self {
-        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let config_store = super::config_store::RuntimeConfigStore::new();
         let runtime_config = config_store.get_config(PROTOCOL_VERSION);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);

@@ -41,13 +41,10 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
-    /// this config. This is done to preserve compatibility with previous implementation, where
-    /// we updated runtime config by sequential modifications to the genesis runtime config.
     /// calimero_zero_storage flag sets all storages fees to zero by setting
     /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
     /// protocol upgrades this is done for all protocol versions
-    pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
+    pub fn new() -> Self {
         let mut params: ParameterTable =
             BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
 
@@ -114,10 +111,6 @@ impl RuntimeConfigStore {
             }
         }
 
-        if let Some(runtime_config) = genesis_runtime_config {
-            store.insert(0, Arc::new(runtime_config.clone()));
-        }
-
         Self { store }
     }
 
@@ -128,7 +121,7 @@ impl RuntimeConfigStore {
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
             near_primitives_core::chains::BENCHMARKNET => {
-                let mut config_store = Self::new(None);
+                let mut config_store = Self::new();
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
                 config.congestion_control_config = CongestionControlConfig::test_disabled();
                 config.bandwidth_scheduler_config = BandwidthSchedulerConfig::test_disabled();
@@ -143,7 +136,7 @@ impl RuntimeConfigStore {
                 config_store
             }
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
-                let mut config_store = Self::new(None);
+                let mut config_store = Self::new();
 
                 // The nayduck tests are tuned to the original congestion control config.
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
@@ -152,7 +145,7 @@ impl RuntimeConfigStore {
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }
-            _ => Self::new(None),
+            _ => Self::new(),
         }
     }
 
@@ -215,8 +208,6 @@ mod tests {
     use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
     use std::collections::HashSet;
 
-    const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
-
     #[test]
     fn all_configs_are_specified() {
         let file_versions =
@@ -243,22 +234,6 @@ mod tests {
             let Ok(version_num) = name.parse::<u32>() else { continue };
             panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
         }
-    }
-
-    #[test]
-    fn test_override_account_length() {
-        // Check that default value is 65.
-        let base_store = RuntimeConfigStore::new(None);
-        let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 65);
-
-        let mut cfg = base_cfg.as_ref().clone();
-        cfg.account_creation_config.min_allowed_top_level_account_length = 0;
-
-        // Check that length was changed.
-        let new_store = RuntimeConfigStore::new(Some(&cfg));
-        let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
     #[test]
@@ -336,7 +311,7 @@ mod tests {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         let mut any_failure = false;
 
         for version in store.store.keys() {
@@ -375,7 +350,7 @@ mod tests {
     #[test]
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         for (_, config) in &store.store {
             assert!(config.storage_amount_per_byte().is_zero());
             assert!(config.account_creation_charge.is_zero());
