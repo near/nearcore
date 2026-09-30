@@ -66,7 +66,7 @@ fn compute_function_call_cost(
     let cache_store = FilesystemContractRuntimeCache::test().unwrap();
     let cache: Option<&dyn ContractRuntimeCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let runtime_config = config_store.get_config(protocol_version).as_ref();
     let mut vm_config = runtime_config.wasm_config.as_ref().clone();
     vm_config.vm_kind = vm_kind;

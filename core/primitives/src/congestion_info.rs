@@ -524,7 +524,7 @@ mod tests {
 
     fn get_config() -> CongestionControlConfig {
         // Fix the initial configuration of congestion control for the tests.
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         runtime_config.congestion_control_config
     }

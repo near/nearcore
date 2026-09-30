@@ -1,6 +1,5 @@
 //! Settings of the parameters of the runtime.
 use super::parameter_table::InvalidConfigError;
-use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
@@ -48,19 +47,12 @@ impl RuntimeConfig {
         RuntimeConfig::try_from(params)
     }
 
-    pub fn initial_testnet_config() -> RuntimeConfig {
-        INITIAL_TESTNET_CONFIG
-            .parse()
-            .and_then(|params| RuntimeConfig::new(&params))
-            .expect("Failed parsing initial testnet config")
-    }
-
     pub fn test() -> Self {
         Self::test_protocol_version(PROTOCOL_VERSION)
     }
 
     pub fn test_protocol_version(protocol_version: ProtocolVersion) -> Self {
-        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let config_store = super::config_store::RuntimeConfigStore::new();
         let runtime_config = config_store.get_config(protocol_version);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
@@ -80,7 +72,7 @@ impl RuntimeConfig {
     }
 
     pub fn free() -> Self {
-        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let config_store = super::config_store::RuntimeConfigStore::new();
         let runtime_config = config_store.get_config(PROTOCOL_VERSION);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);

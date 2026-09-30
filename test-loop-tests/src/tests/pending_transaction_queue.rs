@@ -23,7 +23,7 @@ use std::collections::HashSet;
 const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 fn gas_cost_per_transfer() -> Balance {
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let config = config_store.get_config(PROTOCOL_VERSION);
     let dummy_account = create_account_id("dummy");
     let sample_tx = SignedTransaction::send_money(
