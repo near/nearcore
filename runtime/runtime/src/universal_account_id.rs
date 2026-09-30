@@ -31,9 +31,8 @@ pub(crate) fn action_universal_state_init(
     let storage_usage_config = &fees.storage_usage_config;
 
     // The account may already exist without its state: a transfer to a `0u` id
-    // creates an uninitialized account. Install on the first state init and skip
-    // straight to the deposit handling on a repeat, without touching the state
-    // already there.
+    // creates an uninitialized account. Install on the first state init and
+    // refund the deposit on a repeat, without touching the state already there.
     //
     // A half-installed account can never be observed here: a failed action
     // rolls the whole state update back (see `runtime::apply_action_receipt`),
@@ -48,36 +47,44 @@ pub(crate) fn action_universal_state_init(
         )),
     };
 
-    if !account.is_initialized() {
-        // The action carries the bytes the producer serialized; installing the
-        // state needs them decoded. Every receipt is validated before its actions
-        // run and validation rejects a state init that does not decode, so this
-        // only fires if that invariant has been broken. Failing the action rather
-        // than the chunk keeps a hypothetical gap in that coverage from becoming a
-        // halt, since the payload comes from outside.
-        let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init) else {
-            result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
-            return Ok(());
-        };
-        // Installed keys must start above the nonce the bootstrap consumed, or those
-        // same bytes replay through the access-key path. It's practically impossible
-        // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
-        // but let's keep the check for the sake of complete safety.
-        let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
-        let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
-        account.initialize().or_inconsistent_state(account_id)?;
-        install_universal_account(
-            state_update,
-            account,
-            account_id,
-            &state_init,
-            result,
-            fees,
-            access_key_nonce,
-        )?;
-        if result.result.is_err() {
-            return Ok(());
+    if account.is_initialized() {
+        if action.deposit > Balance::ZERO {
+            result.new_receipts.push(Receipt::new_balance_refund(
+                receipt.balance_refund_receiver(),
+                action.deposit,
+            ));
         }
+        return Ok(());
+    }
+
+    // The action carries the bytes the producer serialized; installing the
+    // state needs them decoded. Every receipt is validated before its actions
+    // run and validation rejects a state init that does not decode, so this
+    // only fires if that invariant has been broken. Failing the action rather
+    // than the chunk keeps a hypothetical gap in that coverage from becoming a
+    // halt, since the payload comes from outside.
+    let Ok(state_init) = UniversalStateInit::from_raw(&action.state_init) else {
+        result.result = Err(ActionErrorKind::MalformedUniversalStateInit.into());
+        return Ok(());
+    };
+    // Installed keys must start above the nonce the bootstrap consumed, or those
+    // same bytes replay through the access-key path. It's practically impossible
+    // for `consumed_nonce` to be bigger than `initial_nonce_value(apply_state.block_height)`,
+    // but let's keep the check for the sake of complete safety.
+    let consumed_nonce = account.bootstrap_nonce().unwrap_or(0);
+    let access_key_nonce = max(initial_nonce_value(apply_state.block_height), consumed_nonce);
+    account.initialize().or_inconsistent_state(account_id)?;
+    install_universal_account(
+        state_update,
+        account,
+        account_id,
+        &state_init,
+        result,
+        fees,
+        access_key_nonce,
+    )?;
+    if result.result.is_err() {
+        return Ok(());
     }
 
     settle_state_init_deposit(

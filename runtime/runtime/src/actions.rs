@@ -952,6 +952,8 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use crate::universal_account_id::action_universal_state_init;
+    use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::FunctionCallAction;
@@ -968,6 +970,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
+    use near_primitives::receipt::Receipt;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
@@ -2494,6 +2497,47 @@ mod tests {
                 TEST_RECEIPT_SHAPE,
             ),
             Err(ActionErrorKind::AccountAlreadyExists { account_id }.into())
+        );
+    }
+
+    /// A state init on an already initialized account refunds the whole deposit,
+    /// even when the account lacks balance for its storage staking. The deposit
+    /// only covers storage staking for the action that initializes the account.
+    #[test]
+    fn repeated_universal_state_init_refunds_whole_deposit() {
+        let account_id = account_id();
+        let apply_state = create_apply_state(1);
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let balance = Balance::from_yoctonear(1);
+        let mut account =
+            Some(Account::new(balance, Balance::ZERO, AccountContract::None, 1_000_000));
+        assert!(matches!(
+            check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config),
+            Err(StorageStakingError::LackBalanceForStorageStaking(_))
+        ));
+        let deposit = Balance::from_near(1);
+        let action = UniversalStateInitAction { state_init: RawStateInit(vec![]), deposit };
+        let receipt = Receipt::new_balance_refund(&"refund.near".parse().unwrap(), Balance::ZERO);
+        let mut result = ActionResult::default();
+
+        action_universal_state_init(
+            &mut state_update,
+            &apply_state,
+            &mut account,
+            &account_id,
+            &receipt,
+            &action,
+            &mut result,
+        )
+        .unwrap();
+
+        assert!(result.result.is_ok());
+        assert_eq!(account.unwrap().amount(), balance, "the account must not be topped up");
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit)]
         );
     }
 
