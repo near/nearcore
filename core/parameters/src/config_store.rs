@@ -3,8 +3,6 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-#[cfg(feature = "calimero_zero_storage")]
-use near_primitives_core::types::Balance;
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::BTreeMap;
@@ -47,38 +45,19 @@ impl RuntimeConfigStore {
     /// If genesis_runtime_config is Some, the config for protocol version 0 is overridden by
     /// this config. This is done to preserve compatibility with previous implementation, where
     /// we updated runtime config by sequential modifications to the genesis runtime config.
-    /// calimero_zero_storage flag sets all storages fees to zero by setting
-    /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
-    /// protocol upgrades this is done for all protocol versions
     /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
         let mut params: ParameterTable =
             BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
 
         let mut store = BTreeMap::new();
-        #[cfg(not(feature = "calimero_zero_storage"))]
-        {
-            let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                panic!(
-                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
-                     Error: {err:?}"
-                )
-            });
-            store.insert(0, Arc::new(initial_config));
-        }
-        #[cfg(feature = "calimero_zero_storage")]
-        {
-            let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                panic!(
-                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
-                     Error: {err:?}"
-                )
-            });
-            initial_config.account_creation_charge = Balance::ZERO;
-            let fees = Arc::make_mut(&mut initial_config.fees);
-            fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
-            store.insert(0, Arc::new(initial_config));
-        }
+        let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
+            panic!(
+                "Failed generating `RuntimeConfig` from parameters for base parameter file. \
+                 Error: {err:?}"
+            )
+        });
+        store.insert(0, Arc::new(initial_config));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
             let diff: ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| {
@@ -93,7 +72,6 @@ impl RuntimeConfigStore {
                      Error: {err}"
                 )
             });
-            #[cfg(not(feature = "calimero_zero_storage"))]
             store.insert(
                 *protocol_version,
                 Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| {
@@ -103,19 +81,6 @@ impl RuntimeConfigStore {
                     )
                 })),
             );
-            #[cfg(feature = "calimero_zero_storage")]
-            {
-                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
-                    panic!(
-                        "Failed generating `RuntimeConfig` from parameters for \
-                         version {protocol_version}. Error: {err:?}"
-                    )
-                });
-                runtime_config.account_creation_charge = Balance::ZERO;
-                let fees = Arc::make_mut(&mut runtime_config.fees);
-                fees.storage_usage_config.storage_amount_per_byte = Balance::ZERO;
-                store.insert(*protocol_version, Arc::new(runtime_config));
-            }
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
@@ -343,7 +308,6 @@ mod tests {
     /// Alternatively, add --accept to the first command so that it automatically does step 2.
     #[test]
     #[cfg(not(feature = "nightly"))]
-    #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
@@ -396,16 +360,6 @@ mod tests {
         }
         if any_failure {
             panic!("some snapshot assertions failed");
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "calimero_zero_storage")]
-    fn test_calimero_storage_costs_zero() {
-        let store = RuntimeConfigStore::new(None);
-        for (_, config) in &store.store {
-            assert!(config.storage_amount_per_byte().is_zero());
-            assert!(config.account_creation_charge.is_zero());
         }
     }
 
