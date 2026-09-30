@@ -53,4 +53,6 @@ ignore = [
     # the bug needs unwinding plus a key with a panicking `Drop`, and that cache
     # is keyed by `Vec<usize>` (reed-solomon-erasure `src/core.rs:349`).
     "RUSTSEC-2026-0253",
+    # RUSTSEC-2026-0316: Nearcore doesn't use fuel limits, this doesn't affect us.
+    "RUSTSEC-2026-0316",
 ]
