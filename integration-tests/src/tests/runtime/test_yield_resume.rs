@@ -527,7 +527,7 @@ fn create_then_resume_with_yield_id_fails() {
 }
 
 fn fee_helper(node: &RuntimeNode) -> FeeHelper {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = RuntimeConfig::clone(store.get_config(node.genesis().config.protocol_version));
     FeeHelper::new(config, node.genesis().config.min_gas_price)
 }

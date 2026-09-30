@@ -50,7 +50,7 @@ const SHA3_512_ABC: [u8; 64] = [
 /// version so the test skips on protocol versions that predate the feature and
 /// runs everywhere else.
 fn sha3_enabled() -> bool {
-    RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
+    RuntimeConfigStore::new().get_config(PROTOCOL_VERSION).wasm_config.sha3_host_fns
 }
 
 /// Build a WASM contract that imports `env.{func}`, bakes `input` into linear

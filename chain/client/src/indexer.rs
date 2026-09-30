@@ -100,7 +100,7 @@ pub async fn build_streamer_message(
         let prev_block = client.fetch_block(block.header.prev_hash).await?;
         prev_block.header.gas_price
     };
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new();
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
