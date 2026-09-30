@@ -1167,9 +1167,23 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     // The deficit does not affect refunds, hence we should expect a
     // normal refund of the unspent gas. However, this is small enough to
     // cancel out, so we add the refund cost to tx_burnt and expect no
-    // refund. This ends up burning all gas and not refunding anything.
+    // refund. With fixed contract loading costs, the call instead exhausts its
+    // attached gas, and the receiver gets its share of that gas as a reward.
     assert_eq!(result.outgoing_receipts.len(), 0);
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    let function_call_gas_burnt = if apply_state.config.wasm_config.fix_contract_loading_cost {
+        Gas::from_gas(gas)
+            .min(apply_state.config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base))
+    } else {
+        Gas::ZERO
+    };
+    let receiver_gas_reward = function_call_gas_burnt
+        .checked_mul(*apply_state.config.fees.burnt_gas_reward.numer() as u64)
+        .unwrap()
+        .checked_div(*apply_state.config.fees.burnt_gas_reward.denom() as u64)
+        .unwrap();
+    let receiver_reward = gas_price.checked_mul(u128::from(receiver_gas_reward.as_gas())).unwrap();
+    let expected_tx_burnt = total_receipt_cost.checked_sub(receiver_reward).unwrap();
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_tx_burnt);
 }
 
 #[test]
