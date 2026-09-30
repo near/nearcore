@@ -5,9 +5,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{
-    Contract, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
-};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -150,7 +148,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config_gas)
-            .prepare_for_contract(&vm_config_gas, "hello", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config_gas, "hello", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config_gas.clone()).expect("runtime has not been enabled");
         let result = runtime
@@ -168,7 +166,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config_gas)
-            .prepare_for_contract(&vm_config_gas, "hello", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config_gas, "hello", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config_gas.clone()).expect("runtime has not been enabled");
         let result = runtime
@@ -183,7 +181,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..warmup_repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config_free)
-            .prepare_for_contract(&vm_config_free, "hello", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config_free, "hello", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime_free_gas =
             vm_kind.runtime(vm_config_free.clone()).expect("runtime has not been enabled");
@@ -199,7 +197,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     for _ in 0..repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config_free)
-            .prepare_for_contract(&vm_config_free, "hello", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config_free, "hello", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime_free_gas =
             vm_kind.runtime(vm_config_free.clone()).expect("runtime has not been enabled");

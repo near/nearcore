@@ -5,7 +5,6 @@
 //! the imports wiring and register marshalling in a way the logic-only unit
 //! tests cannot.
 
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::External;

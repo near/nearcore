@@ -6,7 +6,6 @@
 //! authority for it and lives in `near-primitives`, out of this crate's reach,
 //! so the cross-check against it is a test-loop test.
 
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::FunctionCallError;

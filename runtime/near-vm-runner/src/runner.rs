@@ -46,7 +46,7 @@ pub fn contract_cached(
 ///
 /// Callers obtain the required [`PreparedContractGasCounter`] by charging the loading
 /// base, resolving source metadata, and then charging for the resolved source length.
-/// VM preparation validates that the counter matches the active configuration and source.
+/// VM preparation checks the charged length against the loaded code.
 ///
 /// Contract preparation and execution need not to be executed on the same thread.
 #[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
@@ -153,13 +153,6 @@ pub trait Contract {
     /// Hash of the contract for the current account.
     fn hash(&self) -> near_primitives_core::hash::CryptoHash;
 
-    /// Code length in bytes.
-    ///
-    /// Reads the source length from metadata without loading code or compiled caches.
-    ///
-    /// `None` means the source is absent.
-    fn code_len(&self) -> Option<u64>;
-
     /// Get the contract code.
     ///
     /// The runtime might not call this if it finds e.g. a compiled contract inside the supplied
@@ -191,8 +184,8 @@ pub trait VM {
     /// Prepare a contract for execution.
     ///
     /// The supplied [`PreparedContractGasCounter`] proves that contract-loading gas
-    /// preparation completed. Implementations must validate it against their configuration
-    /// and the contract source length when extracting the underlying counter.
+    /// preparation completed. Implementations must validate the charging mode against their
+    /// configuration and check a charged length against the length of the code they load.
     ///
     /// Work that goes into the preparation is runtime implementation specific, and depending on
     /// the runtime may not do anything at all (and instead prepare everything when the contract is

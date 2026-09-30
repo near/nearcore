@@ -12,7 +12,6 @@
 //! The fix bounds `prepaid_gas` by `max_gas_burnt` in view mode, so the guest
 //! gas global reflects the cap and an unbounded loop aborts promptly.
 
-use crate::Contract;
 use crate::logic::VMContext;
 use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};

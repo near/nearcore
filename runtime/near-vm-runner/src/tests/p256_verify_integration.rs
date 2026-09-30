@@ -7,7 +7,6 @@
 //! marshalling, and gas accounting in a way that the logic-only unit tests
 //! cannot.
 
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError};

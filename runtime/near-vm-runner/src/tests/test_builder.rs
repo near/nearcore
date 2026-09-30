@@ -1,7 +1,5 @@
-use crate::Contract;
 use crate::logic::{
-    ExecutionResultState, ProtocolVersion, ReturnData, VMContext, VMOutcome,
-    mocks::mock_external::MockedExternal,
+    ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
@@ -217,13 +215,7 @@ impl TestBuilder {
                             .run(&mut fake_external, &context, fees)
                             .expect("execution failed")
                     }
-                    Err(abort) => {
-                        let (gas_counter, error) = abort.into_parts();
-                        VMOutcome::abort(
-                            ExecutionResultState::new(&context, gas_counter, config),
-                            error,
-                        )
-                    }
+                    Err(abort) => abort.into_outcome(&context, config),
                 };
 
                 let mut got = String::new();

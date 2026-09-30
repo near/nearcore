@@ -1,5 +1,4 @@
 use super::test_vm_config;
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};

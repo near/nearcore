@@ -1,5 +1,4 @@
 use super::test_vm_config;
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;

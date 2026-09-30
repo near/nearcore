@@ -1,5 +1,4 @@
 use super::test_builder::test_builder;
-use crate::Contract;
 use crate::logic::errors::{FunctionCallError, VMRunnerError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::VMKindExt;

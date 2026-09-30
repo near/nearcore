@@ -1,5 +1,5 @@
 use crate::contract_code::RuntimeContractIdentifier;
-use crate::ext::{ContractCodeLength, RuntimeContractExt};
+use crate::ext::RuntimeContractExt;
 use crate::metrics::{
     COMPILATION_CACHE_WARMING_DROPPED_TOTAL, COMPILATION_CACHE_WARMING_FAILURES,
     COMPILATION_CACHE_WARMING_TOTAL_SUBMISSIONS,
@@ -100,10 +100,7 @@ pub(crate) fn spawn_lazy_cache_warming(
 ) {
     spawn_warming(
         // Warming fetches code speculatively, without receipt loading charges or size metadata.
-        Box::new(move || {
-            RuntimeContractExt { storage, identifier, code_len: ContractCodeLength::NotQueried }
-                .get_code()
-        }),
+        Box::new(move || RuntimeContractExt { storage, identifier }.get_code()),
         config,
         cache_handle,
     );

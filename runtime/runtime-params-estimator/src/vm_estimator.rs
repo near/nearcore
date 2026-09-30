@@ -8,8 +8,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
-    Contract, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
-    MockContractRuntimeCache, NoContractRuntimeCache,
+    ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
+    NoContractRuntimeCache,
 };
 use std::sync::Arc;
 
@@ -205,7 +205,7 @@ fn measure_instantiation_overhead(
         let context = create_context(vec![]);
         let gas_counter = context
             .make_gas_counter(&config)
-            .prepare_for_contract(&config, "main", Contract::code_len(&fake_external))
+            .prepare_for_contract(&config, "main", fake_external.code_len())
             .expect("contract loading charge failed");
         vm_kind
             .runtime(config.clone())
@@ -262,7 +262,7 @@ fn measure_op_loop(metric: GasMetric, vm_kind: VMKind, contract_bytes: &[u8]) ->
         context.prepaid_gas = gas_limit;
         let gas_counter = context
             .make_gas_counter(&config)
-            .prepare_for_contract(&config, "main", Contract::code_len(&fake_external))
+            .prepare_for_contract(&config, "main", fake_external.code_len())
             .expect("contract loading charge failed");
         let result = vm_kind
             .runtime(config.clone())

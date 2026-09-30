@@ -17,9 +17,8 @@ use near_wallet_contract::{
 ///
 /// Constructed via `resolve()` from an `AccountContract` and account context.
 /// All special-case resolution (ETH implicit accounts, global contracts) is
-/// performed at construction time so that `RuntimeContractExt` can implement
-/// `Contract` using this identifier together with contract storage and resolved
-/// source-length metadata.
+/// performed at construction time so that `RuntimeContractExt` only needs
+/// storage and identifier to implement `Contract`.
 #[derive(Clone)]
 pub(crate) enum RuntimeContractIdentifier {
     /// No contract deployed on the account.

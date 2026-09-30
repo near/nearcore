@@ -4,7 +4,7 @@ use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::{VMKindExt, VMResult};
-use crate::{Contract, ContractCode, MockContractRuntimeCache};
+use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
@@ -110,34 +110,23 @@ fn make_cached_contract_call_vm(
     prepaid_gas: u64,
     vm_kind: VMKind,
 ) -> VMResult {
-    // Cached execution still supplies exact source metadata, but must not need
-    // the source body. Keep these separate to exercise that boundary.
-    struct CachedContract<'a> {
-        source: &'a ContractCode,
-        body: Option<&'a ContractCode>,
-    }
-    impl Contract for CachedContract<'_> {
-        fn hash(&self) -> CryptoHash {
-            *self.source.hash()
-        }
-        fn code_len(&self) -> Option<u64> {
-            Some(self.source.code().len() as u64)
-        }
-        fn get_code(&self) -> Option<Arc<ContractCode>> {
-            self.body.map(|code| Arc::new(code.clone_for_tests()))
-        }
-    }
-    let contract = CachedContract { source, body: code };
-    let mut fake_external = MockedExternal::new();
+    // Pay for the known source length even when a cache hit needs no source body.
+    let code_hash = *source.hash();
+    let mut fake_external = if let Some(code) = code {
+        MockedExternal::with_code_and_hash(code_hash, code.clone_for_tests())
+    } else {
+        MockedExternal::new()
+    };
+    fake_external.code_hash = code_hash;
     let mut context = create_context(vec![]);
     let fees = Arc::new(RuntimeFeesConfig::test());
     context.prepaid_gas = near_primitives_core::types::Gas::from_gas(prepaid_gas);
     let gas_counter = context
         .make_gas_counter(&config)
-        .prepare_for_contract(&config, method_name, contract.code_len())
+        .prepare_for_contract(&config, method_name, source.code().len() as u64)
         .expect("contract loading charge failed");
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-    runtime.prepare(&contract, Some(cache), gas_counter, method_name).run(
+    runtime.prepare(&fake_external, Some(cache), gas_counter, method_name).run(
         &mut fake_external,
         &context,
         fees,

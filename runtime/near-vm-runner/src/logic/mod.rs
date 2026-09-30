@@ -18,7 +18,7 @@ pub use context::VMContext;
 pub use dependencies::{External, MemSlice, StorageAccessTracker, ValuePtr};
 pub use errors::{HostError, VMLogicError};
 pub use gas_counter::{
-    ContractLoadingAbort, ContractLoadingBaseCharged, ContractLoadingCharge, GasCounter,
+    ContractLoadingAbort, ContractLoadingBaseCharged, GasCounter, LoadingFeePaid,
     PreparedContractGasCounter, with_ext_cost_counter,
 };
 pub use host::HostCtx;

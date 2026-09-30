@@ -108,10 +108,10 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{Contract, ContractCode};
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
@@ -1079,7 +1079,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
         let context = create_context(vec![]);
         let gas_counter = context
             .make_gas_counter(&config)
-            .prepare_for_contract(&config, "cpu_ram_soak_test", Contract::code_len(&fake_external))
+            .prepare_for_contract(&config, "cpu_ram_soak_test", fake_external.code_len())
             .expect("contract loading charge failed");
         let vm_result = vm_kind
             .runtime(config.clone())

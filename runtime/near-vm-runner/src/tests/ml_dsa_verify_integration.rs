@@ -8,7 +8,6 @@
 //! valid `(public_key, message, signature)` triple rather than something
 //! re-signed at runtime; verification is deterministic.
 
-use crate::Contract;
 use crate::ContractCode;
 use crate::logic::Config;
 use crate::logic::errors::{FunctionCallError, HostError};

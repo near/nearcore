@@ -555,7 +555,9 @@ impl TrieViewer {
                     error_message: e.to_string(),
                 })?
             }
-            ContractPreparation::Aborted(abort) => abort.into_outcome(&context),
+            ContractPreparation::Aborted(abort) => {
+                abort.into_outcome(&context, Arc::clone(&config.wasm_config))
+            }
         };
         let elapsed = now.elapsed();
         let time_ms =

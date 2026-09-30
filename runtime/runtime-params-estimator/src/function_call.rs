@@ -6,9 +6,7 @@ use near_parameters::vm::VMKind;
 use near_primitives::types::ProtocolVersion;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{
-    Contract, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
-};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -81,7 +79,7 @@ fn compute_function_call_cost(
     for _ in 0..warmup_repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config)
-            .prepare_for_contract(&vm_config, "hello0", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config, "hello0", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime
@@ -95,7 +93,7 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let gas_counter = fake_context
             .make_gas_counter(&vm_config)
-            .prepare_for_contract(&vm_config, "hello0", Contract::code_len(&fake_external))
+            .prepare_for_contract(&vm_config, "hello0", fake_external.code_len())
             .expect("contract loading charge failed");
         let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime has not been enabled");
         let result = runtime

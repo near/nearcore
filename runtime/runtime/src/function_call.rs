@@ -106,7 +106,9 @@ pub(crate) fn action_function_call(
                 config,
             )?
         }
-        ContractPreparation::Aborted(abort) => abort.into_outcome(&context),
+        ContractPreparation::Aborted(abort) => {
+            abort.into_outcome(&context, Arc::clone(&config.wasm_config))
+        }
     };
 
     match &outcome.aborted {
