@@ -24,7 +24,8 @@ use near_async::messaging::Sender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain::spice::activation::{
-    SpiceMessageGate, SpiceMessageKind, spice_enabled_at_head_on_startup, spice_enabled_for_block,
+    SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
+    spice_enabled_at_head_on_startup,
 };
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
@@ -365,6 +366,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         let block_hash = *data.block_hash();
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::PartialData,
             &block_hash,
         ) {
@@ -424,6 +426,7 @@ impl Handler<SpiceContractCodeRequestMessage> for SpiceDataDistributorActor {
     ) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ContractCodeRequest,
             &request.chunk_id().block_hash,
         ) {
@@ -451,9 +454,11 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        // A pre-spice block distributes no receipts or witnesses and produces no
-        // endorsements, so there is nothing to wait on or contribute for it.
-        match spice_enabled_for_block(&self.chain_store, &block_hash) {
+        match is_spice_or_last_pre_spice_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &block_hash,
+        ) {
             Ok(true) => {}
             Ok(false) => return,
             Err(err) => {
@@ -1501,6 +1506,7 @@ impl SpiceDataDistributorActor {
         for (data_id, ordinals) in wants {
             if !self.spice_gate.should_process_entry(
                 &self.chain_store,
+                self.epoch_manager.as_ref(),
                 SpiceMessageKind::DataRequest,
                 data_id.block_hash(),
             ) {

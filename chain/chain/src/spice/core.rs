@@ -3,6 +3,7 @@ use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
 use crate::spice::ancestry_endorsements::AncestryEndorsements;
+use crate::spice::boundary::get_uncertified_chunks_of_pre_spice_block;
 use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -147,7 +148,8 @@ impl SpiceCoreReader {
     }
 
     /// Returns the list of uncertified chunks as of the given block.
-    /// Returns an empty vec for genesis or non-Spice blocks.
+    /// Returns an empty vec for genesis and for pre-spice blocks other than the last
+    /// pre-spice block, whose seeded row is returned.
     /// Errors if a Spice block is missing uncertified_chunks in storage.
     pub fn get_uncertified_chunks(
         &self,
@@ -957,8 +959,10 @@ fn get_uncertified_chunks(
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
     let block = chain_store.get_block(block_hash)?;
 
-    if block.header().is_genesis() || !block.is_spice_block() {
+    if block.header().is_genesis() {
         Ok(vec![])
+    } else if !block.is_spice_block() {
+        Ok(get_uncertified_chunks_of_pre_spice_block(chain_store, block_hash))
     } else {
         let Some(uncertified_chunks) =
             chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
@@ -998,6 +1002,15 @@ pub fn record_uncertified_chunks_for_block(
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
         get_uncertified_chunks(chain_store_update.chain_store(), prev_hash)?;
+    // A pre-spice parent is a last pre-spice block, whose own postprocessing seeded its
+    // row with one entry per shard. An empty row means the parent was committed without
+    // the seeding; recording on top of it would leave its chunks uncertified for good.
+    let prev_header = chain_store_update.chain_store().get_block_header(prev_hash)?;
+    if !prev_header.is_genesis() && !prev_header.is_spice() && uncertified_chunks.is_empty() {
+        return Err(Error::Other(format!(
+            "missing seeded uncertified chunks of last pre-spice block {prev_hash}"
+        )));
+    }
     uncertified_chunks
         .retain(|chunk_info| !block_execution_results.contains_key(&chunk_info.chunk_id));
     for chunk_info in &mut uncertified_chunks {
@@ -1345,7 +1358,7 @@ pub fn get_last_certified_block_header(
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
         // No uncertified-chunks tracking means the block has nothing to
-        // certify: genesis, or a pre-spice block at the activation
+        // certify: genesis, or a pre-spice block below the activation
         // boundary. Both are fully certified by definition.
         let header = chain_store.get_block_header(block_hash)?;
         debug_assert!(
