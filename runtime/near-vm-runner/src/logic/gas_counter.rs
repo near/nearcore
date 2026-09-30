@@ -68,7 +68,7 @@ impl StorageAccessTracker for FreeGasCounter {
     }
 }
 
-/// Gas counter (a part of VMLogic).
+/// Gas counter (a part of VMlogic).
 pub struct GasCounter {
     /// Shared gas counter data.
     fast_counter: FastGasCounter,

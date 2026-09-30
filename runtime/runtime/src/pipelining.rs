@@ -103,7 +103,6 @@ struct PrepareTask {
     /// Defense in depth: if the receiver's code hash unexpectedly changes between
     /// preparation and execution, the stale prepared artifact is discarded.
     expected_hash: CryptoHash,
-    prepaid_gas: Gas,
 }
 
 enum PrepareTaskStatus {
@@ -278,7 +277,6 @@ impl ReceiptPreparationPipeline {
                         condvar: Condvar::new(),
                         created,
                         expected_hash,
-                        prepaid_gas: function_call.gas,
                     });
                     self.map.insert(key, Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
@@ -423,13 +421,12 @@ impl ReceiptPreparationPipeline {
         };
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
         // Views never consume speculative preparation, which uses non-view gas accounting.
-        // Other calls may reuse a result only for the same identity and gas budget.
+        // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
         let Some(task) = self.map.get(&key).filter(|t| {
             view_config.is_none()
                 // Identical code hashes imply identical source bytes and length.
                 && t.expected_hash == code_ext.identifier.hash()
-                && t.prepaid_gas == function_call.gas
         }) else {
             let start = Instant::now();
             if !self.block_accounts.contains(account_id) {

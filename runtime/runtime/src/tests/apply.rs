@@ -2314,7 +2314,7 @@ fn test_validation_rejects_missing_global_contract_code_with_key_proof() {
     );
 }
 
-/// The wallet contract is never deployed in these tests.
+/// The hash of a global contract that is never deployed in these tests.
 fn missing_global_contract_hash() -> CryptoHash {
     eth_wallet_global_contract_hash(&MockEpochInfoProvider::default().chain_id(), PROTOCOL_VERSION)
 }
