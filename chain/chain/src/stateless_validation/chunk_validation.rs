@@ -449,7 +449,7 @@ pub fn pre_validate_chunk_state_witness(
 /// Validate that receipt proofs contain the receipts that should be applied during the
 /// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
 /// and arranged in the order in which they should be applied during the transition.
-fn validate_source_receipt_proofs(
+pub(crate) fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
     receipt_source_blocks: &[Arc<Block>],

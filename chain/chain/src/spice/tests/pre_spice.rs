@@ -118,23 +118,6 @@ pub(crate) fn grow_to_last_pre_spice_block(chain: &mut Chain) -> (Arc<Block>, Ar
     panic!("chain should reach the last pre-spice block within {MAX_BLOCKS} blocks");
 }
 
-/// Fabricates, saves and records full pre-spice blocks voting for spice on top of
-/// genesis until the tip is at `height`. Returns the tip.
-pub(crate) fn grow_voting_for_spice_to_height(
-    chain: &mut Chain,
-    height: BlockHeight,
-) -> Arc<Block> {
-    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
-    let all_shards: Vec<ShardId> =
-        chain.genesis_block().chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
-    let mut block = chain.genesis_block();
-    while block.header().height() < height {
-        block = build_pre_spice_block(chain, &block, &all_shards, spice_protocol_version);
-        save_and_record_block(chain, &block, pre_spice_protocol_version());
-    }
-    block
-}
-
 /// Fabricates, saves and records the next pre-spice block: shards in
 /// `new_chunk_shards` get a new (fake) chunk header, every other shard carries the
 /// previous block's header, i.e. its chunk is missing.
@@ -159,8 +142,7 @@ pub(crate) fn build_pre_spice_block(
     new_chunk_shards: &[ShardId],
     latest_protocol_version: ProtocolVersion,
 ) -> Arc<Block> {
-    let epoch_manager = chain.epoch_manager.clone();
-    let new_chunks = get_fake_next_block_chunk_headers(prev_block, epoch_manager.as_ref());
+    let new_chunks = get_fake_next_block_chunk_headers(prev_block, chain.epoch_manager.as_ref());
     let chunks: Vec<_> = prev_block
         .chunks()
         .iter_raw()
@@ -171,6 +153,18 @@ pub(crate) fn build_pre_spice_block(
             },
         )
         .collect();
+    build_pre_spice_block_with_chunks(chain, prev_block, chunks, latest_protocol_version)
+}
+
+/// Fabricates the next pre-spice block carrying `chunks` without saving it, voting
+/// for `latest_protocol_version`.
+pub(crate) fn build_pre_spice_block_with_chunks(
+    chain: &Chain,
+    prev_block: &Block,
+    chunks: Vec<ShardChunkHeader>,
+    latest_protocol_version: ProtocolVersion,
+) -> Arc<Block> {
+    let epoch_manager = chain.epoch_manager.as_ref();
     let signer = Arc::new(create_test_signer("test1"));
     let height = prev_block.header().height() + 1;
     let chunk_endorsements = unsigned_chunk_endorsement_slots(chain, prev_block, height, &chunks);
