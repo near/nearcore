@@ -21,11 +21,12 @@ use near_client_primitives::types::GetBlockError;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, SpiceChunkId,
+    AccountId, AccountInfo, Balance, BlockId, BlockReference, Finality, Gas, SpiceChunkId,
 };
 use near_primitives::views::QueryRequest;
 use parking_lot::Mutex;
@@ -966,6 +967,52 @@ fn test_spice_total_supply_decreases_with_gas_burn() {
         block.header().total_supply(),
         initial_total_supply,
     );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_transaction_burns_gas_at_prev_block_gas_price() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+    let min_gas_price = Balance::from_yoctonear(100_000_000);
+    let max_gas_price = min_gas_price.checked_mul(20).unwrap();
+    // A transfer burns about 446 Ggas, more than half of this limit, so the price goes up.
+    let chunk_gas_limit = Gas::from_gigagas(500);
+    let mut env = TestLoopBuilder::new()
+        .validators(2, 0)
+        .gas_limit(chunk_gas_limit)
+        .gas_prices(min_gas_price, max_gas_price)
+        .gas_price_adjustment_rate(Rational32::new(1, 10))
+        .add_user_accounts([&sender, &receiver], Balance::from_near(10))
+        .build();
+
+    let num_transactions = 10;
+    let transfer_amount = Balance::from_millinear(1);
+    let mut tx_hashes = Vec::new();
+    for _ in 0..num_transactions {
+        let tx = env.validator().tx_send_money(&sender, &receiver, transfer_amount);
+        tx_hashes.push(env.validator().submit_tx(tx));
+        env.validator_runner().run_for_number_of_blocks(1);
+    }
+
+    let mut num_blocks_with_changed_gas_price = 0;
+    for tx_hash in tx_hashes {
+        let outcome_with_proof =
+            env.validator_runner().run_until_outcome_available(tx_hash, Duration::seconds(20));
+        let block = env.validator().block(outcome_with_proof.block_hash);
+        let prev_block = env.validator().block(*block.header().prev_hash());
+        let prev_block_gas_price = prev_block.header().next_gas_price();
+        if block.header().next_gas_price() != prev_block_gas_price {
+            num_blocks_with_changed_gas_price += 1;
+        }
+        let outcome = outcome_with_proof.outcome_with_id.outcome;
+        let expected_tokens_burnt =
+            prev_block_gas_price.checked_mul(u128::from(outcome.gas_burnt.as_gas())).unwrap();
+        assert_eq!(outcome.tokens_burnt, expected_tokens_burnt);
+    }
+    assert!(num_blocks_with_changed_gas_price > 0);
 }
 
 #[test]

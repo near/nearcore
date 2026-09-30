@@ -340,6 +340,7 @@ impl PerShardChunkExecutor {
     ) -> Result<(), Error> {
         let block_context = build_spice_apply_chunk_block_context(
             block.header(),
+            prev_block_header,
             prev_block_execution_results,
             self.epoch_manager.as_ref(),
         )?;
