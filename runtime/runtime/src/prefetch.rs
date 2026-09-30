@@ -181,7 +181,10 @@ impl TriePrefetcher {
                 // of the code length before continuing would be somewhat
                 // complex and also undermine the latency benefits of the
                 // prefetcher.
-                if !code_prefetch_requested && self.can_pay_contract_loading_base(fn_call.gas) {
+                if !self.can_pay_contract_loading_base(fn_call.gas) {
+                    continue;
+                }
+                if !code_prefetch_requested {
                     let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
                     self.prefetch_trie_key(trie_key)?;
                     code_prefetch_requested = true;
@@ -626,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn test_contract_code_prefetch_requires_loading_base() {
+    fn test_function_call_prefetch_requires_loading_base() {
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
@@ -646,14 +649,16 @@ mod tests {
         let loading_base = wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base);
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie, wasm_config)
             .expect("caching storage should have prefetcher");
-        // Isolate contract-code prefetching from the general account prefetcher.
+        // Isolate function-call prefetching from the general account prefetcher.
         prefetcher.prefetch_api.enable_receipt_prefetching = false;
         let account_id: AccountId = "contract.near".parse().unwrap();
+        prefetcher.prefetch_api.sweat_prefetch_receivers = vec![account_id.clone()];
+        prefetcher.prefetch_api.sweat_prefetch_senders = vec![account_id.clone()];
         let signer = InMemorySigner::test_signer(&account_id);
         let make_receipt = |gas| {
             let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: vec![],
+                method_name: "record_batch".to_string(),
+                args: br#"{"steps_batch":[["user.near",100]]}"#.to_vec(),
                 gas,
                 deposit: Balance::ZERO,
             }));
@@ -674,7 +679,8 @@ mod tests {
             .unwrap();
         assert_eq!(prefetcher.prefetch_enqueued.get(), enqueued_before);
         prefetcher.prefetch_receipts_data(&[make_receipt(loading_base)]).unwrap();
-        assert_eq!(prefetcher.prefetch_enqueued.get(), enqueued_before + 1);
+        // Both the contract code and the predicted contract-data key are prefetched.
+        assert_eq!(prefetcher.prefetch_enqueued.get(), enqueued_before + 2);
 
         let mut capped_config = wasm_config.as_ref().clone();
         capped_config.limit_config.max_gas_burnt =

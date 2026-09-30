@@ -878,7 +878,7 @@ impl WasmtimeVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit, is_memory_hit);
         let config = Arc::clone(&self.config);
-        let (gas_counter, pre_result) = match gas_counter {
+        let gas_counter = match gas_counter {
             PreparedContractGasCounter::Legacy(mut gas_counter) => {
                 if method.is_empty() {
                     let e =
@@ -891,7 +891,7 @@ impl WasmtimeVM {
                     let result = PreparationResult::OutcomeAbort(e);
                     return Ok(PreparedContract { config, gas_counter, result });
                 }
-                (gas_counter, pre_result)
+                gas_counter
             }
             PreparedContractGasCounter::Paid(loading_fee_paid) => {
                 let (gas_counter, charged_code_len) = loading_fee_paid.into_parts();
@@ -899,7 +899,7 @@ impl WasmtimeVM {
                     charged_code_len, wasm_bytes,
                     "contract loading gas was charged for a different code length"
                 );
-                (gas_counter, pre_result)
+                gas_counter
             }
         };
         match pre_result {

@@ -398,7 +398,7 @@ impl ReceiptPreparationPipeline {
         code_ext: RuntimeContractExt,
         gas_counter: Box<PreparedContractGasCounter>,
         action_index: usize,
-        view_config: Option<ViewConfig>,
+        is_view: bool,
     ) -> Box<dyn PreparedContract> {
         let account_id = receipt.receiver_id();
         let action = match receipt.receipt() {
@@ -424,7 +424,7 @@ impl ReceiptPreparationPipeline {
         // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
         let Some(task) = self.map.get(&key).filter(|t| {
-            view_config.is_none()
+            !is_view
                 // Identical code hashes imply identical source bytes and length.
                 && t.expected_hash == code_ext.identifier.hash()
         }) else {
