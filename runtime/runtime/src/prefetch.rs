@@ -428,15 +428,14 @@ mod tests {
     use super::TriePrefetcher;
     use near_crypto::InMemorySigner;
     use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
-    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::receipt::Receipt;
     use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{AccountId, Balance, Gas};
     use near_primitives::version::ProtocolFeature;
-    use near_primitives::{
-        hash::CryptoHash,
-        trie_key::TrieKey,
-        types::{AccountId, Balance, Gas},
-    };
     use near_store::adapter::StoreAdapter;
+    use near_store::flat::FlatStorageManager;
     use near_store::test_utils::{create_test_store, test_populate_trie};
     use near_store::trie::AccessOptions;
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
@@ -525,7 +524,7 @@ mod tests {
 
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
-        let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
@@ -630,7 +629,7 @@ mod tests {
     fn test_contract_code_prefetch_requires_loading_base() {
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
-        let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
+        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
@@ -652,24 +651,20 @@ mod tests {
         let account_id: AccountId = "contract.near".parse().unwrap();
         let signer = InMemorySigner::test_signer(&account_id);
         let make_receipt = |gas| {
-            Receipt::V0(ReceiptV0 {
-                predecessor_id: account_id.clone(),
-                receiver_id: account_id.clone(),
-                receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: account_id.clone(),
-                    signer_public_key: signer.public_key(),
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "main".to_string(),
-                        args: vec![],
-                        gas,
-                        deposit: Balance::ZERO,
-                    }))],
-                }),
-            })
+            let action = Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas,
+                deposit: Balance::ZERO,
+            }));
+            Receipt::from_tx(
+                CryptoHash::default(),
+                account_id.clone(),
+                account_id.clone(),
+                signer.public_key(),
+                Balance::ZERO,
+                vec![action],
+            )
         };
         let enqueued_before = prefetcher.prefetch_enqueued.get();
         prefetcher
