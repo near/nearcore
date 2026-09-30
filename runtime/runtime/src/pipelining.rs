@@ -371,13 +371,8 @@ impl ReceiptPreparationPipeline {
             access,
             protocol_version,
         )?;
-        let Some(code_len) = identifier.resolve_code_len(
-            state_update,
-            access,
-            account_id,
-            &self.chain_id,
-            protocol_version,
-        )?
+        let Some(code_len) =
+            identifier.resolve_code_len(state_update, access, &self.chain_id, protocol_version)?
         else {
             let abort = base_charged.without_code(account_id.as_str());
             return Ok(ContractPreparation::Aborted(abort));
