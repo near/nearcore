@@ -643,7 +643,7 @@ mod tests {
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
 
         let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         let wasm_config = &runtime_config_store.get_config(protocol_version).wasm_config;
         assert!(wasm_config.fix_contract_loading_cost);
         let loading_base = wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base);

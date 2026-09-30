@@ -1969,7 +1969,7 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     );
     let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new(None).get_config(protocol_version));
+    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
     assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
 
     let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);

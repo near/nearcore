@@ -29,7 +29,7 @@ fn test_contract_loading_gas_protocol_upgrade() {
     let valid = create_account_id("valid");
     let invalid = create_account_id("invalid");
     let bad_code = b"not-a-contract".to_vec();
-    let configs = RuntimeConfigStore::new(None);
+    let configs = RuntimeConfigStore::new();
     let config = configs.get_config(new_protocol);
     let costs = &config.wasm_config.ext_costs;
     let loading_base = costs.gas_cost(ExtCosts::contract_loading_base);
