@@ -1,5 +1,6 @@
 use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
 use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
+use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
@@ -71,6 +72,7 @@ impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if !self.spice_gate.should_process(
             &self.chain_store,
+            self.epoch_manager.as_ref(),
             SpiceMessageKind::ChunkEndorsement,
             msg.0.block_hash(),
         ) {
@@ -575,9 +577,13 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
-        // A pre-spice block carries no core statements and needs no certification,
-        // so there is nothing to record for it.
+        // A pre-spice block carries no core statements. The last pre-spice block's chunks
+        // still certify under spice, so endorsements that arrived for it before the block
+        // did are recorded now.
         if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &block_hash)? {
+                self.record_pending_endorsements_for_last_pre_spice_block(&block_hash)?;
+            }
             return Ok(());
         }
         let block = self.chain_store.get_block(&block_hash).unwrap();
@@ -586,6 +592,21 @@ impl SpiceCoreWriterActor {
         store_update.commit();
         self.send_execution_result_endorsements(&block);
         Ok(())
+    }
+
+    fn record_pending_endorsements_for_last_pre_spice_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let block = self.chain_store.get_block(block_hash)?;
+        let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
+        if pending_endorsements.is_empty() {
+            return Ok(());
+        }
+        let store_update =
+            self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
+        store_update.commit();
+        self.try_sending_execution_result_endorsed(block_hash)
     }
 }
 

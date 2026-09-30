@@ -47,7 +47,7 @@ const fn extra_refund_outcomes() -> usize {
 }
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let config = RuntimeConfig::clone(store.get_config(node.genesis().config.protocol_version));
     FeeHelper::new(config, node.genesis().config.min_gas_price)
 }

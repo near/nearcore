@@ -6,6 +6,7 @@
 
 * A `FunctionCall` to an account whose contract is a global contract that was never deployed on the chain now fails with `CodeDoesNotExist`, the same error as calling an account with no contract, on chunk producers and chunk validators alike. Only ETH implicit (`0x`) accounts can reach this state: they are created with a hardcoded wallet contract hash and no existence check, so on a chain whose wallet contract has not been deployed the first such call stalled the shard (the producer's apply job panicked in builds with debug assertions, and chunk validators rejected the state witness with `MissingTrieValue`). When the code is missing the runtime now looks up the global contract key, so the proof of absence is part of the state witness and validators reach the same outcome. Behavior is unchanged whenever the contract exists.
 * Limit the number of allowed globals per WASM contract to 65,536. [#16422](https://github.com/near/nearcore/pull/16422)
+* Fixed a bandwidth request over-reservation for shards that were not split in the most recent resharding. Such shards requested roughly double the bandwidth they needed, and the scheduler reserved sender bandwidth for receipts that did not exist. ([#16432](https://github.com/near/nearcore/pull/16432))
 
 ### Non-protocol Changes
 

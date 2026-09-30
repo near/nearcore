@@ -161,7 +161,7 @@ fn setup_env(contract_load_gas: Gas) -> (RuntimeNode, FeeHelper) {
 }
 
 fn runtime_config_with_contract_load_cost(contract_load_gas: Gas) -> RuntimeConfig {
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new();
     let mut runtime_config =
         RuntimeConfig::clone(runtime_config_store.get_config(PROTOCOL_VERSION));
 

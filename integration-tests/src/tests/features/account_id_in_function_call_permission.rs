@@ -21,7 +21,7 @@ fn test_invalid_account_id() {
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new()],
             )
             .build()
     };
@@ -68,7 +68,7 @@ fn test_very_long_account_id() {
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                vec![RuntimeConfigStore::new(None)],
+                vec![RuntimeConfigStore::new()],
             )
             .build()
     };
