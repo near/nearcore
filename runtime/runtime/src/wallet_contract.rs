@@ -44,38 +44,54 @@ const LOCALNET_GLOBAL_CONTRACT_HASH: CryptoHash = CryptoHash([
     0x0d, 0xbd, 0x09, 0x3c, 0x89, 0xf0, 0xe7, 0xba, 0xef, 0x2e, 0xdd, 0xc1, 0x42, 0xc4, 0x9e, 0x8d,
 ]);
 
-// Wallet hashes before and after UpdatedEthWalletContract.
-const MAINNET_GLOBAL_CONTRACTS: [CryptoHash; 2] = [
+/// A deployed wallet, used from `since` until the next entry's feature is enabled.
+struct WalletVersion {
+    since: Option<ProtocolFeature>,
+    hash: CryptoHash,
+}
+
+const MAINNET_GLOBAL_CONTRACTS: &[WalletVersion] = &[
     // 2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4
-    CryptoHash([
-        0x1d, 0xaa, 0x83, 0x5c, 0x46, 0x37, 0xf7, 0xae, 0x3d, 0x92, 0x40, 0x95, 0xba, 0x3f, 0x0b,
-        0xf2, 0x82, 0x9b, 0xcf, 0xa1, 0x7b, 0x10, 0x68, 0xcd, 0x58, 0xbd, 0x85, 0x3d, 0xca, 0xd7,
-        0xce, 0xb5,
-    ]),
+    WalletVersion {
+        since: None,
+        hash: CryptoHash([
+            0x1d, 0xaa, 0x83, 0x5c, 0x46, 0x37, 0xf7, 0xae, 0x3d, 0x92, 0x40, 0x95, 0xba, 0x3f,
+            0x0b, 0xf2, 0x82, 0x9b, 0xcf, 0xa1, 0x7b, 0x10, 0x68, 0xcd, 0x58, 0xbd, 0x85, 0x3d,
+            0xca, 0xd7, 0xce, 0xb5,
+        ]),
+    },
     // 5LM8a65dWxesxZeWq3HjCcjLkNTwHjTUPp8R117wZJDw
     // Deployed in https://nearblocks.io/txns/DKiEEbvssm6ozPTFesTGewRVcrteCmyTHzi4JvTPxaR7
-    CryptoHash([
-        0x40, 0x63, 0x8b, 0x73, 0xc9, 0x6c, 0xeb, 0x00, 0xe7, 0x03, 0x79, 0xdc, 0x71, 0x65, 0x89,
-        0xfd, 0xcc, 0xaf, 0x0d, 0x35, 0xec, 0x7b, 0x28, 0xf3, 0x8a, 0x79, 0x99, 0xe3, 0x89, 0x50,
-        0x54, 0x72,
-    ]),
+    WalletVersion {
+        since: Some(ProtocolFeature::UpdatedEthWalletContract),
+        hash: CryptoHash([
+            0x40, 0x63, 0x8b, 0x73, 0xc9, 0x6c, 0xeb, 0x00, 0xe7, 0x03, 0x79, 0xdc, 0x71, 0x65,
+            0x89, 0xfd, 0xcc, 0xaf, 0x0d, 0x35, 0xec, 0x7b, 0x28, 0xf3, 0x8a, 0x79, 0x99, 0xe3,
+            0x89, 0x50, 0x54, 0x72,
+        ]),
+    },
 ];
 
-// Wallet hashes before and after UpdatedEthWalletContract.
-const TESTNET_GLOBAL_CONTRACTS: [CryptoHash; 2] = [
+const TESTNET_GLOBAL_CONTRACTS: &[WalletVersion] = &[
     // 3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn
-    CryptoHash([
-        0x23, 0x8f, 0xea, 0xc1, 0xf8, 0x6c, 0xc9, 0xf9, 0xf4, 0x00, 0x3e, 0x3f, 0x6d, 0x5a, 0xeb,
-        0xc0, 0x4e, 0xae, 0xa9, 0xc3, 0x94, 0x03, 0x2b, 0xd2, 0x94, 0x70, 0xe9, 0x60, 0x9b, 0x67,
-        0xf6, 0xc5,
-    ]),
+    WalletVersion {
+        since: None,
+        hash: CryptoHash([
+            0x23, 0x8f, 0xea, 0xc1, 0xf8, 0x6c, 0xc9, 0xf9, 0xf4, 0x00, 0x3e, 0x3f, 0x6d, 0x5a,
+            0xeb, 0xc0, 0x4e, 0xae, 0xa9, 0xc3, 0x94, 0x03, 0x2b, 0xd2, 0x94, 0x70, 0xe9, 0x60,
+            0x9b, 0x67, 0xf6, 0xc5,
+        ]),
+    },
     // H7BByXFswWtJzpoatHsnTKiUAomKubBTFi8tq9vzULX7
     // Deployed in https://testnet.nearblocks.io/txns/GYdoLMuhaoJThrbcTepWKn5YqemJTb7B3bem2Pw3Es4f
-    CryptoHash([
-        0xef, 0x4f, 0xff, 0x25, 0x0b, 0xc3, 0x65, 0x06, 0x3a, 0x73, 0x72, 0xc3, 0xe9, 0x3b, 0x30,
-        0x81, 0x99, 0x0b, 0xd5, 0x04, 0xc6, 0x3a, 0xf2, 0xd1, 0xff, 0x5a, 0x1d, 0x16, 0x7e, 0x0a,
-        0x6c, 0x66,
-    ]),
+    WalletVersion {
+        since: Some(ProtocolFeature::UpdatedEthWalletContract),
+        hash: CryptoHash([
+            0xef, 0x4f, 0xff, 0x25, 0x0b, 0xc3, 0x65, 0x06, 0x3a, 0x73, 0x72, 0xc3, 0xe9, 0x3b,
+            0x30, 0x81, 0x99, 0x0b, 0xd5, 0x04, 0xc6, 0x3a, 0xf2, 0xd1, 0xff, 0x5a, 0x1d, 0x16,
+            0x7e, 0x0a, 0x6c, 0x66,
+        ]),
+    },
 ];
 
 /// Recognize legacy wallet magic hashes on every chain, including testnet PV70.
@@ -85,12 +101,19 @@ pub(crate) fn is_legacy_eth_wallet(code_hash: CryptoHash) -> bool {
         .contains(&code_hash)
 }
 
-fn global_contracts(chain_id: &str) -> Option<&'static [CryptoHash; 2]> {
+fn global_contracts(chain_id: &str) -> Option<&'static [WalletVersion]> {
     match chain_id {
-        chains::MAINNET | chains::MOCKNET => Some(&MAINNET_GLOBAL_CONTRACTS),
-        chains::TESTNET => Some(&TESTNET_GLOBAL_CONTRACTS),
+        chains::MAINNET | chains::MOCKNET => Some(MAINNET_GLOBAL_CONTRACTS),
+        chains::TESTNET => Some(TESTNET_GLOBAL_CONTRACTS),
         _ => None,
     }
+}
+
+fn active_version(versions: &[WalletVersion], protocol_version: ProtocolVersion) -> usize {
+    versions
+        .iter()
+        .rposition(|v| v.since.is_none_or(|f| f.enabled(protocol_version)))
+        .expect("first wallet version must have no activation feature")
 }
 
 /// Select the deployed wallet for this network and protocol version.
@@ -99,14 +122,10 @@ pub(crate) fn eth_wallet_global_contract_hash(
     chain_id: &str,
     protocol_version: ProtocolVersion,
 ) -> CryptoHash {
-    let Some([previous, current]) = global_contracts(chain_id) else {
+    let Some(versions) = global_contracts(chain_id) else {
         return LOCALNET_GLOBAL_CONTRACT_HASH;
     };
-    if ProtocolFeature::UpdatedEthWalletContract.enabled(protocol_version) {
-        *current
-    } else {
-        *previous
-    }
+    versions[active_version(versions, protocol_version)].hash
 }
 
 /// Recognize superseded global wallets so existing accounts use the updated contract.
@@ -115,8 +134,9 @@ pub(crate) fn is_earlier_eth_wallet_global_contract_hash(
     chain_id: &str,
     protocol_version: ProtocolVersion,
 ) -> bool {
-    ProtocolFeature::UpdatedEthWalletContract.enabled(protocol_version)
-        && global_contracts(chain_id).is_some_and(|[previous, _]| code_hash == previous)
+    global_contracts(chain_id).is_some_and(|versions| {
+        versions[..active_version(versions, protocol_version)].iter().any(|v| &v.hash == code_hash)
+    })
 }
 
 #[cfg(test)]
@@ -191,7 +211,8 @@ mod tests {
                 assert_eq!(eth_wallet_global_contract_hash(chain_id, pv), expected);
                 for code_hash in MAINNET_GLOBAL_CONTRACTS
                     .iter()
-                    .chain(TESTNET_GLOBAL_CONTRACTS.iter())
+                    .chain(TESTNET_GLOBAL_CONTRACTS)
+                    .map(|v| &v.hash)
                     .chain([&expected])
                 {
                     assert!(!is_earlier_eth_wallet_global_contract_hash(code_hash, chain_id, pv));
