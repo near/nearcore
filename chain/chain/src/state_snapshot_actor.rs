@@ -228,9 +228,9 @@ impl StateSnapshotActor {
     }
 
     /// Holds the host info back until every snapshotted shard's chunk in the sync block has
-    /// been certified, then sends it. A syncing peer proves the state root against the
-    /// `chunk_execution_root` of the block that committed the execution result, so a snapshot
-    /// announced before certification could not be served.
+    /// been certified, then sends it. A syncing peer authenticates the state root through the
+    /// body of the block that certified the execution result, so a snapshot announced before
+    /// certification could not be served.
     fn advertise_once_certified(
         &self,
         pending: PendingAdvertisement,
