@@ -35,7 +35,6 @@ near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner = { workspace = true, features = ["wasmtime_vm"] }
-near-wallet-contract.workspace = true
 
 [features]
 default = []
@@ -49,7 +48,6 @@ nightly = [
     "near-primitives/nightly",
     "near-store/nightly",
     "near-vm-runner/nightly",
-    "near-wallet-contract/nightly",
     "testlib/nightly",
 ]
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]

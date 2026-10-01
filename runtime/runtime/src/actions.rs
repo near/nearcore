@@ -5,6 +5,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
@@ -37,7 +38,6 @@ use near_store::{
     remove_account, set_access_key, set_gas_key_nonce,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::eth_wallet_global_contract_hash;
 use std::sync::Arc;
 
 /// Reports a rejected account-state change as a storage inconsistency.

@@ -62,7 +62,6 @@ members = [
     "nearcore",
     "neard",
     "runtime/near-vm-runner",
-    "runtime/near-wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
@@ -269,7 +268,6 @@ near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
 near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
-near-wallet-contract = { path = "runtime/near-wallet-contract" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
