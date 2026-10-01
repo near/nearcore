@@ -41,7 +41,7 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_resharding_trie_nodes_copied_to_cold_store() {
+fn test_resharding_data_copied_to_cold_store() {
     init_test_logger();
 
     // --- 1. Configure shard layouts and epoch configs for resharding ---
