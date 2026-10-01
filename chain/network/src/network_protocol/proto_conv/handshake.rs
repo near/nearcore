@@ -144,20 +144,20 @@ impl From<(&PeerInfo, &HandshakeFailureReason)> for proto::HandshakeFailure {
                 oldest_supported_version,
             } => Self {
                 peer_info: MF::some(pi.into()),
-                reason: proto::handshake_failure::Reason::ProtocolVersionMismatch.into(),
+                reason: proto::handshake_failure::Reason::REASON_PROTOCOL_VERSION_MISMATCH.into(),
                 version: *version,
                 oldest_supported_version: *oldest_supported_version,
                 ..Self::default()
             },
             HandshakeFailureReason::GenesisMismatch(genesis_id) => Self {
                 peer_info: MF::some(pi.into()),
-                reason: proto::handshake_failure::Reason::GenesisMismatch.into(),
+                reason: proto::handshake_failure::Reason::REASON_GENESIS_MISMATCH.into(),
                 genesis_id: MF::some(genesis_id.into()),
                 ..Self::default()
             },
             HandshakeFailureReason::InvalidTarget => Self {
                 peer_info: MF::some(pi.into()),
-                reason: proto::handshake_failure::Reason::InvalidTarget.into(),
+                reason: proto::handshake_failure::Reason::REASON_INVALID_TARGET.into(),
                 ..Self::default()
             },
         }
@@ -179,21 +179,23 @@ impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
     fn try_from(x: &proto::HandshakeFailure) -> Result<Self, Self::Error> {
         let pi = try_from_required(&x.peer_info).map_err(Self::Error::PeerInfo)?;
         let hfr = match x.reason.enum_value_or_default() {
-            proto::handshake_failure::Reason::ProtocolVersionMismatch => {
+            proto::handshake_failure::Reason::REASON_PROTOCOL_VERSION_MISMATCH => {
                 HandshakeFailureReason::ProtocolVersionMismatch {
                     version: x.version,
                     oldest_supported_version: x.oldest_supported_version,
                 }
             }
-            proto::handshake_failure::Reason::GenesisMismatch => {
+            proto::handshake_failure::Reason::REASON_GENESIS_MISMATCH => {
                 HandshakeFailureReason::GenesisMismatch(
                     try_from_required(&x.genesis_id).map_err(Self::Error::GenesisId)?,
                 )
             }
-            proto::handshake_failure::Reason::InvalidTarget => {
+            proto::handshake_failure::Reason::REASON_INVALID_TARGET => {
                 HandshakeFailureReason::InvalidTarget
             }
-            proto::handshake_failure::Reason::UNKNOWN => return Err(Self::Error::UnknownReason),
+            proto::handshake_failure::Reason::REASON_UNSPECIFIED => {
+                return Err(Self::Error::UnknownReason);
+            }
         };
         Ok((pi, hfr))
     }

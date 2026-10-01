@@ -9,8 +9,9 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
+    QueryError,
 };
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -209,11 +210,11 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError> {
+    ) -> Result<Vec<PublicKeyHandle>, ChainError> {
         let mut ret = Vec::new();
         let mut after_key = None;
         loop {
-            let response = self
+            let response = match self
                 .view_client
                 .send_async(Query {
                     block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
@@ -224,17 +225,18 @@ impl crate::ChainAccess for ChainAccess {
                     },
                 })
                 .await
-                .unwrap()?;
+                .unwrap()
+            {
+                Ok(response) => response,
+                Err(QueryError::UnknownAccount { .. }) => return Ok(ret),
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };
             for k in l.keys {
                 if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                    // TODO(post-quantum): Mirror does not support ML-DSA-65
-                    // hash-form entries; skip them silently.
-                    if let Some(pk) = k.public_key.full_pubkey() {
-                        ret.push(pk);
-                    }
+                    ret.push(k.public_key);
                 }
             }
             match l.last_key {

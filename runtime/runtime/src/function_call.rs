@@ -15,6 +15,7 @@ use near_primitives::receipt::{
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     KeyLookupMode, MissingTrieValue, MissingTrieValueContext, StorageError, TrieUpdate,
@@ -69,13 +70,12 @@ pub(crate) fn action_function_call(
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
-        config.wasm_config.storage_get_mode,
         Arc::clone(&apply_state.trie_access_tracker_state),
         storage_proof_size_before_receipt,
     );
     let outcome = execute_function_call(
         contract,
-        contract_id.hash(),
+        contract_id,
         apply_state,
         &mut runtime_ext,
         receipt.predecessor_id(),
@@ -232,7 +232,7 @@ pub(crate) fn action_function_call(
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     contract: Box<dyn near_vm_runner::PreparedContract>,
-    contract_code_hash: CryptoHash,
+    contract_id: &RuntimeContractIdentifier,
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
     predecessor_id: &AccountId,
@@ -281,14 +281,31 @@ pub(crate) fn execute_function_call(
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     near_vm_runner::report_metrics(apply_state.shard_id, &apply_state.apply_reason.to_string());
 
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
+    // Most VM runner errors translate to `RuntimeError` and propagate to the
+    // caller. Unknown compilation errors panic on the state-transition path so
+    // a validator cannot commit a potentially nondeterministic result. View
+    // calls instead return an aborted outcome because they do not change state.
+    // User-code errors are stored in `outcome.aborted` and do not reach these
+    // match arms.
+    //
+    // TODO(spice): check this behavior is still acceptable.
     let mut outcome = match result {
         Err(VMRunnerError::ContractCodeNotPresent) => {
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.as_str().into(),
+            });
+            if ProtocolFeature::FailCallToMissingGlobalContract
+                .enabled(apply_state.current_protocol_version)
+                && global_contract_is_missing(runtime_ext.trie_update, contract_id)?
+            {
+                // The account points at a global contract that was never deployed
+                // on this chain. ETH implicit accounts get their wallet contract
+                // hash hardcoded at creation without an existence check, so this
+                // is a legitimate state rather than an inconsistency. The lookup
+                // above is recorded in the state witness, so chunk validators see
+                // the same proof of absence and reach the same outcome.
+                return Ok(VMOutcome::nop_outcome(error));
+            }
             if runtime_ext.account().contract().is_some() {
                 debug_assert!(
                     apply_state.apply_reason != ApplyChunkReason::UpdateTrackedShard,
@@ -301,14 +318,11 @@ pub(crate) fn execute_function_call(
                 if apply_state.apply_reason == ApplyChunkReason::ValidateChunkStateWitness {
                     return Err(StorageError::MissingTrieValue(MissingTrieValue {
                         context: MissingTrieValueContext::TrieMemoryPartialStorage,
-                        hash: contract_code_hash,
+                        hash: contract_id.hash(),
                     })
                     .into());
                 }
             }
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.as_str().into(),
-            });
             return Ok(VMOutcome::nop_outcome(error));
         }
         Err(VMRunnerError::ExternalError(any_err)) => {
@@ -336,6 +350,18 @@ pub(crate) fn execute_function_call(
         }
         Err(VMRunnerError::WasmUnknownError { debug_message }) => {
             panic!("Wasmer returned unknown message: {}", debug_message)
+        }
+        Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
+            if context.view_config.is_none() {
+                // Do not commit a potentially nondeterministic error on chain.
+                panic!("wasm compilation unknown error: {debug_message}");
+            } else {
+                // A view call does not change state, so returning the local
+                // compilation failure is safe and avoids crashing the node.
+                return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
+                    CompilationError::WasmtimeCompileError { msg: debug_message },
+                )));
+            }
         }
         Ok(r) => r,
     };
@@ -392,6 +418,21 @@ fn record_contract_call(
         state_update.contract_storage().record_call(code_hash);
     }
     Ok(())
+}
+
+/// Returns true if `contract_id` refers to a global contract that is not in the
+/// trie, i.e. it was never deployed on this chain. The lookup is a regular
+/// state access, so its trie nodes are recorded in the state witness and
+/// validators can verify the absence.
+fn global_contract_is_missing(
+    state_update: &TrieUpdate,
+    contract_id: &RuntimeContractIdentifier,
+) -> Result<bool, StorageError> {
+    let RuntimeContractIdentifier::Global { identifier, .. } = contract_id else {
+        return Ok(false);
+    };
+    let key = TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
+    Ok(!state_update.contains_key(&key, AccessOptions::DEFAULT)?)
 }
 
 /// See #11703 for more details

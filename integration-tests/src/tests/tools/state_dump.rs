@@ -15,7 +15,8 @@ use near_primitives::transaction::{Action, DeployContractAction, SignedTransacti
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::account::id::AccountIdRef;
+use near_primitives_core::account::AccountState;
+use near_primitives_core::account::id::{AccountIdRef, AccountType};
 use near_state_viewer::state_dump;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -583,4 +584,78 @@ fn test_dump_state_respect_select_whitelist_validators() {
     );
 
     validate_genesis(&new_genesis).unwrap();
+}
+
+/// An uninitialized `0u` account must survive a state dump: Genesis validation
+/// should accept such accounts.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_dump_state_with_uninitialized_universal_account() {
+    init_test_logger();
+
+    let epoch_length = 4;
+    let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
+
+    // A `0u` id derived from the all-zero hash: valid, and with no known state
+    // init, so the account can never leave the uninitialized state.
+    let uaid: AccountId = "0u0000000000000000000000000000000000000000000000000000".parse().unwrap();
+    assert_eq!(uaid.get_account_type(), AccountType::UniversalAccount);
+
+    let deposit = Balance::from_near(1);
+    let genesis_hash = *env.clients[0].chain.genesis().hash();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = SignedTransaction::send_money(
+        1,
+        "test0".parse().unwrap(),
+        uaid.clone(),
+        &signer,
+        deposit,
+        genesis_hash,
+    );
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+
+    safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
+    // The transfer left an uninitialized account behind.
+    let view = env.query_account(uaid.clone());
+    assert_eq!(view.state, AccountState::Uninitialized);
+    assert_eq!(view.amount, deposit);
+
+    let head = env.clients[0].chain.head().unwrap();
+    let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let state_roots: Vec<CryptoHash> =
+        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    initialize_genesis_state(store.clone(), &genesis, None);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+    let runtime =
+        NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
+
+    // Both dump modes have to complete and emit the account as it stands.
+    let records_file = tempfile::NamedTempFile::new().unwrap();
+    for records_path in [Some(records_file.path()), None] {
+        let new_near_config = state_dump(
+            epoch_manager.as_ref(),
+            runtime.clone(),
+            &state_roots,
+            last_block.header().clone(),
+            &near_config,
+            records_path,
+            &GenesisChangeConfig::default(),
+        );
+        let new_genesis = new_near_config.genesis;
+        validate_genesis(&new_genesis).unwrap();
+
+        // The account has to come back exactly as it was, the bootstrap nonce
+        // included: it guards the account's own transactions, so losing it on the
+        // way out would reopen a replay of the state init it gates.
+        let mut new_env = TestEnv::builder(&new_genesis.config)
+            .validator_seats(2)
+            .nightshade_runtimes(&new_genesis)
+            .build();
+        assert_eq!(new_env.query_account(uaid.clone()), view);
+
+        // And the chain runs on top of it.
+        safe_produce_blocks(&mut new_env, new_genesis.config.genesis_height + 1, 5);
+    }
 }

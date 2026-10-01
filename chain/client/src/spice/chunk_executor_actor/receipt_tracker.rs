@@ -11,29 +11,25 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Network-path receipt proofs buffered against their source block until that
-/// block's execution results land and the proofs can be verified. Keyed by
-/// source block hash. Local-path proofs never go here — they are already on disk.
+/// Buffer of receipt proofs mapped by their source blocks.
 #[derive(Default)]
 pub(crate) struct UnverifiedReceiptTracker {
-    buffer: HashMap<CryptoHash, Vec<ReceiptProof>>,
+    proofs_by_source_block: HashMap<CryptoHash, Vec<ReceiptProof>>,
 }
 
 impl UnverifiedReceiptTracker {
-    /// Buffer a network-path receipt proof against its source block until that
-    /// block's execution results land and the proof can be verified.
-    pub(crate) fn buffer(&mut self, source_block: CryptoHash, receipt_proof: ReceiptProof) {
-        self.buffer.entry(source_block).or_default().push(receipt_proof);
+    pub(crate) fn insert(&mut self, source_block: CryptoHash, receipt_proof: ReceiptProof) {
+        self.proofs_by_source_block.entry(source_block).or_default().push(receipt_proof);
     }
 
     /// Number of source blocks with buffered receipts.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.buffer.len()
+        self.proofs_by_source_block.len()
     }
 
     /// Verify and persist any receipts buffered against `source_block` once its
-    /// execution results are available. Invalid proofs are dropped with a warning.
+    /// execution results are available; invalid proofs are dropped.
     pub(crate) fn try_drain(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -51,7 +47,7 @@ impl UnverifiedReceiptTracker {
             return Ok(());
         }
         let execution_results = core_reader.get_execution_results_by_shard_id(block.header())?;
-        let Some(receipt_proofs) = self.buffer.remove(source_block) else {
+        let Some(receipt_proofs) = self.proofs_by_source_block.remove(source_block) else {
             return Ok(());
         };
         for receipt_proof in receipt_proofs {
@@ -64,10 +60,8 @@ impl UnverifiedReceiptTracker {
                     save_receipt_proof(&mut store_update, source_block, &receipt_proof);
                     store_update.commit();
                 }
-                // TODO(spice): Notify spice data distributor about invalid receipts so it can ban
-                // or de-prioritize the node which sent them.
                 Err(err) => {
-                    tracing::warn!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts")
+                    tracing::debug!(target: "chunk_executor", ?err, %source_block, "encountered invalid receipts");
                 }
             }
         }
@@ -82,7 +76,7 @@ impl UnverifiedReceiptTracker {
     ) -> Result<(), Error> {
         let final_head = chain_store.spice_final_execution_head()?;
         let mut stale = Vec::new();
-        for source_block in self.buffer.keys().copied() {
+        for source_block in self.proofs_by_source_block.keys().copied() {
             match chain_store.get_block_header(&source_block) {
                 // At or below the final head: can never be applied again — drop it.
                 Ok(header) if header.height() <= final_head.height => stale.push(source_block),
@@ -96,7 +90,7 @@ impl UnverifiedReceiptTracker {
             }
         }
         for source_block in stale {
-            self.buffer.remove(&source_block);
+            self.proofs_by_source_block.remove(&source_block);
         }
         Ok(())
     }

@@ -1,6 +1,15 @@
+use crate::spice::boundary::is_last_pre_spice_block;
 use crate::spice::core::SpiceCoreReader;
 use crate::spice::core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
+};
+use crate::spice::tests::all_stake_fallback::{
+    grow_chain_to_fallback_only_block, split_designated, validators_with_minority_designated_stake,
+};
+use crate::spice::tests::core::endorse_chunk;
+use crate::spice::tests::pre_spice::{
+    build_pre_spice_block, grow_to_last_pre_spice_block, save_and_record_block,
+    setup_pre_spice_chain_with_epoch_length,
 };
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
@@ -22,9 +31,12 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::spice::chunk_endorsement::testonly_create_chunk_endorsement;
 use near_primitives::spice::chunk_endorsement::{SpiceChunkEndorsement, SpiceVerifiedEndorsement};
-use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::test_utils::{
+    TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ChunkExecutionResult, ShardId, SpiceChunkId};
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter as _;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -565,6 +577,72 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
     ))
 }
 
+/// Endorsements of the last pre-spice block's chunks that arrive before the block wait
+/// as pending like any spice endorsement, and are recorded once the block is processed
+/// even though the block itself is pre-spice.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handle_processed_block_records_pending_endorsements_for_last_pre_spice_block() {
+    init_test_logger();
+    let mut chain = setup_pre_spice_chain_with_epoch_length(2, 5);
+    let core_writer_actor = SpiceCoreWriterActor::new(
+        chain.chain_store().chain_store(),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+        core_reader(&chain),
+        noop().into_sender(),
+        noop().into_sender(),
+    );
+    let epoch_manager = chain.epoch_manager.clone();
+    let spice_protocol_version = ProtocolFeature::Spice.protocol_version();
+    let all_shards: Vec<ShardId> =
+        chain.genesis_block().chunks().iter_raw().map(|chunk| chunk.shard_id()).collect();
+    let (last_pre_spice, prev_block) = grow_to_last_pre_spice_block(&mut chain);
+
+    // A sibling last pre-spice block whose endorsements arrive before the block does.
+    let block = build_pre_spice_block(&chain, &prev_block, &all_shards, spice_protocol_version);
+    // Endorsements of a block already on disk are recorded on arrival, so they only go
+    // pending if the sibling is not the tip saved above.
+    assert_ne!(block.hash(), last_pre_spice.hash(), "sibling must not be the saved tip");
+    let chunks = block.chunks();
+    for chunk_header in chunks.iter_raw() {
+        let endorsement = test_chunk_endorsement("test1", &block, chunk_header);
+        core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
+    }
+    // With the block unknown the endorsements can only have been buffered as pending,
+    // not recorded.
+    assert!(
+        core_writer_actor
+            .core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .is_empty(),
+        "endorsements of an unknown block should not certify anything"
+    );
+
+    save_and_record_block(&mut chain, &block, pre_spice_protocol_version());
+    // Only the last pre-spice block takes the boundary branch of `handle_processed_block`;
+    // any other pre-spice block returns without touching pending endorsements.
+    assert!(
+        is_last_pre_spice_block(epoch_manager.as_ref(), block.hash()).unwrap(),
+        "sibling should be a last pre-spice block"
+    );
+    core_writer_actor.handle_processed_block(*block.hash()).unwrap();
+
+    // The regression check: processing the block drains the pending endorsements and
+    // records them.
+    let execution_results =
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
+    for chunk_header in chunks.iter_raw() {
+        assert_eq!(
+            execution_results.get(&chunk_header.shard_id()),
+            Some(&Arc::new(test_execution_result_for_chunk(chunk_header))),
+            "pending endorsement of shard {} should be recorded once the block is processed",
+            chunk_header.shard_id()
+        );
+    }
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_send_execution_result_endorsements_with_endorsements_but_without_execution_result() {
@@ -841,4 +919,59 @@ fn find_irrelevant_validator(
         })
         .unwrap();
     irrelevant_validator.clone()
+}
+
+// Checks the writer reads the fallback-only flag from the chunk's own block instead of from the
+// head's uncertified chunks, which never list a chunk whose block is off the head's chain.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_designated_endorsements_do_not_certify_a_fallback_only_chunk_off_the_head_chain() {
+    // Enough validators that a chunk's designated assignment stays under 2/3 of total stake,
+    // asserted below.
+    let validators = validators_with_minority_designated_stake();
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&validators.iter().map(|v| v.as_str()).collect_vec(), &[]);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(ShardLayout::multi_shard(3, 0))
+        .validators_spec(validators_spec)
+        .build();
+    let (mut chain, mut core_writer_actor) = setup_with_genesis(genesis);
+
+    let (fallback_only_block, shard_id) = grow_chain_to_fallback_only_block(&mut chain, 40);
+    let parent = chain.chain_store().get_block(fallback_only_block.header().prev_hash()).unwrap();
+
+    // A longer branch off the same parent takes the head.
+    let fork_block = build_block(&mut chain, &parent, vec![]);
+    process_block(&mut chain, fork_block.clone());
+    let fork_tip = build_block(&mut chain, &fork_block, vec![]);
+    process_block(&mut chain, fork_tip.clone());
+    let head = chain.chain_store().head().unwrap();
+    assert_eq!(head.last_block_hash, *fork_tip.hash());
+    let chunk_id = SpiceChunkId { block_hash: *fallback_only_block.hash(), shard_id };
+    assert!(
+        core_writer_actor
+            .core_reader
+            .uncertified_chunk_info(&head.last_block_hash, &chunk_id)
+            .unwrap()
+            .is_none(),
+        "the chunk should be absent from the head's uncertified set",
+    );
+
+    // Every designated validator endorses. Only 2/3 of total stake may certify a fallback-only
+    // chunk, and the designated set alone is below that, so nothing should be stored.
+    let chunks = fallback_only_block.chunks();
+    let chunk_header =
+        chunks.iter_raw().find(|chunk| chunk.shard_id() == shard_id).unwrap().clone();
+    drop(chunks);
+    let (designated, _) =
+        split_designated(&chain, &fallback_only_block, &chunk_header, &validators);
+    let designated: Vec<String> = designated.iter().map(|account| account.to_string()).collect();
+    endorse_chunk(&chain, &mut core_writer_actor, &chunk_id, &designated);
+
+    let execution_results = core_writer_actor
+        .core_reader
+        .get_execution_results_by_shard_id(fallback_only_block.header())
+        .unwrap();
+    assert_eq!(execution_results.get(&shard_id), None);
 }

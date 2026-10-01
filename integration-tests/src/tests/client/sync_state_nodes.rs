@@ -114,7 +114,7 @@ async fn slow_test_state_sync_headers() {
 
             // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
             let state_response_info = match state_request_client1
-                .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
+                .send_async(StateRequestPart { shard_id, sync_hash, part_idx: 0 })
                 .await
             {
                 Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),
@@ -271,7 +271,7 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
 
                 // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
                 let state_response_info = match state_request_client2
-                    .send_async(StateRequestPart { shard_id, sync_hash, part_id: 0 })
+                    .send_async(StateRequestPart { shard_id, sync_hash, part_idx: 0 })
                     .await
                 {
                     Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),

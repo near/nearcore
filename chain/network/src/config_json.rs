@@ -332,7 +332,6 @@ pub struct NetworkConfigOverrides {
     pub max_send_peers: Option<u32>,
     pub routed_message_ttl: Option<u8>,
     pub max_routes_to_store: Option<usize>,
-    pub highest_peer_horizon: Option<u64>,
     pub push_info_period_millis: Option<i64>,
     pub outbound_disabled: Option<bool>,
     pub accounts_data_broadcast_rate_limit_burst: Option<u64>,

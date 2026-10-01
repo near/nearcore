@@ -159,8 +159,7 @@ fn copy_column_by_prefix(
 }
 
 // Copy ChunkProducers by prefix-scan on the block hash. Returns Some(result) if it
-// handled `col`, else None. The nightly-only DBCol variant is confined to this fn.
-#[cfg(feature = "nightly")]
+// handled `col`, else None.
 fn maybe_copy_chunk_producers(
     col: DBCol,
     cold_db: &ColdDB,
@@ -177,16 +176,6 @@ fn maybe_copy_chunk_producers(
     // rows are copied whatever layout wrote them; the layout-derived key path would miss
     // those legacy boundary rows.
     Some(copy_column_by_prefix(cold_db, hot_store, col, block_hash_key))
-}
-
-#[cfg(not(feature = "nightly"))]
-fn maybe_copy_chunk_producers(
-    _col: DBCol,
-    _cold_db: &ColdDB,
-    _hot_store: &Store,
-    _block_hash_key: &[u8],
-) -> Option<io::Result<()>> {
-    None
 }
 
 // Correctly set the key and value on DBTransaction, taking reference counting

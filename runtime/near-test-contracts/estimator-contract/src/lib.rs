@@ -78,6 +78,7 @@ extern "C" {
     fn sha3_384(value_len: u64, value_ptr: u64, register_id: u64);
     fn sha3_512(value_len: u64, value_ptr: u64, register_id: u64);
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
+    fn universal_state_init_to_account_id(state_init_len: u64, state_init_ptr: u64, register_id: u64);
     fn ecrecover(
         hash_len: u64,
         hash_ptr: u64,
@@ -598,6 +599,49 @@ pub unsafe fn sha3_512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         sha3_512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Borsh header of a `UniversalStateInit::V1` holding one data entry: version tag,
+// `code: None`, a one-entry data map, and a one-byte key. Hand-assembled because
+// the typed struct lives in host-only crates. The value length, the value itself
+// and the empty access-key set follow.
+const STATE_INIT_HEADER: [u8; 11] = [
+    0, // V1
+    0, // code: None
+    1, 0, 0, 0, // data: one entry
+    1, 0, 0, 0,    // key length
+    b'k', // key
+];
+const STATE_INIT_TRAILER: [u8; 4] = [0, 0, 0, 0]; // access keys: none
+
+// Function to measure `universal_state_init_to_account_id_base` and
+// `universal_state_init_to_account_id_byte`. Also measures `write_register_base` and
+// `write_register_byte`; the derivation dominates those, so overcharging is fine.
+// Derive an account id from a 10b state init 10k times.
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init_to_account_id_10b_10k() {
+    // The smallest well-formed state init: V1 tag, `code: None`, empty data map,
+    // empty key set.
+    let buffer = [0u8; 10];
+    for _ in 0..10_000 {
+        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Derive an account id from a 10kib state init 10k times.
+#[unsafe(no_mangle)]
+pub unsafe fn universal_state_init_to_account_id_10kib_10k() {
+    // The host function hashes the whole payload, so size the *buffer* to 10kib and
+    // let the value take what the framing leaves.
+    const HEAD: usize = STATE_INIT_HEADER.len();
+    const VALUE_LEN: usize = 10 * 1024 - HEAD - 4 - STATE_INIT_TRAILER.len();
+    let mut buffer = [65u8; 10 * 1024];
+    buffer[..HEAD].copy_from_slice(&STATE_INIT_HEADER);
+    buffer[HEAD..HEAD + 4].copy_from_slice(&(VALUE_LEN as u32).to_le_bytes());
+    let tail = buffer.len() - STATE_INIT_TRAILER.len();
+    buffer[tail..].copy_from_slice(&STATE_INIT_TRAILER);
+    for _ in 0..10_000 {
+        universal_state_init_to_account_id(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
     }
 }
 

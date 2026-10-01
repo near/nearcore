@@ -15,7 +15,7 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{Balance, ProtocolVersion};
+use near_primitives::types::Balance;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -282,12 +282,6 @@ fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
     sum
 }
 
-/// Protocol version of the epoch the chain head belongs to.
-fn protocol_version_at_head(env: &TestLoopEnv) -> ProtocolVersion {
-    let head = env.rpc_node().head();
-    env.rpc_node().client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
-}
-
 /// Whether `AccountCostIncrease` was enabled in the block with the given hash.
 fn block_has_feature(env: &TestLoopEnv, block_hash: &CryptoHash) -> bool {
     let client = env.rpc_node().client();
@@ -356,7 +350,7 @@ fn test_create_account_cost_protocol_upgrade() {
         );
         tx_hashes.push(env.rpc_node().submit_tx(tx));
         env.rpc_runner().run_for_number_of_blocks(1);
-        if protocol_version_at_head(&env) == PROTOCOL_VERSION {
+        if env.rpc_node().protocol_version_at_head() == PROTOCOL_VERSION {
             blocks_after_upgrade += 1;
         }
     }

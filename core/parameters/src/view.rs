@@ -1,4 +1,5 @@
 use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::vm::StorageGetMode;
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -241,11 +242,13 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
+    /// Deprecated: custom sections are always discarded, so this is always `true`.
     pub discard_custom_sections: bool,
-    /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
+    /// Deprecated: the global contract host functions are always enabled, so this is
+    /// always `true`.
     pub global_contract_host_fns: bool,
-    /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
+    /// Deprecated: reference types and bulk memory wasm extensions are always
+    /// enabled, so this is always `true`.
     pub reftypes_bulk_memory: bool,
     /// See [VMConfig::gas_key_host_fns](crate::vm::Config::gas_key_host_fns).
     pub gas_key_host_fns: bool,
@@ -264,14 +267,17 @@ pub struct VMConfigView {
     /// See [VMConfig::bls12381_not_in_group_fix](crate::vm::Config::bls12381_not_in_group_fix).
     pub bls12381_not_in_group_fix: bool,
 
-    /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
-    pub storage_get_mode: crate::vm::StorageGetMode,
+    /// Deprecated: contract storage is always read through flat storage, so this is
+    /// always `FlatStorage`.
+    pub storage_get_mode: StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
     /// Deprecated
     pub implicit_account_creation: bool,
-    /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
+    /// Deprecated: ETH-implicit accounts are always enabled, so this is always `true`.
     pub eth_implicit_accounts: bool,
+    /// See [VMConfig::universal_accounts](crate::vm::Config::universal_accounts).
+    pub universal_accounts: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -288,15 +294,16 @@ impl From<crate::vm::Config> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             linear_op_base_cost: config.linear_op_base_cost,
             linear_op_unit_cost: config.linear_op_unit_cost,
-            discard_custom_sections: config.discard_custom_sections,
+            discard_custom_sections: true,
             limit_config: config.limit_config,
-            storage_get_mode: config.storage_get_mode,
+            storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: true,
             vm_kind: config.vm_kind,
-            eth_implicit_accounts: config.eth_implicit_accounts,
-            global_contract_host_fns: config.global_contract_host_fns,
-            reftypes_bulk_memory: config.reftypes_bulk_memory,
+            eth_implicit_accounts: true,
+            universal_accounts: config.universal_accounts,
+            global_contract_host_fns: true,
+            reftypes_bulk_memory: true,
             gas_key_host_fns: config.gas_key_host_fns,
             one_yocto_on_promise: config.one_yocto_on_promise,
             p256_verify_host_fn: config.p256_verify_host_fn,
@@ -536,6 +543,14 @@ pub struct ExtCostsConfigView {
     pub bls12381_p1_decompress_element: Gas,
     pub bls12381_p2_decompress_base: Gas,
     pub bls12381_p2_decompress_element: Gas,
+
+    // ######################
+    // # Universal accounts #
+    // ######################
+    /// Base cost of deriving a `0u` account id from a raw state init.
+    pub universal_state_init_to_account_id_base: Gas,
+    /// Per byte of the raw state init.
+    pub universal_state_init_to_account_id_byte: Gas,
 }
 
 impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
@@ -577,6 +592,10 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             p256_verify_byte: config.gas_cost(ExtCosts::p256_verify_byte),
             ml_dsa_verify_base: config.gas_cost(ExtCosts::ml_dsa_verify_base),
             ml_dsa_verify_byte: config.gas_cost(ExtCosts::ml_dsa_verify_byte),
+            universal_state_init_to_account_id_base: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_base),
+            universal_state_init_to_account_id_byte: config
+                .gas_cost(ExtCosts::universal_state_init_to_account_id_byte),
             log_base: config.gas_cost(ExtCosts::log_base),
             log_byte: config.gas_cost(ExtCosts::log_byte),
             storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
@@ -692,6 +711,12 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::p256_verify_byte => view.p256_verify_byte,
                 ExtCosts::ml_dsa_verify_base => view.ml_dsa_verify_base,
                 ExtCosts::ml_dsa_verify_byte => view.ml_dsa_verify_byte,
+                ExtCosts::universal_state_init_to_account_id_base => {
+                    view.universal_state_init_to_account_id_base
+                }
+                ExtCosts::universal_state_init_to_account_id_byte => {
+                    view.universal_state_init_to_account_id_byte
+                }
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
                 ExtCosts::storage_write_base => view.storage_write_base,
@@ -932,7 +957,7 @@ mod tests {
         use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
-        let config_store = RuntimeConfigStore::new(None);
+        let config_store = RuntimeConfigStore::new();
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});

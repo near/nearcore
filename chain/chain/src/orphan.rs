@@ -452,6 +452,12 @@ impl Chain {
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
     }
+
+    /// Returns the block currently held in the orphan pool under `hash`, if any.
+    #[inline]
+    pub fn get_orphan(&self, hash: &CryptoHash) -> Option<Arc<Block>> {
+        self.orphans.get(hash).map(|orphan| Arc::clone(orphan.block.get_inner()))
+    }
 }
 
 #[cfg(test)]

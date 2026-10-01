@@ -15,7 +15,7 @@ fn test_create_top_level_accounts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = PROTOCOL_VERSION;
-    let runtime_config = near_parameters::RuntimeConfigStore::new(None);
+    let runtime_config = near_parameters::RuntimeConfigStore::new();
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();

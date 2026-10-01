@@ -24,11 +24,8 @@ impl super::NetworkState {
         accounts_data: &AccountDataCacheSnapshot,
     ) -> Option<FrozenValidatorConfig<'_>> {
         let signer = self.config.validator.signer.get();
-        if signer
-            .as_ref()
-            .filter(|signer| accounts_data.keys.contains(&signer.public_key()))
-            .is_none()
-        {
+        let validator_signer = signer.as_ref()?;
+        if !accounts_data.keys.contains(&validator_signer.public_key()) {
             return None;
         }
         Some(FrozenValidatorConfig { signer, proxies: &self.config.validator.proxies })

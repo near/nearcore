@@ -13,7 +13,7 @@ pub use crate::network_protocol::{
 };
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::spice::data_distribution::SpicePartialDataRequest;
+use crate::spice::data_distribution::SpiceDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSenderFrom, time};
@@ -27,7 +27,8 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
@@ -252,13 +253,13 @@ pub enum NetworkRequests {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         sync_prev_prev_hash: CryptoHash,
-        part_id: u64,
+        part_idx: StatePartIndex,
     },
     /// Respond to state header request or state part request.
     StateRequestAck {
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        part_id_or_header: PartIdOrHeader,
+        part_or_header: PartOrHeader,
         body: StateRequestAckBody,
         peer_id: PeerId,
     },
@@ -317,7 +318,7 @@ pub enum NetworkRequests {
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
     /// Message requesting spice partial data.
-    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
+    SpiceDataRequest { request: SpiceDataRequest, producer: AccountId },
     /// SPICE: Message from chunk producer to chunk validators with code-hashes of accessed contracts.
     SpiceChunkContractAccesses(Vec<AccountId>, SpiceChunkContractAccesses),
     /// SPICE: Message from chunk validator to chunk producer requesting missing contract code.
@@ -328,7 +329,7 @@ pub enum NetworkRequests {
 
 #[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
-    StatePartReceived(ShardId, u64),
+    StatePartReceived(ShardId, StatePartIndex),
 }
 
 /// Combines peer address info, chain.
@@ -336,40 +337,6 @@ pub enum StateSyncEvent {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
-}
-
-/// These are the information needed for highest height peers. For these peers, we guarantee that
-/// the height and hash of the latest block are set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighestHeightPeerInfo {
-    pub peer_info: PeerInfo,
-    /// Chain Id and hash of genesis block.
-    pub genesis_id: GenesisId,
-    /// Height and hash of the highest block we've ever received from the peer
-    pub highest_block_height: BlockHeight,
-    /// Hash of the latest block
-    pub highest_block_hash: CryptoHash,
-    /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
-    /// Denote if a node is running in archival mode or not.
-    pub archival: bool,
-}
-
-impl From<FullPeerInfo> for Option<HighestHeightPeerInfo> {
-    fn from(p: FullPeerInfo) -> Self {
-        if p.chain_info.last_block.is_some() {
-            Some(HighestHeightPeerInfo {
-                peer_info: p.peer_info,
-                genesis_id: p.chain_info.genesis_id,
-                highest_block_height: p.chain_info.last_block.unwrap().height,
-                highest_block_hash: p.chain_info.last_block.unwrap().hash,
-                tracked_shards: p.chain_info.tracked_shards,
-                archival: p.chain_info.archival,
-            })
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -419,7 +386,6 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
@@ -594,7 +560,7 @@ pub enum Tier3RequestBody {
 pub struct StatePartRequestBody {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
-    pub part_id: u64,
+    pub part_idx: StatePartIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

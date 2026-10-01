@@ -7,7 +7,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{TransactionRunner, execute_tx};
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
@@ -27,7 +26,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, Gas, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 use std::sync::Arc;
 
@@ -42,12 +41,8 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 
 // Pin the congestion control parameters so the test doesn't need fixing every
 // time the live parameters change.
-fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    // TODO(limited_replayability): Start using congestion control config from latest protocol version.
-    #[allow(deprecated)]
-    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
-    let cc_config = config_store.get_config(cc_protocol_version);
-    config.congestion_control_config = cc_config.congestion_control_config;
+fn set_default_congestion_control(config: &mut RuntimeConfig) {
+    config.congestion_control_config = CongestionControlConfig::test_original();
 }
 
 /// Single node tracking all 4 shards, with inflated per-op wasm cost (so
@@ -67,10 +62,9 @@ fn setup_congestion_env() -> TestLoopEnv {
     let epoch_config_store =
         TestEpochConfigBuilder::from_genesis(&genesis).build_store_for_genesis_protocol_version();
 
-    let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
     set_wasm_cost(&mut config);
-    set_default_congestion_control(&config_store, &mut config);
+    set_default_congestion_control(&mut config);
     let runtime_config_store = RuntimeConfigStore::with_one_config(config);
 
     TestLoopBuilder::new()
@@ -95,15 +89,7 @@ fn process_tx(env: &TestLoopEnv, tx: SignedTransaction) -> ProcessTxResponse {
 /// outcome (panics on rejection before execution).
 fn execute_setup_tx(env: &mut TestLoopEnv, tx: SignedTransaction) -> FinalExecutionStatus {
     let node_account: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
-    execute_tx(
-        &mut env.test_loop,
-        &node_account,
-        TransactionRunner::new(tx, false),
-        &env.node_datas,
-        Duration::seconds(40),
-    )
-    .unwrap()
-    .status
+    env.runner_for_account(&node_account).execute_tx(tx, Duration::seconds(40)).unwrap().status
 }
 
 fn head_chunk(node: &TestLoopNode, shard_id: ShardId) -> ShardChunk {
@@ -237,12 +223,12 @@ fn setup_account(env: &mut TestLoopEnv, account_id: &AccountId, account_parent_i
     assert_matches!(execute_setup_tx(env, tx), FinalExecutionStatus::SuccessValue(_));
 }
 
-/// Deploy the congestion-control test contract (provides `loop_forever`),
+/// Deploy the compact test contract (provides `loop_forever`),
 /// advance the chain to complete it, and verify a call burns all its gas.
 fn setup_contract(env: &mut TestLoopEnv) {
     let parent: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
     let signer = InMemorySigner::test_signer(&parent);
-    let contract = near_test_contracts::congestion_control_test_contract();
+    let contract = near_test_contracts::compact_test_contract();
 
     let block_hash = env.validator().head().last_block_hash;
     let nonce = env.validator().get_next_nonce(&parent);

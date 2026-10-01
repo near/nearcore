@@ -30,7 +30,7 @@ use near_store::{
     get_gas_key_nonce,
 };
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
 use std::ops::Bound;
 use std::{str, sync::Arc, time::Instant};
@@ -95,7 +95,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config_store = RuntimeConfigStore::new();
         Self {
             runtime_config_store,
             state_size_limit: None,
@@ -142,6 +142,7 @@ impl TrieViewer {
             state_update,
             chain_id,
             AccessOptions::DEFAULT,
+            current_protocol_version,
         )?;
         let maybe_code = match contract_id {
             RuntimeContractIdentifier::None => None,
@@ -176,9 +177,15 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
-        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-        })
+        if let Some(access_key) = get_access_key(state_update, account_id, public_key)? {
+            return Ok(access_key);
+        }
+        if get_account(state_update, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
+        Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() })
     }
 
     /// Lists an account's access keys, optionally paginated.
@@ -272,6 +279,11 @@ impl TrieViewer {
                 }
             }
         }
+        if keys.is_empty() && get_account(trie, account_id)?.is_none() {
+            return Err(errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id: account_id.clone(),
+            });
+        }
         Ok((keys, last_key))
     }
 
@@ -281,10 +293,19 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Vec<Nonce>, errors::ViewGasKeyNoncesError> {
-        let access_key =
-            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-                errors::ViewGasKeyNoncesError::GasKeyDoesNotExist { public_key: public_key.clone() }
-            })?;
+        let access_key = match get_access_key(state_update, account_id, public_key)? {
+            Some(access_key) => access_key,
+            None if get_account(state_update, account_id)?.is_none() => {
+                return Err(errors::ViewGasKeyNoncesError::AccountDoesNotExist {
+                    requested_account_id: account_id.clone(),
+                });
+            }
+            None => {
+                return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
+                    public_key: public_key.clone(),
+                });
+            }
+        };
         // If the access key is not a gas key, treat as not found.
         let Some(gas_key_info) = access_key.gas_key_info() else {
             return Err(errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
@@ -477,6 +498,9 @@ impl TrieViewer {
             state_update.contract_storage().clone(),
             epoch_info_provider.chain_id(),
             apply_state.shard_id,
+            // View calls are user-facing (RPC) but off the block-production path.
+            CompilePriority::Interactive,
+            apply_state.current_protocol_version,
         );
         let max_gas_burnt_view = self.max_gas_burnt_view(view_state.current_protocol_version);
         let view_config = Some(ViewConfig { max_gas_burnt: max_gas_burnt_view });
@@ -486,10 +510,10 @@ impl TrieViewer {
             &state_update,
             &epoch_info_provider.chain_id(),
             AccessOptions::DEFAULT,
+            apply_state.current_protocol_version,
         )?;
-        let contract_code_hash = contract_id_resolved.hash();
         let contract =
-            pipeline.get_contract(&receipt, contract_id_resolved, 0, view_config.clone());
+            pipeline.get_contract(&receipt, contract_id_resolved.clone(), 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -501,13 +525,12 @@ impl TrieViewer {
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
-            config.wasm_config.storage_get_mode,
             Arc::clone(&apply_state.trie_access_tracker_state),
             None,
         );
         let outcome = execute_function_call(
             contract,
-            contract_code_hash,
+            &contract_id_resolved,
             &apply_state,
             &mut runtime_ext,
             originator_id,

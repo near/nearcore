@@ -5,11 +5,13 @@ use near_primitives::errors::StorageError;
 use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, TrieAccess as _, TrieUpdate};
 use near_vm_runner::ContractCode;
-use near_wallet_contract::{LegacyEthWallet, eth_wallet_global_contract_hash};
+use near_wallet_contract::{
+    LegacyEthWallet, eth_wallet_global_contract_hash, is_earlier_eth_wallet_global_contract_hash,
+};
 
 /// Identifies a resolved contract for execution.
 ///
@@ -39,8 +41,24 @@ impl RuntimeContractIdentifier {
         state_update: &TrieUpdate,
         chain_id: &str,
         access: AccessOptions,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
         let local_hash = match GlobalContractIdentifier::try_from(account_contract) {
+            // If the global contract references an out-dated wallet contract then resolve
+            // to the most recent one for this protocol version instead.
+            Ok(GlobalContractIdentifier::CodeHash(code_hash))
+                if is_earlier_eth_wallet_global_contract_hash(
+                    &code_hash,
+                    chain_id,
+                    protocol_version,
+                ) =>
+            {
+                let global_hash = eth_wallet_global_contract_hash(chain_id, protocol_version);
+                return Ok(RuntimeContractIdentifier::Global {
+                    code_hash: global_hash,
+                    identifier: GlobalContractIdentifier::CodeHash(global_hash),
+                });
+            }
             Ok(gci) => {
                 let code_hash = gci.clone().hash(state_update, access)?;
                 return Ok(RuntimeContractIdentifier::Global { code_hash, identifier: gci });
@@ -58,7 +76,7 @@ impl RuntimeContractIdentifier {
             if LegacyEthWallet::resolve(local_hash).is_some() {
                 // ETH implicit wallet accounts use global contracts, including
                 // those created in old protocol versions.
-                let global_hash = eth_wallet_global_contract_hash(chain_id);
+                let global_hash = eth_wallet_global_contract_hash(chain_id, protocol_version);
                 return Ok(RuntimeContractIdentifier::Global {
                     code_hash: global_hash,
                     identifier: GlobalContractIdentifier::CodeHash(global_hash),

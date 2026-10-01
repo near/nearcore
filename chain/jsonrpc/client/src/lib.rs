@@ -6,6 +6,7 @@ use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
     RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
 };
+use near_jsonrpc_primitives::types::indexer::{RpcIndexerBlockRequest, RpcIndexerBlockResponse};
 use near_jsonrpc_primitives::types::receipts::{
     RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
 };
@@ -237,6 +238,17 @@ impl JsonRpcClient {
         call_method(&self.transport, "broadcast_tx_commit", [tx])
     }
 
+    pub fn experimental_indexer_block(
+        &self,
+        block_hash: CryptoHash,
+    ) -> RpcRequest<RpcIndexerBlockResponse> {
+        call_method(
+            &self.transport,
+            "EXPERIMENTAL_indexer_block",
+            RpcIndexerBlockRequest { block_hash },
+        )
+    }
+
     pub fn status(&self) -> RpcRequest<StatusResponse> {
         call_method(&self.transport, "status", [] as [(); 0])
     }
@@ -290,6 +302,14 @@ impl JsonRpcClient {
         call_method(&self.transport, "tx", request)
     }
 
+    pub fn tx_status(
+        &self,
+        request: RpcTransactionStatusRequest,
+    ) -> RpcRequest<RpcTransactionResponse> {
+        call_method(&self.transport, "tx_status", request)
+    }
+
+    #[deprecated(since = "2.14.0", note = "Use `tx_status` method instead")]
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_status(
         &self,

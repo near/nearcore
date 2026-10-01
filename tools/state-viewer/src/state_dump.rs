@@ -300,7 +300,9 @@ fn iterate_over_records(
                                         .unwrap(),
                                 );
                             }
-                            account.set_locked(stake);
+                            account
+                                .set_locked(stake)
+                                .expect("account with locked balance must be initialized");
                         }
                         total_supply = total_supply
                             .checked_add(account.amount())

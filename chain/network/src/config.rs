@@ -23,9 +23,6 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
-
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
 
@@ -196,10 +193,6 @@ pub struct NetworkConfig {
     pub routed_message_ttl: u8,
     /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
     pub max_routes_to_store: usize,
-    /// Height horizon for highest height peers
-    /// For example if one peer is 1 height away from max height peer,
-    /// we still want to use the rest to query for state/headers/blocks.
-    pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
@@ -268,9 +261,6 @@ impl NetworkConfig {
         }
         if let Some(max_routes_to_store) = overrides.max_routes_to_store {
             self.max_routes_to_store = max_routes_to_store
-        }
-        if let Some(highest_peer_horizon) = overrides.highest_peer_horizon {
-            self.highest_peer_horizon = highest_peer_horizon
         }
         if let Some(millis) = overrides.push_info_period_millis {
             self.push_info_period = time::Duration::milliseconds(millis)
@@ -441,7 +431,6 @@ impl NetworkConfig {
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
-            highest_peer_horizon: HIGHEST_PEER_HORIZON,
             push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             archive,
@@ -528,7 +517,6 @@ impl NetworkConfig {
             ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
-            highest_peer_horizon: 5,
             push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             inbound_disabled: false,
@@ -734,11 +722,6 @@ mod test {
                 &before.max_routes_to_store,
                 &after.max_routes_to_store,
                 &overrides.max_routes_to_store
-            ));
-            assert!(check_override_field(
-                &before.highest_peer_horizon,
-                &after.highest_peer_horizon,
-                &overrides.highest_peer_horizon
             ));
             assert!(check_override_field(
                 &before.push_info_period,

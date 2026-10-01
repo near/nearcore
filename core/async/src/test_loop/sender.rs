@@ -116,7 +116,7 @@ where
             Box::new(callback),
             self.sender_delay,
         );
-        async move { Ok(receiver.await.unwrap()) }.boxed()
+        async move { receiver.await.map_err(|_| AsyncSendError::Dropped) }.boxed()
     }
 }
 

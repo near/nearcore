@@ -9,6 +9,7 @@ use near_primitives_core::deterministic_account_id::{
 };
 use near_primitives_core::hash::{CryptoHash, YieldId, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
+use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -42,6 +43,11 @@ pub enum MockAction {
     DeterministicStateInit {
         receipt_index: ReceiptIndex,
         state_init: DeterministicAccountStateInit,
+        amount: Balance,
+    },
+    UniversalStateInit {
+        receipt_index: ReceiptIndex,
+        state_init: Vec<u8>,
         amount: Balance,
     },
     FunctionCallWeight {
@@ -124,6 +130,15 @@ pub struct MockedExternal {
     pub action_log: Vec<MockAction>,
     pub code: Option<std::sync::Arc<ContractCode>>,
     pub code_hash: CryptoHash,
+    /// Entry and key counts `state_init_counts` reports. The byte count always
+    /// comes from the payload, but these two need the typed `UniversalStateInit`,
+    /// which lives in `near-primitives`, out of this crate's reach. Tests set them
+    /// to exercise the per-entry and per-key fees.
+    pub universal_state_init_entries: u64,
+    pub universal_state_init_keys: u64,
+    /// How many times `state_init_counts` was asked for a decode, so a test can
+    /// assert the per-byte fee is charged before the host does that work.
+    pub state_init_counts_calls: std::cell::Cell<u64>,
     data_count: u64,
 }
 
@@ -383,6 +398,31 @@ impl External for MockedExternal {
             }
             _ => Err(HostError::InvalidActionIndex { receipt_index, action_index }.into()),
         }
+    }
+
+    /// The byte count comes from the payload; the entry and key counts are
+    /// whatever the test asked for, since decoding needs `near-primitives`.
+    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
+        self.state_init_counts_calls.set(self.state_init_counts_calls.get() + 1);
+        UniversalStateInitCounts {
+            num_bytes: state_init.0.len() as u64,
+            num_entries: self.universal_state_init_entries,
+            num_keys: self.universal_state_init_keys,
+        }
+    }
+
+    /// Records the state init verbatim.
+    fn append_action_universal_state_init(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        state_init: RawStateInit,
+        amount: Balance,
+    ) {
+        self.action_log.push(MockAction::UniversalStateInit {
+            receipt_index,
+            state_init: state_init.0,
+            amount,
+        });
     }
 
     fn append_action_function_call_weight(

@@ -5,6 +5,7 @@ use super::peer_manager_actor::{
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
+use super::spice_partial_data_faults::SpicePartialDataFaultState;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
@@ -16,14 +17,15 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
 use near_client::client_actor::ClientActor;
+use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
     ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
     ViewClientActor,
 };
-use near_jsonrpc::ViewClientSenderForRpc;
 use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
+use near_jsonrpc::{RpcConfig, ViewClientSenderForRpc};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -46,12 +48,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+pub(crate) const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
 /// This state is shared across all nodes and none of it belongs to a specific node.
 pub struct SharedState {
     pub genesis: Genesis,
+    pub rpc_config: RpcConfig,
     /// Directory of the current test. This is automatically deleted once tempdir goes out of scope.
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,
@@ -80,6 +83,8 @@ pub struct SharedState {
     pub task_delay_fn: Option<Arc<dyn Fn(&AccountId, &str) -> Option<Duration> + Send + Sync>>,
     /// Per-node installation state for the spice endorsement-delay handler.
     pub spice_endorsement_delay: Arc<Mutex<SpiceEndorsementDelayState>>,
+    /// Fault injection for spice data distribution, armed by tests.
+    pub spice_partial_data_faults: SpicePartialDataFaultState,
 }
 
 /// Shared state for the spice endorsement-delay network handler installed by
@@ -118,6 +123,7 @@ pub struct NodeExecutionData {
     pub resharding_sender: TestLoopSender<ReshardingActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<Arc<StateSyncDumpHandle>>,
     pub spice_data_distributor_sender: TestLoopSender<SpiceDataDistributorActor>,
+    pub spice_chunk_validator_sender: TestLoopSender<SpiceChunkValidatorActor>,
     pub spice_core_writer_sender: TestLoopSender<SpiceCoreWriterActor>,
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,

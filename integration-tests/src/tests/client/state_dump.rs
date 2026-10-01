@@ -14,7 +14,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
@@ -94,13 +94,13 @@ fn slow_test_state_dump() {
 
         for shard_id in shard_ids {
             let num_parts = 1;
-            for part_id in 0..num_parts {
+            for part_idx in 0..num_parts {
                 let path = root_dir.path().join(external_storage_location(
                     "unittest",
                     &epoch_id,
                     epoch_height,
                     shard_id,
-                    &StateFileType::StatePart { part_id, num_parts },
+                    &StateFileType::StatePart { part_idx, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
                     tracing::info!(?path, "missing");
@@ -275,13 +275,13 @@ fn run_state_sync_with_dumped_parts(
         assert_ne!(shard_ids.len(), 0);
 
         for shard_id in shard_ids {
-            for part_id in 0..num_parts {
+            for part_idx in 0..num_parts {
                 let path = root_dir.path().join(external_storage_location(
                     &config.chain_id,
                     &epoch_id,
                     epoch_height,
                     shard_id,
-                    &StateFileType::StatePart { part_id, num_parts },
+                    &StateFileType::StatePart { part_idx, num_parts },
                 ));
                 if std::fs::read(&path).is_err() {
                     tracing::info!(?path, "dumping node: missing");
@@ -320,17 +320,17 @@ fn run_state_sync_with_dumped_parts(
     );
     store_update.commit();
     let shard_id = ShardId::new(0);
-    for part_id in 0..num_parts {
+    for part_idx in 0..num_parts {
         let path = root_dir.path().join(external_storage_location(
             &config.chain_id,
             &epoch_id,
             epoch_height,
             shard_id,
-            &StateFileType::StatePart { part_id, num_parts },
+            &StateFileType::StatePart { part_idx, num_parts },
         ));
         let bytes = std::fs::read(&path).expect("Part file not found. It should exist");
         let part = StatePart::from_bytes(bytes).unwrap();
-        let part_id = PartId::new(part_id, num_parts);
+        let part_id = StatePartId::new(part_idx, num_parts);
         runtime_client_1
             .apply_state_part(shard_id, &state_root, part_id, &part, &epoch_id)
             .unwrap();

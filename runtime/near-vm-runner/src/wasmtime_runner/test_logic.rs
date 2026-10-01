@@ -3,9 +3,8 @@ use super::logic;
 use crate::logic::errors::VMLogicError;
 use crate::logic::gas_counter::GasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, MemSlice, VMContext, VMOutcome};
+use crate::logic::{Config, ExecutionResultState, HostCtx, MemSlice, VMContext, VMOutcome};
 use near_parameters::RuntimeFeesConfig;
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
@@ -75,8 +74,9 @@ impl WasmtimeTestLogic<'_> {
         WasmtimeTestLogic { store, memory, mem_write_offset: 0, _lifetime: PhantomData }
     }
 
-    fn ctx_and_mem(&mut self) -> (&mut [u8], &mut Ctx) {
-        self.memory.data_and_store_mut(&mut self.store)
+    fn ctx_and_mem(&mut self) -> (&mut [u8], &mut HostCtx<'static>) {
+        let (mem, ctx) = self.memory.data_and_store_mut(&mut self.store);
+        (mem, &mut ctx.host)
     }
 
     // Expands to pub(crate) fn $name(&mut self, ...) delegates for every
@@ -84,23 +84,23 @@ impl WasmtimeTestLogic<'_> {
     crate::imports::for_each_import_item!(delegate_import);
 
     pub(crate) fn gas_opcodes(&mut self, opcodes: u32) -> Result<(), VMLogicError> {
-        logic::gas_opcodes(&mut self.store.data_mut().result_state, opcodes)
+        logic::gas_opcodes(&mut self.store.data_mut().host.result_state, opcodes)
     }
 
     pub(crate) fn result_state(&self) -> &ExecutionResultState {
-        &self.store.data().result_state
+        &self.store.data().host.result_state
     }
 
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
-        &mut self.store.data_mut().result_state.gas_counter
+        &mut self.store.data_mut().host.result_state.gas_counter
     }
 
     pub(crate) fn config(&self) -> &Config {
-        &self.store.data().config
+        &self.store.data().host.config
     }
 
     pub(crate) fn registers(&mut self) -> &mut Registers {
-        &mut self.store.data_mut().registers
+        &mut self.store.data_mut().host.registers
     }
 
     pub(crate) fn internal_mem_write(&mut self, data: &[u8]) -> MemSlice {
@@ -124,7 +124,7 @@ impl WasmtimeTestLogic<'_> {
     #[track_caller]
     pub(crate) fn assert_read_register(&mut self, want: &[u8], register_id: u64) {
         let len = self.registers().get_len(register_id).unwrap();
-        let ptr = MockedMemory::MEMORY_SIZE - len;
+        let ptr = self.memory.data_size(&self.store) as u64 - len;
         self.read_register(register_id, ptr).unwrap();
         let got = self.internal_mem_read(ptr, len);
         assert_eq!(want, &got[..]);
@@ -135,7 +135,7 @@ impl WasmtimeTestLogic<'_> {
         register_id: u64,
         data: &[u8],
     ) -> Result<(), VMLogicError> {
-        let ctx = self.store.data_mut();
+        let ctx = &mut self.store.data_mut().host;
         ctx.registers.set(
             &mut ctx.result_state.gas_counter,
             &ctx.config.limit_config,
@@ -145,6 +145,6 @@ impl WasmtimeTestLogic<'_> {
     }
 
     pub(crate) fn compute_outcome(self) -> VMOutcome {
-        self.store.into_data().result_state.compute_outcome()
+        self.store.into_data().host.into_result_state().compute_outcome()
     }
 }

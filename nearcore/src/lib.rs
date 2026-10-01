@@ -7,7 +7,8 @@ use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::thread_pool::{
-    PartialWitnessValidationThreadPool, WitnessCreationThreadPool, contract_compilation_pool,
+    PartialWitnessValidationThreadPool, WitnessCreationThreadPool,
+    background_contract_compilation_coordinator_pool,
 };
 use near_async::time::Clock;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -393,7 +394,37 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    if config.config.enable_compiler_daemon {
+        // Keep using the running executable's inode after a rename-over binary
+        // upgrade. Resolving this symlink up front would leave a stale deleted
+        // path and make later lazy worker spawns fail.
+        #[cfg(target_os = "linux")]
+        let current_exe = PathBuf::from("/proc/self/exe");
+        #[cfg(not(target_os = "linux"))]
+        let current_exe =
+            std::env::current_exe().context("failed to locate the neard executable")?;
+        tracing::info!(path = %current_exe.display(), "using neard as compiler daemon binary");
+        near_vm_runner::compiler_daemon::set_daemon_binary(current_exe);
+        let status = near_vm_runner::compiler_daemon::start_daemon()
+            .map_err(anyhow::Error::msg)
+            .context("failed to start compiler daemon")?;
+        tracing::info!(
+            compatibility_hash = status.compiler_compatibility_hash,
+            isolation = ?status.isolation,
+            "compiler daemon worker is ready"
+        );
+    } else {
+        tracing::info!("compiler daemon is disabled, WASM compilation will run in-process");
+    }
+
     let storage = open_storage(home_dir, &config)?;
+    // Before any actor is spawned, so the GC actor never starts on this store.
+    if storage.get_hot_store().cloud_archival_store().reader_head().is_some() {
+        anyhow::bail!(
+            "this store was written by a cloud-archive reader and cannot be used by a running \
+             node; point the cloud-archive tool at it instead"
+        );
+    }
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         spawn_db_metrics_loop(actor_system.clone(), &storage, period);
@@ -406,14 +437,17 @@ pub async fn start_with_config_and_synchronization_impl(
     );
 
     let epoch_id = EpochId::default();
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
+    // Take the layout from the genesis EpochInfo the EpochManager just wrote rather than
+    // re-deriving it, so genesis state can never be built under a different layout than the
+    // one the epoch manager recorded.
+    let genesis_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_sharded_genesis_state(
         storage.get_hot_store(),
         &config.genesis,
-        &genesis_epoch_config,
+        &genesis_shard_layout,
         Some(home_dir),
     );
 
@@ -479,7 +513,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
         actor_system.new_future_spawner("cloud archival").into(),
-        config.config.cloud_archival_writer,
+        config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),
@@ -567,7 +601,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
-        contract_compilation_pool().clone(),
+        background_contract_compilation_coordinator_pool().clone(),
         Arc::new(PartialWitnessValidationThreadPool::new()),
         Arc::new(WitnessCreationThreadPool::new()),
     ));

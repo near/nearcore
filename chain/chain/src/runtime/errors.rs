@@ -100,6 +100,9 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewAccessKeyError::InvalidAccountId {
                 requested_account_id,
             } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewAccessKeyError::AccountDoesNotExist {
+                requested_account_id,
+            } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
             node_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::UnknownAccessKey { public_key, block_height, block_hash },

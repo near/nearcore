@@ -27,7 +27,7 @@ This document describes the internals of the RPC layer in nearcore: how requests
 - **The `query` method is routed separately.** It has its own branch in `process_request_internal()` (not in `process_basic_requests_internal()`) because it needs sub-type metrics tracking. Don't add query sub-types to `process_basic_requests_internal`.
 - **Legacy parameter formats must be preserved.** Many methods accept both a legacy JSON array format and a modern object format. The `Params<T>` builder chain (`try_singleton()` / `try_pair()` / `unwrap_or_parse()`) handles this. Don't remove the legacy parsing paths.
 - **Error types use `RpcFrom`/`RpcInto`, not `From`/`Into`.** Each RPC method has its own error enum in `chain/jsonrpc-primitives/src/types/`. These must implement `RpcFrom` to convert to `RpcError`. Forgetting this will compile but produce bad error responses.
-- **`process_query_response()` has intentional backward-compatible error formatting.** For `ContractExecutionError` and `UnknownAccessKey`, it returns a flat JSON object with `error`, `logs`, `block_height`, `block_hash` fields instead of a structured RPC error. This is deliberate.
+- **`process_query_response()` has intentional backward-compatible error formatting.** For `ContractExecutionError` and `UnknownAccessKey`, it returns a flat JSON object with `error`, `logs`, `block_height`, `block_hash` fields instead of a structured RPC error. This is deliberate. Do not add new flat-shape arms: `near-jsonrpc-client-rs` word-matches the `UnknownAccessKey` message and reads every other flat `error` string as a contract execution error, so a new message here reaches clients as a bogus `ContractExecutionError`. New error variants must use the structured form.
 - **Rosetta and JSON-RPC are independent servers.** Both talk directly to the same actor instances. Rosetta does not go through the JSON-RPC server.
 - **`send_tx_internal()` has idempotency logic.** If `RpcHandlerActor` returns `InvalidNonce`, it checks via `tx_exists()` whether the transaction was already processed on chain, and returns `ValidTx` instead of an error.
 
@@ -141,6 +141,35 @@ Methods registered in `process_basic_requests_internal()`:
 **EXPERIMENTAL:** ~14 methods for direct queries, protocol config, receipts, tx status, validators, congestion level, light client block proofs, etc. All follow the same `process_method_call` pattern. See `process_basic_requests_internal()` for the full list.
 
 **Sandbox** (only with `sandbox` feature): `sandbox_patch_state`, `sandbox_fast_forward`
+
+### Indexer Block RPC
+
+`EXPERIMENTAL_indexer_block` accepts `{"block_hash": "<hash>"}` and returns the
+existing `StreamerMessage` fields (`block`, `shards`) plus `tracked_shards` in
+historical layout order. It reuses the embedded indexer's assembler. Clients choose
+an optimistic or finalized head through `block`, then request each message by hash;
+this method does not select finality or maintain a streaming cursor.
+
+`tracked_shards` describes configured chunk/execution coverage. Carried chunks
+remain null even on tracked shards. State changes retain the embedded assembler's
+behavior and may include stored changes outside that coverage.
+
+The node must have `save_tx_outcomes` and `save_state_changes` enabled throughout
+the requested history and retain the required execution metadata. Archive mode
+alone does not guarantee that retention. The handler rejects currently disabled
+saving, missing execution indices, outcomes or receipts, and unsupported SPICE
+execution. Existing storage has no historical state-change recording marker:
+current settings cannot prove that an empty historical result was recorded, and
+the checks do not provide a snapshot against every GC race.
+
+`rpc.enable_indexer_rpc` defaults to false, following `enable_debug_rpc`. Disabled
+nodes return method not found. To enable the endpoint, set `enable_indexer_rpc` to
+true in the `rpc` section of `config.json`.
+
+`rpc.indexer_max_concurrent_requests` bounds admitted requests (default 1). Excess
+requests fail with `BUSY` before assembly instead of queuing. Responses larger than 32 MiB are rejected without truncation. This size
+check follows assembly and allocation; it is not a peak-memory bound. Operators
+should apply caller rate limits appropriate to their workloads.
 
 ### Parameter Parsing
 
@@ -285,6 +314,8 @@ Proof computation is in `core/store/src/merkle_proof.rs`. ViewClientActor handle
 - `polling_config.polling_timeout` - Timeout for `broadcast_tx_commit` etc. (default: 10s).
 - `limits_config.json_payload_max_size` - Max request body (default: 10MB).
 - `enable_debug_rpc` - Enable debug endpoints.
+- `enable_indexer_rpc` - Enable `EXPERIMENTAL_indexer_block` (default: false).
+- `indexer_max_concurrent_requests` - Concurrent indexer block requests (default: 1).
 
 **Rosetta RPC** (via `rosetta_rpc` section in `config.json`):
 

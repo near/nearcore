@@ -356,9 +356,9 @@ pub enum InvalidAccessKeyError {
     } = 4,
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall = 5,
-    /// Gas keys track nonces per index in dedicated storage, which a plain
-    /// access key nonce does not select, so a gas key must sign a `DelegateV2`
-    /// with a gas key nonce instead.
+    /// A plain access key nonce does not select one of the gas key's nonces.
+    /// `DelegateV2` was intended to carry a gas key nonce, however gas key
+    /// meta transactions are disabled. See `ProtocolFeature::RejectDelegateV2`.
     DelegateActionRequiresNonGasKey = 6,
     /// A delegate action with a gas key nonce must be signed by a gas key.
     DelegateActionRequiresGasKey = 7,
@@ -470,6 +470,45 @@ pub enum ActionsValidationError {
     } = 20,
     /// The method name in a FunctionCall action must not be empty.
     FunctionCallEmptyMethodName = 21,
+    /// The receiver id of a `UniversalStateInit` action does not match the id
+    /// derived from its state init.
+    InvalidUniversalStateInitReceiver {
+        receiver_id: AccountId,
+        derived_id: AccountId,
+    } = 22,
+    /// A storage key in a `UniversalStateInit` state init exceeds the limit.
+    UniversalStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 23,
+    /// A storage value in a `UniversalStateInit` state init exceeds the limit.
+    UniversalStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    } = 24,
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    MalformedUniversalStateInit = 25,
+    /// The transaction includes a feature that was removed at or before the
+    /// current protocol version. The counterpart of
+    /// `UnsupportedProtocolFeature`, which covers features not yet available.
+    RemovedProtocolFeature {
+        protocol_feature: String,
+        version: ProtocolVersion,
+    } = 26,
+    /// A `WithdrawFromGasKey` action must not be nested inside a delegate action.
+    WithdrawFromGasKeyNotAllowedInDelegate = 27,
+    /// The state-init actions in one receipt commit to more access keys in total
+    /// than allowed.
+    TotalNumberOfStateInitKeysExceeded {
+        number_of_keys: u64,
+        limit: u64,
+    } = 28,
+    /// The state-init actions in one receipt carry more storage entries in total
+    /// than allowed.
+    TotalNumberOfStateInitEntriesExceeded {
+        number_of_entries: u64,
+        limit: u64,
+    } = 29,
 }
 
 /// Describes the error for validating a receipt.
@@ -627,6 +666,16 @@ impl Display for ActionsValidationError {
                     protocol_feature, version,
                 )
             }
+            ActionsValidationError::RemovedProtocolFeature { protocol_feature, version } => {
+                write!(
+                    f,
+                    "Transaction requires protocol feature {} which was removed and is not supported at protocol version {}",
+                    protocol_feature, version,
+                )
+            }
+            ActionsValidationError::WithdrawFromGasKeyNotAllowedInDelegate => {
+                write!(f, "A WithdrawFromGasKey action is not allowed inside a delegate action")
+            }
             ActionsValidationError::InvalidDeterministicStateInitReceiver {
                 receiver_id,
                 derived_id,
@@ -675,6 +724,48 @@ impl Display for ActionsValidationError {
             ),
             ActionsValidationError::FunctionCallEmptyMethodName => {
                 write!(f, "The method name in a FunctionCall action must not be empty")
+            }
+            ActionsValidationError::InvalidUniversalStateInitReceiver {
+                receiver_id,
+                derived_id,
+            } => {
+                write!(
+                    f,
+                    "UniversalStateInit action payload is invalid for account {receiver_id}, derived id is {derived_id}",
+                )
+            }
+            ActionsValidationError::UniversalStateInitKeyLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit contains key of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::UniversalStateInitValueLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "UniversalStateInit contains value of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::MalformedUniversalStateInit => {
+                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+            }
+            ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
+                number_of_keys,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the state inits in this receipt commit to {number_of_keys} access keys in total but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::TotalNumberOfStateInitEntriesExceeded {
+                number_of_entries,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
+                )
             }
         }
     }
@@ -860,6 +951,16 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
+    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
+    /// Action validation rejects such an action before it runs, so this only fires
+    /// if that check was bypassed.
+    MalformedUniversalStateInit = 29,
+    /// The action needs a set-up account, but the receiver is an uninitialized
+    /// universal account. Distinct from `AccountDoesNotExist`: the account is
+    /// there, it just has no access keys, code or data yet.
+    AccountNotInitialized {
+        account_id: AccountId,
+    } = 30,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1212,6 +1313,14 @@ impl Display for ActionErrorKind {
             ActionErrorKind::ReceiptStorageProofSizeExceeded { limit } => {
                 write!(f, "Receipt exceeded the storage proof size limit of {} bytes", limit)
             }
+            ActionErrorKind::MalformedUniversalStateInit => {
+                write!(f, "UniversalStateInit payload is not a valid state init")
+            }
+            ActionErrorKind::AccountNotInitialized { account_id } => write!(
+                f,
+                "Can't complete the action because account {:?} is uninitialized",
+                account_id
+            ),
         }
     }
 }

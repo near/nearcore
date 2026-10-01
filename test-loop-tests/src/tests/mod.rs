@@ -29,15 +29,19 @@ mod deterministic_account_id;
 #[cfg(feature = "test_features")]
 mod doomslug;
 mod earliest_available;
-#[cfg(feature = "nightly")]
 mod early_kickout_boundary;
-#[cfg(all(feature = "nightly", feature = "test_features"))]
+#[cfg(feature = "test_features")]
 mod early_kickout_e2e;
+mod early_kickout_probe;
+mod early_kickout_withheld_block;
 mod early_prepare_transactions;
+mod eth_implicit_missing_global_contract;
+mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod gas_keys;
+mod gas_overflow_optimistic_block;
 mod genesis_chunk_request;
 mod global_contracts;
 mod global_contracts_distribution;
@@ -64,6 +68,8 @@ mod processed_receipts_gc;
 mod promise_input_size_limit;
 mod protocol_upgrade;
 mod receipt_to_tx;
+mod reject_delegate_v2;
+mod reject_delegated_gas_key_withdraw;
 mod reject_empty_method_name;
 mod reject_outdated_blocks;
 mod replay_chunks;
@@ -82,8 +88,8 @@ mod stake_nodes;
 mod stale_pooled_txs;
 mod sync;
 mod tx_inclusion_with_missed_chunks;
+mod universal_account_id;
 mod unknown_prev_chunk_preemption;
-#[cfg(feature = "nightly")]
 mod v2_partial_witness_resolution;
 mod validator_key_check;
 mod view_requests;

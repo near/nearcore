@@ -26,11 +26,11 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerChainInfo, PeerInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerManagerSenderForNetwork, PeerType, SetChainInfo,
-    SnapshotHostEvent, SnapshotHostInfo, StateHeaderRequestBody, StatePartRequestBody,
-    StateRequestSenderForNetwork, StateSyncEvent, Tier3Request, Tier3RequestBody,
+    ConnectedPeerInfo, FullPeerInfo, KnownProducer, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -42,7 +42,7 @@ use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
+use near_primitives::state_sync::{PartOrHeader, StateRequestAckBody};
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
@@ -281,25 +281,6 @@ impl messaging::Actor for PeerManagerActor {
     }
 }
 
-/// Project a `ConnectedPeerState` to a `HighestHeightPeerInfo`, keyed by
-/// the T2 peer's latest block. Returns `None` if the peer hasn't
-/// reported a block yet (the height info is what makes the projection
-/// interesting).
-fn to_highest_height_peer_info(
-    peer_state: &ConnectedPeerState,
-    genesis_id: &GenesisId,
-) -> Option<HighestHeightPeerInfo> {
-    let block = peer_state.block_info.as_ref()?;
-    Some(HighestHeightPeerInfo {
-        peer_info: peer_state.peer_info.clone(),
-        genesis_id: genesis_id.clone(),
-        highest_block_height: block.height,
-        highest_block_hash: block.hash,
-        tracked_shards: peer_state.tracked_shards.clone(),
-        archival: peer_state.archival,
-    })
-}
-
 /// Joins `ConnectedPeerState` (business metadata) with per-peer stats
 /// from `transport_info()` (bandwidth, last-seen timestamps) and the
 /// routing graph (edge nonce) into a single `ConnectedPeerInfo` for
@@ -474,32 +455,6 @@ impl PeerManagerActor {
             && !self.state.config.outbound_disabled
     }
 
-    /// Returns peers close to the highest height.
-    fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
-        let genesis_id = self.state.genesis_id.clone();
-        let infos: Vec<HighestHeightPeerInfo> = self
-            .state
-            .peers
-            .tier2()
-            .values()
-            .filter_map(|peer_state| to_highest_height_peer_info(peer_state, &genesis_id))
-            .collect();
-
-        // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.highest_block_height).max() {
-            Some(height) => height,
-            None => return vec![],
-        };
-        // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
-        infos
-            .into_iter()
-            .filter(|i| {
-                i.highest_block_height.saturating_add(self.state.config.highest_peer_horizon)
-                    >= max_height
-            })
-            .collect()
-    }
-
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
@@ -513,8 +468,7 @@ impl PeerManagerActor {
             return HashSet::new();
         };
         let my_height = chain_info.block.header().height();
-        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
-        // or the ones we don't have height information yet
+        // Peers more than `UNRELIABLE_PEER_HORIZON` below our own height.
         self.state
             .peers
             .tier2()
@@ -787,7 +741,6 @@ impl PeerManagerActor {
             tier1_connections: t1_infos,
             num_connected_peers: num_connected,
             peer_max_count: self.state.config.max_num_peers,
-            highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec: sent_total,
             received_bytes_per_sec: recv_total,
             known_producers: self
@@ -943,7 +896,7 @@ impl PeerManagerActor {
                 shard_id,
                 sync_hash,
                 sync_prev_prev_hash,
-                part_id,
+                part_idx,
             } => {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
@@ -956,9 +909,9 @@ impl PeerManagerActor {
                 let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                     &sync_prev_prev_hash,
                     shard_id,
-                    part_id,
+                    part_idx,
                 ) else {
-                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
+                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_idx, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -969,7 +922,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StatePartRequest(StatePartRequest {
                             shard_id,
                             sync_hash,
-                            part_id,
+                            part_idx,
                             addr,
                         })
                         .into(),
@@ -986,13 +939,13 @@ impl PeerManagerActor {
                     self.state.pending_tier3_requests.remove(&peer_id);
                     return NetworkResponses::RouteNotFound;
                 }
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_idx, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestAck {
                 shard_id,
                 sync_hash,
-                part_id_or_header,
+                part_or_header,
                 body,
                 peer_id,
             } => {
@@ -1003,7 +956,7 @@ impl PeerManagerActor {
                         body: T2MessageBody::StateRequestAck(StateRequestAck {
                             shard_id,
                             sync_hash,
-                            part_id_or_header,
+                            part_or_header,
                             body,
                         })
                         .into(),
@@ -1019,7 +972,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
+                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
@@ -1416,11 +1369,11 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SpicePartialDataRequest { producer, request } => {
+            NetworkRequests::SpiceDataRequest { producer, request } => {
                 self.state.send_message_to_account(
                     &self.clock,
                     &producer,
-                    T1MessageBody::SpicePartialDataRequest(request).into(),
+                    T1MessageBody::SpiceDataRequest(request).into(),
                     &*self.transport,
                 );
                 NetworkResponses::NoResponse
@@ -1542,8 +1495,8 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
             .with_label_values::<&str>(&[(&msg).into()])
             .start_timer();
         match msg {
-            StateSyncEvent::StatePartReceived(shard_id, part_id) => {
-                self.state.snapshot_hosts.part_received(shard_id, part_id);
+            StateSyncEvent::StatePartReceived(shard_id, part_idx) => {
+                self.state.snapshot_hosts.part_received(shard_id, part_idx);
             }
         }
     }
@@ -1602,20 +1555,20 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Header,
+                                part_or_header: PartOrHeader::Header,
                                 body: ack,
                             }).into(),
                             response
                         )
                     }
-                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
+                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_idx }) => {
                         let (ack, response) = if response_permit.is_none() {
                             tracing::warn!(target: "network", ?request, "outgoing queue saturated; dropping state part response");
                             metrics::MessageDropped::OutgoingQueueLimitExceeded
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
                         } else {
-                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_idx }).await {
                                 Ok(Some(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }
@@ -1634,7 +1587,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                             T2MessageBody::StateRequestAck(StateRequestAck {
                                 shard_id,
                                 sync_hash,
-                                part_id_or_header: PartIdOrHeader::Part { part_id },
+                                part_or_header: PartOrHeader::Part { part_idx },
                                 body: ack,
                             }).into(),
                             response

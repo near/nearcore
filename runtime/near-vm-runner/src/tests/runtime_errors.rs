@@ -11,15 +11,10 @@ use near_primitives_core::types::Gas;
 use std::fmt::Write;
 use std::sync::Arc;
 
-/// Compile and load a contract with 100k globals.
+/// Compile and load a contract with 200k globals.
 ///
 /// Each defined global occupies 16 bytes of a core instance's `VMContext`, so
-/// globals alone add ~1.6 MB. That breaches the 1MiB `max_core_instance_size`
-/// slot of the Wasmtime pooling allocator, so loading the module at
-/// `Module::deserialize` fails.
-///
-/// With `max_globals_per_contract` set to 100k this contract still passes
-/// `prepare` and is caught by the Wasmtime backstop at load time.
+/// globals alone add ~3.2 MB, breaching the limit of 2 MiB.
 ///
 /// Pre-`FixContractLoadingError` this surfaces as `VMRunnerError::LoadingError`,
 /// which the runtime maps to a zero-gas nop — the contract-loading work is left
@@ -28,7 +23,8 @@ use std::sync::Arc;
 /// the node.
 #[test]
 fn test_max_core_instance_size_breached() {
-    let wasm = near_test_contracts::contract_with_num_globals(100_000);
+    let num_globals = 200_000;
+    let wasm = near_test_contracts::contract_with_num_globals(num_globals);
 
     super::with_vm_variants(|vm_kind| {
         let run = |config: near_parameters::vm::Config| {
@@ -45,7 +41,12 @@ fn test_max_core_instance_size_breached() {
                 .run(&mut ext, &context, fees)
         };
 
-        let base_config = super::test_vm_config(Some(vm_kind));
+        // `max_globals_per_contract` will reject a contract at preparation
+        // time before we can breach the core instance size limit.
+        // Here we increase the limit so we can still test the case where we
+        // somehow don't catch it during preparation.
+        let mut base_config = super::test_vm_config(Some(vm_kind));
+        base_config.limit_config.max_globals_per_contract = Some(num_globals as u64);
 
         match vm_kind {
             VMKind::Wasmtime => {

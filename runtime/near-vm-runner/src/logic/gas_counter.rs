@@ -228,8 +228,8 @@ impl GasCounter {
 
     /// VM independent setup before loading the executable.
     ///
-    /// Does VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// Does VM independent checks that happen after the host state has been set
+    /// up but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
     #[cfg(feature = "wasmtime_vm")]
     pub(crate) fn before_loading_executable(

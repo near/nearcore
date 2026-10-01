@@ -805,7 +805,9 @@ pub(crate) static PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL: LazyLock<IntCoun
         try_create_int_counter_vec(
             "near_partial_witness_part_messages_received_total",
             "Partial state witness part-messages received from chunk producers, \
-             labeled by wire version. Increments once per part-message.",
+             labeled by wire version. Increments once per part-message. The shard_id \
+             label is peer-supplied and counted before validation, so shards outside \
+             the epoch's layout are bucketed as \"unknown\" to bound cardinality.",
             &["shard_id", "version"],
         )
         .unwrap()
@@ -870,14 +872,6 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
-pub(crate) static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_spice_certification_lag",
-        "Number of blocks between target height and certification height",
-    )
-    .unwrap()
-});
-
 pub(crate) static SPICE_BLOCK_PRODUCTION_DELAY_MS: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_spice_block_production_delay_ms",
@@ -895,3 +889,12 @@ pub static SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL: LazyLock<IntCounterVec
         )
         .unwrap()
     });
+
+pub static SPICE_MALFORMED_DATA_REQUESTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_spice_malformed_data_requests_total",
+        "Number of spice data requests rejected as malformed, by reason",
+        &["reason"],
+    )
+    .unwrap()
+});

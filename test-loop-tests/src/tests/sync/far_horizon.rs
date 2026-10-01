@@ -207,6 +207,41 @@ fn test_far_horizon_stale_node_shutdown() {
     );
 }
 
+// Scenario: Same as above, but only one epoch past the horizon. The epoch sync
+// proof names the first block of an epoch that is itself behind the tip, so
+// reading that height without the distance `validate_proof` demands from the
+// peer's advertised height leaves the node short of the reset it needs.
+//
+// Assertions:
+//   - The restarted node is still denylisted via EpochSyncDataReset
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let mut env = TestLoopBuilder::new().validators(4, 0).epoch_length(epoch_length).build();
+
+    let kill_height = 3 * epoch_length;
+    env.node_runner(0).run_until_head_height(kill_height);
+
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let killed_state = env.kill_node(&node0_identifier);
+
+    let target_height = kill_height + (TEST_EPOCH_SYNC_HORIZON + 1) * epoch_length;
+    env.node_runner(1).run_until_head_height(target_height);
+
+    let restart_id = format!("{}-restart", node0_identifier);
+    env.restart_node(&restart_id, killed_state);
+    env.node_runner(1).run_for_number_of_blocks(5);
+
+    assert!(
+        env.test_loop.is_denylisted(&restart_id),
+        "a node one epoch past the horizon should still reset its store"
+    );
+}
+
 // Scenario: An archival node that falls behind the network should NOT use
 // epoch sync. Archival nodes must process all blocks to maintain a complete
 // history, so they enter block sync (potentially header sync first) but
@@ -776,7 +811,7 @@ fn test_far_horizon_tx_during_sync() {
 #[cfg(feature = "test_features")]
 fn test_far_horizon_stale_sync_hash_detection() {
     use crate::setup::peer_manager_actor::HandlerResult;
-    use near_client::sync::state::STALE_SYNC_HASH_THRESHOLD;
+    use near_client::sync::state::sync_hash_stale_above_height;
     use near_network::types::{NetworkRequests, NetworkResponses};
 
     init_test_logger();
@@ -840,22 +875,81 @@ fn test_far_horizon_stale_sync_hash_detection() {
     let validator_sync_hash = env.node(0).client().chain.find_sync_hash().unwrap().unwrap();
     assert_ne!(node_sync_hash, validator_sync_hash);
 
-    // Advance the chain past the detection threshold. The stale sync hash
-    // check fires on each run_sync_step when in StateSync, and once
-    // highest_height > epoch_start + epoch_length + STALE_SYNC_HASH_THRESHOLD
-    // the node triggers EpochSyncDataReset.
+    // Advance the chain past the detection threshold. The stale sync hash check
+    // fires on each run_sync_step when in StateSync, and once the verified height
+    // passes sync_hash_stale_above_height(sync_hash_height, epoch_length) the node
+    // triggers EpochSyncDataReset.
     env.node_runner(0).run_for_number_of_blocks(epoch_length as usize);
 
     assert!(env.test_loop.is_denylisted("new_node"));
 
-    // Verify the chain advanced past the detection threshold. The syncing
-    // node sees validator heights via highest_height_peers.
+    // Verify the chain advanced past the detection threshold. The syncing node
+    // verifies those heights from the blocks the validators relay to it.
     let sync_hash_height =
         env.node(0).client().chain.get_block_header(&node_sync_hash).unwrap().height();
     let validator_height = env.node(0).head().height;
-    let expected_threshold = sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD;
+    let expected_threshold = sync_hash_stale_above_height(sync_hash_height, epoch_length);
     assert!(
         validator_height > expected_threshold,
         "validator height {validator_height} should exceed threshold {expected_threshold}",
     );
+}
+
+// Scenario: a far-behind node finishes state sync while it has not verified any peer at a
+// height above its own. State sync moves the head forward in one step, so every peer's
+// verified height is at or below the new head and `min(advertised, verified)` clamps to it.
+// The node then reads as caught up while block sync still has bodies to fetch, and drops
+// out of sync. Only the stale-head path restarts it, so it idles a full epoch each time.
+//
+// Once sync is disabled the node sends no block requests, so the requested blocks that
+// would raise a verified height stop as well. An unrequested broadcast is the only input
+// left that can break out. Suppressing broadcasts over the sync window removes it, which
+// turns a race against the next relayed block into a deterministic stall. Peer height
+// announcements still flow, so the node keeps peers to sync from.
+//
+// The node must still reach the tip through a single uninterrupted BlockSync.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_far_horizon_block_sync_without_verified_peer_above_head() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let new_account = create_account_id("new_node");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("new_node", node_state);
+    let new_node_idx = env.node_datas.len() - 1;
+
+    // The chain is already well past `far_horizon_height` by now, so take the window from
+    // where it actually is: the node syncs and catches up within the next couple of epochs.
+    let source_handle = env.node_datas[0].client_sender.actor_handle();
+    let tip = env.test_loop.data.get(&source_handle).client.chain.head().unwrap().height;
+    env.shared_state
+        .network_shared_state
+        .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);
+
+    let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
+    run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
+
+    let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
+    assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);
+    assert_far_horizon_sync_sequence(&sync_history.borrow());
 }

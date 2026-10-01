@@ -1,5 +1,6 @@
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 use crate::db::{GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY};
+use crate::light_client_block::StoredLightClientBlock;
 use crate::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
@@ -7,13 +8,11 @@ use crate::{
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
 use near_primitives::sharding::{ReceiptProof, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithProof, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_receipt_proof_key,
@@ -329,7 +328,9 @@ impl ChainStoreAdapter {
         hash: &CryptoHash,
     ) -> Result<Arc<LightClientBlockView>, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::EpochLightClientBlocks, hash.as_ref()),
+            self.store
+                .get_ser::<StoredLightClientBlock>(DBCol::EpochLightClientBlocks, hash.as_ref())
+                .map(|stored| Arc::new(LightClientBlockView::from(stored))),
             format_args!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
         )
     }
@@ -460,7 +461,11 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 
     pub fn set_block_height(&mut self, hash: &CryptoHash, height: BlockHeight) {
-        self.store_update.set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash);
+        self.store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), hash);
+    }
+
+    pub fn delete_block_height(&mut self, height: BlockHeight) {
+        self.store_update.delete(DBCol::BlockHeight, &index_to_bytes(height));
     }
 
     pub fn set_header_head(&mut self, header_head: &Tip) {
@@ -491,6 +496,19 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
             DBCol::OutgoingReceipts,
             &get_block_shard_id(block_hash, shard_id),
             &outgoing_receipts,
+        );
+    }
+
+    pub fn set_incoming_receipt(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        incoming_receipts: &[ReceiptProof],
+    ) {
+        self.store_update.set_ser(
+            DBCol::IncomingReceipts,
+            &get_block_shard_id(block_hash, shard_id),
+            &incoming_receipts,
         );
     }
 
@@ -527,16 +545,15 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-        outcomes: Vec<ExecutionOutcomeWithId>,
-        proofs: Vec<MerklePath>,
+        outcomes: &[(CryptoHash, ExecutionOutcomeWithProof)],
     ) {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
-        for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
-            outcome_ids.push(outcome_with_id.id);
+        for (outcome_id, outcome_with_proof) in outcomes {
+            outcome_ids.push(*outcome_id);
             self.store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(&outcome_with_id.id, block_hash),
-                &ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+                &get_outcome_id_block_hash(outcome_id, block_hash),
+                outcome_with_proof,
             );
         }
         self.store_update.set_ser(

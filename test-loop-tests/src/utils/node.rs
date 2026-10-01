@@ -25,7 +25,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, ProtocolVersion, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
@@ -62,12 +62,21 @@ impl<'a> TestLoopNode<'a> {
         self.client().chain.tail()
     }
 
+    pub fn chunk_tail(&self) -> BlockHeight {
+        self.client().chain.chain_store().chunk_tail()
+    }
+
     pub fn head(&self) -> Arc<Tip> {
         self.client().chain.head().unwrap()
     }
 
     pub fn final_head(&self) -> Arc<Tip> {
         self.client().chain.final_head().unwrap()
+    }
+
+    pub fn protocol_version_at_head(&self) -> ProtocolVersion {
+        let head = self.head();
+        self.client().epoch_manager.get_epoch_protocol_version(&head.epoch_id).unwrap()
     }
 
     pub fn last_executed(&self) -> Arc<Tip> {
@@ -603,6 +612,30 @@ impl<'a> NodeRunner<'a> {
             maximum_duration,
         );
         res.unwrap()
+    }
+
+    /// Submits all transactions and runs until each one succeeds. Panics if any fails.
+    /// Unlike `run_tx`, resubmits a transaction rejected for shard congestion.
+    pub fn run_txs_parallel(&mut self, txs: Vec<SignedTransaction>, maximum_duration: Duration) {
+        let tx_processor_sender = self.node_data.rpc_handler_sender.clone();
+        let mut tx_runners: Vec<_> =
+            txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect();
+        let future_spawner = self.test_loop.future_spawner("TransactionRunner");
+        self.run_until(
+            |node| {
+                let mut all_ready = true;
+                for tx_runner in &mut tx_runners {
+                    if tx_runner
+                        .poll_assert_success(&tx_processor_sender, node.client(), &future_spawner)
+                        .is_pending()
+                    {
+                        all_ready = false;
+                    }
+                }
+                all_ready
+            },
+            maximum_duration,
+        );
     }
 
     /// Run until the future is resolved, return the result.

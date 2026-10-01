@@ -613,8 +613,8 @@ pub(crate) async fn start(
     state_request_sender.state_request_part =
         AsyncSender::from_fn(move |msg: StateRequestPart| {
             // NOTE: See above comment for explanation about this code.
-            let StateRequestPart { part_id, shard_id, sync_hash } = msg;
-            let part = Some((part_id, vec![]));
+            let StateRequestPart { part_idx, shard_id, sync_hash } = msg;
+            let part = Some((part_idx, vec![]));
             let state_response =
                 ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part });
             Some(StatePartOrHeader(Box::new(StateResponseInfo::V2(Box::new(

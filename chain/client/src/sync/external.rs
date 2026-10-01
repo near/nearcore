@@ -3,16 +3,15 @@ use near_chain::Chain;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{StatePart, StatePartId, StatePartIndex};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
-use near_store::archive::cloud_storage::CloudStorage;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub enum StateFileType {
-    StatePart { part_id: u64, num_parts: u64 },
+    StatePart { part_idx: StatePartIndex, num_parts: u64 },
     StateHeader,
 }
 
@@ -36,8 +35,8 @@ impl StateFileType {
 
     pub fn filename(&self) -> String {
         match self {
-            StateFileType::StatePart { part_id, num_parts } => {
-                format!("state_part_{:06}_of_{:06}", part_id, num_parts)
+            StateFileType::StatePart { part_idx, num_parts } => {
+                format!("state_part_{:06}_of_{:06}", part_idx, num_parts)
             }
             StateFileType::StateHeader => "header".to_string(),
         }
@@ -59,10 +58,6 @@ impl StateSyncConnection {
         let connection =
             ExternalConnection::new(location, credentials_file, Some(s3_access_config));
         Self { connection }
-    }
-
-    pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
-        Self { connection: cloud_storage.connection().clone() }
     }
 
     pub async fn get_file(
@@ -211,8 +206,8 @@ pub fn location_prefix(
     }
 }
 
-pub fn part_filename(part_id: u64, num_parts: u64) -> String {
-    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
+pub fn part_filename(part_idx: StatePartIndex, num_parts: u64) -> String {
+    format!("state_part_{:06}_of_{:06}", part_idx, num_parts)
 }
 
 pub fn match_filename(s: &str) -> Option<regex::Captures<'_>> {
@@ -235,11 +230,11 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
     None
 }
 
-pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
+pub fn get_part_idx_from_filename(s: &str) -> Option<StatePartIndex> {
     if let Some(captures) = match_filename(s) {
-        if let Some(part_id) = captures.get(1) {
-            if let Ok(part_id) = part_id.as_str().parse::<u64>() {
-                return Some(part_id);
+        if let Some(part_idx) = captures.get(1) {
+            if let Ok(part_idx) = part_idx.as_str().parse::<StatePartIndex>() {
+                return Some(part_idx);
             }
         }
     }
@@ -259,7 +254,7 @@ pub async fn list_state_parts(
         epoch_id,
         epoch_height,
         shard_id,
-        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+        &StateFileType::StatePart { part_idx: 0, num_parts: 0 },
     );
     let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     anyhow::ensure!(!part_file_names.is_empty(), "no state parts found in {}", directory_path);
@@ -285,7 +280,7 @@ pub async fn download_and_apply_state_parts_sequentially(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     state_root: CryptoHash,
-    part_ids: Range<u64>,
+    state_part_indices: Range<StatePartIndex>,
     num_parts: u64,
 ) -> Result<(), anyhow::Error> {
     tracing::info!(
@@ -294,15 +289,15 @@ pub async fn download_and_apply_state_parts_sequentially(
         %shard_id,
         num_parts,
         ?sync_hash,
-        ?part_ids,
+        ?state_part_indices,
         "loading state as seen at the beginning of the specified epoch",
     );
 
     let timer = Instant::now();
-    for part_id in part_ids {
+    for part_idx in state_part_indices {
         let timer = Instant::now();
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let file_type = StateFileType::StatePart { part_id, num_parts };
+        assert!(part_idx < num_parts, "part_idx: {}, num_parts: {}", part_idx, num_parts);
+        let file_type = StateFileType::StatePart { part_idx, num_parts };
         let location =
             external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
         let bytes = external.get_file(shard_id, &location, &file_type).await?;
@@ -312,17 +307,17 @@ pub async fn download_and_apply_state_parts_sequentially(
         chain.state_sync_adapter.set_state_part(
             shard_id,
             sync_hash,
-            PartId::new(part_id, num_parts),
+            StatePartId::new(part_idx, num_parts),
             &part,
         )?;
         chain.runtime_adapter.apply_state_part(
             shard_id,
             &state_root,
-            PartId::new(part_id, num_parts),
+            StatePartId::new(part_idx, num_parts),
             &part,
             epoch_id,
         )?;
-        tracing::debug!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+        tracing::debug!(target: "state-parts", part_idx, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
     Ok(())
@@ -331,29 +326,65 @@ pub async fn download_and_apply_state_parts_sequentially(
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
-        ExternalConnection, StateFileType, StateSyncConnection, get_num_parts_from_filename,
-        get_part_id_from_filename, is_part_filename,
+        ExternalConnection, StateFileType, StateSyncConnection, external_storage_location,
+        get_num_parts_from_filename, get_part_idx_from_filename, is_part_filename,
     };
     use near_chain_configs::ExternalStorageLocation;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::types::ShardId;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::state_part::StatePartId;
+    use near_primitives::types::{EpochId, ShardId};
+    use near_store::archive::cloud_storage::{BucketConfig, CloudStorage, CloudStorageFileID};
     use rand::distributions::{Alphanumeric, DistString};
+    use std::path::PathBuf;
 
     fn random_string(rand_len: usize) -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), rand_len)
     }
 
+    /// For every kind of state file, the archive's key is where the state sync dumper writes it.
+    #[test]
+    fn test_state_file_keys_match_dump_location() {
+        let chain_id = "test";
+        let epoch_id = EpochId(CryptoHash::hash_bytes(b"epoch"));
+        let epoch_height = 7;
+        let shard_id = ShardId::new(3);
+        let part_id = StatePartId::new(5, 15);
+        let cloud_storage = CloudStorage::new(
+            ExternalConnection::Filesystem { root_dir: PathBuf::new() },
+            chain_id.to_string(),
+            BucketConfig::canonical(),
+        );
+
+        let kinds = [
+            (
+                StateFileType::StatePart { part_idx: part_id.index, num_parts: part_id.total },
+                CloudStorageFileID::StatePart(epoch_height, epoch_id, shard_id, part_id),
+            ),
+            (
+                StateFileType::StateHeader,
+                CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id),
+            ),
+        ];
+        for (file_type, file_id) in kinds {
+            assert_eq!(
+                cloud_storage.file_path(&file_id),
+                external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type),
+            );
+        }
+    }
+
     #[test]
     fn test_match_filename() {
-        let filename = StateFileType::StatePart { part_id: 5, num_parts: 15 }.filename();
+        let filename = StateFileType::StatePart { part_idx: 5, num_parts: 15 }.filename();
         assert!(is_part_filename(&filename));
         assert!(!is_part_filename("123123"));
 
         assert_eq!(get_num_parts_from_filename(&filename), Some(15));
         assert_eq!(get_num_parts_from_filename("123123"), None);
 
-        assert_eq!(get_part_id_from_filename(&filename), Some(5));
-        assert_eq!(get_part_id_from_filename("123123"), None);
+        assert_eq!(get_part_idx_from_filename(&filename), Some(5));
+        assert_eq!(get_part_idx_from_filename("123123"), None);
     }
 
     /// This test should be ignored by default, as it requires gcloud credentials to run.
@@ -382,7 +413,7 @@ mod test {
         // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
-        let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
+        let file_type = StateFileType::StatePart { part_idx: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
         let files =

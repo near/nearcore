@@ -89,6 +89,8 @@ pub(crate) struct PerShardChunkExecutor {
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
     parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
+    /// Network-path receipt proofs buffered until they can be verified.
+    /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
 }
 
@@ -191,7 +193,7 @@ impl PerShardChunkExecutor {
         source_block: CryptoHash,
         receipt_proof: ReceiptProof,
     ) -> Result<(), Error> {
-        self.unverified_receipts.buffer(source_block, receipt_proof);
+        self.unverified_receipts.insert(source_block, receipt_proof);
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, &source_block)?;
         self.try_apply_pending();
         Ok(())
@@ -597,7 +599,10 @@ impl PerShardChunkExecutor {
                         // Chunk is new but invalid (malicious producer): include proof.
                         self.chain_store
                             .chunk_store()
-                            .is_invalid_chunk(chunk_header.chunk_hash())
+                            .is_invalid_chunk(
+                                chunk_header.height_created(),
+                                chunk_header.chunk_hash(),
+                            )
                             .map(|enc| Box::new(enc.content().clone()))
                     } else {
                         None
@@ -656,7 +661,9 @@ impl PerShardChunkExecutor {
         match get_chunk_clone_from_header(&chunk_store, chunk_header) {
             Ok(chunk) => Ok(Some(chunk)),
             Err(Error::ChunkMissing(_))
-                if chunk_store.is_invalid_chunk(chunk_header.chunk_hash()).is_some() =>
+                if chunk_store
+                    .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
+                    .is_some() =>
             {
                 Ok(None)
             }
@@ -782,12 +789,13 @@ pub(crate) fn is_descendant_of_final_execution_head(
     chain_store: &ChainStoreAdapter,
     header: &BlockHeader,
 ) -> bool {
-    // The final execution head is seeded at genesis whenever spice is enabled, and
-    // this runs only on spice-gated paths, so its absence is a bug rather than a
-    // recoverable "not set yet" state — fail loud.
+    // The final execution head is seeded at genesis on a spice chain and at block
+    // postprocessing of a first spice block on an upgraded chain, and this runs only
+    // on spice-gated paths, so its absence is a bug rather than a recoverable "not
+    // set yet" state — fail loud.
     let final_execution_head = chain_store
         .spice_final_execution_head()
-        .expect("spice final execution head is seeded at genesis when spice is enabled");
+        .expect("spice final execution head is seeded at genesis or at spice activation");
     let mut height = header.height();
     if height <= final_execution_head.height {
         return false;

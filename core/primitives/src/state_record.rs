@@ -267,6 +267,7 @@ pub fn is_contract_code_key(key: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives_core::types::Balance;
 
     #[test]
     fn test_gas_key_nonce_from_raw_key_value() {
@@ -285,5 +286,24 @@ mod tests {
             record,
             Some(StateRecord::gas_key_nonce(account_id, key_handle, nonce_index, nonce))
         );
+    }
+
+    /// State dumps and fork-network move accounts around as `StateRecord`s, the
+    /// former through json and the latter through borsh. An uninitialized
+    /// account has to survive both.
+    #[test]
+    fn test_uninitialized_account_state_record_round_trip() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let account = Account::new_uninitialized(Balance::from_yoctonear(100), 300, 7_000_000);
+        let record =
+            StateRecord::Account { account_id: account_id.clone(), account: account.clone() };
+
+        let raw_key = TrieKey::Account { account_id }.to_vec();
+        let raw_value = borsh::to_vec(&account).unwrap();
+        assert_eq!(StateRecord::from_raw_key_value(&raw_key, raw_value), Some(record.clone()));
+
+        let json = serde_json::to_string(&record).unwrap();
+        let deserialized: StateRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, record);
     }
 }

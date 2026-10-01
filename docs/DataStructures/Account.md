@@ -107,7 +107,7 @@ Example: a public key in base58 `2KFsZcvNUMBfmTp5DTMmguyeQyontXZ2CirPsb21GgPG3KM
 
 ### Implicit account creation
 
-An account with implicit account ID can only be created by sending a transaction/receipt with a single `Transfer` action to the implicit account ID receiver:
+An account with a NEAR-implicit or ETH-implicit account ID can only be created by sending a transaction/receipt with a single `Transfer` action to the implicit account ID receiver ([deterministic accounts](#deterministic-account-creation) have their own rules):
 
 - The account will be created with the account ID.
 - The account balance will have a transfer balance deposited to it.

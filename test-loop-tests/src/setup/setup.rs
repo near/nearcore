@@ -30,6 +30,7 @@ use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
     AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
     RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
+    ViewClientRequestManager,
 };
 use near_client::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
@@ -251,6 +252,7 @@ pub fn setup_client(
         client_config.clone(),
         near_client::adversarial::Controls::default(),
         validator_signer.clone(),
+        Arc::new(RwLock::new(ViewClientRequestManager::new())),
     )
     .unwrap();
     let state_request_actor = StateRequestActor::new(
@@ -511,7 +513,7 @@ pub fn setup_client(
         )),
     );
 
-    test_loop.data.register_actor(
+    let spice_chunk_validator_sender = test_loop.data.register_actor(
         identifier,
         spice_chunk_validator_actor,
         Some(spice_chunk_validator_adapter),
@@ -584,6 +586,7 @@ pub fn setup_client(
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
     let jsonrpc_router = create_testloop_jsonrpc_router(
+        shared_state.rpc_config.clone(),
         test_loop.clock(),
         &client_sender,
         &view_client_sender,
@@ -611,6 +614,7 @@ pub fn setup_client(
         resharding_sender,
         state_sync_dumper_handle,
         spice_data_distributor_sender,
+        spice_chunk_validator_sender,
         spice_core_writer_sender,
         cold_store_sender,
         cloud_storage_sender,

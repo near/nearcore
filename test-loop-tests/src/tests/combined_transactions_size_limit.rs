@@ -21,7 +21,7 @@ use near_primitives::action::{AddKeyAction, TransferAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashSet;
 
 /// Add `public_key` as a full-access key on `account`, signed by the account's
@@ -41,7 +41,7 @@ fn add_full_access_key(env: &mut TestLoopEnv, account: &AccountId, public_key: P
 /// A runtime config identical to the shipped one except for a low
 /// `combined_transactions_size_limit`.
 fn config_with_tx_size_limit(limit: usize) -> RuntimeConfigStore {
-    let mut config = RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+    let mut config = RuntimeConfigStore::new().get_config(PROTOCOL_VERSION).as_ref().clone();
     config.witness_config.combined_transactions_size_limit = limit;
     RuntimeConfigStore::with_one_config(config)
 }
@@ -55,11 +55,6 @@ fn config_with_tx_size_limit(limit: usize) -> RuntimeConfigStore {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_combined_tx_size_limit_counts_ml_dsa_signature() {
     init_test_logger();
-    if !ProtocolFeature::PostQuantumSignatures.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: PostQuantumSignatures not enabled at this protocol version");
-        return;
-    }
-
     let sender = create_account_id("sender-pq");
     let receiver = create_account_id("receiver");
     let pq_signer: Signer =

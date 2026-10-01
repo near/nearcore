@@ -1,6 +1,7 @@
 use near_network::types::PeerInfo;
 use near_ping::cli::CHAIN_INFO;
 use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::StatePartIndex;
 use near_primitives::types::ShardId;
 use std::str::FromStr;
 
@@ -51,7 +52,7 @@ pub struct StatePartsCommand {
 
     /// Starting part id for the state requests.
     #[clap(long, default_value = "0")]
-    start_part_id: u64,
+    start_part_id: StatePartIndex,
 
     /// Number of parts in the state of the shard.
     /// Assuming the tool doesn't have a valid DB and can't determine the number automatically.

@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 mod tests {
     use crate::Chain;
     use crate::ChainStoreAccess;
@@ -646,21 +645,19 @@ mod tests {
             }
         }
 
-        // Re-syncing the headers must keep the header-only rows valid (cache-independent: the
-        // rows were never deleted). Do not assert the body head re-seeds in-process:
-        // record_block_info_impl gates on has_block_info, which reads the epoch-manager
-        // blocks_info LRU cache before the store; clear_head_block_data deletes BlockInfo only
-        // from the store, so has_block_info(body_head) may still be true and the seeder is
-        // skipped. tools/undo-block runs a fresh EpochManager (empty cache) and re-seeds
-        // correctly.
+        // Re-syncing the headers restores the deleted body-head row and keeps the header-only
+        // ones. The body head re-seeds in-process only because has_block_info asks the store:
+        // clear_head_block_data deletes its BlockInfo there but not from the epoch manager's
+        // blocks_info cache, so a cache-based guard would report it as still recorded and skip
+        // the seeder, leaving the row orphaned until a restart.
         chain
             .sync_block_headers(blocks[3..=5].iter().map(|b| b.header().clone().into()).collect())
             .unwrap();
-        for anchor in [blocks[4].hash(), blocks[5].hash()] {
+        for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
             for shard_id in shard_layout.shard_ids() {
                 assert!(
                     row(&chain, anchor, shard_id).is_some(),
-                    "header re-sync must keep ChunkProducers for header-only anchor {anchor}"
+                    "header re-sync must leave ChunkProducers in place for anchor {anchor}"
                 );
             }
         }
@@ -816,22 +813,37 @@ mod tests {
     }
 }
 
-/// With EarlyKickout disabled (stable), resolution must match the legacy ChunkProductionKey computation.
-#[cfg(not(feature = "nightly"))]
-mod stable_tests {
-    use crate::test_utils::setup;
+/// With EarlyKickout disabled, resolution must match the legacy ChunkProductionKey computation.
+mod pre_activation_tests {
+    use crate::test_utils::setup_with_tx_validity_period_at_version;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::types::ProtocolVersion;
+    use near_primitives::version::ProtocolFeature;
 
+    /// Highest protocol version with EarlyKickout still off.
+    const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
+        ProtocolFeature::EarlyKickout.protocol_version() - 1;
+
+    // A spice build has no protocol version that is both >= Spice and < EarlyKickout,
+    // so the feature-off path cannot be exercised there.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     #[test]
     fn test_resolution_matches_legacy_computation_when_feature_off() {
         init_test_logger();
         let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap());
         clock.advance(Duration::milliseconds(3444));
-        let (mut chain, epoch_manager, _, signer) = setup(clock.clock());
+        // Only one block is built, so the chain never leaves the genesis epoch and the
+        // pinned version holds for the whole test.
+        let (mut chain, epoch_manager, _, signer) = setup_with_tx_validity_period_at_version(
+            clock.clock(),
+            100,
+            1000,
+            PV_BEFORE_EARLY_KICKOUT,
+        );
 
         let prev = chain.get_block(&chain.genesis().hash().clone()).unwrap();
         clock.advance(Duration::milliseconds(1));

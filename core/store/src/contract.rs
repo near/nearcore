@@ -4,8 +4,25 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_vm_runner::ContractCode;
 use parking_lot::Mutex;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ContractType {
+    /// Local contract, deployed to a specific account
+    Local,
+    /// Global contract
+    Global,
+}
+
+/// Tracks deployments of this contract.
+struct DeployedContract {
+    /// The deployed contract
+    code: ContractCode,
+    /// List of all types with which this contract was deployed.
+    types: BTreeSet<ContractType>,
+}
 
 /// Tracks the uncommitted and committed deployments and calls to contracts, while applying the receipts in a chunk.
 ///
@@ -26,11 +43,11 @@ struct ContractsTracker {
     /// The State this field should be removed, and the `Storage::store` function should be
     /// adjusted to write out the contract into the relevant part of the database immediately
     /// (without going through transactional storage operations and such).
-    uncommitted_deploys: BTreeMap<CodeHash, ContractCode>,
+    uncommitted_deploys: BTreeMap<CodeHash, DeployedContract>,
 
     /// Deployments moved from `uncommitted_deploys` by calling `commit`.
     /// These are returned from `finalize`.
-    committed_deploys: BTreeMap<CodeHash, ContractCode>,
+    committed_deploys: BTreeMap<CodeHash, DeployedContract>,
 
     /// List of code-hashes for the contracts called.
     ///
@@ -44,15 +61,35 @@ impl ContractsTracker {
         self.uncommitted_deploys
             .get(&code_hash)
             .or_else(|| self.committed_deploys.get(&code_hash))
-            .map(|contract| ContractCode::new(contract.code().to_vec(), Some(code_hash.into())))
+            .map(|contract| {
+                ContractCode::new(contract.code.code().to_vec(), Some(code_hash.into()))
+            })
     }
 
     fn call(&mut self, code_hash: CodeHash) {
         self.contract_calls.insert(code_hash);
     }
 
-    fn deploy(&mut self, code: ContractCode) {
-        self.uncommitted_deploys.insert((*code.hash()).into(), code);
+    fn deploy(&mut self, code: ContractCode, contract_type: ContractType) {
+        let deployed_contract =
+            DeployedContract { code, types: std::iter::once(contract_type).collect() };
+        Self::add_deployed_contract(deployed_contract, &mut self.uncommitted_deploys);
+    }
+
+    /// Add a DeployedContract to the given BTreeMap.
+    /// If the map already contains a DeployedContract for this contract hash, it merges the two structs by merging the `types` lists.
+    fn add_deployed_contract(
+        deploys: DeployedContract,
+        map: &mut BTreeMap<CodeHash, DeployedContract>,
+    ) {
+        match map.entry((*deploys.code.hash()).into()) {
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(deploys);
+            }
+            Entry::Occupied(mut occupied_entry) => {
+                occupied_entry.get_mut().types.extend(deploys.types);
+            }
+        }
     }
 
     /// Rollback the uncommitted deployments.
@@ -63,16 +100,30 @@ impl ContractsTracker {
     /// Commits the uncommitted deployments by moving them to the set of committed deployments and clearing the uncommitted list.
     fn commit_deploys(&mut self) {
         let deploys = std::mem::take(&mut self.uncommitted_deploys);
-        for (code_hash, contract) in deploys {
-            self.committed_deploys.insert(code_hash, contract);
+        for (_code_hash, deployed) in deploys {
+            Self::add_deployed_contract(deployed, &mut self.committed_deploys);
         }
     }
 
     /// Finalizes this tracker and returns the calls and committed deployments.
+    /// The contract_deploys field doesn't contain deployed global contracts, those are distributed separately.
     fn finalize(mut self) -> ContractUpdates {
+        let contract_deploys = self
+            .committed_deploys
+            .into_values()
+            .filter_map(|deployed| {
+                if deployed.types.iter().all(|t| *t == ContractType::Global) {
+                    // Global contracts are distributed using a different mechanism, don't include them in contract_deploys
+                    None
+                } else {
+                    Some(deployed.code)
+                }
+            })
+            .collect();
+
         ContractUpdates {
             contract_accesses: std::mem::take(&mut self.contract_calls),
-            contract_deploys: self.committed_deploys.into_values().collect(),
+            contract_deploys,
         }
     }
 }
@@ -144,7 +195,14 @@ impl ContractStorage {
     pub fn record_deploy(&self, code: ContractCode) {
         let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
-        tracker.deploy(code);
+        tracker.deploy(code, ContractType::Local);
+    }
+
+    /// Same as record_deploy, used for global contracts.
+    pub fn record_global_contract_deploy(&self, code: ContractCode) {
+        let mut guard = self.tracker.lock();
+        let tracker = guard.as_mut().expect("must not be called after finalizing");
+        tracker.deploy(code, ContractType::Global);
     }
 
     /// Commits the uncommitted recording of contract deployments.
@@ -175,6 +233,7 @@ impl ContractStorage {
     /// NOTE: The same contract may be deployed multiple times to different accounts. Thus, if a contract that was previously
     /// deployed to an account is now deployed to a different account, we still include the contract in the list of `contracts_deployed`.
     /// This can be optimized later by checking if the deployed contract already exists in the storage and excluding from the returned list.
+    /// NOTE: Contract_deploys doesn't contain deployed global contracts, those are distributed separately.
     pub(crate) fn finalize(self) -> ContractUpdates {
         let mut guard = self.tracker.lock();
         let tracker = guard.take().expect("finalize must be called only once");
@@ -221,6 +280,10 @@ mod tests {
                 })),
             }
         }
+    }
+
+    fn empty_contract_storage() -> ContractStorage {
+        ContractStorage::new(Arc::new(MockTrieStorage::new()))
     }
 
     /// Tests a scenario with old (already existing in the storage) and new contracts and finalizing after rolling back some deploys and committing others.
@@ -389,5 +452,62 @@ mod tests {
         for contract in missing_contracts {
             assert!(contract_storage_clone.get(*contract.hash()).is_none());
         }
+    }
+
+    /// A global contract is recorded in ContractTracker like a local deploy, but is filtered out of
+    /// the `contract_deploys` broadcast.
+    #[test]
+    fn test_contract_storage_filters_global_deploys_from_broadcast() {
+        let local = ContractCode::new(vec![1], None);
+        let global = ContractCode::new(vec![2], None);
+        let contract_storage =
+            ContractStorage::new(Arc::new(MockTrieStorage { store: HashMap::new() }));
+
+        contract_storage.record_deploy(local.clone_for_tests());
+        contract_storage.record_global_contract_deploy(global.clone_for_tests());
+        contract_storage.commit_deploys();
+
+        // Both contracts can be accessed from the contract storage.
+        assert!(contract_storage.get(*local.hash()).is_some());
+        assert!(contract_storage.get(*global.hash()).is_some());
+
+        // Only the local deploy is broadcast to chunk validators.
+        let updates = contract_storage.finalize();
+        assert_eq!(
+            updates.contract_deploy_hashes(),
+            HashSet::from([CodeHash(*local.hash())]),
+            "global contracts must not be re-broadcast as deploys"
+        );
+    }
+
+    /// Deploys are keyed by code hash, so the same code deployed both to an account and as a
+    /// global contract shares a single entry. The local deploy still has to be broadcast, no
+    /// matter which order the two are recorded in or whether they land in the same commit.
+    #[test]
+    fn test_contract_storage_broadcasts_code_deployed_both_locally_and_globally() {
+        let code = ContractCode::new(vec![1], None);
+        let expected = HashSet::from([CodeHash(*code.hash())]);
+
+        // Same commit, local deploy recorded first.
+        let contract_storage = empty_contract_storage();
+        contract_storage.record_deploy(code.clone_for_tests());
+        contract_storage.record_global_contract_deploy(code.clone_for_tests());
+        contract_storage.commit_deploys();
+        assert_eq!(contract_storage.finalize().contract_deploy_hashes(), expected);
+
+        // Same commit, global deploy recorded first.
+        let contract_storage = empty_contract_storage();
+        contract_storage.record_global_contract_deploy(code.clone_for_tests());
+        contract_storage.record_deploy(code.clone_for_tests());
+        contract_storage.commit_deploys();
+        assert_eq!(contract_storage.finalize().contract_deploy_hashes(), expected);
+
+        // Separate commits: the global deploy is already committed when the local one arrives.
+        let contract_storage = empty_contract_storage();
+        contract_storage.record_global_contract_deploy(code.clone_for_tests());
+        contract_storage.commit_deploys();
+        contract_storage.record_deploy(code.clone_for_tests());
+        contract_storage.commit_deploys();
+        assert_eq!(contract_storage.finalize().contract_deploy_hashes(), expected);
     }
 }

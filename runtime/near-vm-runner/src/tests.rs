@@ -1,6 +1,8 @@
 mod cache;
 mod chain_id_integration;
 mod compile_errors;
+#[cfg(feature = "wasmtime_vm")]
+mod compiler_daemon;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod ml_dsa_verify_integration;
@@ -10,6 +12,7 @@ mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;
 mod ts_contract;
+mod universal_state_init_to_account_id_integration;
 mod view_call_gas_limit;
 mod wasm_validation;
 

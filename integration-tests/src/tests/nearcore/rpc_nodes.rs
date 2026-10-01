@@ -234,7 +234,7 @@ async fn test_protocol_config_rpc() {
                 .await
                 .unwrap();
 
-            let runtime_config_store = RuntimeConfigStore::new(None);
+            let runtime_config_store = RuntimeConfigStore::new();
             let latest_runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
             assert_eq!(
                 serde_json::json!(config_response.config_view.runtime_config),
@@ -443,7 +443,7 @@ async fn slow_test_check_unknown_tx_must_return_error() {
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
-                            .EXPERIMENTAL_tx_status(RpcTransactionStatusRequest {
+                            .tx_status(RpcTransactionStatusRequest {
                                 transaction_info: TransactionInfo::TransactionId {
                                     tx_hash,
                                     sender_account_id: transaction.transaction.signer_id().clone(),

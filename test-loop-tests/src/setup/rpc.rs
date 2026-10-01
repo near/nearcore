@@ -104,6 +104,7 @@ impl RpcTransport for TestLoopRpcTransport {
 
 /// Creates an axum jsonrpc Router wired to testloop actors for a given node.
 pub(crate) fn create_testloop_jsonrpc_router(
+    rpc_config: RpcConfig,
     clock: near_async::time::Clock,
     client_sender: &TestLoopSender<near_client::client_actor::ClientActor>,
     view_client_sender: &TestLoopSender<near_client::ViewClientActor>,
@@ -120,7 +121,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
 
     create_jsonrpc_app(
         clock,
-        RpcConfig::default(),
+        rpc_config,
         genesis_config.clone(),
         client_sender.clone().into_multi_sender(),
         view_client_sender.clone().into_multi_sender(),

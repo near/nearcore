@@ -4,8 +4,10 @@
 
 use super::per_shard::{PerShardChunkExecutor, PerShardDeps};
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_manager::DataId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{Handler, Sender};
+use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
@@ -54,7 +56,8 @@ pub struct ChunkExecutorActor {
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
 pub struct ExecutorIncomingUnverifiedReceipts {
-    pub block_hash: CryptoHash,
+    /// Id the proof was delivered under.
+    pub data_id: DataId,
     pub receipt_proof: ReceiptProof,
 }
 
@@ -162,6 +165,49 @@ impl ChunkExecutorActor {
             .find(|executor| executor.shard_uid().shard_id() == shard_id)
     }
 
+    /// The `ShardUId` for `shard_id` if this node tracks it this or next epoch as of
+    /// `anchor`, which is read as a prev hash.
+    fn tracked_shard_uid(
+        &self,
+        anchor: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Option<ShardUId>, Error> {
+        Ok(self
+            .shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(anchor)?
+            .into_iter()
+            .find(|shard_uid| shard_uid.shard_id() == shard_id))
+    }
+
+    /// Create the destination shard's executor if this node tracks that shard as of
+    /// both the source block and the head, so an early receipt is buffered rather than
+    /// dropped: the push is not retried.
+    /// TODO(spice-resharding): neither anchor is enough when the source block is in a
+    /// different shard layout.
+    fn create_executor_if_shard_tracked(
+        &mut self,
+        to_shard_id: ShardId,
+        source_block: &CryptoHash,
+    ) -> Result<(), Error> {
+        if self.executor_for_shard_id(to_shard_id).is_some() {
+            return Ok(());
+        }
+        let head = self.chain_store.head()?.last_block_hash;
+        let anchor = match self.chain_store.get_block_header(source_block) {
+            Ok(_) => *source_block,
+            Err(Error::DBNotFoundErr(_)) => head,
+            Err(err) => return Err(err),
+        };
+        let Some(shard_uid) = self.tracked_shard_uid(&anchor, to_shard_id)? else {
+            return Ok(());
+        };
+        if anchor != head && self.tracked_shard_uid(&head, to_shard_id)?.is_none() {
+            return Ok(());
+        }
+        self.get_or_create_per_shard_executor(shard_uid);
+        Ok(())
+    }
+
     /// Spawn executors for shards tracked this or next epoch and evict ones no
     /// longer tracked. The this-or-next-epoch set matches the
     /// `should_apply_chunk(IsCaughtUp, ..)` gate the monolithic executor used:
@@ -184,6 +230,12 @@ impl ChunkExecutorActor {
     /// buffer for the parent block).
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     pub(crate) fn handle_processed_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        // A block from a pre-spice epoch was already executed synchronously as part
+        // of block processing and has no spice state to work from, so this returns
+        // without touching it.
+        if !spice_enabled_for_block(&self.chain_store, block_hash)? {
+            return Ok(());
+        }
         let block = self.chain_store.get_block(block_hash)?;
         let prev_block_hash = *block.header().prev_hash();
         self.reconcile_tracked_shards(&prev_block_hash)?;
@@ -343,6 +395,11 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
         if !cfg!(feature = "protocol_feature_spice") {
             return;
         }
+        // Both recovery steps below read the spice execution heads, which only
+        // exist once spice is active
+        if !spice_enabled_at_head_on_startup(&self.chain_store) {
+            return;
+        }
         // Recover after a crash between apply-commit and finalize: walk forward
         // past anything already-applied on disk before scheduling fresh applies.
         // Idempotent — a clean restart with no pending finalize is a no-op.
@@ -365,7 +422,9 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
 
 impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
-        let ExecutorIncomingUnverifiedReceipts { block_hash, receipt_proof } = receipts;
+        let ExecutorIncomingUnverifiedReceipts { data_id, receipt_proof } = receipts;
+        let DataId::ReceiptProof { source, to_shard } = &data_id;
+        let block_hash = source.block_hash;
         tracing::debug!(
             target: "chunk_executor",
             %block_hash,
@@ -374,11 +433,12 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         );
         // Route to the destination shard's executor, which owns the buffer for
         // receipts addressed to it.
-        let to_shard_id = receipt_proof.1.to_shard_id;
-        // TODO(spice-resharding): a receipt for a shard this node *does* track can be
-        // dropped here if it arrives before reconcile created the executor (startup /
-        // catch-up, or around an epoch boundary). Reconcile from the source block's
-        // parent and retry the lookup before treating the shard as untracked.
+        let to_shard_id = *to_shard;
+        if let Err(err) = self.create_executor_if_shard_tracked(to_shard_id, &block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, ?to_shard_id, "failed to look up tracking for an incoming receipt");
+        }
+        // TODO(spice-data-distribution): a dropped delivery is lost: the data manager
+        // settled its commitment and does not re-deliver (#16275).
         let Some(executor) = self.executor_for_shard_id(to_shard_id) else {
             tracing::debug!(target: "chunk_executor", %block_hash, ?to_shard_id, "receipt for untracked shard; dropping");
             return;

@@ -3,6 +3,9 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
+use near_chain::spice::activation::{
+    SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
+};
 use near_chain::spice::chunk_validation::{
     spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
 };
@@ -24,8 +27,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST, SpiceChunkContractAccesses,
-    SpiceContractCodeRequest, SpiceContractCodeResponse,
+    CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
+    MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE, SpiceChunkContractAccesses,
+    SpiceContractCodeRequest, SpiceContractCodeResponse, total_code_size,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::AccountId;
@@ -42,8 +46,8 @@ use std::sync::Arc;
 
 // Each pending chunk stores the uncompressed witness plus uncompressed contracts.
 // In the worst case the witness is bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB)
-// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_RESPONSE_SIZE (64 MiB), giving ~128 MiB
-// per chunk.  MAX_PENDING_CHUNKS * 128 MiB ≈ 3 GiB memory budget.
+// and the contracts by MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), giving
+// ~320 MiB per chunk.  MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB worst-case memory budget.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
 // TODO(spice): add test covering the relationship between constants.
@@ -66,6 +70,8 @@ pub struct SpiceChunkValidatorActor {
 
     /// Per-chunk state accumulating till it can be applied.
     partial_chunk_data: LruCache<SpiceChunkId, PartialChunkData>,
+
+    spice_gate: SpiceMessageGate,
 }
 
 /// The currently trusted contract accesses sender and the set of contracts
@@ -75,6 +81,9 @@ struct TrustedAccesses {
     /// Contracts not yet available (not in cache and not yet received).
     /// Empty means all contracts are ready.
     missing: HashSet<CodeHash>,
+    /// Taken from the witness itself rather than from `sender`'s message. The witness is what
+    /// accesses messages are checked against, so no message can invalidate it.
+    from_witness: bool,
 }
 
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
@@ -164,7 +173,14 @@ impl SpiceChunkValidatorActor {
             core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
             partial_chunk_data: LruCache::new(NonZeroUsize::new(MAX_PENDING_CHUNKS).unwrap()),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 }
 
@@ -172,6 +188,21 @@ impl SpiceChunkValidatorActor {
 // chunk validator actor we don't need to handle possibility of missing blocks in this actor.
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
+        // Pre-spice chunks are validated as part of block processing; no witness
+        // can be waiting on a pre-spice block — except a last pre-spice block, whose
+        // boundary witness can arrive before the block itself.
+        match is_spice_or_last_pre_spice_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &block_hash,
+        ) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(err) => {
+                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to get block header");
+                return;
+            }
+        }
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
@@ -209,6 +240,14 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceChunkContractAccessesMessage(accesses, _recv_permit): SpiceChunkContractAccessesMessage,
     ) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            SpiceMessageKind::ContractAccesses,
+            &accesses.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_accesses(accesses) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract accesses");
         }
@@ -220,6 +259,14 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceChunkValidatorActor {
         &mut self,
         SpiceContractCodeResponseMessage(response, _recv_permit): SpiceContractCodeResponseMessage,
     ) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            SpiceMessageKind::ContractCodeResponse,
+            &response.chunk_id().block_hash,
+        ) {
+            return;
+        }
         if let Err(err) = self.handle_spice_contract_code_response(response) {
             tracing::error!(target: "spice_chunk_validator", ?err, "error handling contract code response");
         }
@@ -235,6 +282,14 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, .. } = msg;
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            SpiceMessageKind::StateWitness,
+            &witness.chunk_id().block_hash,
+        ) {
+            return;
+        }
         let Some(signer) = self.validator_signer.get() else {
             tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
             return;
@@ -272,6 +327,7 @@ impl SpiceChunkValidatorActor {
                 self.partial_chunk_data
                     .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                     .witness = Some(witness);
+                self.trust_witness_accesses_and_request_missing_code(&chunk_id, &signer)?;
                 // Eagerly check the trusted accesses against the witness.
                 // If the trusted sender is wrong, discard and try the next one
                 // before waiting for contract code that will never arrive.
@@ -392,6 +448,7 @@ impl SpiceChunkValidatorActor {
             self.partial_chunk_data
                 .get_or_insert_mut(chunk_id.clone(), PartialChunkData::new)
                 .witness = Some(witness);
+            self.trust_witness_accesses_and_request_missing_code(&chunk_id, &signer)?;
             self.validate_trusted_accesses(&chunk_id, signer.clone())?;
             if let Err(err) = self.try_assemble_and_validate_chunk(&chunk_id, signer.clone()) {
                 self.requeue_waiting_witnesses(&block_hash, unready_witnesses);
@@ -588,7 +645,7 @@ impl SpiceChunkValidatorActor {
             ));
         }
 
-        entry.trusted = Some(TrustedAccesses { sender, missing });
+        entry.trusted = Some(TrustedAccesses { sender, missing, from_witness: false });
 
         let signer = self
             .validator_signer
@@ -615,6 +672,7 @@ impl SpiceChunkValidatorActor {
 
         // Resolve across all pending chunks that are waiting on any of these contracts.
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
+        let mut over_cap: Vec<SpiceChunkId> = Vec::new();
         for (chunk_id, entry) in &mut self.partial_chunk_data {
             let Some(trusted) = &mut entry.trusted else {
                 continue;
@@ -627,9 +685,25 @@ impl SpiceChunkValidatorActor {
                     resolved_any = true;
                 }
             }
-            if resolved_any && trusted.missing.is_empty() {
+            if !resolved_any {
+                continue;
+            }
+            let size = total_code_size(&entry.contracts);
+            if size > MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE {
+                over_cap.push(chunk_id.clone());
+            } else if trusted.missing.is_empty() {
                 maybe_ready.push(chunk_id.clone());
             }
+        }
+        // More code than one request may cover cannot be assembled here, so the chunk is dropped
+        // rather than held. A later witness or accesses message recreates it.
+        for chunk_id in over_cap {
+            tracing::warn!(
+                target: "spice_chunk_validator",
+                ?chunk_id,
+                "accumulated contract code exceeds the per-request cap, dropping the pending chunk"
+            );
+            self.partial_chunk_data.pop(&chunk_id);
         }
 
         let signer = self
@@ -639,6 +713,63 @@ impl SpiceChunkValidatorActor {
         for chunk_id in maybe_ready {
             self.try_assemble_and_validate_chunk(&chunk_id, signer.clone())?;
         }
+        Ok(())
+    }
+
+    /// The witness lists the contracts its chunk accessed; the accesses message only lets the code
+    /// be fetched before the witness is reassembled. Without one, a producer is asked for the code.
+    fn trust_witness_accesses_and_request_missing_code(
+        &mut self,
+        chunk_id: &SpiceChunkId,
+        signer: &ValidatorSigner,
+    ) -> Result<(), Error> {
+        let Some(entry) = self.partial_chunk_data.peek(chunk_id) else {
+            return Ok(());
+        };
+        if entry.trusted.is_some() {
+            return Ok(());
+        }
+        let Some(witness) = &entry.witness else {
+            return Ok(());
+        };
+        let all_contracts = witness.contract_accesses().clone();
+        // A chunk cannot access that many contracts, so the witness is not one to validate.
+        if all_contracts.len() > MAX_CONTRACTS_PER_REQUEST {
+            tracing::warn!(
+                target: "spice_chunk_validator",
+                ?chunk_id,
+                num_contracts = all_contracts.len(),
+                "witness lists more contracts than a chunk can access"
+            );
+            return Ok(());
+        }
+        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        // TODO(spice-data-distribution): this always asks the first producer; spread requesters
+        // over the producers and retry with another one if it does not answer.
+        let sender = self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Other("chunk has no producers".to_owned()))?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_adapter.get_runtime_config(protocol_version);
+        let cache = self.runtime_adapter.compiled_contract_cache();
+        let missing: HashSet<_> = all_contracts
+            .iter()
+            .filter(|h| !contracts_cache_contains_contract(cache, h, runtime_config))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            let request = SpiceContractCodeRequest::new(chunk_id.clone(), missing.clone(), signer);
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::SpiceContractCodeRequest(sender.clone(), request),
+            ));
+        }
+        let Some(entry) = self.partial_chunk_data.get_mut(chunk_id) else {
+            return Ok(());
+        };
+        entry.trusted = Some(TrustedAccesses { sender, missing, from_witness: true });
         Ok(())
     }
 
@@ -657,6 +788,9 @@ impl SpiceChunkValidatorActor {
         let (Some(witness), Some(trusted)) = (&entry.witness, &entry.trusted) else {
             return Ok(());
         };
+        if trusted.from_witness {
+            return Ok(());
+        }
         let Some(trusted_accesses) = entry.received_accesses.get(&trusted.sender) else {
             return Ok(());
         };
@@ -720,10 +854,11 @@ impl SpiceChunkValidatorActor {
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?chunk_id,
-                "no valid contract accesses available; waiting for new accesses message"
+                "no valid contract accesses message left; using the witness's own accesses"
             );
             self.partial_chunk_data.put(chunk_id.clone(), partial);
-            return Ok(());
+            self.trust_witness_accesses_and_request_missing_code(chunk_id, &signer)?;
+            return self.try_assemble_and_validate_chunk(chunk_id, signer);
         };
         let sender = sender.clone();
         let next_accesses = next_accesses.clone();
@@ -746,7 +881,7 @@ impl SpiceChunkValidatorActor {
             ));
         }
 
-        partial.trusted = Some(TrustedAccesses { sender, missing });
+        partial.trusted = Some(TrustedAccesses { sender, missing, from_witness: false });
         self.partial_chunk_data.put(chunk_id.clone(), partial);
         self.validate_trusted_accesses(chunk_id, signer.clone())?;
         self.try_assemble_and_validate_chunk(chunk_id, signer)

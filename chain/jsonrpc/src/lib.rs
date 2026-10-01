@@ -15,12 +15,15 @@ use near_async::time::{Clock, Duration};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetChunkExtraExists,
-    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice,
-    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges, GetStateChangesInBlock,
-    GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse,
-    Query as ClientQuery, QueryError, Status, StatusResponse, TxStatus, TxStatusError,
-    TxStatusOutcome,
+    GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetLightClientChunkExecutionProof,
+    GetLightClientExecutionOutcomeProof, GetLightClientExecutionOutcomeProofResponse,
+    GetLightClientProofError, GetLightClientStateProof, GetLightClientStateProofResponse,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProcessedReceiptIds,
+    GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse, GetStateChanges,
+    GetStateChangesInBlock, GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo,
+    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query as ClientQuery, QueryError,
+    Status, StatusResponse, TxStatus, TxStatusError, TxStatusOutcome,
 };
 use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
@@ -28,9 +31,9 @@ use near_client_primitives::debug::{
 use near_client_primitives::types::{
     BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
     GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
-    GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetReceiptToTxError,
-    GetSplitStorageInfo, GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError,
-    NetworkInfoResponse, StatusError,
+    GetNextLightClientBlockError, GetProcessedReceiptIdsError, GetProtocolConfigError,
+    GetReceiptError, GetReceiptToTxError, GetSplitStorageInfo, GetSplitStorageInfoError,
+    GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse, StatusError,
 };
 pub use near_jsonrpc_client_internal as client;
 use near_jsonrpc_client_internal::SHARDED_RPC_COORDINATOR_HEADER;
@@ -85,6 +88,7 @@ use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
@@ -93,10 +97,10 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
-    StateChangeKindView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    TxExecutionStatus,
+    BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    GasPriceView, LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse,
+    ReceiptView, SplitStorageInfoView, StateChangeKindView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView, TxExecutionStatus,
 };
 use parking_lot::RwLock;
 use serde_json::{Value, json};
@@ -104,7 +108,7 @@ use sharded_rpc::{
     BlockHint, CoordinatorRequestStrategy, NodeRequestAssignment, RequestSource, RpcNodeHandle,
     ShardHint, ShardedRpcPool,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
@@ -112,10 +116,12 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
 mod api;
+mod indexer;
 mod metrics;
 pub mod sharded_rpc;
 
@@ -167,6 +173,10 @@ pub struct ShardedRpcNodeConfig {
     pub tracked_shards: Vec<ShardId>,
 }
 
+fn default_indexer_max_concurrent_requests() -> usize {
+    1
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -180,6 +190,12 @@ pub struct RpcConfig {
     // We disable it by default, as some of those endpoints might be quite CPU heavy.
     #[serde(default = "default_enable_debug_rpc")]
     pub enable_debug_rpc: bool,
+    /// Enables the experimental indexer block endpoint.
+    #[serde(default)]
+    pub enable_indexer_rpc: bool,
+    /// Maximum concurrent indexer block requests.
+    #[serde(default = "default_indexer_max_concurrent_requests")]
+    pub indexer_max_concurrent_requests: usize,
     // For node developers only: if specified, the HTML files used to serve the debug pages will
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
@@ -197,6 +213,8 @@ impl Default for RpcConfig {
             polling_config: Default::default(),
             limits_config: Default::default(),
             enable_debug_rpc: false,
+            enable_indexer_rpc: false,
+            indexer_max_concurrent_requests: default_indexer_max_concurrent_requests(),
             experimental_debug_pages_src_path: None,
             sharded_rpc: None,
         }
@@ -457,6 +475,18 @@ pub struct ViewClientSenderForRpc(
     AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
     AsyncSender<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>,
     AsyncSender<GetChunk, Result<ChunkView, GetChunkError>>,
+    AsyncSender<
+        GetLightClientChunkExecutionProof,
+        Result<ChunkExecutionProofView, GetLightClientProofError>,
+    >,
+    AsyncSender<
+        GetLightClientExecutionOutcomeProof,
+        Result<GetLightClientExecutionOutcomeProofResponse, GetLightClientProofError>,
+    >,
+    AsyncSender<
+        GetLightClientStateProof,
+        Result<GetLightClientStateProofResponse, GetLightClientProofError>,
+    >,
     AsyncSender<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>,
     AsyncSender<GetGasPrice, Result<GasPriceView, GetGasPriceError>>,
     AsyncSender<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>,
@@ -465,6 +495,18 @@ pub struct ViewClientSenderForRpc(
         Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
     >,
     AsyncSender<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>,
+    AsyncSender<
+        GetExecutionOutcomesForBlock,
+        Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>,
+    >,
+    AsyncSender<
+        GetProcessedReceiptIds,
+        Result<Vec<ProcessedReceiptMetadata>, GetProcessedReceiptIdsError>,
+    >,
+    AsyncSender<
+        GetStateChangesWithCauseInBlockForTrackedShards,
+        Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>,
+    >,
     AsyncSender<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>>,
     AsyncSender<GetReceiptToTx, Result<GetReceiptToTxResponse, GetReceiptToTxError>>,
     AsyncSender<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>,
@@ -486,6 +528,7 @@ pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialM
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
 struct JsonRpcHandler {
+    indexer_requests: Semaphore,
     clock: Clock,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
@@ -496,6 +539,7 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
+    enable_indexer_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
@@ -672,7 +716,14 @@ impl JsonRpcHandler {
             "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
-                process_method_call(request, |params| self.tx_status_common(params, false)).await
+                process_method_call(request, |params| self.tx_status_common(params, false, "tx"))
+                    .await
+            }
+            "tx_status" => {
+                process_method_call(request, |params| {
+                    self.tx_status_common(params, true, "tx_status")
+                })
+                .await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
@@ -764,8 +815,26 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_light_client_block_proof" => {
                 process_method_call(request, |params| self.light_client_block_proof(params)).await
             }
+            "EXPERIMENTAL_light_client_chunk_execution_proof" => {
+                process_method_call(request, |params| {
+                    self.light_client_chunk_execution_proof(params)
+                })
+                .await
+            }
+            "EXPERIMENTAL_light_client_execution_outcome_proof" => {
+                process_method_call(request, |params| {
+                    self.light_client_execution_outcome_proof(params)
+                })
+                .await
+            }
+            "EXPERIMENTAL_light_client_state_proof" => {
+                process_method_call(request, |params| self.light_client_state_proof(params)).await
+            }
             "EXPERIMENTAL_protocol_config" => {
                 process_method_call(request, |params| self.protocol_config(params)).await
+            }
+            "EXPERIMENTAL_indexer_block" if self.enable_indexer_rpc => {
+                process_method_call(request, |params| self.indexer_block(params)).await
             }
             "EXPERIMENTAL_receipt" => {
                 process_sharded_method_call(
@@ -780,7 +849,10 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.receipt_to_tx(params)).await
             }
             "EXPERIMENTAL_tx_status" => {
-                process_method_call(request, |params| self.tx_status_common(params, true)).await
+                process_method_call(request, |params| {
+                    self.tx_status_common(params, true, "EXPERIMENTAL_tx_status")
+                })
+                .await
             }
             "EXPERIMENTAL_validators_ordered" => {
                 process_method_call(request, |params| self.validators_ordered(params)).await
@@ -1912,11 +1984,12 @@ impl JsonRpcHandler {
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
         fetch_receipt: bool,
+        method_name: &str,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        metrics::report_wait_until_metric("tx_status", &request_data.wait_until);
+        metrics::report_wait_until_metric(method_name, &request_data.wait_until);
 
         let tx_status = self
             .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
@@ -2476,6 +2549,68 @@ impl JsonRpcHandler {
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientBlockProofResponse {
             block_header_lite: block_proof.block_header_lite,
             block_proof: block_proof.proof,
+        })
+    }
+
+    async fn light_client_chunk_execution_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientChunkExecutionProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientChunkExecutionProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientChunkExecutionProofRequest {
+            chunk_id,
+            light_client_head,
+        } = request;
+        let chunk_execution_proof: ChunkExecutionProofView = self
+            .view_client_send(GetLightClientChunkExecutionProof { chunk_id, light_client_head })
+            .await?;
+        Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientChunkExecutionProofResponse {
+            chunk_execution_proof,
+        })
+    }
+
+    async fn light_client_execution_outcome_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionOutcomeProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionOutcomeProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionOutcomeProofRequest {
+            id,
+            light_client_head,
+        } = request;
+        let response: GetLightClientExecutionOutcomeProofResponse = self
+            .view_client_send(GetLightClientExecutionOutcomeProof { id, light_client_head })
+            .await?;
+        Ok(
+            near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionOutcomeProofResponse {
+                chunk_execution_proof: response.chunk_execution_proof,
+                outcome_proof: response.outcome_proof,
+            },
+        )
+    }
+
+    async fn light_client_state_proof(
+        &self,
+        request: near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofResponse,
+        near_jsonrpc_primitives::types::light_client::RpcLightClientProofError,
+    > {
+        let near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofRequest {
+            chunk_id,
+            target,
+            light_client_head,
+        } = request;
+        let response: GetLightClientStateProofResponse = self
+            .view_client_send(GetLightClientStateProof { chunk_id, target, light_client_head })
+            .await?;
+        Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientStateProofResponse {
+            chunk_execution_proof: response.chunk_execution_proof,
+            state_proof: response.state_proof,
         })
     }
 
@@ -3067,12 +3202,15 @@ pub fn create_jsonrpc_app(
         polling_config,
         limits_config,
         enable_debug_rpc,
+        enable_indexer_rpc,
+        indexer_max_concurrent_requests,
         experimental_debug_pages_src_path: debug_pages_src_path,
         ..
     } = config;
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
+        indexer_requests: Semaphore::new(indexer_max_concurrent_requests),
         clock,
         client_sender,
         view_client_sender,
@@ -3081,6 +3219,7 @@ pub fn create_jsonrpc_app(
         polling_config,
         genesis_config,
         enable_debug_rpc,
+        enable_indexer_rpc,
         debug_pages_src_path: debug_pages_src_path.map(Into::into),
         entity_debug_handler,
         #[cfg(feature = "test_features")]

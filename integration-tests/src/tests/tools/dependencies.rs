@@ -19,7 +19,7 @@ use std::str;
 
 const LIBS_THRESHOLDS: [(&str, usize); 9] = [
     ("near-primitives", 134),
-    ("near-jsonrpc-primitives", 141),
+    ("near-jsonrpc-primitives", 142),
     ("near-chain-configs", 135),
     ("near-chain-primitives", 135),
     ("near-client-primitives", 152),

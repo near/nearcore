@@ -11,7 +11,7 @@ mod updatable_config;
 
 pub use client_config::{
     BLOCK_HORIZON, ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig,
-    CloudArchivalWriterConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    CloudArchivalReaderConfig, CloudArchivalWriterConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, DumpConfig, EpochSyncConfig, ExternalStorageLocation,
     GCConfig, InterruptHandle, LogSummaryStyle, MIN_GC_NUM_EPOCHS_TO_KEEP,
     ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle, StateSyncConfig,

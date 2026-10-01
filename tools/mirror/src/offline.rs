@@ -6,7 +6,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
@@ -184,7 +184,7 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         account_id: &AccountId,
         block_hash: &CryptoHash,
-    ) -> Result<Vec<PublicKey>, ChainError> {
+    ) -> Result<Vec<PublicKeyHandle>, ChainError> {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
         let shard_id =
@@ -195,7 +195,7 @@ impl crate::ChainAccess for ChainAccess {
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         let mut after_key = None;
         loop {
-            let response = self.runtime.query(
+            let response = match self.runtime.query(
                 shard_uid,
                 chunk_extra.state_root(),
                 header.height(),
@@ -208,17 +208,19 @@ impl crate::ChainAccess for ChainAccess {
                     after_key,
                     limit: ACCESS_KEY_PAGE_SIZE,
                 },
-            )?;
+            ) {
+                Ok(response) => response,
+                Err(near_chain_primitives::error::QueryError::UnknownAccount { .. }) => {
+                    return Ok(ret);
+                }
+                Err(e) => return Err(e.into()),
+            };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {
                 unreachable!();
             };
             for k in l.keys {
                 if k.access_key.permission == AccessKeyPermissionView::FullAccess {
-                    // TODO(post-quantum): Mirror does not support ML-DSA-65
-                    // hash-form entries; skip them silently.
-                    if let Some(pk) = k.public_key.full_pubkey() {
-                        ret.push(pk);
-                    }
+                    ret.push(k.public_key);
                 }
             }
             match l.last_key {

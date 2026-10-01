@@ -47,7 +47,7 @@ fn check_deploy_compute_cost_limits_chunk_capacity(code: Vec<u8>, max_per_chunk:
     // Use many accounts to get around SPICE's limit to one deployment per
     // account per chunk.
     let users: Vec<_> = (0..num_txs).map(|i| create_account_id(&format!("user{i}"))).collect();
-    let mut config = RuntimeConfigStore::new(None);
+    let mut config = RuntimeConfigStore::new();
 
     let arc_cfg: &mut Arc<RuntimeConfig> = config.get_config_mut(PROTOCOL_VERSION);
     let cfg: &mut RuntimeConfig = Arc::make_mut(arc_cfg);
@@ -125,14 +125,12 @@ const GLOBAL_CONTRACT_SIZE: usize = 1000;
 /// hashes / identifiers) so both distribution receipts do full work; with a
 /// shared identifier the second deploy would bump the on-chain nonce before
 /// the first distribution receipt is applied, making it stale and short-circuit
-/// to zero compute. We also use two distinct signer accounts because SPICE's
-/// pending-tx queue enforces deploy exclusivity per signer (NEP-611), which
-/// would otherwise serialize the two deploys into separate source chunks.
+/// to zero compute.
 #[test]
 fn test_deploy_global_contract_compute_cost_splits_chunks() {
     init_test_logger();
 
-    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config_store = RuntimeConfigStore::new();
     let fees = &runtime_config_store.get_config(PROTOCOL_VERSION).fees;
     let compute_per_receipt = fees.deploy_global_contract_execution_base
         + (GLOBAL_CONTRACT_SIZE as u64) * fees.deploy_global_contract_execution_per_byte;

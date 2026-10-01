@@ -1,4 +1,7 @@
-use crate::spice::core::{SpiceCoreReader, all_stake_fallback_assignment};
+use crate::spice::activation::{SpiceMessageGate, SpiceMessageKind, spice_enabled_for_block};
+use crate::spice::all_stake_fallback::{all_stake_fallback_assignment, is_fallback_only_chunk};
+use crate::spice::boundary::is_last_pre_spice_block;
+use crate::spice::core::SpiceCoreReader;
 use itertools::Itertools;
 use near_async::messaging::{Handler, Sender};
 use near_cache::SyncLruCache;
@@ -52,6 +55,7 @@ pub struct SpiceCoreWriterActor {
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     // Endorsements that arrived before the relevant block, so cannot be fully validated yet.
     pending_endorsements: SyncLruCache<SpiceChunkId, HashMap<AccountId, SpiceVerifiedEndorsement>>,
+    spice_gate: SpiceMessageGate,
 }
 
 impl near_async::messaging::Actor for SpiceCoreWriterActor {}
@@ -66,6 +70,14 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
+        if !self.spice_gate.should_process(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            SpiceMessageKind::ChunkEndorsement,
+            msg.0.block_hash(),
+        ) {
+            return;
+        }
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
         }
@@ -90,7 +102,14 @@ impl SpiceCoreWriterActor {
             chunk_executor_sender,
             spice_chunk_validator_sender,
             pending_endorsements: SyncLruCache::new(PENDING_ENDORSEMENT_CACHE_SIZE.into()),
+            spice_gate: SpiceMessageGate::default(),
         }
+    }
+
+    /// How many spice messages of `kind` this actor dropped because spice is not active.
+    #[cfg(feature = "test_features")]
+    pub fn spice_dropped_count(&self, kind: SpiceMessageKind) -> u64 {
+        self.spice_gate.dropped_count(kind)
     }
 
     fn save_endorsement(
@@ -145,7 +164,8 @@ impl SpiceCoreWriterActor {
     }
 
     /// Whether `chunk_id`'s stored endorsements certify `result_hash`: by 2/3 of its designated
-    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. `endorsers` seeds it.
+    /// assignment, or, once fallback-eligible, by 2/3 of total epoch stake. A fallback-only chunk
+    /// skips the designated rule. `endorsers` seeds it.
     fn endorsed_by_designated_or_fallback(
         &self,
         chunk_id: &SpiceChunkId,
@@ -156,25 +176,27 @@ impl SpiceCoreWriterActor {
     ) -> Result<bool, Error> {
         let chunk_block = self.chain_store.get_block_header(&chunk_id.block_hash)?;
         let epoch_id = chunk_block.epoch_id();
-        let designated = self.epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_id.shard_id,
-            chunk_block.height(),
-        )?;
-        if self.core_reader.reaches_endorsement_threshold(
-            chunk_id,
-            result_hash,
-            &designated,
-            endorsers.clone(),
-        ) {
-            return Ok(true);
-        }
-        if !self.core_reader.fallback_eligible_in_carrying_block(
-            carrying_height,
-            carrying_prev_hash,
-            chunk_id,
-        )? {
-            return Ok(false);
+        if !is_fallback_only_chunk(self.epoch_manager.as_ref(), &chunk_block, chunk_id.shard_id)? {
+            let designated = self.epoch_manager.get_chunk_validator_assignments(
+                epoch_id,
+                chunk_id.shard_id,
+                chunk_block.height(),
+            )?;
+            if self.core_reader.reaches_endorsement_threshold(
+                chunk_id,
+                result_hash,
+                &designated,
+                endorsers.clone(),
+            ) {
+                return Ok(true);
+            }
+            if !self.core_reader.fallback_eligible_in_carrying_block(
+                carrying_height,
+                carrying_prev_hash,
+                chunk_id,
+            )? {
+                return Ok(false);
+            }
         }
         let all_validators = all_stake_fallback_assignment(self.epoch_manager.as_ref(), epoch_id)?;
         Ok(self.core_reader.reaches_endorsement_threshold(
@@ -555,12 +577,36 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
+        // A pre-spice block carries no core statements. The last pre-spice block's chunks
+        // still certify under spice, so endorsements that arrived for it before the block
+        // did are recorded now.
+        if !spice_enabled_for_block(&self.chain_store, &block_hash)? {
+            if is_last_pre_spice_block(self.epoch_manager.as_ref(), &block_hash)? {
+                self.record_pending_endorsements_for_last_pre_spice_block(&block_hash)?;
+            }
+            return Ok(());
+        }
         let block = self.chain_store.get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;
         store_update.commit();
         self.send_execution_result_endorsements(&block);
         Ok(())
+    }
+
+    fn record_pending_endorsements_for_last_pre_spice_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let block = self.chain_store.get_block(block_hash)?;
+        let pending_endorsements = self.pop_pending_endorsement_for_block(&block)?;
+        if pending_endorsements.is_empty() {
+            return Ok(());
+        }
+        let store_update =
+            self.record_chunk_endorsements_with_block(&block, pending_endorsements)?;
+        store_update.commit();
+        self.try_sending_execution_result_endorsed(block_hash)
     }
 }
 

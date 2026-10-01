@@ -1,4 +1,4 @@
-use crate::metrics::{SPICE_BLOCK_PRODUCTION_DELAY_MS, SPICE_CERTIFICATION_LAG};
+use crate::metrics::SPICE_BLOCK_PRODUCTION_DELAY_MS;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain_configs::MutableConfigValue;
@@ -105,7 +105,6 @@ impl SpiceTimer {
 
         let required_delay_ns = self.calculate_production_delay_ns(certification_lag);
 
-        SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
         SPICE_BLOCK_PRODUCTION_DELAY_MS.set((required_delay_ns / (1000 * 1000)) as i64);
 
         let ready = required_delay_ns <= time_since_last_block_ns;

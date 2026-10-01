@@ -32,12 +32,14 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash_rev, index_to_bytes, to_timestamp,
+    get_block_shard_id, get_outcome_id_block_hash_rev, get_spice_invalid_chunk_key, index_to_bytes,
+    to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::light_client_block::StoredLightClientBlock;
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -174,7 +176,11 @@ pub trait ChainStoreAccess {
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>>;
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>>;
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
@@ -978,8 +984,12 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
-        self.chunk_store().is_invalid_chunk(chunk_hash)
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>> {
+        self.chunk_store().is_invalid_chunk(height_created, chunk_hash)
     }
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
@@ -1354,11 +1364,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
-        if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
-            Some(Arc::clone(chunk))
-        } else {
-            self.chain_store.is_invalid_chunk(chunk_hash)
+    fn is_invalid_chunk(
+        &self,
+        height_created: BlockHeight,
+        chunk_hash: &ChunkHash,
+    ) -> Option<Arc<EncodedShardChunk>> {
+        match self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
+            Some(chunk) => Some(Arc::clone(chunk)),
+            None => self.chain_store.is_invalid_chunk(height_created, chunk_hash),
         }
     }
 
@@ -1799,7 +1812,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     &map,
                 );
                 store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block);
-                if cfg!(feature = "protocol_feature_spice") {
+                if cfg!(feature = "protocol_feature_spice") && block.header().is_spice() {
                     let prev_hash = block.header().prev_hash();
                     let mut prev_next_hashes =
                         self.chain_store.get_all_next_block_hashes(prev_hash);
@@ -1915,7 +1928,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(
                 DBCol::EpochLightClientBlocks,
                 epoch_hash.as_ref(),
-                light_client_block,
+                &StoredLightClientBlock::from(LightClientBlockView::clone(light_client_block)),
             );
         }
         {
@@ -2051,7 +2064,11 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());
         }
         for (chunk_hash, chunk) in &self.chain_store_cache_update.invalid_chunks {
-            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk);
+            store_update.insert_ser(
+                DBCol::spice_invalid_chunks(),
+                &get_spice_invalid_chunk_key(chunk.height_created(), chunk_hash),
+                chunk,
+            );
         }
         for block_height in &self.chain_store_cache_update.processed_block_heights {
             store_update.set_ser(DBCol::ProcessedBlockHeights, &index_to_bytes(*block_height), &());

@@ -12,7 +12,8 @@ pub use cost::{
     ActionCosts, ExtCosts, ExtCostsConfig, Fee, GasKeyAddFee, GasKeyTransferFee, ParameterCost,
     RuntimeFeesConfig, SignatureKind, StorageUsageConfig, gas_key_add_key_exec_fee,
     gas_key_add_key_send_fee, gas_key_transfer_exec_fee, gas_key_transfer_send_fee,
-    transfer_exec_fee, transfer_send_fee,
+    transfer_exec_fee, transfer_send_fee, universal_state_init_content_terms,
+    universal_state_init_size_terms,
 };
 pub use parameter::Parameter;
 pub use view::{RuntimeConfigView, RuntimeFeesConfigView};

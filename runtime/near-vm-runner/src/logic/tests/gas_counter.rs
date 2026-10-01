@@ -843,6 +843,44 @@ fn out_of_gas_delete_key() {
 }
 
 /// see longer comment above for how this test works
+///
+/// Only the base and per-byte costs are reachable here: `MockedExternal` cannot
+/// decode a state init, so it reports no entries and no keys.
+#[test]
+fn out_of_gas_universal_state_init() {
+    check_action_gas_exceeds_limit(ActionCosts::universal_state_init_base, 1, universal_state_init);
+
+    check_action_gas_exceeds_limit(
+        ActionCosts::universal_state_init_byte,
+        10,
+        universal_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::universal_state_init_base,
+        1,
+        expect!["122287675859 burnt 10000000000000 used"],
+        universal_state_init,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::universal_state_init_byte,
+        10,
+        expect!["622287675949 burnt 10000000000000 used"],
+        universal_state_init,
+    );
+}
+
+/// function to trigger a promise batch universal state init
+fn universal_state_init(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let idx = promise_batch_create(logic, "rick.test")?;
+    // The smallest well-formed `UniversalStateInit::V1`, all borsh zeroes.
+    let state_init = logic.internal_mem_write(&[0u8; 10]);
+    let amount = logic.internal_mem_write(&110u128.to_le_bytes());
+    logic.promise_batch_action_universal_state_init(idx, state_init.len, state_init.ptr, amount.ptr)
+}
+
+/// see longer comment above for how this test works
 #[test]
 fn out_of_gas_deterministic_state_init() {
     check_action_gas_exceeds_limit(

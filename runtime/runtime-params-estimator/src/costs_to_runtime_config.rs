@@ -25,7 +25,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
     // Take latest VM limit config, because estimation doesn't affect it.
     // Note that if you run estimation against stable version, it doesn't catch updates of nightly
     // version.
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let latest_runtime_config = config_store.get_config(PROTOCOL_VERSION);
     let vm_limit_config = latest_runtime_config.wasm_config.limit_config.clone();
 
@@ -42,7 +42,6 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
-        use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
         min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
         account_creation_charge: latest_runtime_config.account_creation_charge,
     };
@@ -61,7 +60,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         })
     };
 
-    let config_store = RuntimeConfigStore::new(None);
+    let config_store = RuntimeConfigStore::new();
     let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).fees;
     let res = RuntimeFeesConfig {
         action_fees: enum_map::enum_map! {
@@ -92,6 +91,10 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::gas_key_transfer_base => actual_fees_config.fee(ActionCosts::gas_key_transfer_base).clone(),
             ActionCosts::gas_key_byte => actual_fees_config.fee(ActionCosts::gas_key_byte).clone(),
             ActionCosts::gas_key_nonce_write_base => actual_fees_config.fee(ActionCosts::gas_key_nonce_write_base).clone(),
+            // No estimator for universal state init costs yet; use values from the config store.
+            ActionCosts::universal_state_init_base => actual_fees_config.fee(ActionCosts::universal_state_init_base).clone(),
+            ActionCosts::universal_state_init_byte => actual_fees_config.fee(ActionCosts::universal_state_init_byte).clone(),
+            ActionCosts::universal_state_init_entry => actual_fees_config.fee(ActionCosts::universal_state_init_entry).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
@@ -143,6 +146,12 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::keccak256_byte => Cost::Keccak256Byte,
         ExtCosts::keccak512_base => Cost::Keccak512Base,
         ExtCosts::keccak512_byte => Cost::Keccak512Byte,
+        ExtCosts::universal_state_init_to_account_id_base => {
+            Cost::UniversalStateInitToAccountIdBase
+        }
+        ExtCosts::universal_state_init_to_account_id_byte => {
+            Cost::UniversalStateInitToAccountIdByte
+        }
         ExtCosts::sha3_256_base => Cost::Sha3256Base,
         ExtCosts::sha3_256_byte => Cost::Sha3256Byte,
         ExtCosts::sha3_384_base => Cost::Sha3384Base,

@@ -5,12 +5,15 @@ import typing
 
 from nacl.signing import SigningKey
 
+from messages.crypto import KEY_TYPE_ED25519
+
 
 # cspell:ignore urandom
 class Key:
     account_id: str
     pk: str
     sk: str
+    key_type = KEY_TYPE_ED25519
 
     def __init__(self, account_id: str, pk: str, sk: str) -> None:
         super(Key, self).__init__()

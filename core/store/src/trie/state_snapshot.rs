@@ -13,7 +13,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::StatePartId;
 use near_primitives::types::ShardIndex;
 use near_primitives::types::StateRoot;
 use std::error::Error;
@@ -30,6 +30,8 @@ pub enum SnapshotError {
     // Lock for snapshot acquired by another process.
     // Most likely the StateSnapshotActor is creating a snapshot or doing compaction.
     LockWouldBlock,
+    // Error while reading from the snapshot.
+    Storage(StorageError),
     // Any other unexpected error
     Other(String),
 }
@@ -48,6 +50,7 @@ impl std::fmt::Display for SnapshotError {
             SnapshotError::LockWouldBlock => {
                 write!(f, "Accessing state snapshot would block. Retry in a few seconds.")
             }
+            SnapshotError::Storage(err) => write!(f, "{}", err),
             SnapshotError::Other(err_msg) => write!(f, "{}", err_msg),
         }
     }
@@ -57,7 +60,10 @@ impl Error for SnapshotError {}
 
 impl From<SnapshotError> for StorageError {
     fn from(err: SnapshotError) -> Self {
-        StorageError::StorageInconsistentState(err.to_string())
+        match err {
+            SnapshotError::Storage(err) => err,
+            err => StorageError::StorageInconsistentState(err.to_string()),
+        }
     }
 }
 
@@ -195,17 +201,16 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         block_hash: &CryptoHash,
-        part_id: PartId,
+        part_id: StatePartId,
         state_trie: Trie,
-    ) -> Result<PartialState, StorageError> {
+    ) -> Result<PartialState, SnapshotError> {
         let guard = self.state_snapshot().try_read().ok_or(SnapshotError::LockWouldBlock)?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
         if &data.prev_block_hash != block_hash {
             return Err(SnapshotError::IncorrectSnapshotRequested(
                 *block_hash,
                 data.prev_block_hash,
-            )
-            .into());
+            ));
         };
         let cache = self
             .get_trie_cache_for(shard_uid, true)
@@ -215,7 +220,9 @@ impl ShardTries {
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
+        snapshot_trie
+            .get_trie_nodes_for_part_with_flat_storage(part_id, &state_trie)
+            .map_err(SnapshotError::Storage)
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.

@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn run_view_call(cap: Gas, code: &[u8]) -> VMOutcome {
-    let store = RuntimeConfigStore::new(None);
+    let store = RuntimeConfigStore::new();
     let mut config =
         near_parameters::vm::Config::clone(&store.get_config(PROTOCOL_VERSION).wasm_config);
     config.vm_kind = VMKind::Wasmtime;

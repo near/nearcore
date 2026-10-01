@@ -4,7 +4,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
-use near_primitives::account::Account;
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
@@ -94,8 +94,13 @@ fn test_patch_state() {
 #[test]
 fn test_patch_account() {
     let (mut env, _signer) = test_setup();
-    let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
-    test1.set_amount(Balance::from_yoctonear(10));
+    let view = env.query_account("test1".parse().unwrap());
+    let test1 = Account::new(
+        Balance::from_yoctonear(10),
+        view.locked,
+        AccountContract::from_local_code_hash(view.code_hash),
+        view.storage_usage,
+    );
 
     env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Account {
         account_id: "test1".parse().unwrap(),

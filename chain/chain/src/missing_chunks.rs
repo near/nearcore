@@ -484,6 +484,7 @@ mod optimistic_block_chunks_pool_test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
+    use near_primitives::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_add_block() {
@@ -501,7 +502,8 @@ mod optimistic_block_chunks_pool_test {
         let mut pool = OptimisticBlockChunksPool::new();
         let prev_hash = CryptoHash::default();
         let shard_layout = ShardLayout::single_shard();
-        let chunk_header = ShardChunkHeader::new_dummy(0, ShardId::new(0), prev_hash);
+        let chunk_header =
+            ShardChunkHeader::new_dummy(0, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
 
         pool.add_chunk(&shard_layout, chunk_header);
         assert_eq!(pool.num_chunks(), 1);
@@ -516,14 +518,16 @@ mod optimistic_block_chunks_pool_test {
         let shard_layout = ShardLayout::multi_shard(2, 3);
         let shard_ids = shard_layout.shard_ids().collect_vec();
 
-        let chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash);
+        let chunk_header =
+            ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash, PROTOCOL_VERSION);
         pool.add_block(block);
         pool.add_chunk(&shard_layout, chunk_header);
 
         pool.update_latest_ready_block(&prev_hash);
         assert!(pool.take_latest_ready_block().is_none());
 
-        let new_chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[1], prev_hash);
+        let new_chunk_header =
+            ShardChunkHeader::new_dummy(0, shard_ids[1], prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, new_chunk_header);
 
         assert!(pool.take_latest_ready_block().is_some());
@@ -543,12 +547,12 @@ mod optimistic_block_chunks_pool_test {
 
         let shard_layout = ShardLayout::single_shard();
         let chunk_header_below_threshold =
-            ShardChunkHeader::new_dummy(5, ShardId::new(0), prev_hash);
+            ShardChunkHeader::new_dummy(5, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, chunk_header_below_threshold);
         assert_eq!(pool.num_chunks(), 0, "Chunk strictly below threshold should not be added");
 
         let chunk_header_passing_threshold =
-            ShardChunkHeader::new_dummy(6, ShardId::new(0), prev_hash);
+            ShardChunkHeader::new_dummy(6, ShardId::new(0), prev_hash, PROTOCOL_VERSION);
         pool.add_chunk(&shard_layout, chunk_header_passing_threshold);
         assert_eq!(pool.num_chunks(), 1);
     }

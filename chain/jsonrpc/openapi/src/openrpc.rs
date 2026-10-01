@@ -25,10 +25,14 @@ use near_jsonrpc_primitives::types::congestion::{
     RpcCongestionLevelRequest, RpcCongestionLevelResponse,
 };
 use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceResponse};
+use near_jsonrpc_primitives::types::indexer::{RpcIndexerBlockRequest, RpcIndexerBlockResponse};
 use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+    RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse,
+    RpcLightClientExecutionOutcomeProofRequest, RpcLightClientExecutionOutcomeProofResponse,
     RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
     RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
+    RpcLightClientStateProofRequest, RpcLightClientStateProofResponse,
 };
 use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
@@ -1125,6 +1129,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["changes", "experimental"],
     );
+    add_method::<RpcIndexerBlockRequest, RpcIndexerBlockResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_indexer_block",
+        "Returns an indexer streamer message and tracked shard coverage for a block hash. Requires enable_indexer_rpc and retained execution data.",
+        false,
+        &["indexer", "experimental"],
+    );
     add_method::<RpcProtocolConfigRequest, RpcProtocolConfigResponse>(
         &mut methods,
         &mut all_schemas,
@@ -1203,8 +1215,8 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut methods,
         &mut all_schemas,
         "EXPERIMENTAL_tx_status",
-        "Queries status of a transaction by hash (alias for tx)",
-        false,
+        "Queries status of a transaction by hash including receipts (alias for tx_status)",
+        true,
         &["transaction", "experimental"],
     );
     add_method::<RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse>(
@@ -1220,6 +1232,33 @@ pub fn generate_openrpc() -> serde_json::Value {
         &mut all_schemas,
         "EXPERIMENTAL_light_client_block_proof",
         "Returns block proof for light clients",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<RpcLightClientChunkExecutionProofRequest, RpcLightClientChunkExecutionProofResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_chunk_execution_proof",
+        "Returns a proof of a chunk's certified execution roots for light clients",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<
+        RpcLightClientExecutionOutcomeProofRequest,
+        RpcLightClientExecutionOutcomeProofResponse,
+    >(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_execution_outcome_proof",
+        "Returns an execution outcome and its proof against the chunk's certified outcome root",
+        false,
+        &["light_client", "experimental"],
+    );
+    add_method::<RpcLightClientStateProofRequest, RpcLightClientStateProofResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_light_client_state_proof",
+        "Returns a state value and its trie proof against the chunk's certified state root",
         false,
         &["light_client", "experimental"],
     );
@@ -1316,6 +1355,14 @@ pub fn generate_openrpc() -> serde_json::Value {
         "Returns maintenance windows (alias for EXPERIMENTAL_maintenance_windows)",
         false,
         &["validator"],
+    );
+    add_method::<RpcTransactionStatusRequest, RpcTransactionResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "tx_status",
+        "Queries status of a transaction by hash including receipts",
+        false,
+        &["transaction"],
     );
 
     // ==================== Deprecated Methods ====================

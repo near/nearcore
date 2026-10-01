@@ -1,6 +1,6 @@
 use crate::metrics::{self, CommitStagesMetrics};
 use anyhow::Context;
-use near_crypto::PublicKey;
+use near_crypto::PublicKeyHandle;
 use near_mirror::key_mapping::map_account;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{
@@ -224,7 +224,7 @@ impl StorageMutator {
         &mut self,
         source_shard_uid: ShardUId,
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: impl Into<PublicKeyHandle>,
     ) -> anyhow::Result<()> {
         if self.target_shards.contains(&source_shard_uid) {
             let shard_idx =
@@ -238,7 +238,7 @@ impl StorageMutator {
         &mut self,
         shard_idx: ShardIndex,
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: impl Into<PublicKeyHandle>,
         access_key: AccessKey,
     ) -> anyhow::Result<()> {
         self.set(
@@ -252,7 +252,7 @@ impl StorageMutator {
         &mut self,
         source_shard_uid: ShardUId,
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: impl Into<PublicKeyHandle>,
         index: NonceIndex,
     ) -> anyhow::Result<()> {
         if self.target_shards.contains(&source_shard_uid) {
@@ -267,7 +267,7 @@ impl StorageMutator {
         &mut self,
         shard_idx: ShardIndex,
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: impl Into<PublicKeyHandle>,
         index: NonceIndex,
         nonce: Nonce,
     ) -> anyhow::Result<()> {

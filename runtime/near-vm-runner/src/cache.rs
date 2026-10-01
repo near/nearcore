@@ -2,9 +2,10 @@
 // cspell:ignore mikan, fstat, openat, renameat, unlinkat
 
 use crate::ContractCode;
+use crate::compile_priority::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::Config;
-use crate::logic::errors::{CacheError, CompilationError};
+use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
@@ -1073,12 +1074,25 @@ pub fn precompile_contract(
     code: &ContractCode,
     config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
+    precompile_contract_with_priority(code, config, cache, CompilePriority::default())
+}
+
+/// Like [`precompile_contract`], but tags the compilation with the given
+/// [`CompilePriority`] for the out-of-process compiler daemon's worker pool.
+/// [`precompile_contract`] defaults to [`CompilePriority::Critical`].
+pub fn precompile_contract_with_priority(
+    code: &ContractCode,
+    config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+    priority: CompilePriority,
+) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
     let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = config.vm_kind;
-    let runtime = vm_kind
+    let mut runtime = vm_kind
         .runtime(Arc::clone(&config))
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    runtime.set_compile_priority(priority);
     let cache = match cache {
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
@@ -1097,12 +1111,25 @@ pub fn try_precompile_contract(
     code: &ContractCode,
     config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
+) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
+    try_precompile_contract_with_priority(code, config, cache, CompilePriority::default())
+}
+
+/// Like [`try_precompile_contract`], but tags the compilation with the given
+/// [`CompilePriority`] for the out-of-process compiler daemon's worker pool.
+/// [`try_precompile_contract`] defaults to [`CompilePriority::Critical`].
+pub fn try_precompile_contract_with_priority(
+    code: &ContractCode,
+    config: Arc<Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+    priority: CompilePriority,
+) -> Result<Result<ContractPrecompilatonResult, CompilationError>, VMRunnerError> {
     let _span = tracing::debug_span!(target: "vm", "try_precompile_contract").entered();
     let vm_kind = config.vm_kind;
-    let runtime = vm_kind
+    let mut runtime = vm_kind
         .runtime(Arc::clone(&config))
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    runtime.set_compile_priority(priority);
     let cache = match cache {
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),

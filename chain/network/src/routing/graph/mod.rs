@@ -44,7 +44,7 @@ pub struct GraphConfig {
 
 #[derive(Default)]
 pub struct GraphSnapshot {
-    pub edges: im::HashMap<EdgeKey, Edge>,
+    pub edges: imbl::HashMap<EdgeKey, Edge>,
     pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
     pub distances: Arc<DistanceTable>,
@@ -58,7 +58,7 @@ struct Inner {
     /// Nodes are Peers and edges are active connections.
     graph: bfs::Graph,
 
-    edges: im::HashMap<EdgeKey, Edge>,
+    edges: imbl::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     /// Maps each edge key to the remote peer that first introduced it.
@@ -67,8 +67,8 @@ struct Inner {
     source_edge_count: HashMap<PeerId, usize>,
 }
 
-fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
-    set.get(&edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
+fn has(set: &imbl::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
+    set.get(edge.key()).is_some_and(|x| x.nonce() >= edge.nonce())
 }
 
 impl Inner {
@@ -160,27 +160,18 @@ impl Inner {
     /// Prunes peers unreachable since <unreachable_since> (and their adjacent edges)
     /// from the in-mem graph.
     fn prune_unreachable_peers(&mut self, unreachable_since: time::Instant) {
-        // Select peers to prune.
+        self.peer_reachable_at.retain(|_, reachable_at| *reachable_at >= unreachable_since);
+
         let mut peers = HashSet::new();
         for k in self.edges.keys() {
             for peer_id in [&k.0, &k.1] {
-                if self
-                    .peer_reachable_at
-                    .get(peer_id)
-                    .map(|t| t < &unreachable_since)
-                    .unwrap_or(true)
-                {
+                if !self.peer_reachable_at.contains_key(peer_id) {
                     peers.insert(peer_id.clone());
                 }
             }
         }
         if peers.is_empty() {
             return;
-        }
-
-        // Prune peers from peer_reachable_at.
-        for peer_id in &peers {
-            self.peer_reachable_at.remove(&peer_id);
         }
 
         // Prune edges from graph.

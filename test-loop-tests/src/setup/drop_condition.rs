@@ -2,7 +2,7 @@ use super::peer_manager_actor::NetworkRequestHandler;
 use super::state::NodeExecutionData;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-    spice_designated_endorsement_dropper,
+    spice_data_request_dropper, spice_designated_endorsement_dropper,
 };
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -47,6 +47,9 @@ pub enum DropCondition {
     /// disabling the designated certification path so chunks can certify only via the all-stake
     /// fallback.
     DesignatedSpiceEndorsements,
+    /// Drops every request for spice data, so a node can only get data that was pushed to
+    /// it.
+    SpiceDataRequests,
 }
 
 /// Stores all chunks ever observed on chain. Determines if a chunk can be
@@ -149,6 +152,9 @@ impl NodeExecutionData {
             }
             DropCondition::DesignatedSpiceEndorsements => {
                 self.register_drop_designated_spice_endorsements(test_loop_data);
+            }
+            DropCondition::SpiceDataRequests => {
+                self.register_override_handler(test_loop_data, spice_data_request_dropper());
             }
         }
     }

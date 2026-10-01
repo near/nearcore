@@ -13,10 +13,12 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
+schemars = { workspace = true, optional = true }
 
 near-primitives.workspace = true
 
 [features]
+schemars = ["dep:schemars", "near-primitives/schemars"]
 nightly = [
   "near-primitives/nightly",
 ]

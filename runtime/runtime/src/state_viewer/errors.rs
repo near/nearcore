@@ -26,6 +26,8 @@ pub enum ViewContractCodeError {
 pub enum ViewAccessKeyError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account ID #{requested_account_id} does not exist")]
+    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("Access key for public key #{public_key} does not exist")]
     AccessKeyDoesNotExist { public_key: near_crypto::PublicKey },
     #[error(

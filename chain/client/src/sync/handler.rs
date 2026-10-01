@@ -1,21 +1,27 @@
 use super::block::BlockSync;
 use super::epoch::EpochSync;
 use super::header::HeaderSync;
+use super::peers::{PEER_FAILURE_COOLDOWN_SECONDS, PeerSelector, SyncPeers};
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
+use near_async::time::Duration;
 use near_chain::chain::ApplyChunksDoneSender;
 use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::types::HighestHeightPeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::adapter::StoreAdapter;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 /// Handles syncing chain to the actual state of the network.
 pub struct SyncHandler {
     config: ClientConfig,
+    /// Which peer to ask, and which ones did not deliver. Kept here so every
+    /// sync phase reports to the same place.
+    pub peer_selector: PeerSelector,
     pub sync_status: SyncStatus,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
@@ -33,10 +39,6 @@ pub enum SyncHandlerRequest {
     NeedRequestBlocks(Vec<(CryptoHash, PeerId)>),
     /// Need to process block artifact unlocked by state sync.
     NeedProcessBlockArtifact(BlockProcessingArtifact),
-    /// Sync hash is stale — the network has moved past the epoch we are syncing
-    /// from. Write the data reset marker and shut down so the supervisor can
-    /// wipe and restart.
-    EpochSyncDataReset,
 }
 
 impl SyncHandler {
@@ -49,6 +51,10 @@ impl SyncHandler {
     ) -> Self {
         Self {
             config,
+            peer_selector: PeerSelector::new(
+                Duration::seconds(PEER_FAILURE_COOLDOWN_SECONDS),
+                StdRng::from_entropy(),
+            ),
             sync_status: SyncStatus::AwaitingPeers,
             epoch_sync,
             header_sync,
@@ -78,10 +84,10 @@ impl SyncHandler {
         &mut self,
         chain: &mut Chain,
         shard_tracker: &ShardTracker,
-        highest_height: u64,
-        highest_height_peers: &[HighestHeightPeerInfo],
+        peers: &SyncPeers,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<Option<SyncHandlerRequest>, near_chain::Error> {
+        let &SyncPeers { highest_height, ref peers_ahead, .. } = peers;
         if matches!(self.sync_status, SyncStatus::NoSync | SyncStatus::AwaitingPeers) {
             self.decide_initial_phase(chain, highest_height)?;
         }
@@ -100,11 +106,17 @@ impl SyncHandler {
             SyncStatus::EpochSync(epoch_sync_status) => {
                 // Epoch sync still in progress (NotStarted or InProgress) —
                 // keep requesting/waiting for the epoch sync proof from a peer.
-                self.epoch_sync.run(epoch_sync_status, highest_height_peers)?;
+                self.epoch_sync.run(epoch_sync_status, peers_ahead, &mut self.peer_selector)?;
             }
             SyncStatus::HeaderSync { current_height, highest_height: hh, .. } => {
                 // ban stalling peers during primary header sync
-                self.header_sync.run(chain, highest_height, highest_height_peers, true)?;
+                self.header_sync.run(
+                    chain,
+                    highest_height,
+                    peers_ahead,
+                    true,
+                    &mut self.peer_selector,
+                )?;
 
                 let header_head = chain.header_head()?;
                 *current_height = header_head.height;
@@ -127,8 +139,8 @@ impl SyncHandler {
                     state_sync_status,
                     shard_tracker,
                     chain,
-                    highest_height,
-                    highest_height_peers,
+                    peers,
+                    &mut self.peer_selector,
                     apply_chunks_done_sender,
                 )? {
                     StateSyncResult::NeedBlocks(blocks) => {
@@ -148,7 +160,10 @@ impl SyncHandler {
                         return Ok(Some(SyncHandlerRequest::NeedProcessBlockArtifact(artifacts)));
                     }
                     StateSyncResult::StaleSyncHash => {
-                        return Ok(Some(SyncHandlerRequest::EpochSyncDataReset));
+                        // Back to epoch sync. The proof it gets decides whether the
+                        // store is wiped, at one place in `EpochSync`, rather than
+                        // this branch asking for the wipe itself.
+                        self.sync_status.update(SyncStatus::EpochSync(EpochSyncStatus::NotStarted));
                     }
                 }
             }
@@ -158,8 +173,14 @@ impl SyncHandler {
                 // NextBlockHashes chain while block sync follows it. Exit from
                 // sync is handled by run_sync_step() detecting AlreadyCaughtUp.
                 // don't ban during block sync — peers may be serving blocks
-                self.header_sync.run(chain, highest_height, highest_height_peers, false)?;
-                self.block_sync.run(chain, highest_height_peers)?;
+                self.header_sync.run(
+                    chain,
+                    highest_height,
+                    peers_ahead,
+                    false,
+                    &mut self.peer_selector,
+                )?;
+                self.block_sync.run(chain, peers_ahead, &mut self.peer_selector)?;
 
                 let head = chain.head()?;
                 *current_height = head.height;
@@ -178,9 +199,9 @@ impl SyncHandler {
     /// 2. Restart recovery: if an epoch sync proof exists and header_head is
     ///    within the epoch sync horizon, the node crashed mid-pipeline but is
     ///    still close enough to resume via HeaderSync.
-    /// 3. Epoch sync: everything else. Stale nodes (header_head past genesis)
-    ///    are detected in the epoch sync response handler and trigger data reset.
-    fn decide_initial_phase(
+    /// 3. Epoch sync: everything else. The response handler resets data only when
+    ///    the proof shows the head is beyond the horizon.
+    pub fn decide_initial_phase(
         &mut self,
         chain: &Chain,
         highest_height: u64,

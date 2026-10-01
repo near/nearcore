@@ -12,6 +12,7 @@ mod client_config;
 mod config;
 mod congestion;
 mod gas_price;
+mod indexer;
 mod light_client;
 mod maintenance;
 mod network_info;

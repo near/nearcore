@@ -83,6 +83,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerEntry,
+    ActionUniversalStateInitPerByte,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -135,6 +138,8 @@ pub enum Parameter {
     WasmP256VerifyByte,
     WasmMlDsaVerifyBase,
     WasmMlDsaVerifyByte,
+    WasmUniversalStateInitToAccountIdBase,
+    WasmUniversalStateInitToAccountIdByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -222,9 +227,13 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxReceiptTotalInputSize,
+    /// Max number of access keys the state-init actions in one receipt may commit to, in total.
+    MaxUniversalStateInitKeys,
+    /// Max number of storage entries the state-init actions in one receipt may carry, in total.
+    MaxStateInitEntries,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
-    AccountIdValidityRulesVersion,
+    MinContractSizePerLocal,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
     MaxTablesPerContract,
@@ -240,14 +249,13 @@ pub enum Parameter {
     MaxGlobalsPerContract,
 
     // Contract runtime features
-    FlatStorageReads,
     FixContractLoadingCost,
     FixContractLoadingError,
     VmKind,
-    EthImplicitAccounts,
+    // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
+    // past protocol version 87, where the feature is enabled.
+    UniversalAccounts,
     FixMlDsaCostCharging,
-    DiscardCustomSections,
-    ReftypesBulkMemory,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -261,9 +269,6 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
-
-    // Use the StateStoredReceipt structure when storing receipts in State.
-    UseStateStoredReceipt,
 
     // Bandwidth scheduler
     MaxShardBandwidth,
@@ -294,7 +299,6 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
-    GlobalContractHostFns,
 
     // Flag to enable gas key host functions
     GasKeyHostFns,
@@ -363,6 +367,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionUniversalStateInit,
+    ActionUniversalStateInitPerByte,
+    ActionUniversalStateInitPerEntry,
     ActionGasKeyTransfer,
     ActionGasKeyByte,
     ActionGasKeyNonceWriteBase,
@@ -397,9 +404,11 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxReceiptTotalInputSize,
+            Parameter::MaxUniversalStateInitKeys,
+            Parameter::MaxStateInitEntries,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
-            Parameter::AccountIdValidityRulesVersion,
+            Parameter::MinContractSizePerLocal,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
             Parameter::PerReceiptStorageProofSizeLimit,
@@ -449,6 +458,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::universal_state_init_base => Self::ActionUniversalStateInit,
+            ActionCosts::universal_state_init_byte => Self::ActionUniversalStateInitPerByte,
+            ActionCosts::universal_state_init_entry => Self::ActionUniversalStateInitPerEntry,
             ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
             ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
             ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,

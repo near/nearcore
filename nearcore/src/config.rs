@@ -13,9 +13,9 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
-    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
+    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
@@ -267,10 +267,6 @@ pub struct Config {
     /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_archival: Option<CloudArchivalConfig>,
-    /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
-    /// writes chunk-related data based on the tracked shards.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
 
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
@@ -433,6 +429,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_version_check_config_override: Option<ProtocolVersionCheckConfig>,
 
+    /// Whether to use the isolated compiler-daemon subprocesses.
+    ///
+    /// Disabled by default.
+    pub enable_compiler_daemon: bool,
+
     /// Location where to store a cache of compiled contracts.
     ///
     /// This cache can be manually emptied occasionally to keep storage usage down and does not
@@ -455,9 +456,9 @@ pub struct Config {
     /// The default value is given by default_chunks_cache_height_horizon().
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, SPICE nodes track uncertified transactions in a pending
-    /// transaction queue to enforce P_MAX, nonce, gas-key, and deploy
-    /// constraints during chunk production and RPC validation. Disabled by
-    /// default; only meaningful when SPICE is active.
+    /// transaction queue to enforce P_MAX, nonce, and gas-key constraints
+    /// during chunk production and RPC validation. Disabled by default; only
+    /// meaningful when SPICE is active.
     #[cfg(feature = "protocol_feature_spice")]
     pub spice_pending_transaction_queue_enabled: bool,
 }
@@ -491,7 +492,6 @@ impl Default for Config {
             tracked_shard_schedule: None,
             archive: false,
             cloud_archival: None,
-            cloud_archival_writer: None,
             save_trie_changes: None,
             save_state_changes: None,
             save_tx_outcomes: None,
@@ -530,6 +530,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             contract_cache_max_size: ByteSize::gb(128),
+            enable_compiler_daemon: false,
             contract_cache_path: None,
             save_latest_witnesses: false,
             save_invalid_witnesses: false,
@@ -684,13 +685,11 @@ impl Config {
     /// Returns the state sync configuration, deriving it from cloud archival settings
     /// when archival is enabled, or using the configured/default value otherwise.
     fn state_sync_config(&self) -> StateSyncConfig {
-        if self.cloud_archival_writer.is_some() {
-            let cloud_archival_config = self
-                .cloud_archival
-                .clone()
-                .expect("cloud storage must be configured on cloud archive writer");
+        if let Some(cloud_archival) = &self.cloud_archival
+            && cloud_archival.writer.is_some()
+        {
             let mut config = StateSyncConfig::default();
-            config.dump = Some(cloud_archival_config.into_default_dump_config());
+            config.dump = Some(cloud_archival.clone().into_default_dump_config());
             return config;
         }
         self.state_sync.clone().unwrap_or_default()
@@ -786,7 +785,10 @@ impl NearConfig {
                 tracked_shards_config: config.tracked_shards_config(),
                 state_sync: config.state_sync_config(),
                 archive: config.archive,
-                cloud_archival_writer: config.cloud_archival_writer,
+                cloud_archival_writer: config
+                    .cloud_archival
+                    .as_ref()
+                    .and_then(|c| c.writer.clone()),
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
                 save_receipt_to_tx: config
@@ -886,7 +888,8 @@ impl NearConfig {
             return None;
         };
         let cloud_storage_context = CloudStorageContext {
-            cloud_archive: cloud_archive_config.clone(),
+            location: cloud_archive_config.location.clone(),
+            credentials_file: cloud_archive_config.credentials_file.clone(),
             chain_id: self.client_config.chain_id.clone(),
         };
         Some(cloud_storage_context)
@@ -1745,6 +1748,21 @@ pub fn load_config(
             None
         }
     };
+
+    // A writer would archive its own chunk rows under an inclusion height the chain has not
+    // given them yet.
+    let archives_as_writer = config
+        .cloud_archival
+        .as_ref()
+        .is_some_and(|cloud_archival| cloud_archival.writer.is_some());
+    if validator_signer.is_some() && archives_as_writer {
+        validation_errors.push_cross_file_semantics_error(
+            "a cloud archival writer must not produce chunks: it would archive its own chunk \
+             rows under an inclusion height the chain has not given them yet. Remove the \
+             validator key file, or unset cloud_archival.writer."
+                .to_string(),
+        );
+    }
 
     let node_key_path = dir.join(&config.node_key_file);
     let network_signer_result = NodeKeyFile::from_file(&node_key_path);

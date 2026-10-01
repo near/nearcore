@@ -253,16 +253,7 @@ pub(crate) fn map_records<P: AsRef<Path>>(
     near_chain_configs::stream_records_from_file(reader, |mut r| {
         match &mut r {
             StateRecord::AccessKey { account_id, public_key, access_key } => {
-                // TODO(post-quantum): Mirror does not yet support post-quantum keys;
-                // bail loudly if we hit one, matching the panic in
-                // key_mapping.rs.
-                let Some(full_pk) = public_key.full_pubkey() else {
-                    panic!(
-                        "mirror: cannot transform an ML-DSA-65 hash-form access \
-                         key entry for {account_id}",
-                    );
-                };
-                let replacement = crate::key_mapping::map_key(&full_pk, secret.as_ref());
+                let replacement = crate::key_mapping::map_key_handle(public_key, secret.as_ref());
                 let new_record = StateRecord::access_key(
                     crate::key_mapping::map_account(&account_id, secret.as_ref()),
                     &replacement.public_key(),
@@ -279,14 +270,7 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                // TODO(post-quantum): same as the AccessKey arm above.
-                let Some(full_pk) = public_key.full_pubkey() else {
-                    panic!(
-                        "mirror: cannot transform an ML-DSA-65 hash-form gas \
-                         key nonce entry for {account_id}",
-                    );
-                };
-                let replacement = crate::key_mapping::map_key(&full_pk, secret.as_ref());
+                let replacement = crate::key_mapping::map_key_handle(public_key, secret.as_ref());
                 let new_record = StateRecord::gas_key_nonce(
                     crate::key_mapping::map_account(&account_id, secret.as_ref()),
                     &replacement.public_key(),
@@ -351,14 +335,15 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use near_primitives::state_record::StateRecord;
+    use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
-    use near_primitives::types::Balance;
+    use near_primitives::types::{AccountId, Balance};
     use near_primitives_core::account::AccessKey;
 
     #[test]
@@ -564,10 +549,7 @@ mod test {
         let records = vec![
             StateRecord::Account {
                 account_id: "alice.near".parse().unwrap(),
-                account: near_primitives::test_utils::account_new(
-                    Balance::from_yoctonear(1_000_000),
-                    near_primitives::hash::CryptoHash::default(),
-                ),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
             },
             StateRecord::gas_key_nonce("alice.near".parse().unwrap(), &public_key, 3, 42),
         ];
@@ -596,10 +578,7 @@ mod test {
         let records = vec![
             StateRecord::Account {
                 account_id: "bob.near".parse().unwrap(),
-                account: near_primitives::test_utils::account_new(
-                    Balance::from_yoctonear(1_000_000),
-                    near_primitives::hash::CryptoHash::default(),
-                ),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
             },
             StateRecord::access_key(
                 "bob.near".parse().unwrap(),
@@ -632,5 +611,44 @@ mod test {
         // GasKeyFullAccess record should not suppress adding a full default access
         // key for mirror purposes.
         assert!(has_default_full_access_key(&out));
+    }
+
+    /// An account whose only full access key is post-quantum.
+    #[test]
+    fn test_map_records_mldsa65_access_key() {
+        let secret_key = SecretKey::from_seed(KeyType::MLDSA65, "pq-key");
+        let public_key = secret_key.public_key();
+        let account_id: AccountId = "pq.near".parse().unwrap();
+
+        let records = vec![
+            StateRecord::Account {
+                account_id: account_id.clone(),
+                account: account_new(Balance::from_yoctonear(1_000_000), CryptoHash::default()),
+            },
+            StateRecord::access_key(account_id, &public_key, AccessKey::full_access()),
+        ];
+        let out = run_map_records(&records);
+
+        // The forked state carries a mapped ML-DSA-65 key, not the source one.
+        let forked_handle = out
+            .iter()
+            .find_map(|r| match r {
+                StateRecord::AccessKey { public_key, access_key, .. }
+                    if access_key.permission == AccessKeyPermission::FullAccess
+                        && matches!(public_key, PublicKeyHandle::MlDsa65(_)) =>
+                {
+                    Some(public_key.clone())
+                }
+                _ => None,
+            })
+            .expect("mapped ML-DSA-65 access key should be in output");
+        assert_ne!(forked_handle, (&public_key).into());
+
+        // And it's the key mirror signs replayed transactions with.
+        let mapped_key = crate::key_mapping::map_key(&public_key, None);
+        assert_eq!(forked_handle, (&mapped_key.public_key()).into());
+
+        // The account already has a full access key, so no default one is added.
+        assert!(!has_default_full_access_key(&out));
     }
 }

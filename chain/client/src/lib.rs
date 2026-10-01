@@ -12,7 +12,7 @@ pub use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
     HandleOrphanWitnessOutcome,
 };
-pub use crate::view_client_actor::ViewClientActor;
+pub use crate::view_client_actor::{ViewClientActor, ViewClientRequestManager};
 pub use chunk_producer::ProduceChunkResult;
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
@@ -21,10 +21,12 @@ pub use near_client_primitives::debug::DebugStatus;
 pub use near_client_primitives::types::{
     Error, GetBlock, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree, GetChunk,
     GetChunkExtraExists, GetClientConfig, GetExecutionOutcome, GetExecutionOutcomeResponse,
-    GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProcessedReceiptIds, GetProtocolConfig, GetReceipt, GetReceiptToTx,
-    GetReceiptToTxResponse, GetShardChunk, GetSplitStorageInfo, GetStateChanges,
-    GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetLightClientChunkExecutionProof,
+    GetLightClientExecutionOutcomeProof, GetLightClientExecutionOutcomeProofResponse,
+    GetLightClientProofError, GetLightClientStateProof, GetLightClientStateProofResponse,
+    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProcessedReceiptIds,
+    GetProtocolConfig, GetReceipt, GetReceiptToTx, GetReceiptToTxResponse, GetShardChunk,
+    GetSplitStorageInfo, GetStateChanges, GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError, TxStatusOutcome,
 };
@@ -47,6 +49,7 @@ pub mod client_actor;
 mod config_updater;
 pub mod debug;
 pub mod gc_actor;
+pub mod indexer;
 mod info;
 pub mod metrics;
 pub mod pending_transaction_queue;

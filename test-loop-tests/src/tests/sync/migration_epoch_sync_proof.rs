@@ -16,7 +16,7 @@ use std::collections::HashMap;
 /// must seed a proof, not defer), then runs forward so the runtime extends it.
 #[test]
 fn test_migration_48_to_49_epoch_sync_proof_min_gc() {
-    // DB_VERSION 49 and the proof machinery only exist with ContinuousEpochSync.
+    // The 48 -> 49 proof machinery only exists with ContinuousEpochSync.
     if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
         return;
     }
