@@ -102,6 +102,10 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
             if endorsed_block.header().epoch_id() == &epoch_e
                 && endorsed_block.header().height() > swap_height
             {
+                assert!(
+                    endorsement.verified_signed_data(&[new_key.clone()]).is_some(),
+                    "endorsement of a chunk after the swap isn't signed with the new key"
+                );
                 endorsed_heights_in_e.push(endorsed_block.header().height());
             }
         }

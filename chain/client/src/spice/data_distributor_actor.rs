@@ -35,7 +35,6 @@ use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
-use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -697,8 +696,13 @@ impl SpiceDataDistributorActor {
         };
         let me = signer.validator_id();
 
-        let possible_epoch_ids = self.possible_epoch_ids(data.block_hash())?;
-        let public_keys = self.get_sender_keys_for_epoch_ids(&possible_epoch_ids, data.sender())?;
+        let final_head = self.chain_store.final_head()?;
+        let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
+        let public_keys =
+            self.epoch_manager.get_validator_keys_in_epochs(&possible_epoch_ids, data.sender());
+        if public_keys.is_empty() {
+            return Err(Error::SenderIsNotValidator);
+        }
 
         let data = data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
 
@@ -903,39 +907,6 @@ impl SpiceDataDistributorActor {
             }
         }
         Ok(())
-    }
-
-    fn get_sender_keys_for_epoch_ids(
-        &self,
-        epoch_ids: &[EpochId],
-        sender: &AccountId,
-    ) -> Result<Vec<PublicKey>, Error> {
-        let public_keys: Vec<PublicKey> = epoch_ids
-            .iter()
-            .filter_map(|epoch_id| {
-                self.epoch_manager.get_validator_by_account_id(epoch_id, sender).ok()
-            })
-            .map(|validator| validator.take_public_key())
-            .unique()
-            .collect();
-        if public_keys.is_empty() {
-            return Err(Error::SenderIsNotValidator);
-        }
-        Ok(public_keys)
-    }
-
-    fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
-        let possible_epoch_ids = if self.chain_store.block_exists(block_hash) {
-            let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-            vec![epoch_id]
-        } else {
-            let final_head = self.chain_store.final_head()?;
-            // Since block doesn't exist it has to be after the final head.
-            // Here we assume we aren't catching up.
-            // TODO(spice): consider if this needs to be adjusted when implementing various syncs.
-            vec![final_head.epoch_id, final_head.next_epoch_id]
-        };
-        Ok(possible_epoch_ids)
     }
 
     fn possible_producers(
