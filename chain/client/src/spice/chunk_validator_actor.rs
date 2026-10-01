@@ -587,12 +587,13 @@ impl SpiceChunkValidatorActor {
         // TODO(spice),TODO(spice-perf): We could get the expected public key from the message (or
         // by using sender if possible), check the signature, and then check the public id is in an expected hash set (or just iterate them), to avoid checking many signatures.
         let sender = producers.iter().find(|account_id| {
-            let Ok(validator) =
-                self.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+            let Ok(public_keys) = self
+                .epoch_manager
+                .get_validator_signing_keys_for_block(&chunk_id.block_hash, account_id)
             else {
                 return false;
             };
-            accesses.verify_signature(validator.public_key())
+            public_keys.iter().any(|public_key| accesses.verify_signature(public_key))
         });
         let Some(sender) = sender.cloned() else {
             return Err(Error::Other("invalid spice contract accesses signature".to_owned()));

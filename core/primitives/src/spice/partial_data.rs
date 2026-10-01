@@ -106,11 +106,11 @@ impl SpicePartialData {
         }
     }
 
-    pub fn into_verified(self, public_key: &PublicKey) -> Option<SpiceVerifiedPartialData> {
+    pub fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedPartialData> {
         match self {
             Self::V1(v1) => {
                 let data = v1.inner.serialize_for_signing();
-                if !v1.signature.verify(&data, public_key) {
+                if !public_keys.iter().any(|public_key| v1.signature.verify(&data, public_key)) {
                     return None;
                 }
                 Some(SpiceVerifiedPartialData {

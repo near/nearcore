@@ -35,6 +35,7 @@ use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::ApplyChunksMode;
+use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -70,7 +71,6 @@ use near_primitives::types::BlockHeight;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
@@ -698,11 +698,10 @@ impl SpiceDataDistributorActor {
         let me = signer.validator_id();
 
         let possible_epoch_ids = self.possible_epoch_ids(data.block_hash())?;
-        let validator =
-            self.get_sender_validator_from_possible_epoch_ids(&possible_epoch_ids, data.sender())?;
+        let public_keys =
+            self.get_sender_keys_from_possible_epoch_ids(&possible_epoch_ids, data.sender())?;
 
-        let data =
-            data.into_verified(validator.public_key()).ok_or(Error::InvalidPartialDataSignature)?;
+        let data = data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
 
         let id = &data.id;
         let sender = &data.sender;
@@ -721,12 +720,11 @@ impl SpiceDataDistributorActor {
         partial_data: SpicePartialData,
         block: &Block,
     ) -> Result<(), Error> {
-        let sender_validator = self
+        let public_keys = self
             .epoch_manager
-            .get_validator_by_account_id(block.header().epoch_id(), partial_data.sender())?;
-        let partial_data = partial_data
-            .into_verified(sender_validator.public_key())
-            .ok_or(Error::InvalidPartialDataSignature)?;
+            .get_validator_signing_keys_for_block(block.hash(), partial_data.sender())?;
+        let partial_data =
+            partial_data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
 
         self.receive_verified_data_with_block(partial_data, block)
     }
@@ -908,18 +906,22 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn get_sender_validator_from_possible_epoch_ids(
+    fn get_sender_keys_from_possible_epoch_ids(
         &self,
         possible_epoch_ids: &[EpochId],
         sender: &AccountId,
-    ) -> Result<ValidatorStake, Error> {
-        for epoch_id in possible_epoch_ids {
-            if let Ok(validator) = self.epoch_manager.get_validator_by_account_id(&epoch_id, sender)
-            {
-                return Ok(validator);
-            }
+    ) -> Result<Vec<PublicKey>, Error> {
+        let public_keys: Vec<PublicKey> = possible_epoch_ids
+            .iter()
+            .filter_map(|epoch_id| {
+                self.epoch_manager.get_validator_by_account_id(epoch_id, sender).ok()
+            })
+            .map(|validator| validator.take_public_key())
+            .collect();
+        if public_keys.is_empty() {
+            return Err(Error::SenderIsNotValidator);
         }
-        Err(Error::SenderIsNotValidator)
+        Ok(public_keys)
     }
 
     fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
@@ -1674,8 +1676,10 @@ impl SpiceDataDistributorActor {
         let epoch_id = block_header.epoch_id();
 
         // Verify request signature before any other checks to prevent cache pollution.
-        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
-        if !request.verify_signature(validator.public_key()) {
+        let public_keys = self
+            .epoch_manager
+            .get_validator_signing_keys_for_block(&chunk_id.block_hash, &requester)?;
+        if !public_keys.iter().any(|public_key| request.verify_signature(public_key)) {
             tracing::warn!(
                 target: "spice_data_distribution",
                 ?chunk_id,
