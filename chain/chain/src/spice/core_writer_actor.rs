@@ -402,7 +402,8 @@ impl SpiceCoreWriterActor {
                     Err(err) => {
                         tracing::info!(
                             target: "spice_core_writer",
-                            chunk_id = ?endorsement.chunk_id(),
+                            block_hash = ?block.hash(),
+                            ?shard_id,
                             ?err,
                             "encountered invalid pending endorsement"
                         );

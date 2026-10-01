@@ -704,11 +704,12 @@ impl SpiceDataDistributorActor {
             return Err(Error::SenderIsNotValidator);
         }
 
-        let data = data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
+        if !data.verify_signature(&public_keys) {
+            return Err(Error::InvalidPartialDataSignature);
+        }
 
-        let id = &data.id;
-        let sender = &data.sender;
-        if !self.possible_producers(id, &possible_epoch_ids)?.contains(sender) {
+        let id = data.id();
+        if !self.possible_producers(id, &possible_epoch_ids)?.contains(data.sender()) {
             return Err(Error::SenderIsNotProducer);
         }
         if !self.is_pending_data_needed(me, id, &possible_epoch_ids)? {
@@ -974,14 +975,14 @@ impl SpiceDataDistributorActor {
         }
         let block = self.chain_store.get_block(&block_hash)?;
         for data in ready_data {
-            let data_id = data.id.clone();
-            let commitment = data.commitment.clone();
-            if let Err(err) = self.receive_verified_data_with_block(data, &block) {
+            let data_id = data.id().clone();
+            let sender = data.sender().clone();
+            if let Err(err) = self.receive_data_with_block(data, &block) {
                 if let Error::DataIsIrrelevant(_) = err {
                     self.waiting_on_data.remove(&data_id);
-                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "processing irrelevant data");
+                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
                 } else {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to process partial data");
+                    tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");
                 }
             }
         }

@@ -7,6 +7,7 @@ use near_primitives::action::{Action, StakeAction};
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::types::Balance;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+use std::slice::from_ref;
 use std::sync::Arc;
 
 /// Under spice a chunk is executed, and so endorsed, after it is produced, which may be after
@@ -103,7 +104,7 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
                 && endorsed_block.header().height() > swap_height
             {
                 assert!(
-                    endorsement.verified_signed_data(&[new_key.clone()]).is_some(),
+                    endorsement.verified_signed_data(from_ref(&new_key)).is_some(),
                     "endorsement of a chunk after the swap isn't signed with the new key"
                 );
                 endorsed_heights_in_e.push(endorsed_block.header().height());

@@ -829,26 +829,28 @@ mod manager {
 
 mod pending {
     use super::*;
+    use near_crypto::Signature;
     use near_primitives::spice::partial_data::{
-        SpiceDataIdentifier, SpiceDataPart, SpiceVerifiedPartialData,
+        SpiceDataIdentifier, SpiceDataPart, SpicePartialData, testonly_create_spice_partial_data,
     };
     use std::num::NonZeroUsize;
 
-    fn message(block_hash: CryptoHash, parts: Vec<SpiceDataPart>) -> SpiceVerifiedPartialData {
-        SpiceVerifiedPartialData {
-            id: SpiceDataIdentifier::ReceiptProof {
+    fn message(block_hash: CryptoHash, parts: Vec<SpiceDataPart>) -> SpicePartialData {
+        testonly_create_spice_partial_data(
+            SpiceDataIdentifier::ReceiptProof {
                 block_hash,
                 from_shard_id: ShardId::new(0),
                 to_shard_id: ShardId::new(1),
             },
-            commitment: SpiceDataCommitment {
+            SpiceDataCommitment {
                 hash: CryptoHash::default(),
                 root: CryptoHash::default(),
                 encoded_length: 1,
             },
             parts,
-            sender: account("alice"),
-        }
+            Signature::default(),
+            account("alice"),
+        )
     }
 
     #[test]
