@@ -145,7 +145,6 @@ sandbox = [
 ]
 io_trace = ["node-runtime/io_trace"]
 
-calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 rpc_probe = ["near-rpc-probe"]
 tx_generator = ["near-transactions-generator"]
 actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
