@@ -698,8 +698,7 @@ impl SpiceDataDistributorActor {
         let me = signer.validator_id();
 
         let possible_epoch_ids = self.possible_epoch_ids(data.block_hash())?;
-        let public_keys =
-            self.get_sender_keys_from_possible_epoch_ids(&possible_epoch_ids, data.sender())?;
+        let public_keys = self.get_sender_keys_for_epoch_ids(&possible_epoch_ids, data.sender())?;
 
         let data = data.into_verified(&public_keys).ok_or(Error::InvalidPartialDataSignature)?;
 
@@ -906,17 +905,18 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn get_sender_keys_from_possible_epoch_ids(
+    fn get_sender_keys_for_epoch_ids(
         &self,
-        possible_epoch_ids: &[EpochId],
+        epoch_ids: &[EpochId],
         sender: &AccountId,
     ) -> Result<Vec<PublicKey>, Error> {
-        let public_keys: Vec<PublicKey> = possible_epoch_ids
+        let public_keys: Vec<PublicKey> = epoch_ids
             .iter()
             .filter_map(|epoch_id| {
                 self.epoch_manager.get_validator_by_account_id(epoch_id, sender).ok()
             })
             .map(|validator| validator.take_public_key())
+            .unique()
             .collect();
         if public_keys.is_empty() {
             return Err(Error::SenderIsNotValidator);

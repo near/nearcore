@@ -358,8 +358,7 @@ impl SpiceCoreWriterActor {
         // next epoch.
         let final_head = self.chain_store.final_head().map_err(NearChainError)?;
         let possible_epoch_ids = [final_head.epoch_id, final_head.next_epoch_id];
-        let public_keys =
-            self.get_validator_keys_from_possible_epoch_ids(&possible_epoch_ids, account_id)?;
+        let public_keys = self.get_validator_keys_for_epoch_ids(&possible_epoch_ids, account_id)?;
         let Some(endorsement) = endorsement.into_verified(&public_keys) else {
             return Err(InvalidSignature);
         };
@@ -379,20 +378,19 @@ impl SpiceCoreWriterActor {
         Ok(endorsement)
     }
 
-    /// Returns `account_id`'s keys in all `possible_epoch_ids` it is a validator in. The
-    /// endorsement may be signed in a later epoch than the one of its block, so any of them is
-    /// accepted.
-    fn get_validator_keys_from_possible_epoch_ids(
+    /// Returns `account_id`'s keys in all `epoch_ids` it is a validator in.
+    fn get_validator_keys_for_epoch_ids(
         &self,
-        possible_epoch_ids: &[EpochId],
+        epoch_ids: &[EpochId],
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, InvalidSpiceEndorsementError> {
-        let public_keys: Vec<PublicKey> = possible_epoch_ids
+        let public_keys: Vec<PublicKey> = epoch_ids
             .iter()
             .filter_map(|epoch_id| {
                 self.epoch_manager.get_validator_by_account_id(epoch_id, account_id).ok()
             })
             .map(|validator| validator.take_public_key())
+            .unique()
             .collect();
         if public_keys.is_empty() {
             return Err(InvalidSpiceEndorsementError::AccountIsNotValidator);
