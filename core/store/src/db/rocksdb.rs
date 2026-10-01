@@ -755,6 +755,19 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_max_write_buffer_number(max_write_buffer_number);
     opts.set_compaction_readahead_size(compaction_readahead_size.as_u64() as usize);
 
+    if temp == Temperature::Cold {
+        // The cold store is a multi-TB, append-only archive with a single
+        // writer (the cold store loop). RocksDB's defaults for stalling
+        // writers on compaction debt (soft 64 GiB, hard 256 GiB) are sized for
+        // OLTP-style databases and are easily exceeded here whenever the
+        // engine reshapes the LSM (e.g. after a RocksDB upgrade), which
+        // freezes the cold store loop. Raise them so that a transient
+        // compaction wave never stops the loop, while keeping a guard
+        // against a genuinely runaway backlog.
+        opts.set_soft_pending_compaction_bytes_limit(512 * 1024 * 1024 * 1024);
+        opts.set_hard_pending_compaction_bytes_limit(2 * 1024 * 1024 * 1024 * 1024);
+    }
+
     opts
 }
 
