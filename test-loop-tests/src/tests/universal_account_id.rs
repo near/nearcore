@@ -96,7 +96,7 @@ impl Env {
             .genesis(genesis)
             .epoch_config_store_from_genesis()
             .clients(clients)
-            .runtime_config_store(RuntimeConfigStore::new(None))
+            .runtime_config_store(RuntimeConfigStore::new())
             .build();
 
         Self {

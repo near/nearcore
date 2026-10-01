@@ -91,10 +91,7 @@ fn compare_node_counts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
-        .nightshade_runtimes_with_runtime_config_store(
-            &genesis,
-            vec![RuntimeConfigStore::new(None)],
-        )
+        .nightshade_runtimes_with_runtime_config_store(&genesis, vec![RuntimeConfigStore::new()])
         .build();
 
     deploy_test_contract(
