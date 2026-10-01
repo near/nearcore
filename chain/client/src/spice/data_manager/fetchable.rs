@@ -5,7 +5,7 @@ use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::sync::Arc;
@@ -21,6 +21,9 @@ pub(crate) trait DataPolicy {
 
     /// Whether the durable artifact this item exists to obtain is already in the store.
     fn is_done(&self, id: &DataId) -> bool;
+
+    /// The chunks that must all be certified before the item is pulled.
+    fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId>;
 }
 
 /// Receipt proofs: produced by the source chunk's producers, needed by nodes that apply
@@ -78,5 +81,11 @@ impl DataPolicy for ReceiptProofPolicy {
             *to_shard,
             source.shard_id,
         )
+    }
+
+    /// The source chunk.
+    fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId> {
+        let DataId::ReceiptProof { source, .. } = id;
+        vec![source.clone()]
     }
 }
