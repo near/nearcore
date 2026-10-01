@@ -459,12 +459,13 @@ mod manager {
     use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
     use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
     use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_primitives::block::Tip;
     use near_primitives::block_header::BlockHeader;
     use near_primitives::spice::partial_data::SpiceDataPart;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-    use near_primitives::types::EpochId;
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_store::ShardUId;
-    use near_store::adapter::StoreAdapter;
+    use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
     /// A two-shard chain with `num_blocks` processed empty blocks; `blocks[i]` is at
     /// height `i + 1`.
@@ -490,11 +491,41 @@ mod manager {
         (chain, blocks)
     }
 
+    /// Builds and processes a block on top of `prev` at `height`; the chain keeps it
+    /// whether or not it becomes the head.
+    fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
+        let signer = Arc::new(create_test_signer("test1"));
+        let block =
+            TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build();
+        process_block_sync(
+            chain,
+            block.clone().into(),
+            Provenance::PRODUCED,
+            &mut BlockProcessingArtifact::default(),
+        )
+        .unwrap();
+        block
+    }
+
+    /// A chain with canonical blocks at heights 1, 2 and 4, and two forks off height 2:
+    /// one at the skipped height 3, one at height 4. Returned as
+    /// `(chain, canonical, [fork_at_3, fork_at_4])`.
+    fn chain_with_forks() -> (Chain, Vec<Arc<Block>>, [Arc<Block>; 2]) {
+        let (mut chain, mut canonical) = chain_with_blocks(2);
+        let fork_at_3 = process_block_at(&mut chain, &canonical[1], 3);
+        canonical.push(process_block_at(&mut chain, &canonical[1], 4));
+        let fork_at_4 = process_block_at(&mut chain, &canonical[1], 4);
+        assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical[2].hash());
+        (chain, canonical, [fork_at_3, fork_at_4])
+    }
+
     /// The chain's policies with a fixed producer list in place of the chain's single
     /// chunk producer.
     struct TestPolicy {
         chain_policies: Policies,
         producers: Vec<AccountId>,
+        /// Blocks whose `needed_items` fails.
+        failing_blocks: HashSet<CryptoHash>,
     }
 
     impl DataPolicy for TestPolicy {
@@ -502,6 +533,9 @@ mod manager {
             &self,
             block: &BlockHeader,
         ) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
+            if self.failing_blocks.contains(block.hash()) {
+                return Err(Error::Other("no items".to_string()));
+            }
             let items = self.chain_policies.needed_items(block)?;
             Ok(items.into_iter().map(|(id, _)| (id, self.producers.clone())).collect())
         }
@@ -517,7 +551,8 @@ mod manager {
     }
 
     /// A manager whose policy applies shard 1 only: of a block's four proofs it needs
-    /// `(0 -> 1)`, unless that proof is on disk.
+    /// `(0 -> 1)`, unless that proof is on disk. Nothing is finally executed until
+    /// `set_final_execution_head` says so.
     fn manager(chain: &Chain) -> SpiceDataManager<TestPolicy> {
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked = ShardUId::from_shard_id_and_layout(ShardId::new(1), &shard_layout);
@@ -526,13 +561,15 @@ mod manager {
             chain.epoch_manager.clone(),
             MutableConfigValue::new(None, "validator_signer"),
         );
-        let policies = Policies::new(
-            chain.chain_store.store().chain_store(),
-            chain.epoch_manager.clone(),
-            shard_tracker,
-        );
-        let policy = TestPolicy { chain_policies: policies, producers: producers() };
-        SpiceDataManager::new(DATA_PARTS_RATIO, policy)
+        let chain_store = chain.chain_store.store().chain_store();
+        let policies =
+            Policies::new(chain_store.clone(), chain.epoch_manager.clone(), shard_tracker);
+        let policy = TestPolicy {
+            chain_policies: policies,
+            producers: producers(),
+            failing_blocks: HashSet::new(),
+        };
+        SpiceDataManager::new(DATA_PARTS_RATIO, chain_store, policy)
     }
 
     fn state<'a>(
@@ -547,6 +584,36 @@ mod manager {
             .find(|(account, _)| account == producer)
             .unwrap_or_else(|| panic!("{producer} is not a producer of {id:?}"));
         state
+    }
+
+    /// Writes `block` to the store as the final execution head.
+    fn set_final_execution_head(chain: &Chain, block: &Block) {
+        let mut store_update = chain.chain_store.store().store_update();
+        store_update
+            .chain_store_update()
+            .set_spice_final_execution_head(&Tip::from_header(block.header()));
+        store_update.commit();
+    }
+
+    fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
+        let SpiceData::ReceiptProof(proof) = data else { panic!("not a receipt proof") };
+        let mut store_update = chain.chain_store.store().store_update();
+        save_receipt_proof(&mut store_update, block.hash(), proof);
+        store_update.commit();
+    }
+
+    /// Delivers enough parts of `data` from `sender` to decode `id`.
+    fn deliver(
+        manager: &mut SpiceDataManager<TestPolicy>,
+        sender: &AccountId,
+        id: &DataId,
+        data: &SpiceData,
+    ) {
+        let (commitment, mut parts) = encode_to_wire(&encoder(), data);
+        parts.truncate(DATA_PARTS);
+        let result =
+            manager.on_parts_received(sender, id, &commitment, parts, TOTAL_PARTS).unwrap();
+        assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
     }
 
     fn receipt_id(block: &Block, from_shard: u64, to_shard: u64) -> DataId {
@@ -610,10 +677,7 @@ mod manager {
     fn track_block_skips_items_already_on_disk() {
         let (chain, blocks) = chain_with_blocks(1);
         let block = &blocks[0];
-        let SpiceData::ReceiptProof(proof) = receipt_data(0, 1) else { unreachable!() };
-        let mut store_update = chain.chain_store.store().store_update();
-        save_receipt_proof(&mut store_update, block.hash(), &proof);
-        store_update.commit();
+        save_proof(&chain, block, &receipt_data(0, 1));
         let mut manager = manager(&chain);
 
         manager.track_block(block.header()).unwrap();
@@ -627,8 +691,10 @@ mod manager {
     fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
         let (chain, blocks) = chain_with_blocks(2);
         let mut manager = manager(&chain);
-        manager.on_final_execution_head(1);
+        set_final_execution_head(&chain, &blocks[0]);
 
+        // Height 1 is finally executed: neither the processed block nor a later track adds it.
+        manager.on_block_processed(blocks[0].hash());
         manager.track_block(blocks[0].header()).unwrap();
         manager.track_block(blocks[1].header()).unwrap();
 
@@ -638,7 +704,18 @@ mod manager {
 
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-    fn expiry_removes_items_at_or_below_the_head() {
+    fn a_processed_block_tracks_its_items() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let mut manager = manager(&chain);
+
+        manager.on_block_processed(blocks[0].hash());
+
+        assert!(manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
         let (chain, all_blocks) = chain_with_blocks(4);
         // Heights 2, 3, 4.
         let blocks = &all_blocks[1..];
@@ -647,11 +724,100 @@ mod manager {
             manager.track_block(block.header()).unwrap();
         }
 
-        manager.on_final_execution_head(3);
+        set_final_execution_head(&chain, &blocks[1]);
+        manager.on_block_processed(blocks[2].hash());
 
         assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
         assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
         assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+        assert_eq!(manager.items_by_height.keys().copied().collect::<Vec<_>>(), vec![4]);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_fork_item_expires_by_height_with_the_final_execution_head() {
+        let (chain, canonical, [fork_at_3, fork_at_4]) = chain_with_forks();
+        let mut manager = manager(&chain);
+        for block in canonical.iter().chain([&fork_at_3, &fork_at_4]) {
+            manager.track_block(block.header()).unwrap();
+        }
+        let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
+
+        set_final_execution_head(&chain, &canonical[1]);
+        manager.on_block_processed(canonical[2].hash());
+        for id in &fork_ids {
+            assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
+        }
+
+        set_final_execution_head(&chain, &canonical[2]);
+        manager.on_block_processed(canonical[2].hash());
+        for id in &fork_ids {
+            assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
+        }
+        assert!(manager.items_by_height.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_done_item_is_removed_at_the_processed_block() {
+        let (chain, blocks) = chain_with_blocks(1);
+        let id = receipt_id(&blocks[0], 0, 1);
+        let mut manager = manager(&chain);
+        manager.track_block(blocks[0].header()).unwrap();
+        deliver(&mut manager, &producers()[0], &id, &receipt_data(0, 1));
+        // The consumer saved the delivered data before the block was processed.
+        save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+
+        manager.on_block_processed(blocks[0].hash());
+
+        assert!(!manager.is_tracking(&id));
+        assert!(manager.items_by_height.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn an_item_is_removed_only_after_its_delivery_is_in_the_store() {
+        let (chain, blocks) = chain_with_blocks(3);
+        let mut manager = manager(&chain);
+        for block in &blocks {
+            manager.track_block(block.header()).unwrap();
+        }
+        let ids: Vec<DataId> = blocks.iter().map(|block| receipt_id(block, 0, 1)).collect();
+
+        // The proof is on disk but nothing delivered it: the item stays tracked.
+        save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+        manager.on_block_processed(blocks[2].hash());
+        assert!(manager.is_tracking(&ids[0]));
+
+        // Delivered but not saved: the item stays tracked.
+        deliver(&mut manager, &producers()[0], &ids[1], &receipt_data(0, 1));
+        manager.on_block_processed(blocks[2].hash());
+        assert!(manager.is_tracking(&ids[1]));
+
+        // Delivered and saved: the next block removes it and leaves the others.
+        deliver(&mut manager, &producers()[0], &ids[0], &receipt_data(0, 1));
+        manager.on_block_processed(blocks[2].hash());
+        assert!(!manager.is_tracking(&ids[0]));
+        assert!(manager.is_tracking(&ids[1]));
+        assert!(manager.is_tracking(&ids[2]));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn a_failed_needed_items_on_the_processed_block_still_removes_the_done_items() {
+        let (chain, blocks) = chain_with_blocks(2);
+        let mut manager = manager(&chain);
+        manager.track_block(blocks[0].header()).unwrap();
+        let older = receipt_id(&blocks[0], 0, 1);
+        let failing = receipt_id(&blocks[1], 0, 1);
+        manager.policies.failing_blocks.insert(*blocks[1].hash());
+        deliver(&mut manager, &producers()[0], &older, &receipt_data(0, 1));
+        save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+
+        manager.on_block_processed(blocks[1].hash());
+
+        assert!(!manager.is_tracking(&older));
+        assert!(!manager.is_tracking(&failing));
     }
 
     #[test]
