@@ -92,7 +92,7 @@ fn test_spice_endorsement_signed_with_next_epoch_key() {
     let mut endorsed_heights_in_e = Vec::new();
     let mut block = env.node_for_account(&producer).head_block();
     while block.header().height() > swap_height {
-        for statement in block.spice_core_statements().iter() {
+        for statement in block.spice_core_statements() {
             let SpiceCoreStatement::Endorsement(endorsement) = statement else { continue };
             if endorsement.account_id() != &rotating {
                 continue;
