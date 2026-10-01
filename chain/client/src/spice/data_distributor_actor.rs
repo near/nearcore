@@ -978,11 +978,17 @@ impl SpiceDataDistributorActor {
             let data_id = data.id().clone();
             let sender = data.sender().clone();
             if let Err(err) = self.receive_data_with_block(data, &block) {
-                if let Error::DataIsIrrelevant(_) = err {
-                    self.waiting_on_data.remove(&data_id);
-                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
-                } else {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");
+                match err {
+                    Error::DataIsIrrelevant(_) => {
+                        self.waiting_on_data.remove(&data_id);
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "processing irrelevant data");
+                    }
+                    Error::InvalidPartialDataSignature => {
+                        tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "pending partial data has invalid signature for its block");
+                    }
+                    _ => {
+                        tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "failed to process partial data");
+                    }
                 }
             }
         }

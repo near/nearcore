@@ -59,6 +59,19 @@ impl SpiceChunkEndorsement {
         }
     }
 
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        match self {
+            Self::V1(v1) => &v1.chunk_id,
+        }
+    }
+
+    /// Returns whether the signature matches any of `public_keys`.
+    pub fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
+        match self {
+            Self::V1(v1) => v1.verify_signature(public_keys),
+        }
+    }
+
     /// Checks the signature against `public_keys` and returns SpiceVerifiedEndorsement if it
     /// matches any of them.
     /// NOTE: that it doesn't do any additional validations apart from checking signature.
@@ -79,9 +92,13 @@ pub struct SpiceChunkEndorsementV1 {
 }
 
 impl SpiceChunkEndorsementV1 {
-    fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedEndorsement> {
+    fn verify_signature(&self, public_keys: &[PublicKey]) -> bool {
         let data = &self.to_signed_data().serialize_data_for_signing();
-        if !public_keys.iter().any(|public_key| self.signature.verify(data, public_key)) {
+        public_keys.iter().any(|public_key| self.signature.verify(data, public_key))
+    }
+
+    fn into_verified(self, public_keys: &[PublicKey]) -> Option<SpiceVerifiedEndorsement> {
+        if !self.verify_signature(public_keys) {
             return None;
         }
         Some(SpiceVerifiedEndorsement {
