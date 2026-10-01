@@ -681,6 +681,7 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
 fn rocksdb_read_options() -> ReadOptions {
     let mut read_options = ReadOptions::default();
     read_options.set_verify_checksums(false);
+    read_options.set_auto_readahead_size(false);
     read_options
 }
 
