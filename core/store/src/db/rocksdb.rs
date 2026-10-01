@@ -685,6 +685,17 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) ->
         // block layer splits into many concurrent requests. It also keeps the
         // multi-TB cold store's compaction traffic out of the page cache.
         opts.set_use_direct_io_for_flush_and_compaction(true);
+        // `compaction_readahead_size` is a DB-level option in RocksDB, so the
+        // per-column value set in `rocksdb_column_options` is ignored (RocksDB
+        // only takes CF-level fields from a ColumnFamilyDescriptor) and the DB
+        // runs with RocksDB's default of 2 MiB. Apply the configured high-load
+        // tier value (State lives there) at the DB level for the cold store.
+        // With direct I/O this is the size of each prefetch read, i.e. how
+        // many requests a compaction keeps in flight.
+        let readahead =
+            RocksDbCfConfig::resolve_for_column(DBCol::State, &store_config.rocksdb)
+                .compaction_readahead_size;
+        opts.set_compaction_readahead_size(readahead.as_u64() as usize);
     }
 
     opts
