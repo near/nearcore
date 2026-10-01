@@ -584,6 +584,16 @@ impl Block {
         }
     }
 
+    /// The block's body. `None` for block versions older than V4, whose body is not a
+    /// `BlockBody`.
+    #[inline]
+    pub fn body(&self) -> Option<&BlockBody> {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => None,
+            Block::BlockV4(block) => Some(&block.body),
+        }
+    }
+
     #[inline]
     pub fn is_spice_block(&self) -> bool {
         match self {

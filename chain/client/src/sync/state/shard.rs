@@ -213,6 +213,10 @@ pub(super) async fn run_state_sync_for_shard(
         // If flat_head_hash is equal to default - this means that we're all the way back at genesis.
         // So we don't have to add the storage state for shard in such case.
         // TODO(8438) - add additional test scenarios for this case.
+        // TODO: this marks flat storage `Ready` before finalization writes the flat head's
+        // `ChunkExtra`. A restart in between may fail at startup, where memtrie loading reads the
+        // state root from that `ChunkExtra`. Check whether startup can reach this, for non-spice
+        // too, whose flat head (the chunk's prev block) gets no `ChunkExtra` either.
         if flat_head_hash != CryptoHash::default() {
             create_flat_storage_for_shard(&store, &*runtime, shard_uid, flat_head_hash)?;
         }
