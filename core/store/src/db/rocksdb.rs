@@ -144,7 +144,7 @@ impl RocksDB {
         temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
-        let options = rocksdb_options(store_config, mode);
+        let options = rocksdb_options(store_config, mode, temp);
         let cfs = cf_descriptors(columns, store_config, temp);
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cfs, false)
@@ -658,7 +658,7 @@ fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
     opts
 }
 
-fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) -> Options {
     let mut opts = common_rocksdb_options(&store_config.rocksdb);
     opts.create_missing_column_families(mode.read_write());
     opts.create_if_missing(mode.can_create());
@@ -673,6 +673,18 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         // Prometheus.
         opts.set_stats_persist_period_sec(0);
         opts.set_stats_dump_period_sec(0);
+    }
+
+    if temp == Temperature::Cold {
+        // Read and write SST files directly during flush and compaction,
+        // bypassing the page cache. With buffered I/O RocksDB relies on
+        // readahead(2) and reads one block at a time per compaction, which on
+        // high-latency disks (e.g. GCP pd-standard) leaves only ~1 request in
+        // flight per compaction. With direct I/O RocksDB uses its own prefetch
+        // buffer and issues `compaction_readahead_size`-sized reads, which the
+        // block layer splits into many concurrent requests. It also keeps the
+        // multi-TB cold store's compaction traffic out of the page cache.
+        opts.set_use_direct_io_for_flush_and_compaction(true);
     }
 
     opts
