@@ -7483,6 +7483,7 @@ dependencies = [
  "near-jsonrpc",
  "near-network",
  "near-o11y",
+ "near-parameters",
  "near-primitives",
  "near-primitives-core",
  "near-store",

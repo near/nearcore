@@ -1,7 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{total_send_fees, tx_cost};
-use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
@@ -36,6 +35,7 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, FunctionCallError,
     InvalidTxError, MissingTrieValue, RuntimeError, TxExecutionError,
 };
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,

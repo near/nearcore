@@ -522,6 +522,7 @@ impl ForkNetworkCommand {
         let source_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // fork-network runs with state snapshots disabled: a pending snapshot locks
         // flat-storage head updates, which would interfere with the state rewriting
@@ -552,6 +553,7 @@ impl ForkNetworkCommand {
             prev_state_roots,
             make_storage_mutator.clone(),
             runtime,
+            protocol_version,
         )?;
         Ok(new_state_roots)
     }
@@ -1329,6 +1331,7 @@ impl ForkNetworkCommand {
         mut source_state_roots: HashMap<ShardUId, StateRoot>,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
         runtime: Arc<NightshadeRuntime>,
+        protocol_version: ProtocolVersion,
     ) -> anyhow::Result<Vec<StateRoot>> {
         let shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(
@@ -1402,6 +1405,7 @@ impl ForkNetworkCommand {
             &source_state_roots,
             &target_shard_layout,
             &default_key,
+            runtime.get_runtime_config(protocol_version),
         )?;
         metrics::set_phase(Phase::FinalizeState);
         crate::storage_mutator::finalize_state(

@@ -45,7 +45,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
         account_ids.insert(state_record_to_account_id(record).clone());
     });
     let writers = std::sync::atomic::AtomicUsize::new(0);
-    let storage_usage_config = &RuntimeConfig::test().fees.storage_usage_config;
+    let runtime_config = RuntimeConfig::test();
     let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
@@ -62,7 +62,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
                 )
             })
             .collect::<Vec<_>>(),
-        storage_usage_config,
+        &runtime_config,
         genesis,
         account_ids,
     );

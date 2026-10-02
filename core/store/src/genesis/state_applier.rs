@@ -8,11 +8,12 @@ use crate::{
 };
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
-use near_parameters::StorageUsageConfig;
+use near_parameters::{RuntimeConfig, StorageUsageConfig};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, Receipt, ReceivedData, VersionedReceiptEnum,
+    DelayedReceiptIndices, Receipt, ReceivedData, StateStoredReceipt, StateStoredReceiptMetadata,
+    VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
@@ -176,12 +177,12 @@ impl GenesisStateApplier {
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
-        config: &StorageUsageConfig,
+        config: &RuntimeConfig,
         genesis: &Genesis,
         account_ids: HashSet<AccountId>,
     ) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
-        let mut storage_computer = StorageComputer::new(config);
+        let mut storage_computer = StorageComputer::new(&config.fees.storage_usage_config);
         tracing::info!(
             target: "runtime",
             ?shard_uid,
@@ -265,7 +266,10 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
-                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt.receipt);
+                    let metadata = StateStoredReceiptMetadata::compute(&receipt.receipt, config)
+                        .expect("Genesis delayed receipt gas overflow");
+                    let receipt = StateStoredReceipt::new_borrowed(&receipt.receipt, metadata);
+                    set_delayed_receipt(state_update, delayed_receipts_indices, &receipt);
                 }),
             }
         });
@@ -347,7 +351,7 @@ impl GenesisStateApplier {
         tries: ShardTries,
         shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
-        config: &StorageUsageConfig,
+        config: &RuntimeConfig,
         genesis: &Genesis,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {

@@ -1,13 +1,15 @@
 use crate::storage_mutator::ShardUpdateState;
 use anyhow::Context;
 use near_crypto::PublicKey;
+use near_parameters::RuntimeConfig;
 use near_primitives::borsh;
-use near_primitives::receipt::{Receipt, ReceiptOrStateStoredReceipt, TrieQueueIndices};
+use near_primitives::receipt::{
+    Receipt, StateStoredReceipt, StateStoredReceiptMetadata, TrieQueueIndices,
+};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{ShardIndex, StateRoot};
 use near_store::{ShardTries, Trie};
-use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};
 
@@ -60,7 +62,7 @@ fn read_delayed_receipt(
 ) -> anyhow::Result<Option<Receipt>> {
     let key = TrieKey::DelayedReceipt { index };
     let value =
-        near_store::get_pure::<ReceiptOrStateStoredReceipt>(trie, &key).with_context(|| {
+        near_store::get_pure::<StateStoredReceipt>(trie, &key).with_context(|| {
             format!(
                 "failed reading delayed receipt idx {} from shard {} trie",
                 index, source_shard_uid,
@@ -84,13 +86,17 @@ fn set_target_delayed_receipt(
     target_index: &mut u64,
     mut receipt: Receipt,
     default_key: &PublicKey,
-) {
+    runtime_config: &RuntimeConfig,
+) -> anyhow::Result<()> {
     near_mirror::genesis::map_receipt(&mut receipt, None, default_key);
 
-    let value = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt));
+    let metadata = StateStoredReceiptMetadata::compute(&receipt, runtime_config)
+        .with_context(|| format!("failed computing metadata of delayed receipt {:?}", receipt))?;
+    let value = StateStoredReceipt::new_owned(receipt, metadata);
     let value = borsh::to_vec(&value).unwrap();
     trie_updates.insert(*target_index, Some(value));
     *target_index += 1;
+    Ok(())
 }
 
 // This should be called after push() has been called on each DelayedReceiptTracker in `trackers`
@@ -103,6 +109,7 @@ pub(crate) fn write_delayed_receipts(
     source_state_roots: &HashMap<ShardUId, StateRoot>,
     target_shard_layout: &ShardLayout,
     default_key: &PublicKey,
+    runtime_config: &RuntimeConfig,
 ) -> anyhow::Result<()> {
     for t in &trackers {
         assert_eq!(update_state.len(), t.indices.len());
@@ -152,7 +159,8 @@ pub(crate) fn write_delayed_receipts(
             target_index,
             receipt,
             default_key,
-        );
+            runtime_config,
+        )?;
     }
 
     for (shard_idx, (updates, update_state)) in
