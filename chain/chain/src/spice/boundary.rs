@@ -1,12 +1,13 @@
 //! Seeding for the spice activation boundary: the last pre-spice block, whose chunks
 //! are the first to be certified under spice.
 
-use near_chain_primitives::Error;
+use near_chain_primitives::{ApplyChunksMode, Error};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -29,6 +30,22 @@ pub fn is_last_pre_spice_block(
     }
     let next_epoch_protocol_version = epoch_manager.get_next_epoch_protocol_version(block_hash)?;
     Ok(ProtocolFeature::Spice.enabled(next_epoch_protocol_version))
+}
+
+/// Whether this node applies `shard_id`'s chunk of `block` itself, so that it holds
+/// the chunk's execution result and outgoing receipts without fetching anything.
+pub fn applies_chunk_itself(
+    shard_tracker: &ShardTracker,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &BlockHeader,
+    shard_id: ShardId,
+) -> Result<bool, Error> {
+    let mode = if is_last_pre_spice_block(epoch_manager, block.hash())? {
+        ApplyChunksMode::NotCaughtUp
+    } else {
+        ApplyChunksMode::IsCaughtUp
+    };
+    Ok(shard_tracker.should_apply_chunk(mode, block.prev_hash(), shard_id))
 }
 
 /// Seeds what the activation boundary needs when `block` is a last pre-spice block

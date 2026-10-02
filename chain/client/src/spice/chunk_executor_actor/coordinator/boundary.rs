@@ -3,8 +3,7 @@
 
 use super::ChunkExecutorActor;
 use near_chain::Error;
-use near_chain::spice::boundary::is_last_pre_spice_block;
-use near_chain_primitives::ApplyChunksMode;
+use near_chain::spice::boundary::{applies_chunk_itself, is_last_pre_spice_block};
 use near_primitives::hash::CryptoHash;
 
 impl ChunkExecutorActor {
@@ -20,11 +19,12 @@ impl ChunkExecutorActor {
         let prev_hash = block.header().prev_hash();
         self.reconcile_tracked_shards(prev_hash)?;
         for executor in self.per_shard_executors.values() {
-            if !self.shard_tracker.should_apply_chunk(
-                ApplyChunksMode::NotCaughtUp,
-                prev_hash,
+            if !applies_chunk_itself(
+                &self.shard_tracker,
+                self.epoch_manager.as_ref(),
+                block.header(),
                 executor.shard_uid().shard_id(),
-            ) {
+            )? {
                 continue;
             }
             if let Err(err) =

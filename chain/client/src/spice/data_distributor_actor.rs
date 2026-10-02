@@ -30,12 +30,11 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
-use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::boundary::applies_chunk_itself;
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
 use near_chain_configs::MutableValidatorSigner;
-use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -1117,7 +1116,12 @@ impl SpiceDataDistributorActor {
             }
             // A tracker that hasn't applied the chunk yet has no result to endorse; it records and
             // broadcasts after it applies. A non-tracker pulls the witness so it can produce one.
-            if !self.endorses_from_own_apply(&chunk_block, chunk_id.shard_id)? {
+            if !applies_chunk_itself(
+                &self.shard_tracker,
+                self.epoch_manager.as_ref(),
+                chunk_block.header(),
+                chunk_id.shard_id,
+            )? {
                 self.start_waiting_on_fallback_witness(
                     chunk_id,
                     &chunk_block,
@@ -1321,7 +1325,12 @@ impl SpiceDataDistributorActor {
         if assignments.contains(me) {
             return Ok(());
         }
-        if self.endorses_from_own_apply(&chunk_block, *shard_id)? {
+        if applies_chunk_itself(
+            &self.shard_tracker,
+            self.epoch_manager.as_ref(),
+            chunk_block.header(),
+            *shard_id,
+        )? {
             return Ok(());
         }
         let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id: *shard_id };
@@ -1341,21 +1350,6 @@ impl SpiceDataDistributorActor {
         )
     }
 
-    /// Whether this node applies `shard_id`'s chunk of `chunk_block` itself, and so
-    /// endorses it from its own apply rather than from a witness.
-    fn endorses_from_own_apply(
-        &self,
-        chunk_block: &Block,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        let mode = if is_last_pre_spice_block(self.epoch_manager.as_ref(), chunk_block.hash())? {
-            ApplyChunksMode::NotCaughtUp
-        } else {
-            ApplyChunksMode::IsCaughtUp
-        };
-        Ok(self.shard_tracker.should_apply_chunk(mode, chunk_block.header().prev_hash(), shard_id))
-    }
-
     fn start_waiting_on_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
@@ -1370,7 +1364,12 @@ impl SpiceDataDistributorActor {
 
         let mut shards_we_apply: HashSet<ShardId> = HashSet::new();
         for shard_id in shard_layout.shard_ids() {
-            if self.endorses_from_own_apply(&block, shard_id)? {
+            if applies_chunk_itself(
+                &self.shard_tracker,
+                self.epoch_manager.as_ref(),
+                block.header(),
+                shard_id,
+            )? {
                 shards_we_apply.insert(shard_id);
             }
         }

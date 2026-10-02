@@ -1,6 +1,7 @@
 use super::DataId;
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use near_chain::Error;
+use near_chain::spice::boundary::applies_chunk_itself;
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -44,18 +45,30 @@ impl ReceiptProofPolicy {
 impl DataPolicy for ReceiptProofPolicy {
     fn needed_ids(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
-        let applies = |prev_hash, shard_id| {
-            self.shard_tracker.should_apply_chunk(ApplyChunksMode::IsCaughtUp, prev_hash, shard_id)
-        };
         // Applying the source shard ourselves produces the proof locally; this is
-        // also why a producer never fetches its own proof.
-        let sources: Vec<ShardId> = shard_layout
-            .shard_ids()
-            .filter(|shard_id| !applies(block.prev_hash(), *shard_id))
-            .collect();
+        // also why a producer never fetches its own proof. 
+        let mut sources = Vec::new();
+        for shard_id in shard_layout.shard_ids() {
+            if !applies_chunk_itself(
+                &self.shard_tracker,
+                self.epoch_manager.as_ref(),
+                block,
+                shard_id,
+            )? {
+                sources.push(shard_id);
+            }
+        }
         // The proof feeds applying the destination shard in the next block.
-        let destinations: Vec<ShardId> =
-            shard_layout.shard_ids().filter(|shard_id| applies(block.hash(), *shard_id)).collect();
+        let destinations: Vec<ShardId> = shard_layout
+            .shard_ids()
+            .filter(|shard_id| {
+                self.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::IsCaughtUp,
+                    block.hash(),
+                    *shard_id,
+                )
+            })
+            .collect();
         // TODO(spice-resharding): Handle resharding
         Ok(sources
             .iter()
