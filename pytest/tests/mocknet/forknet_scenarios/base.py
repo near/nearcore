@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
@@ -92,6 +93,12 @@ class TestSetup:
                                                 None)
         self.has_archival = False
         self.has_state_dumper = False
+        # Where the traffic generator reads the source chain from: the RPC
+        # backup home by default, or a cloud archive reader home on the traffic
+        # host (`mirror.py start-traffic --source-cloud-archive`).
+        self.source_cloud_archive: bool = False
+        self.source_skip_state: bool = False
+        self.source_home: Optional[str] = None
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
@@ -343,6 +350,9 @@ class TestSetup:
         """
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.batch_interval_millis = None
+        start_nodes_args.source_cloud_archive = self.source_cloud_archive
+        start_nodes_args.source_skip_state = self.source_skip_state
+        start_nodes_args.source_home = self.source_home
         start_traffic_cmd(CommandContext(start_nodes_args))
 
     def _schedule_upgrade_nodes_every_n_minutes(self, minutes):
