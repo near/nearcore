@@ -135,7 +135,11 @@ class NodeHandle:
     def neard_runner_start(self,
                            batch_interval_millis=None,
                            binary_idx=None,
-                           force_restart=False):
+                           force_restart=False,
+                           source_cloud_archive=False,
+                           source_skip_state=False,
+                           source_home=None,
+                           source_rpc_backup=False):
         params = []
         if batch_interval_millis is not None:
             params.append(('batch_interval_millis', batch_interval_millis))
@@ -143,6 +147,14 @@ class NodeHandle:
             params.append(('binary_idx', binary_idx))
         if force_restart:
             params.append(('force_restart', True))
+        if source_cloud_archive:
+            params.append(('source_cloud_archive', True))
+        if source_skip_state:
+            params.append(('source_skip_state', True))
+        if source_home is not None:
+            params.append(('source_home', source_home))
+        if source_rpc_backup:
+            params.append(('source_rpc_backup', True))
         if len(params) != 0:
             params = dict(params)
         return self.neard_runner_jsonrpc('start', params=params)
