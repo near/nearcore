@@ -649,6 +649,7 @@ fn common_rocksdb_options(rocksdb_config: &RocksDbConfig) -> Options {
         max_bytes_for_level_base,
         max_total_wal_size,
         parallelism,
+        use_direct_io_for_flush_and_compaction: _,
         cf_high_load_overrides: _,
         cf_medium_load_overrides: _,
         cf_low_load_overrides: _,
@@ -699,16 +700,18 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode, temp: Temperature) ->
         opts.set_stats_dump_period_sec(0);
     }
 
+    // Write SST files produced by flush and compaction with O_DIRECT, keeping
+    // them out of the page cache. On by default for the cold store, which is
+    // append-only and typically lives on high-latency disks where the page
+    // cache is of little use; off for the hot store, where freshly written
+    // data is read back soon. Requires filesystem support (ext4, xfs).
+    let direct_io = store_config
+        .rocksdb
+        .use_direct_io_for_flush_and_compaction
+        .unwrap_or(temp == Temperature::Cold);
+    opts.set_use_direct_io_for_flush_and_compaction(direct_io);
+
     if temp == Temperature::Cold {
-        // Read and write SST files directly during flush and compaction,
-        // bypassing the page cache. With buffered I/O RocksDB relies on
-        // readahead(2) and reads one block at a time per compaction, which on
-        // high-latency disks (e.g. GCP pd-standard) leaves only ~1 request in
-        // flight per compaction. With direct I/O RocksDB uses its own prefetch
-        // buffer and issues `compaction_readahead_size`-sized reads, which the
-        // block layer splits into many concurrent requests. It also keeps the
-        // multi-TB cold store's compaction traffic out of the page cache.
-        opts.set_use_direct_io_for_flush_and_compaction(true);
         // `compaction_readahead_size` is a DB-level option in RocksDB, so the
         // per-column value set in `rocksdb_column_options` is ignored (RocksDB
         // only takes CF-level fields from a ColumnFamilyDescriptor) and the DB
