@@ -101,18 +101,14 @@ fn test_gas_key_transaction() {
 
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3; // Arbitrary number of nonces for testing
-    let add_key_tx = SignedTransaction::from_actions(
-        1, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     // Run for 1 more block for the access key to be reflected in chunks prev state root.
@@ -120,17 +116,13 @@ fn test_gas_key_transaction() {
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2, // nonce
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
@@ -329,35 +321,27 @@ fn test_gas_key_refund() {
 
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(101); // enough to pay for attached 100 TGas + tx cost
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
@@ -436,35 +420,27 @@ fn test_gas_key_deposit_failed() {
     // Add gas key
     let gas_key_signer: Signer =
         InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, "gas_key").into();
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let num_nonces = 3;
-    let add_key_tx = SignedTransaction::from_actions(
-        1,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let add_key_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(100);
-    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-    let fund_tx = SignedTransaction::from_actions(
-        2,
-        sender.clone(),
-        sender.clone(),
-        &create_user_test_signer(sender),
+    let fund_tx = env.rpc_node().tx_from_actions(
+        sender,
+        sender,
         vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: gas_key_signer.public_key(),
             deposit: gas_key_fund_amount,
         }))],
-        block_hash,
     );
     env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
     env.rpc_runner().run_for_number_of_blocks(1);
