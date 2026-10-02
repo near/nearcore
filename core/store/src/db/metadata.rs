@@ -48,6 +48,7 @@ pub enum DbKind {
 #[derive(Clone, Copy)]
 pub(crate) struct DbMetadata {
     /// Version of the database.
+    #[cfg_attr(not(feature = "rocksdb"), allow(dead_code))]
     pub version: DbVersion,
 
     /// Kind of the database.

@@ -13,6 +13,7 @@ use near_time::Duration;
 use rocksdb_metrics::export_stats_as_metrics;
 use std::sync::LazyLock;
 
+#[cfg(feature = "rocksdb")]
 pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_database_op_latency_by_op_and_column",
@@ -249,6 +250,7 @@ pub(crate) static HAS_STATE_SNAPSHOT: LazyLock<IntGauge> = LazyLock::new(|| {
         .unwrap()
 });
 
+#[cfg(feature = "rocksdb")]
 pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_make_state_snapshot_elapsed_sec",
