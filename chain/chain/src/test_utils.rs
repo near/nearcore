@@ -16,6 +16,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -63,11 +64,19 @@ pub fn get_chain_with_epoch_length_and_num_shards(
 }
 
 pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    get_chain_with_genesis_and_epoch_config_store(clock, genesis, epoch_config_store)
+}
+
+pub fn get_chain_with_genesis_and_epoch_config_store(
+    clock: Clock,
+    genesis: Genesis,
+    epoch_config_store: EpochConfigStore,
+) -> Chain {
     let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let chain_genesis = ChainGenesis::new(&genesis.config);
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
         store.clone(),
         &genesis.config,

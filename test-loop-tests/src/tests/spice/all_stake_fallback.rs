@@ -82,32 +82,27 @@ impl FallbackSetup {
     }
 }
 
-/// Asserts every (height, shard) of the genesis epoch has designated validators under 1/3 of total
-/// stake, so the fallback's non-designated remainder can reach 2/3. Genesis epoch is representative.
+/// Asserts every (height, shard) of the genesis epoch has designated validators holding at most 1/3
+/// of total stake, so the non-designated remainder alone can certify via the fallback. Genesis
+/// epoch is representative.
 fn assert_fallback_has_enough_stake(node: &TestLoopNode) {
     let epoch_manager = node.client().epoch_manager.clone();
     let epoch_id = node.head().epoch_id;
     let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
     let shard_ids: Vec<_> =
         epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect();
-    let total_stake: u128 = all_stake_fallback_assignment(epoch_manager.as_ref(), &epoch_id)
-        .unwrap()
-        .assignments()
-        .iter()
-        .map(|(_, stake)| stake.as_yoctonear())
-        .sum();
+    let all_stake = all_stake_fallback_assignment(epoch_manager.as_ref(), &epoch_id).unwrap();
     for height in 1..=epoch_length {
         for &shard_id in &shard_ids {
-            let designated: u128 = epoch_manager
+            let designated_accounts: HashSet<AccountId> = epoch_manager
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
                 .unwrap()
-                .assignments()
-                .iter()
-                .map(|(_, stake)| stake.as_yoctonear())
-                .sum();
+                .ordered_chunk_validators()
+                .into_iter()
+                .collect();
             assert!(
-                designated * 3 < total_stake,
-                "designated stake reaches 1/3 at height {height} shard {shard_id}: {designated} of {total_stake}",
+                !all_stake.is_endorsed_by_more_than_one_third(&designated_accounts),
+                "designated stake exceeds 1/3 at height {height} shard {shard_id}",
             );
         }
     }
@@ -408,16 +403,15 @@ fn assert_certified_by_all_stake(
     let chunk_id = SpiceChunkId { block_hash: chunk_block_hash, shard_id };
     let chunk_block = chain_store.get_block_header(&chunk_block_hash).unwrap();
 
-    // The designated set alone must fall short of 2/3 of total stake, or the chunk could certify
-    // before any non-designated endorsement lands. This is the 2/3 form, not the 1/3 form
-    // `assert_fallback_has_enough_stake` checks for the outage tests.
+    // The designated set alone must not hold more than 1/3 of total stake, or the chunk could
+    // certify before any non-designated endorsement lands.
     let designated = epoch_manager
         .get_chunk_validator_assignments(chunk_block.epoch_id(), shard_id, chunk_height)
         .unwrap();
     let all_stake = all_stake_fallback_assignment(epoch_manager, chunk_block.epoch_id()).unwrap();
     let designated_accounts: HashSet<AccountId> =
         designated.assignments().iter().map(|(account_id, _)| account_id.clone()).collect();
-    assert!(!all_stake.is_endorsed(&designated_accounts));
+    assert!(!all_stake.is_endorsed_by_more_than_one_third(&designated_accounts));
 
     let (certifying_height, endorsers) = certifying_height_and_endorsers(node, &chunk_id)
         .unwrap_or_else(|| panic!("fallback-only chunk {chunk_id:?} was not certified"));
