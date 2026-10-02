@@ -558,6 +558,47 @@ pub struct GasRefundResult {
     create_account_charge: Balance,
 }
 
+/// Checks that a receipt's gas accounting conserves tokens: the value of the gas purchased for
+/// the receipt equals the value burnt, refunded and forwarded to the receipts it created.
+///
+/// This is a safety net against refund or burn computations that drift from what was paid,
+/// e.g. when fees change between the funding and the execution of a receipt.
+#[cfg(debug_assertions)]
+fn debug_check_gas_conservation(
+    gas_burn_price: Balance,
+    gas_purchase_price: Balance,
+    prepaid_gas: Gas,
+    gas_spent: Gas,
+    gas_burnt: Gas,
+    gas_refund_result: &GasRefundResult,
+    gas_balance_refund: Balance,
+    protocol_version: ProtocolVersion,
+) {
+    let to_balance = |price: Balance, gas: Gas| safe_gas_to_balance(price, gas).unwrap();
+    let purchased = to_balance(gas_purchase_price, prepaid_gas);
+
+    // Mirrors the gas part of `tokens_burnt` in the receipt's execution outcome.
+    let mut burnt = to_balance(gas_burn_price, gas_burnt)
+        .checked_sub(gas_refund_result.price_deficit)
+        .unwrap()
+        .checked_add(gas_refund_result.refund_penalty)
+        .unwrap()
+        .checked_add(gas_refund_result.create_account_charge)
+        .unwrap();
+    if !ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+        burnt = burnt.checked_add(gas_refund_result.price_surplus).unwrap();
+    }
+    // Gas used but not burnt was attached to new receipts, which carry the same purchase price.
+    let forwarded = to_balance(gas_purchase_price, gas_spent.checked_sub(gas_burnt).unwrap());
+
+    let accounted = burnt.checked_add(gas_balance_refund).unwrap().checked_add(forwarded).unwrap();
+    debug_assert_eq!(
+        purchased, accounted,
+        "receipt gas accounting does not conserve tokens: purchased {purchased}, \
+         burnt {burnt} + refunded {gas_balance_refund} + forwarded {forwarded}"
+    );
+}
+
 pub struct Runtime {}
 
 impl Runtime {
@@ -1430,6 +1471,18 @@ impl Runtime {
                 action_receipt.signer_public_key().clone(),
             ));
         }
+
+        #[cfg(debug_assertions)]
+        debug_check_gas_conservation(
+            gas_burn_price,
+            gas_purchase_price,
+            prepaid_gas,
+            gas_spent,
+            result.gas_burnt,
+            &gas_refund_result,
+            gas_balance_refund,
+            protocol_version,
+        );
 
         Ok(gas_refund_result)
     }
