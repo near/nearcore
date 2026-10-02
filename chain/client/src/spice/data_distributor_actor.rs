@@ -475,14 +475,9 @@ impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
         }
+        self.data_manager.on_block_processed(&block_hash);
         if let Err(err) = self.process_pending_partial_data(&block_hash) {
             tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
-        }
-        match self.chain_store.spice_final_execution_head() {
-            Ok(head) => self.data_manager.on_final_execution_head(head.height),
-            Err(err) => {
-                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when reading the final execution head");
-            }
         }
     }
 }
@@ -506,6 +501,7 @@ impl SpiceDataDistributorActor {
             NonZeroUsize::new(30).unwrap();
         let data_manager = SpiceDataManager::new(
             DATA_PARTS_RATIO,
+            chain_store.clone(),
             Policies::new(chain_store.clone(), epoch_manager.clone(), shard_tracker.clone()),
         );
         Self {
@@ -744,10 +740,9 @@ impl SpiceDataDistributorActor {
 
         // Items may not be tracked yet if we received data after the block
         // became available but before we processed it.
-        self.start_waiting_on_data(block.hash())?;
-
         match &id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
+                self.data_manager.track_block(block.header())?;
                 let data_id = DataId::receipt_proof(*block_hash, *from_shard_id, *to_shard_id);
                 match self.data_manager.on_parts_received(
                     &sender,
@@ -771,6 +766,7 @@ impl SpiceDataDistributorActor {
                 }
             }
             SpiceDataIdentifier::Witness { .. } => {
+                self.start_waiting_on_data(block.hash())?;
                 self.receive_witness_data_with_block(id, commitment, parts, block, &producers)
             }
         }
@@ -1405,8 +1401,6 @@ impl SpiceDataDistributorActor {
             }
             self.waiting_on_data.insert(id, WaitingOnDataEntry::request_immediately());
         }
-
-        self.data_manager.track_block(block.header())?;
         Ok(())
     }
 
@@ -1817,6 +1811,8 @@ impl SpiceDataDistributorActor {
             self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             self.start_waiting_on_data(&block_hash)?;
+            let header = self.chain_store.get_block_header(&block_hash)?;
+            self.data_manager.track_block(&header)?;
             next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
         Ok(())

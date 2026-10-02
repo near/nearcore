@@ -30,6 +30,9 @@ pub(crate) struct FetchItem {
     pub(crate) height: BlockHeight,
     /// The item's producers, in the parts' encoding order, each with its state.
     pub(super) producers: Vec<(AccountId, ProducerState)>,
+    /// Whether a decode has been handed to the consumer. Only then can the store hold the
+    /// item's data.
+    pub(crate) delivered: bool,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
 }
@@ -53,7 +56,7 @@ impl FetchItem {
     pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
         let producers =
             producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
-        Self { height, producers, commitments: HashMap::new() }
+        Self { height, producers, delivered: false, commitments: HashMap::new() }
     }
 
     /// Senders contributed to `commitment`.

@@ -14,12 +14,14 @@ use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
+use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::mem;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -97,6 +99,7 @@ impl DataPolicy for Policies {
 // on the old actor path (#16275).
 pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     encoders: ReedSolomonEncoderCache,
+    chain_store: ChainStoreAdapter,
     policies: P,
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
@@ -107,9 +110,10 @@ pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
 }
 
 impl<P: DataPolicy> SpiceDataManager<P> {
-    pub(crate) fn new(data_parts_ratio: f64, policies: P) -> Self {
+    pub(crate) fn new(data_parts_ratio: f64, chain_store: ChainStoreAdapter, policies: P) -> Self {
         Self {
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
+            chain_store,
             policies,
             items: HashMap::new(),
             items_by_height: BTreeMap::new(),
@@ -139,6 +143,38 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             self.items.insert(id, FetchItem::new(height, producers));
         }
         Ok(())
+    }
+
+    /// The block was processed: expires the items at or below the final execution head,
+    /// tracks the items needed from the block, and removes the delivered ones already in the
+    /// store. A failed chain read is logged and skips only its own step.
+    pub(crate) fn on_block_processed(&mut self, block_hash: &CryptoHash) {
+        match self.final_execution_head_height() {
+            Ok(height) => self.expire_at_or_below(height),
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
+            }
+        }
+        match self.chain_store.get_block_header(block_hash) {
+            Ok(header) => {
+                if let Err(err) = self.track_block(&header) {
+                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to track the block");
+                }
+            }
+            Err(err) => {
+                tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to read the block header");
+            }
+        }
+        self.remove_done_items();
+    }
+
+    /// Height of the final execution head; the genesis height before the first one is recorded.
+    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
+        match self.chain_store.spice_final_execution_head() {
+            Ok(head) => Ok(head.height),
+            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
+            Err(err) => Err(err),
+        }
     }
 
     /// Handles incoming parts: verifies every part's proof against the commitment before
@@ -183,6 +219,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         for part in verified {
             match item.insert_part(&encoder, id, producer_index, part) {
                 PartInsertResult::Decoded(data) => {
+                    item.delivered = true;
                     return Ok(PartsOutcome::Decoded(data));
                 }
                 PartInsertResult::Garbage(error) => {
@@ -198,22 +235,43 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// The final execution head advanced: the chain is past every item at or below it,
-    /// so their data can no longer be applied. Removes them, and [`Self::track_block`] refuses
-    /// them from now on.
-    pub(crate) fn on_final_execution_head(&mut self, height: BlockHeight) {
+    /// Stops tracking items at or below `height`.
+    fn expire_at_or_below(&mut self, height: BlockHeight) {
         self.final_execution_head = self.final_execution_head.max(Some(height));
         let Some(next_height) = height.checked_add(1) else {
             return;
         };
         let live = self.items_by_height.split_off(&next_height);
-        let expired = std::mem::replace(&mut self.items_by_height, live);
-        for (bucket_height, ids) in expired {
-            for id in ids {
-                let item = self.items.get(&id).expect("index entry names a tracked item");
-                assert_eq!(item.height, bucket_height, "index entry height matches its item");
-                self.items.remove(&id);
+        let expired = mem::replace(&mut self.items_by_height, live);
+        for id in expired.into_values().flatten() {
+            self.items.remove(&id).expect("index entry names a tracked item");
+        }
+    }
+
+    // TODO(spice-data-distribution): poll a set of delivered, not yet done ids instead of
+    // walking every item, together with the bounded pull walk.
+    /// Removes the items whose delivered data is in the store.
+    fn remove_done_items(&mut self) {
+        let mut done = Vec::new();
+        for id in self.items_by_height.values().flatten() {
+            let item = self.items.get(id).expect("index entry names a tracked item");
+            if item.delivered && self.policies.is_done(id) {
+                done.push(id.clone());
             }
+        }
+        for id in done {
+            self.remove_item(&id);
+        }
+    }
+
+    fn remove_item(&mut self, id: &DataId) {
+        let Some(item) = self.items.remove(id) else {
+            return;
+        };
+        let ids = self.items_by_height.get_mut(&item.height).expect("tracked item is indexed");
+        ids.retain(|indexed| indexed != id);
+        if ids.is_empty() {
+            self.items_by_height.remove(&item.height);
         }
     }
 }
