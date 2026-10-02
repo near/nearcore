@@ -307,16 +307,17 @@ mod tests {
         }
     }
 
-    /// The receipts a chunk of `from_shard_id` included at `height` sends to the
-    /// test receiver, with the receipts root that chunk's successor commits to and
-    /// their proof.
+    /// The receipts a chunk of `from_shard_id` included at `height`, in the block
+    /// following `prev_block_hash`, sends to the test receiver, with the receipts
+    /// root that chunk's successor commits to and their proof.
     fn outgoing_receipts(
         chain: &Chain,
         from_shard_id: ShardId,
+        prev_block_hash: &CryptoHash,
         height: BlockHeight,
     ) -> (Vec<Receipt>, CryptoHash, ReceiptProof) {
-        let genesis_epoch_id = *chain.genesis_block().header().epoch_id();
-        let shard_layout = chain.epoch_manager.get_shard_layout(&genesis_epoch_id).unwrap();
+        let shard_layout =
+            chain.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
         let from_shard_index: u64 = from_shard_id.into();
         let deposit = 100 * u128::from(height) + u128::from(from_shard_index);
         let receipts =
@@ -352,7 +353,8 @@ mod tests {
                 if new_chunk_shard != Some(shard_id) {
                     return carried.clone();
                 }
-                let (_, receipts_root, _) = outgoing_receipts(chain, shard_id, height);
+                let (_, receipts_root, _) =
+                    outgoing_receipts(chain, shard_id, prev_block.hash(), height);
                 let mut chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
                     *prev_block.hash(),
                     CryptoHash::default(),
@@ -409,7 +411,13 @@ mod tests {
             self.sources()
                 .into_iter()
                 .flat_map(|(block, shard_id)| {
-                    outgoing_receipts(&self.chain, shard_id, block.header().height()).0
+                    outgoing_receipts(
+                        &self.chain,
+                        shard_id,
+                        block.header().prev_hash(),
+                        block.header().height(),
+                    )
+                    .0
                 })
                 .collect()
         }
@@ -421,8 +429,12 @@ mod tests {
                 .sources()
                 .into_iter()
                 .map(|(block, shard_id)| {
-                    let (_, _, proof) =
-                        outgoing_receipts(&self.chain, shard_id, block.header().height());
+                    let (_, _, proof) = outgoing_receipts(
+                        &self.chain,
+                        shard_id,
+                        block.header().prev_hash(),
+                        block.header().height(),
+                    );
                     (self.chunk_hash(block, shard_id), proof)
                 })
                 .collect();
@@ -442,7 +454,7 @@ mod tests {
 
         /// [`Self::witness`] claiming one old-chunk transition at `block_hash`
         /// with an empty base state and `post_state_root`.
-        fn witness_with_transition(
+        fn witness_with_implicit_transition(
             &self,
             block_hash: CryptoHash,
             post_state_root: CryptoHash,
@@ -565,6 +577,37 @@ mod tests {
         assert_eq!(replay.shard_uid.shard_id(), boundary_chain.target_shard_id);
     }
 
+    /// The last pre-spice block is attested by a boundary witness only: a regular
+    /// witness keyed to it must be rejected.
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn test_regular_witness_rejected_for_last_pre_spice_block() {
+        let boundary_chain = setup_boundary_chain();
+        let block = &boundary_chain.boundary_block;
+        let prev_block = boundary_chain.chain.get_block(block.header().prev_hash()).unwrap();
+        let witness = SpiceChunkStateWitness::new(
+            SpiceChunkId { block_hash: *block.hash(), shard_id: boundary_chain.target_shard_id },
+            PartialState::TrieValues(vec![]),
+            HashMap::new(),
+            hash(&borsh::to_vec(&boundary_chain.expected_receipts()).unwrap()),
+            vec![],
+            BTreeSet::new(),
+            None,
+        );
+
+        let result = spice_pre_validate_chunk_state_witness(
+            &witness,
+            block,
+            &prev_block,
+            &BlockExecutionResults(HashMap::new()),
+            boundary_chain.chain.epoch_manager.as_ref(),
+            boundary_chain.chain.chain_store(),
+            vec![],
+        );
+
+        assert_invalid_witness(result, "regular spice witness for a pre-spice block");
+    }
+
     /// A boundary witness attests the last pre-spice block only: one keyed to an
     /// earlier pre-spice block, whose chunk never certifies, must be rejected.
     #[test]
@@ -612,7 +655,7 @@ mod tests {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_boundary_witness_rejected_for_implicit_transition_at_wrong_block() {
         let boundary_chain = setup_boundary_chain();
-        let witness = boundary_chain.witness_with_transition(
+        let witness = boundary_chain.witness_with_implicit_transition(
             *boundary_chain.last_new_chunk_block.hash(),
             CryptoHash::default(),
         );
@@ -628,7 +671,7 @@ mod tests {
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_boundary_witness_rejected_for_wrong_implicit_post_state_root() {
         let boundary_chain = setup_boundary_chain();
-        let witness = boundary_chain.witness_with_transition(
+        let witness = boundary_chain.witness_with_implicit_transition(
             *boundary_chain.boundary_block.hash(),
             hash(b"wrong post state root"),
         );
@@ -656,8 +699,8 @@ mod tests {
         let runtime_adapter = boundary_chain.chain.runtime_adapter.as_ref();
 
         // The runtime's own old-chunk apply is the reference post state root.
-        let witness =
-            boundary_chain.witness_with_transition(boundary_block_hash, CryptoHash::default());
+        let witness = boundary_chain
+            .witness_with_implicit_transition(boundary_block_hash, CryptoHash::default());
         let output = boundary_chain.run_pre_validation(&witness).unwrap();
         let Ok(BoundaryReplay { block_context, shard_uid, .. }) =
             output.boundary_replays.into_iter().exactly_one()
@@ -686,8 +729,8 @@ mod tests {
         .apply_result
         .new_root;
 
-        let witness =
-            boundary_chain.witness_with_transition(boundary_block_hash, expected_post_state_root);
+        let witness = boundary_chain
+            .witness_with_implicit_transition(boundary_block_hash, expected_post_state_root);
         let output = boundary_chain.run_pre_validation(&witness).unwrap();
         let chunk_extra = replay_boundary_implicit_transitions(
             &witness,

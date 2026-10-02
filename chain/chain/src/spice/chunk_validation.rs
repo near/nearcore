@@ -55,10 +55,16 @@ pub fn spice_pre_validate_chunk_state_witness(
             return pre_validate_boundary_chunk_state_witness(witness, block, epoch_manager, store);
         }
     };
-    // Genesis is rejected below as on any spice chain.
-    if !block.is_spice_block() && !block.header().is_genesis() {
+    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
+    // witnesses. Execution results for genesis can be calculated on each node on their own.
+    if block.header().is_genesis() {
         return Err(Error::InvalidChunkStateWitness(
-            "regular witness for a pre-spice block".to_string(),
+            "State witness is for genesis block".to_string(),
+        ));
+    }
+    if !block.is_spice_block() {
+        return Err(Error::InvalidChunkStateWitness(
+            "regular spice witness for a pre-spice block".to_string(),
         ));
     }
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
@@ -145,14 +151,6 @@ pub fn spice_pre_validate_chunk_state_witness(
                 .is_ok()
         })
         .collect::<Vec<_>>();
-
-    // Chunk executor actor doesn't execute genesis so there's no need to handle respective
-    // witnesses. Execution results for genesis can be calculated on each node on their own.
-    if block.header().is_genesis() {
-        return Err(Error::InvalidChunkStateWitness(
-            "State witness is for genesis block".to_string(),
-        ));
-    }
 
     let new_chunk_data = {
         let prev_chunk_chunk_extra = {
@@ -255,7 +253,12 @@ pub fn spice_validate_chunk_state_witness(
 
     // TODO(spice-resharding): Handle possible resharding transitions.
 
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let shard_layout = match &state_witness {
+        SpiceChunkStateWitness::V1(_) => epoch_manager.get_shard_layout(&epoch_id)?,
+        SpiceChunkStateWitness::Boundary(_) => {
+            epoch_manager.get_shard_layout_from_prev_block(block_hash)?
+        }
+    };
     let outgoing_receipts_hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
