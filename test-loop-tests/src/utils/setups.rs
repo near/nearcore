@@ -5,6 +5,7 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
 use near_vm_runner::logic::ProtocolVersion;
 
 pub fn derive_new_epoch_config_from_boundary(
@@ -17,6 +18,26 @@ pub fn derive_new_epoch_config_from_boundary(
     tracing::info!(target: "test", ?base_shard_layout, ?new_shard_layout, "shard layout");
     let epoch_config = base_epoch_config.clone().with_shard_layout(new_shard_layout.clone());
     (epoch_config, new_shard_layout)
+}
+
+/// Returns the upgrade edge immediately below EarlyKickout activation.
+///
+/// When EarlyKickout becomes stable, the default `PROTOCOL_VERSION - 1 -> PROTOCOL_VERSION` edge
+/// crosses activation. Callers use this helper to remain below it and document the behavior they
+/// cover. `tests::protocol_upgrade` and `tests::sync::early_kickout_sync` cover activation itself.
+///
+/// The assertion is a removal trigger. When this edge leaves the supported window, delete its
+/// callers. Do not shift the versions or skip the tests, because either would silently remove
+/// their intended coverage.
+pub fn pre_early_kickout_upgrade_edge() -> (ProtocolVersion, ProtocolVersion) {
+    let new_protocol = ProtocolFeature::EarlyKickout.protocol_version() - 1;
+    let old_protocol = new_protocol - 1;
+    assert!(
+        old_protocol >= MIN_SUPPORTED_PROTOCOL_VERSION,
+        "pre-activation edge {old_protocol} -> {new_protocol} is below the minimum supported \
+         version {MIN_SUPPORTED_PROTOCOL_VERSION}; delete the tests that pin to it"
+    );
+    (old_protocol, new_protocol)
 }
 
 /// Two protocol upgrades would happen as soon as possible,
