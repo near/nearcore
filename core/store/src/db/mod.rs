@@ -11,6 +11,7 @@ pub mod metadata;
 mod mixeddb;
 mod recoverydb;
 pub mod refcount;
+#[cfg(feature = "rocksdb")]
 pub mod rocksdb;
 mod slice;
 mod splitdb;
@@ -20,6 +21,7 @@ pub use self::cold_column_checked::ColumnCheckedColdDB;
 pub use self::colddb::ColdDB;
 pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::recoverydb::RecoveryDB;
+#[cfg(feature = "rocksdb")]
 pub use self::rocksdb::RocksDB;
 pub use self::slice::DBSlice;
 pub use self::splitdb::SplitDB;

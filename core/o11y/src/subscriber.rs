@@ -1,16 +1,10 @@
-use crate::opentelemetry::add_opentelemetry_layer;
-use crate::reload::{
-    LogLayer, SimpleLogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
-};
+use crate::reload::SimpleLogLayer;
 use crate::{OpenTelemetryLevel, log_counter};
-use near_crypto::PublicKey;
-use near_primitives_core::types::AccountId;
 use std::path::PathBuf;
 use tracing::subscriber::DefaultGuard;
-use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{EnvFilter, Layer, fmt, reload};
+use tracing_subscriber::{EnvFilter, Layer, fmt};
 
 /// The resource representing a registered subscriber.
 ///
@@ -38,6 +32,7 @@ pub struct DefaultSubscriberGuard<S> {
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, value_enum, default_value = "off")]
+    #[cfg_attr(not(feature = "otlp"), allow(dead_code))]
     opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
@@ -125,17 +120,18 @@ fn get_fmt_span(with_span_events: bool) -> fmt::format::FmtSpan {
     }
 }
 
+#[cfg(feature = "otlp")]
 fn add_non_blocking_log_layer<S>(
     filter: EnvFilter,
-    writer: NonBlocking,
+    writer: tracing_appender::non_blocking::NonBlocking,
     ansi: bool,
     with_span_events: bool,
     subscriber: S,
-) -> (LogLayer<S>, reload::Handle<EnvFilter, S>)
+) -> (crate::reload::LogLayer<S>, tracing_subscriber::reload::Handle<EnvFilter, S>)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
-    let (filter, handle) = reload::Layer::<EnvFilter, S>::new(filter);
+    let (filter, handle) = tracing_subscriber::reload::Layer::<EnvFilter, S>::new(filter);
 
     let layer = fmt::layer()
         .with_ansi(ansi)
@@ -236,13 +232,19 @@ pub fn default_subscriber(
 ///
 /// The subscriber enables logging, tracing and io tracing.
 /// Subscriber creation needs an async runtime.
+///
+/// Requires the `otlp` feature (enabled by default).
+#[cfg(feature = "otlp")]
 pub async fn default_subscriber_with_opentelemetry(
     env_filter: EnvFilter,
     options: &Options,
     chain_id: String,
-    node_public_key: PublicKey,
-    account_id: Option<AccountId>,
+    node_public_key: near_crypto::PublicKey,
+    account_id: Option<near_primitives_core::types::AccountId>,
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
+    use crate::opentelemetry::add_opentelemetry_layer;
+    use crate::reload::{set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle};
+
     let color_output = use_color_output(options);
 
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
