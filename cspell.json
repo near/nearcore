@@ -343,6 +343,7 @@
         "prost",
         "pubkeys",
         "pugachag",
+        "pullable",
         "pwasm",
         "PYEOF",
         "pytest",
