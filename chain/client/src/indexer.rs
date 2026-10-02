@@ -21,7 +21,6 @@ use near_indexer_primitives::{
     StreamerMessage,
 };
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
@@ -30,7 +29,7 @@ use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
     ReceiptView, StateChangesView,
 };
-use node_runtime::config::calculate_tx_cost;
+use node_runtime::config::receipt_gas_price;
 use std::collections::HashMap;
 
 const INDEXER: &str = "indexer";
@@ -487,31 +486,15 @@ fn convert_transactions_sir_into_local_receipts<'a>(
             );
             continue;
         };
-        let actions: Vec<_> =
-            tx.actions.iter().cloned().map(Action::try_from).collect::<Result<_, _>>().map_err(
-                |error| FailedToFetchData::String(format!("invalid local action: {error}")),
-            )?;
-        let cost = calculate_tx_cost(
-            &tx.receiver_id,
-            &tx.signer_id,
-            &tx.public_key,
-            &actions,
-            runtime_config,
-            gas_price,
-        )
-        .map_err(|error| {
-            FailedToFetchData::String(format!("invalid local transaction cost: {error}"))
-        })?;
-        // Use empty actions here and clone actions from transactions later.
-        // Note that we cannot just pass `actions` here since conversion
-        // ActionView -> Action -> ActionView does not always preserve the
-        // content of the action.
+        // Use empty actions here and clone actions from transactions later,
+        // since conversion ActionView -> Action -> ActionView does not always
+        // preserve the content of the action.
         let receipt = Receipt::from_tx(
             receipt_id,
             tx.signer_id.clone(),
             tx.receiver_id.clone(),
             tx.public_key.clone(),
-            cost.receipt_gas_price,
+            receipt_gas_price(runtime_config, gas_price),
             vec![],
         );
         let mut receipt_view: ReceiptView = receipt.into();

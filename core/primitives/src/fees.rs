@@ -461,6 +461,13 @@ fn permission_exec_fees(
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
+/// Gas price of the action receipt created from a transaction. Gas attached to the receipt is
+/// purchased at a price which should be at least as large as min_gas_purchase_price. Later it
+/// might be burned at a lower price, in which case the price difference will be refunded.
+pub fn receipt_gas_price(config: &RuntimeConfig, current_gas_price: Balance) -> Balance {
+    std::cmp::max(current_gas_price, config.min_gas_purchase_price)
+}
+
 /// Returns the total cost of converting a `tx` into a receipt, including the
 /// costs of the spawned receipts.
 pub fn tx_cost(
@@ -468,27 +475,9 @@ pub fn tx_cost(
     tx: &Transaction,
     current_gas_price: Balance,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    calculate_tx_cost(
-        tx.receiver_id(),
-        tx.signer_id(),
-        tx.public_key(),
-        tx.actions(),
-        config,
-        current_gas_price,
-    )
-}
-
-/// Like [`tx_cost`], for callers that have the transaction's fields but not a
-/// `Transaction` (e.g. the indexer prices transaction views).
-pub fn calculate_tx_cost(
-    receiver_id: &AccountId,
-    signer_id: &AccountId,
-    signer_public_key: &PublicKey,
-    actions: &[Action],
-    config: &RuntimeConfig,
-    current_gas_price: Balance,
-) -> Result<TransactionCost, IntegerOverflowError> {
-    let sender_is_receiver = receiver_id == signer_id;
+    let receiver_id = tx.receiver_id();
+    let actions = tx.actions();
+    let sender_is_receiver = receiver_id == tx.signer_id();
     let fees = &config.fees;
     let mut burnt: ParameterCost =
         fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -505,7 +494,7 @@ pub fn calculate_tx_cost(
     // unaffected.
     burnt = burnt.checked_add_result(signature_verification_cost(
         fees,
-        signer_public_key,
+        tx.public_key(),
         actions,
         config.wasm_config.fix_ml_dsa_cost_charging,
     )?)?;
@@ -528,10 +517,7 @@ pub fn calculate_tx_cost(
     // Gas burned on converting the transaction to a receipt is burned at the current price.
     let burnt_amount = safe_gas_to_balance(current_gas_price, burnt.gas)?;
 
-    // Gas attached to the receipt is purchased at a price which should be at least as large as
-    // min_gas_purchase_price. Later it might be burned at a lower price, in which case the price
-    // difference will be refunded.
-    let receipt_gas_price = std::cmp::max(current_gas_price, config.min_gas_purchase_price);
+    let receipt_gas_price = receipt_gas_price(config, current_gas_price);
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
