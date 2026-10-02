@@ -383,6 +383,17 @@ pub struct RocksDbConfig {
     #[serde(default)]
     pub parallelism: Option<i32>,
 
+    /// Use direct I/O (`O_DIRECT`) for SST writes during flush and compaction.
+    ///
+    /// Keeps compaction traffic out of the page cache. If unset, defaults to
+    /// `true` for the cold store (large, append-only, typically on slow disks)
+    /// and `false` for the hot store, where freshly written data is read back
+    /// soon and benefits from the page cache. Requires a filesystem that
+    /// supports `O_DIRECT` (ext4, xfs); on tmpfs and some others the first
+    /// flush fails, in which case set this to `false` explicitly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_direct_io_for_flush_and_compaction: Option<bool>,
+
     /// Column-family tuning overrides for write-heavy columns.
     ///
     /// Applies to: PartialChunks, State, TrieChanges.
@@ -412,6 +423,7 @@ impl Default for RocksDbConfig {
             max_bytes_for_level_base: default_rocksdb_max_bytes_for_level_base(),
             max_total_wal_size: default_rocksdb_max_total_wal_size(),
             parallelism: None,
+            use_direct_io_for_flush_and_compaction: None,
             cf_high_load_overrides: None,
             cf_medium_load_overrides: None,
             cf_low_load_overrides: None,
