@@ -64,6 +64,9 @@ pub struct CloudArchivalRecentReader {
     interrupt: InterruptHandle,
     pending_window: Option<PendingWindow>,
     tries: ShardTries,
+    /// Copies block and shard rows but applies no state changes, for a store that
+    /// `bootstrap_range` built with `skip_state`.
+    skip_state: bool,
 }
 
 impl CloudArchivalRecentReader {
@@ -86,7 +89,15 @@ impl CloudArchivalRecentReader {
             interrupt: InterruptHandle::new(),
             pending_window: None,
             tries,
+            skip_state: false,
         }
+    }
+
+    /// Leaves state out, the way `bootstrap_range` does with `skip_state`: the loop then
+    /// reads no state root at startup and copies block and shard rows alone.
+    pub fn with_skip_state(mut self, skip_state: bool) -> Self {
+        self.skip_state = skip_state;
+        self
     }
 
     /// Takes the store over on the first run, otherwise returns where the reader resumes.
@@ -145,7 +156,9 @@ impl CloudArchivalRecentReader {
     /// Follows the bucket, copying what it holds into the local store, until interrupted.
     pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
         let mut reader_head = self.ensure_reader_head()?;
-        self.check_state_anchors(&reader_head)?;
+        if !self.skip_state {
+            self.check_state_anchors(&reader_head)?;
+        }
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
 
         while !self.interrupt.is_cancelled() {
@@ -198,6 +211,9 @@ impl CloudArchivalRecentReader {
                 reader_head.height + 1,
             )
             .await?;
+            if self.skip_state {
+                continue;
+            }
             // TODO(cloud_archival): anchor a shard a resharding added above the head.
             let state_root =
                 shard_state_anchor(&self.tries, &reader_head.last_present_block_hash, shard_uid)?;
