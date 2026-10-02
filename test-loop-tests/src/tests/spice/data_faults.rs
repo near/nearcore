@@ -106,7 +106,7 @@ fn assert_endorsed(observed: &SpicePartialDataObserved, recipients: &[AccountId]
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_partial_data_faults_with_dropped_pushes() {
+fn test_spice_partial_data_faults_with_one_answering_producer() {
     let Setup { mut env, producers, recipients, faults, observed } = setup();
     // All but one producer goes silent, leaving too few parts to decode from pushes alone, so a
     // recipient can only finish an item by requesting it from the one that still answers.
@@ -133,34 +133,36 @@ fn test_spice_partial_data_faults_with_dropped_pushes() {
     assert_endorsed(&observed, &recipients);
 }
 
-/// The producers of one shard's receipt proofs, and the other shard's producers, who receive them.
-fn receipt_proof_shards(
+/// Each shard's producers, ordered by shard id.
+fn producers_of_both_shards(
     env: &TestLoopEnv,
     observer: &AccountId,
 ) -> (Vec<AccountId>, Vec<AccountId>) {
     let mut shards = shard_producers(env, observer);
     shards.sort_by_key(|(shard_id, _)| *shard_id);
-    let [(_, faulted_shard), (_, other_shard)] = &shards[..] else { panic!("expected two shards") };
-    (faulted_shard.clone(), other_shard.clone())
+    let [(_, first_shard_producers), (_, second_shard_producers)] = &shards[..] else {
+        panic!("expected two shards")
+    };
+    (first_shard_producers.clone(), second_shard_producers.clone())
 }
 
-/// The receipt-proof twin of `dropped_pushes`: drop the receipt proofs most of one
-/// shard's producers send, leaving too few pushed parts to decode, so the other shard's
-/// producers can only keep applying — and certification advancing — by requesting the
-/// rest from the producer still answering. Contrast `starve_receipt_proofs`, where the
+/// The receipt-proof twin of `one_answering_producer`: silence most of one shard's
+/// producers for receipt proofs, pushes and answers alike, leaving too few pushed parts to
+/// decode, so the other shard's producers can only keep applying — and certification
+/// advancing — by requesting the rest from the producer still answering. Contrast `starve_receipt_proofs`, where the
 /// whole shard goes silent and certification stops for good.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_partial_data_faults_with_dropped_receipt_proof_pushes() {
+fn test_spice_partial_data_faults_with_one_answering_receipt_proof_producer() {
     let Setup { mut env, producers, recipients, faults, observed } = setup_with_shards(2, 8);
-    let (silenced_shard, other_shard) = receipt_proof_shards(&env, &recipients[0]);
-    assert_eq!(silenced_shard.len() + other_shard.len(), producers.len());
+    let (source_producers, other_producers) = producers_of_both_shards(&env, &recipients[0]);
+    assert_eq!(source_producers.len() + other_producers.len(), producers.len());
     // With four producers per shard a proof decodes from two parts, so three silent
     // producers leave one pushed part — not enough without requesting.
-    let silent = &silenced_shard[1..];
+    let silent = &source_producers[1..];
     assert!(
-        silenced_shard.len() - silent.len()
-            < reed_solomon_num_data_parts(silenced_shard.len(), DATA_PARTS_RATIO),
+        source_producers.len() - silent.len()
+            < reed_solomon_num_data_parts(source_producers.len(), DATA_PARTS_RATIO),
         "the producers left alone still push enough parts to decode, so recovery never runs"
     );
     faults.lock().only_kind = Some(SpiceDataKind::ReceiptProof);
@@ -172,7 +174,7 @@ fn test_spice_partial_data_faults_with_dropped_receipt_proof_pushes() {
     assert!(observed.dropped > 0, "no receipt proof was dropped");
     // The dropped proofs' recipients are the other shard's producers; every one of them
     // has to request the missing parts to keep applying its shard.
-    for recipient in &other_shard {
+    for recipient in &other_producers {
         assert!(
             observed.data_requests.contains_key(recipient),
             "{recipient} never had to request the dropped receipt proofs"
@@ -190,12 +192,12 @@ fn test_spice_partial_data_faults_with_dropped_receipt_proof_pushes() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_with_a_single_honest_receipt_proof_producer() {
     let Setup { mut env, producers, recipients, faults, observed } = setup_with_shards(2, 8);
-    let (corrupted_shard, other_shard) = receipt_proof_shards(&env, &recipients[0]);
-    assert_eq!(corrupted_shard.len() + other_shard.len(), producers.len());
-    let liars = &corrupted_shard[1..];
+    let (source_producers, other_producers) = producers_of_both_shards(&env, &recipients[0]);
+    assert_eq!(source_producers.len() + other_producers.len(), producers.len());
+    let liars = &source_producers[1..];
     assert!(
-        corrupted_shard.len() - liars.len()
-            < reed_solomon_num_data_parts(corrupted_shard.len(), DATA_PARTS_RATIO),
+        source_producers.len() - liars.len()
+            < reed_solomon_num_data_parts(source_producers.len(), DATA_PARTS_RATIO),
         "the honest producers alone push enough parts to decode, so recovery never runs"
     );
     faults.lock().only_kind = Some(SpiceDataKind::ReceiptProof);
@@ -205,7 +207,7 @@ fn test_spice_partial_data_faults_with_a_single_honest_receipt_proof_producer() 
 
     let observed = observed.lock();
     assert!(observed.corrupted > 0, "no receipt proof was corrupted");
-    for recipient in &other_shard {
+    for recipient in &other_producers {
         assert!(
             observed.data_requests.contains_key(recipient),
             "{recipient} never had to request the honest receipt proof parts"
@@ -347,15 +349,19 @@ fn test_spice_partial_data_faults_starve_receipt_proofs() {
     const STARVED_BLOCKS: usize = 8;
 
     let Setup { mut env, producers, recipients, faults, observed } = setup_with_shards(2, 8);
-    let (silenced, other) = receipt_proof_shards(&env, &recipients[0]);
-    assert_eq!(silenced.len() + other.len(), producers.len(), "every producer serves a shard");
+    let (source_producers, other_producers) = producers_of_both_shards(&env, &recipients[0]);
+    assert_eq!(
+        source_producers.len() + other_producers.len(),
+        producers.len(),
+        "every producer serves a shard"
+    );
 
     env.runner_for_account(&recipients[0]).run_for_number_of_blocks(HEALTHY_BLOCKS);
     let healthy = env.node_for_account(&recipients[0]).last_certified_block_header().height();
     assert!(healthy > 0, "nothing certified before a fault was armed");
 
     faults.lock().only_kind = Some(SpiceDataKind::ReceiptProof);
-    faults.lock().drop_from.extend(silenced.iter().cloned());
+    faults.lock().drop_from.extend(source_producers.iter().cloned());
 
     env.runner_for_account(&recipients[0]).run_for_number_of_blocks(STARVED_BLOCKS);
     let draining = env.node_for_account(&recipients[0]).last_certified_block_header().height();

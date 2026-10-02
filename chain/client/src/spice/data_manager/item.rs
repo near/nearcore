@@ -10,7 +10,7 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId};
+use near_primitives::types::{AccountId, BlockHeight};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -34,8 +34,6 @@ pub(crate) struct FetchItem {
     /// Whether a decode has been handed to the consumer. Only then can the store hold the
     /// item's data.
     pub(crate) delivered: bool,
-    /// From `DataPolicy::opening_chunks`, less those a processed block has certified.
-    pub(super) uncertified_opening_chunks: HashSet<SpiceChunkId>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
 }
@@ -58,29 +56,14 @@ pub(super) enum CommitmentState {
 }
 
 impl FetchItem {
-    pub(crate) fn new(
-        height: BlockHeight,
-        producers: Vec<AccountId>,
-        opening_chunks: Vec<SpiceChunkId>,
-    ) -> Self {
+    pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
         let producers =
             producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
-        Self {
-            height,
-            producers,
-            delivered: false,
-            uncertified_opening_chunks: opening_chunks.into_iter().collect(),
-            commitments: HashMap::new(),
-        }
-    }
-
-    /// Whether every opening chunk is certified; only then is the item pulled.
-    pub(super) fn is_pullable(&self) -> bool {
-        self.uncertified_opening_chunks.is_empty()
+        Self { height, producers, delivered: false, commitments: HashMap::new() }
     }
 
     /// The state of `account` if it is one of the item's producers.
-    pub(super) fn producer_mut(&mut self, account: &AccountId) -> Option<&mut ProducerState> {
+    pub(super) fn producer_state_mut(&mut self, account: &AccountId) -> Option<&mut ProducerState> {
         self.producers.iter_mut().find(|(producer, _)| producer == account).map(|(_, state)| state)
     }
 
@@ -206,7 +189,6 @@ impl VerifiedCodedPart {
 /// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
-    total_parts: usize,
     /// Position in the pool's rotation; starts at random so requesters spread over the
     /// pool, and moves past each member asked.
     pub(super) rotation_cursor: u64,
@@ -225,7 +207,6 @@ impl fmt::Debug for CodedTracker {
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
         Self {
-            total_parts: encoder.total_parts(),
             parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
             rotation_cursor: rand::random(),
         }
@@ -233,7 +214,7 @@ impl CodedTracker {
 
     /// Ordinals not held yet.
     pub(super) fn missing_ordinals(&self) -> Vec<u64> {
-        (0..self.total_parts)
+        (0..self.parts.total_parts())
             .filter(|ordinal| !self.parts.has_part(*ordinal))
             .map(|ordinal| ordinal as u64)
             .collect()

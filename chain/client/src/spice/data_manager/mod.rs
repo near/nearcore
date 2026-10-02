@@ -22,7 +22,7 @@ use near_primitives::spice::partial_data::{SpiceDataCommitment, SpiceDataPart};
 use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 pub(crate) use pending::PendingPartialData;
-pub(crate) use pull::{PullConfig, PullRequest, rotated_source_index};
+pub(crate) use pull::{PullConfig, PullRequest};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
@@ -95,8 +95,8 @@ impl DataPolicy for Policies {
         self.for_id(id).is_done(id)
     }
 
-    fn opening_chunks(&self, id: &DataId) -> Vec<SpiceChunkId> {
-        self.for_id(id).opening_chunks(id)
+    fn chunks_to_certify_before_pull(&self, id: &DataId) -> Vec<SpiceChunkId> {
+        self.for_id(id).chunks_to_certify_before_pull(id)
     }
 }
 
@@ -146,30 +146,30 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         self.items.contains_key(id)
     }
 
-    /// Records the chunks `block` certifies, on the manager and on the tracked items waiting
-    /// on them, then starts tracking every item this node needs from `block` and doesn't
-    /// already have or track. Idempotent.
+    /// Records the chunks `block` certifies, then starts tracking every item this node needs
+    /// from `block` and doesn't already have or track. Idempotent.
     pub(crate) fn track_block(&mut self, block: &Block) -> Result<(), Error> {
-        self.open_certified(block)?;
+        self.record_chunks_certified_by(block)?;
         self.track_block_items(block.header())
     }
 
-    /// Records the chunks `block` certifies, on the manager and on the tracked items waiting
-    /// on them.
-    fn open_certified(&mut self, block: &Block) -> Result<(), Error> {
+    /// Records the chunks `block` certifies.
+    fn record_chunks_certified_by(&mut self, block: &Block) -> Result<(), Error> {
         let mut certified = Vec::new();
         for (chunk_id, _) in block.spice_core_statements().iter_execution_results() {
             let height = self.chain_store.get_block_header(&chunk_id.block_hash)?.height();
-            certified.push((height, chunk_id));
+            certified.push((chunk_id.clone(), height));
         }
-        for (height, chunk_id) in certified {
-            for id in self.items_by_height.get(&height).into_iter().flatten() {
-                let item = self.items.get_mut(id).expect("index entry names a tracked item");
-                item.uncertified_opening_chunks.remove(chunk_id);
-            }
-            self.certified.insert(chunk_id.clone(), height);
-        }
+        self.certified.extend(certified);
         Ok(())
+    }
+
+    /// Whether every chunk to certify before pulling `id` is certified.
+    fn is_pullable(&self, id: &DataId) -> bool {
+        self.policies
+            .chunks_to_certify_before_pull(id)
+            .iter()
+            .all(|chunk_id| self.certified.contains_key(chunk_id))
     }
 
     // TODO(spice-data-distribution): Fold back into `track_block` once data for a block not
@@ -187,14 +187,8 @@ impl<P: DataPolicy> SpiceDataManager<P> {
             if self.items.contains_key(&id) || self.policies.is_done(&id) {
                 continue;
             }
-            let opening_chunks = self
-                .policies
-                .opening_chunks(&id)
-                .into_iter()
-                .filter(|chunk_id| !self.certified.contains_key(chunk_id))
-                .collect();
             self.items_by_height.entry(height).or_default().push(id.clone());
-            self.items.insert(id, FetchItem::new(height, producers, opening_chunks));
+            self.items.insert(id, FetchItem::new(height, producers));
         }
         Ok(())
     }
@@ -217,8 +211,8 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         }
         match self.chain_store.get_block(block_hash) {
             Ok(block) => {
-                if let Err(err) = self.open_certified(&block) {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to open the items the block certifies");
+                if let Err(err) = self.record_chunks_certified_by(&block) {
+                    tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to record the chunks the block certifies");
                 }
                 if let Err(err) = self.track_block_items(block.header()) {
                     tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to track the block");
