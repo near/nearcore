@@ -142,8 +142,7 @@ pub(crate) fn build_pre_spice_block(
     new_chunk_shards: &[ShardId],
     latest_protocol_version: ProtocolVersion,
 ) -> Arc<Block> {
-    let epoch_manager = chain.epoch_manager.clone();
-    let new_chunks = get_fake_next_block_chunk_headers(prev_block, epoch_manager.as_ref());
+    let new_chunks = get_fake_next_block_chunk_headers(prev_block, chain.epoch_manager.as_ref());
     let chunks: Vec<_> = prev_block
         .chunks()
         .iter_raw()
@@ -154,6 +153,18 @@ pub(crate) fn build_pre_spice_block(
             },
         )
         .collect();
+    build_pre_spice_block_with_chunks(chain, prev_block, chunks, latest_protocol_version)
+}
+
+/// Fabricates the next pre-spice block carrying `chunks` without saving it, voting
+/// for `latest_protocol_version`.
+pub(crate) fn build_pre_spice_block_with_chunks(
+    chain: &Chain,
+    prev_block: &Block,
+    chunks: Vec<ShardChunkHeader>,
+    latest_protocol_version: ProtocolVersion,
+) -> Arc<Block> {
+    let epoch_manager = chain.epoch_manager.as_ref();
     let signer = Arc::new(create_test_signer("test1"));
     let height = prev_block.header().height() + 1;
     let chunk_endorsements = unsigned_chunk_endorsement_slots(chain, prev_block, height, &chunks);
