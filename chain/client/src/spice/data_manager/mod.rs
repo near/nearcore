@@ -82,16 +82,12 @@ impl Policies {
 /// Fans out per-block queries over every policy; dispatches per-id calls to the policy
 /// of `id`'s data type.
 impl DataPolicy for Policies {
-    fn needed_ids(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        self.receipt_proofs.needed_ids(block)
+    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
+        self.receipt_proofs.needed_items(block)
     }
 
-    fn is_done(&self, id: &DataId) -> Result<bool, Error> {
+    fn is_done(&self, id: &DataId) -> bool {
         self.for_id(id).is_done(id)
-    }
-
-    fn producers(&self, id: &DataId) -> Result<Vec<AccountId>, Error> {
-        self.for_id(id).producers(id)
     }
 }
 
@@ -135,21 +131,10 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
-        let mut new_ids = Vec::new();
-        for id in self.policies.needed_ids(block)? {
-            if !self.items.contains_key(&id) && !self.policies.is_done(&id)? {
-                new_ids.push(id);
+        for (id, producers) in self.policies.needed_items(block)? {
+            if self.items.contains_key(&id) || self.policies.is_done(&id) {
+                continue;
             }
-        }
-        if new_ids.is_empty() {
-            return Ok(());
-        }
-        let mut resolved = Vec::with_capacity(new_ids.len());
-        for id in new_ids {
-            let producers = self.policies.producers(&id)?;
-            resolved.push((id, producers));
-        }
-        for (id, producers) in resolved {
             self.items_by_height.entry(height).or_default().push(id.clone());
             self.items.insert(id, FetchItem::new(height, producers));
         }
@@ -179,7 +164,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         let Some(item) = self.items.get_mut(id) else {
             return Ok(PartsOutcome::NotWanted);
         };
-        let Some(producer) = item.producers.iter().position(|(account, _)| account == sender)
+        let Some(producer_index) = item.producers.iter().position(|(account, _)| account == sender)
         else {
             return Err(SenderFault::NotAProducer);
         };
@@ -196,7 +181,7 @@ impl<P: DataPolicy> SpiceDataManager<P> {
         }
         let encoder = self.encoders.entry(total_parts);
         for part in verified {
-            match item.insert_part(&encoder, id, producer, part) {
+            match item.insert_part(&encoder, id, producer_index, part) {
                 PartInsertResult::Decoded(data) => {
                     return Ok(PartsOutcome::Decoded(data));
                 }

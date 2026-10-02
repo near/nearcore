@@ -28,7 +28,7 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
-    /// From `DataPolicy::producers`, each with its state; producer `i` produced part `i`.
+    /// The item's producers, in the parts' encoding order, each with its state.
     pub(super) producers: Vec<(AccountId, ProducerState)>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
@@ -65,23 +65,22 @@ impl FetchItem {
             .collect()
     }
 
-    /// Inserts a verified part sent by `producer`, an index into the item's producers, under
-    /// its commitment. Any claim binds the producer to the commitment; a claim of the wrong
-    /// width or part length settles the commitment as garbage. A decoding insert settles it in
-    /// the same call.
+    /// Inserts a verified part sent by the producer at `producer_index`, under its commitment.
+    /// Any claim binds the producer to the commitment; a claim of the wrong width or part length
+    /// settles the commitment as garbage. A decoding insert settles it in the same call.
     pub(crate) fn insert_part(
         &mut self,
         encoder: &Arc<ReedSolomonEncoder>,
         id: &DataId,
-        producer: usize,
+        producer_index: usize,
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        let producer = &mut self.producers[producer].1;
-        if producer.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
+        let state = &mut self.producers[producer_index].1;
+        if state.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        producer.commitment = Some(commitment.clone());
+        state.commitment = Some(commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
             return PartInsertResult::AlreadySettled;
