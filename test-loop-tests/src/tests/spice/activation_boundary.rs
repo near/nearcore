@@ -4,9 +4,10 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_account_id, create_validator_ids};
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::boundary_synthesis::execution_result_and_receipt_proofs_from_pre_spice_apply;
 use near_chain::spice::core::get_last_certified_block_header;
+use near_chain::{Block, ChainStoreAccess};
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::NetworkAdversarialMessage;
@@ -353,6 +354,77 @@ fn run_protocol_upgrade_to_spice(drops: BoundaryChunkDrops) {
         last_pre_spice_supply.checked_sub(expected_drop).unwrap(),
         "the certifying block must subtract exactly the newly certified blocks' burns",
     );
+
+    assert_boundary_results_validated(&env, &last_pre_spice);
+}
+
+/// The certified execution results of the last pre-spice block must be exactly what
+/// its pre-spice apply produced, for every shard, and each must be endorsed by at
+/// least one validator that never ran that apply. Such a validator can only have
+/// endorsed by validating the boundary witness, replaying the apply from the witness
+/// and arriving at the same result.
+fn assert_boundary_results_validated(env: &TestLoopEnv, last_pre_spice: &Block) {
+    let rpc_node = env.rpc_node();
+    let client = rpc_node.client();
+    let epoch_manager = client.epoch_manager.as_ref();
+    let core_reader = &client.chain.spice_core_reader;
+    let shard_layout = epoch_manager.get_shard_layout(last_pre_spice.header().epoch_id()).unwrap();
+
+    let certified = core_reader.get_execution_results_by_shard_id(last_pre_spice.header()).unwrap();
+    assert_eq!(
+        certified.len(),
+        shard_layout.num_shards() as usize,
+        "every chunk of the last pre-spice block must be certified",
+    );
+
+    for shard_id in shard_layout.shard_ids() {
+        let certified = certified[&shard_id].as_ref();
+        // The rpc node tracks every shard, so it applied the last pre-spice block in
+        // full the pre-spice way; this is the result the boundary attests.
+        let (applied, _) = execution_result_and_receipt_proofs_from_pre_spice_apply(
+            &client.chain.chain_store,
+            epoch_manager,
+            last_pre_spice,
+            shard_id,
+        )
+        .unwrap();
+        assert_eq!(
+            certified, &applied,
+            "certified result of shard {shard_id} differs from the pre-spice apply",
+        );
+
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let mut stateless_endorsers = Vec::new();
+        for (index, data) in env.node_datas.iter().enumerate() {
+            let applied_locally = env
+                .node(index)
+                .client()
+                .chain
+                .chain_store
+                .get_chunk_extra(last_pre_spice.hash(), &shard_uid)
+                .is_ok();
+            if applied_locally {
+                continue;
+            }
+            let Some(endorsement) =
+                core_reader.get_endorsement(last_pre_spice.hash(), shard_id, &data.account_id)
+            else {
+                continue;
+            };
+            assert_eq!(
+                endorsement.execution_result_hash,
+                certified.compute_hash(),
+                "{} endorsed a different result for shard {shard_id} than certified",
+                data.account_id,
+            );
+            stateless_endorsers.push(data.account_id.clone());
+        }
+        assert!(
+            !stateless_endorsers.is_empty(),
+            "no validator without the pre-spice apply of shard {shard_id} endorsed its boundary \
+             chunk; the boundary witness validation went unexercised",
+        );
+    }
 }
 
 /// Kill a node when its head is the last pre-spice block and restart it once the other
