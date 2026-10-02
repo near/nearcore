@@ -548,7 +548,8 @@ impl ActionReceiptResult {
 /// Lists the balance differences between
 #[derive(Debug, Default)]
 pub struct GasRefundResult {
-    /// The deficit due to increased gas prices since receipt creation.
+    /// The deficit due to increased gas prices since receipt creation, plus the value of any gas
+    /// burnt beyond what was purchased when the config changed since the previous epoch.
     pub price_deficit: Balance,
     /// The surplus due to decreased gas prices since receipt creation.
     pub price_surplus: Balance,
@@ -556,6 +557,47 @@ pub struct GasRefundResult {
     pub refund_penalty: Balance,
     /// Additional charge for creating a new account, subtracted from the refund
     create_account_charge: Balance,
+}
+
+/// Checks that a receipt's gas accounting conserves tokens: the value of the gas purchased for
+/// the receipt equals the value burnt, refunded and forwarded to the receipts it created.
+///
+/// This is a safety net against refund or burn computations that drift from what was paid,
+/// e.g. when fees change between the funding and the execution of a receipt.
+#[cfg(debug_assertions)]
+fn debug_check_gas_conservation(
+    gas_burn_price: Balance,
+    gas_purchase_price: Balance,
+    prepaid_gas: Gas,
+    gas_spent: Gas,
+    gas_burnt: Gas,
+    gas_refund_result: &GasRefundResult,
+    gas_balance_refund: Balance,
+    protocol_version: ProtocolVersion,
+) {
+    let to_balance = |price: Balance, gas: Gas| safe_gas_to_balance(price, gas).unwrap();
+    let purchased = to_balance(gas_purchase_price, prepaid_gas);
+
+    // Mirrors the gas part of `tokens_burnt` in the receipt's execution outcome.
+    let mut burnt = to_balance(gas_burn_price, gas_burnt)
+        .checked_sub(gas_refund_result.price_deficit)
+        .unwrap()
+        .checked_add(gas_refund_result.refund_penalty)
+        .unwrap()
+        .checked_add(gas_refund_result.create_account_charge)
+        .unwrap();
+    if !ProtocolFeature::AccountCostIncrease.enabled(protocol_version) {
+        burnt = burnt.checked_add(gas_refund_result.price_surplus).unwrap();
+    }
+    // Gas used but not burnt was attached to new receipts, which carry the same purchase price.
+    let forwarded = to_balance(gas_purchase_price, gas_spent.checked_sub(gas_burnt).unwrap());
+
+    let accounted = burnt.checked_add(gas_balance_refund).unwrap().checked_add(forwarded).unwrap();
+    debug_assert_eq!(
+        purchased, accounted,
+        "receipt gas accounting does not conserve tokens: purchased {purchased}, \
+         burnt {burnt} + refunded {gas_balance_refund} + forwarded {forwarded}"
+    );
 }
 
 pub struct Runtime {}
@@ -1301,21 +1343,21 @@ impl Runtime {
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let actions = action_receipt.actions();
         let mut prepaid_fee_gas = total_prepaid_fees_gas(config, &actions, receipt.receiver_id())?;
-        let refund_capped = ProtocolFeature::CapRefundAtPrevEpochFees.enabled(protocol_version)
+        let config_changed = ProtocolFeature::CapRefundAtPrevEpochFees.enabled(protocol_version)
             && !Arc::ptr_eq(config, refund_config);
-        if refund_capped {
+        if config_changed {
             // The receipt may have been funded under the previous epoch's fees.
             // Never refund more than the cheaper schedule would have charged.
             let refund_fee_gas =
                 total_prepaid_fees_gas(refund_config, &actions, receipt.receiver_id())?;
-            prepaid_fee_gas = prepaid_fee_gas.min(refund_fee_gas);
+            prepaid_fee_gas = std::cmp::min(prepaid_fee_gas, refund_fee_gas);
         }
         let prepaid_gas = total_prepaid_gas(&actions)?
             .checked_add(prepaid_fee_gas)
             .ok_or(IntegerOverflowError)?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { Balance::ZERO };
         let gas_spent = if result.result.is_err() { result.gas_burnt } else { result.gas_used };
-        let gross_gas_refund = if refund_capped {
+        let gross_gas_refund = if config_changed {
             // The executed actions can cost more under the current fees than
             // what was prepaid for them, in which case nothing is left to refund.
             prepaid_gas.saturating_sub(gas_spent)
@@ -1343,19 +1385,27 @@ impl Runtime {
             create_account_charge: Balance::ZERO,
         };
 
+        // When the config changes, more gas can be burnt than was purchased. If
+        // that happens we should only account for the gas that was actually
+        // purchased when calculating the price deficit or surplus.
+        let purchased_gas_burnt = std::cmp::min(result.gas_burnt, prepaid_gas);
         if gas_burn_price > gas_purchase_price {
             // price increased, burning resulted in a deficit
-            gas_refund_result.price_deficit = safe_gas_to_balance(
-                gas_burn_price.checked_sub(gas_purchase_price).unwrap(),
-                result.gas_burnt,
-            )?;
+            let gas_price_diff = gas_burn_price.checked_sub(gas_purchase_price).unwrap();
+            gas_refund_result.price_deficit =
+                safe_gas_to_balance(gas_price_diff, purchased_gas_burnt)?;
         } else {
             // price decreased, burning resulted in a surplus
-            gas_refund_result.price_surplus = safe_gas_to_balance(
-                gas_purchase_price.checked_sub(gas_burn_price).unwrap(),
-                result.gas_burnt,
-            )?;
+            let gas_price_diff = gas_purchase_price.checked_sub(gas_burn_price).unwrap();
+            gas_refund_result.price_surplus =
+                safe_gas_to_balance(gas_price_diff, purchased_gas_burnt)?;
         };
+        // The gas burnt beyond what was purchased was never paid for. Book its
+        // value as a deficit rather than as burnt tokens.
+        let unpurchased_gas_burnt = result.gas_burnt.checked_sub(purchased_gas_burnt).unwrap();
+        let unpurchased_deficit = safe_gas_to_balance(gas_burn_price, unpurchased_gas_burnt)?;
+        gas_refund_result.price_deficit =
+            safe_add_balance(gas_refund_result.price_deficit, unpurchased_deficit)?;
 
         // Refund for the price difference between gas_purchase_price and gas_burn_price of the gas burned in this receipt.
         let mut burned_gas_refund =
@@ -1394,7 +1444,11 @@ impl Runtime {
 
             // sanity check: as long as the purchase price is high enough, there should always be
             // enough refund balance to cover the cost of creating an account.
-            if gas_purchase_price >= config.min_gas_purchase_price {
+            // When more gas was burnt than purchased, the surplus is limited to the purchased
+            // gas and may not cover the charge.
+            if gas_purchase_price >= config.min_gas_purchase_price
+                && result.gas_burnt <= prepaid_gas
+            {
                 debug_assert!(burned_gas_refund >= amount_to_charge);
             }
 
@@ -1422,6 +1476,18 @@ impl Runtime {
                 action_receipt.signer_public_key().clone(),
             ));
         }
+
+        #[cfg(debug_assertions)]
+        debug_check_gas_conservation(
+            gas_burn_price,
+            gas_purchase_price,
+            prepaid_gas,
+            gas_spent,
+            result.gas_burnt,
+            &gas_refund_result,
+            gas_balance_refund,
+            protocol_version,
+        );
 
         Ok(gas_refund_result)
     }

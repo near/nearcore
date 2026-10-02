@@ -290,6 +290,17 @@ fn block_has_feature(env: &TestLoopEnv, block_hash: &CryptoHash) -> bool {
     ProtocolFeature::AccountCostIncrease.enabled(version)
 }
 
+/// Whether the block with the given hash is in the first epoch of `PROTOCOL_VERSION`.
+fn block_in_first_upgraded_epoch(env: &TestLoopEnv, block_hash: &CryptoHash) -> bool {
+    let client = env.rpc_node().client();
+    let header = client.chain.get_block_header(block_hash).unwrap();
+    let epoch_manager = &client.epoch_manager;
+    let prev_epoch_id =
+        epoch_manager.get_prev_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+    epoch_manager.get_epoch_protocol_version(header.epoch_id()).unwrap() == PROTOCOL_VERSION
+        && epoch_manager.get_epoch_protocol_version(&prev_epoch_id).unwrap() != PROTOCOL_VERSION
+}
+
 /// Upgrade the network to a protocol version with `AccountCostIncrease` enabled while a stream
 /// of account-creating transactions runs through the upgrade boundary.
 ///
@@ -298,6 +309,12 @@ fn block_has_feature(env: &TestLoopEnv, block_hash: &CryptoHash) -> bool {
 /// account should burn `account_creation_charge` out of the gas price surplus refund. Such a
 /// receipt has no surplus to take the charge from, so the runtime charges only what's available
 /// (nothing) and the account is still created successfully.
+///
+/// In the first epoch after the upgrade, `CapRefundAtPrevEpochFees` treats every receipt as
+/// possibly funded under the previous epoch's cheaper account creation fee. The surplus is only
+/// refunded for that cheaper prepaid gas, so the account creation charge may not be fully
+/// collected even for receipts funded after the upgrade. The charge applies in full from the
+/// second epoch on.
 ///
 /// The signer and the created accounts are placed on different shards so that the
 /// account-creating receipt executes one block after the transaction is converted - a
@@ -337,10 +354,10 @@ fn test_create_account_cost_protocol_upgrade() {
         .account_creation_charge;
 
     // Send a CreateAccount transaction at every height until the network upgrades, then keep
-    // sending for a few more blocks under the new version.
+    // sending through the first upgraded epoch and a few blocks into the next one.
     let mut tx_hashes = Vec::new();
     let mut blocks_after_upgrade = 0;
-    while blocks_after_upgrade < 5 {
+    while blocks_after_upgrade < epoch_length + 5 {
         assert!(tx_hashes.len() < 10 * epoch_length as usize, "the upgrade never happened");
         let new_account = create_account_id(&format!("sub{}.alice", tx_hashes.len()));
         let tx = env.rpc_node().tx_from_actions(
@@ -357,7 +374,7 @@ fn test_create_account_cost_protocol_upgrade() {
     // Let the last transactions and all of their receipts finish executing.
     env.rpc_runner().run_for_number_of_blocks(5);
 
-    let (mut before, mut crossing, mut after) = (0, 0, 0);
+    let (mut before, mut crossing, mut first_epoch, mut after) = (0, 0, 0, 0);
     for tx_hash in tx_hashes {
         let outcome = env.rpc_node().client().chain.get_final_transaction_result(&tx_hash).unwrap();
         // Every transaction must succeed: before, across, and after the upgrade.
@@ -383,14 +400,22 @@ fn test_create_account_cost_protocol_upgrade() {
                 crossing += 1;
             }
             (true, false) => panic!("receipt executed at an older version than its transaction"),
-            // Fully after the upgrade: the account creation charge applies.
+            // Fully after the upgrade, in its first epoch: the refund is capped at the previous
+            // epoch's fees, so the account creation charge may be only partly collected.
+            (true, true)
+                if block_in_first_upgraded_epoch(&env, &outcome.receipts_outcome[0].block_hash) =>
+            {
+                first_epoch += 1;
+            }
+            // Fully after the upgrade, from its second epoch on: the account creation charge
+            // applies.
             (true, true) => {
                 assert!(cost > account_creation_charge);
                 after += 1;
             }
         }
     }
-    tracing::info!(target: "test", before, crossing, after, "transactions per upgrade stage");
+    tracing::info!(target: "test", before, crossing, first_epoch, after, "transactions per upgrade stage");
     assert!(
         before > 0 && crossing > 0 && after > 0,
         "the test should cover all three cases (before: {before}, crossing: {crossing}, after: {after})",
