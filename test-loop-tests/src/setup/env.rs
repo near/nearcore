@@ -1,3 +1,4 @@
+use super::block_observer::{BlockObservers, BlockSource, ObservedBlock};
 use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
 use super::setup::setup_client;
@@ -13,6 +14,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::ColdDB;
 use near_store::test_utils::TestNodeStorage;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -20,6 +22,7 @@ pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
     pub node_datas: Vec<NodeExecutionData>,
     pub shared_state: SharedState,
+    pub(crate) block_observers: BlockObservers,
 }
 
 impl TestLoopEnv {
@@ -206,7 +209,22 @@ impl TestLoopEnv {
     }
 
     pub fn node_runner(&mut self, idx: usize) -> NodeRunner<'_> {
-        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
+        NodeRunner {
+            test_loop: &mut self.test_loop,
+            node_data: &self.node_datas[idx],
+            node_datas: &self.node_datas,
+            block_observers: &mut self.block_observers,
+        }
+    }
+
+    /// Adds `observer`, called once per new head height of `source` while a `NodeRunner` runs the
+    /// test loop. Direct `test_loop.run_*` calls do not call observers.
+    pub fn on_each_block(
+        &mut self,
+        source: BlockSource,
+        observer: impl FnMut(&ObservedBlock<'_>) -> ControlFlow<()> + 'static,
+    ) {
+        self.block_observers.add(source, Box::new(observer));
     }
 
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
@@ -255,6 +273,7 @@ impl TestLoopEnv {
 
 impl Drop for TestLoopEnv {
     fn drop(&mut self) {
+        self.block_observers.clear();
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in &self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
