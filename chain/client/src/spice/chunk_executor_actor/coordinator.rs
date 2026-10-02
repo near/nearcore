@@ -12,6 +12,7 @@ use near_chain::spice::block_application::apply_block_postprocessing;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
+use near_chain::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use near_chain::types::RuntimeAdapter;
 use near_chain::update_shard::ShardUpdateResult;
 use near_chain::{ChainGenesis, Error};
@@ -20,6 +21,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::PeerManagerAdapter;
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::{NumBlocks, ShardId};
@@ -43,6 +45,9 @@ pub struct ChunkExecutorActor {
     pub(crate) core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
     data_distributor_adapter: SpiceDataDistributorAdapter,
     config: ChunkPersistenceConfig,
+    /// Used to snapshot the state left behind by an epoch's first block, which is what state
+    /// sync hands out for that epoch. `None` when the node makes no snapshots.
+    snapshot_callbacks: Option<SnapshotCallbacks>,
 
     /// One executor per tracked shard, reconciled on every block. Keyed by
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
@@ -95,6 +100,7 @@ impl ChunkExecutorActor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
         config: ChunkPersistenceConfig,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
@@ -117,6 +123,7 @@ impl ChunkExecutorActor {
             data_distributor_adapter,
             core_writer_sender,
             config,
+            snapshot_callbacks,
         }
     }
 
@@ -330,6 +337,12 @@ impl ChunkExecutorActor {
 
     fn finalize_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
+        // Before `apply_block_postprocessing`, which is what advances the flat head: the
+        // snapshot request pins the flat head at this block, and pinning it after the advance
+        // has begun would leave the snapshot unable to reach the state it is meant to hold.
+        if let Err(err) = self.process_snapshot(&block) {
+            tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to request a state snapshot");
+        }
         apply_block_postprocessing(
             self.runtime_adapter.as_ref(),
             self.epoch_manager.as_ref(),
@@ -342,6 +355,34 @@ impl ChunkExecutorActor {
             executor.prune_unverified_receipts_below_final_head()?;
         }
         Ok(())
+    }
+
+    /// Requests a state snapshot of the state `block` left behind, if `block` is the first
+    /// block of its epoch.
+    ///
+    /// State sync for an epoch hands out the state as of that epoch's first block, which under
+    /// spice exists only once that block's chunks have executed - which is now, for every shard
+    /// this node tracks. The snapshot is created here and announced to the network later, once
+    /// the chunks are certified; see `StateSnapshotActor::advertise_once_certified`.
+    fn process_snapshot(&self, block: &Arc<Block>) -> Result<(), Error> {
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        if !self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+            return Ok(());
+        }
+        // `finalize_block` is idempotent and can run again for a block already finalized, on
+        // startup recovery among others. Only ask for the snapshot the first time, or the
+        // actor would tear the checkpoint down and rebuild it.
+        if self.chain_store.spice_execution_head()?.height >= block.header().height() {
+            return Ok(());
+        }
+        request_state_snapshot(
+            snapshot_callbacks,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            &self.chain_store,
+            &self.runtime_adapter.get_tries(),
+            block.clone(),
+        )
     }
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {

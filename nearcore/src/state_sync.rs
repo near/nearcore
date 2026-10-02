@@ -641,7 +641,7 @@ impl StateDumper {
             .with_context(|| {
                 format!("Failed getting state response header for {} {}", shard_id, sync_hash)
             })?;
-        let state_root = state_header.chunk_prev_state_root();
+        let state_root = state_header.synced_state_root();
         let num_parts = state_header.num_state_parts();
         metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
             .with_label_values(&[&shard_id.to_string()])

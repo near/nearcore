@@ -245,6 +245,7 @@ pub fn create_test_setup_with_accounts_and_validity(
             spice_core_writer_adapter.as_sender(),
             spice_data_distributor_adapter.as_multi_sender(),
             ChunkPersistenceConfig::default(),
+            None,
         );
         let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
         chunk_executor_adapter.bind(chunk_executor_addr);

@@ -27,8 +27,6 @@ use std::rc::Rc;
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -41,8 +39,6 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 25, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: true,
@@ -52,8 +48,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -64,8 +58,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
 
 // Make sure that transactions are at least applied.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -76,8 +68,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
 
 // Use another height to send txs.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -282,8 +272,6 @@ fn test_catchup_random_single_part_sync_common(
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_sanity_blocks_produced() {
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],

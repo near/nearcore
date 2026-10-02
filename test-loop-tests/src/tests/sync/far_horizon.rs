@@ -175,8 +175,6 @@ fn test_far_horizon_chained_epoch_sync() {
 //   - Node 0 detects it is stale, triggers EpochSyncDataReset, and gets denylisted
 //   - Node 0's head remains near the kill height (did not sync)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
     init_test_logger();
 
@@ -262,8 +260,6 @@ fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
 //   - Sync status sequence does NOT include "EpochSync"
 //   - Near-horizon status sequence (BlockSync only)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
     init_test_logger();
 
@@ -548,8 +544,6 @@ fn test_far_horizon_restart_during_block_sync() {
 // Assertions:
 //   - Restarted node is denylisted (data reset triggered)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_after_long_downtime() {
     init_test_logger();
 

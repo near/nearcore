@@ -108,6 +108,7 @@ impl TestonlySyncChunkExecutorActor {
                 core_writer_sender,
                 data_distributor_adapter,
                 chunk_persistence_config,
+                None,
             ),
             actor_rc,
             tasks_rc,

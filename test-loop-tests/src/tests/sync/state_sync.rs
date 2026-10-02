@@ -300,7 +300,7 @@ fn test_state_sync_simple_five_node() {
 
 #[test]
 #[should_panic(expected = "Invalid Gas Used")]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// chunk_extra is not recomputed under spice so there is nothing to diverge
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_chunk_extra_divergence_stops_the_node() {
     init_test_logger();
@@ -681,8 +681,6 @@ fn test_state_sync_untrack_then_track() {
 // height creates the block but it gets skipped on the canonical chain. This variant tests
 // that the fork-producing node can still provide valid state to others.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_sync_from_fork() {
     init_test_logger();
     let genesis_height: BlockHeight = 10000;
@@ -867,8 +865,6 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 // succeed), then one more (should be rejected), waits for the rate limit to reset, then
 // sends one more (should succeed again).
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_request() {
     init_test_logger();
     let validators_spec = create_validators_spec(4, 0);

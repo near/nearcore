@@ -149,6 +149,9 @@ impl SpiceMessageGate {
         self.decide(chain_store, epoch_manager, kind, block_hash, DropUnit::Entry)
     }
 
+    // `self.dropped` is only bumped under `test_features`, so without it the body never
+    // mutates and clippy asks for `&self` - which then fails to build with the feature on.
+    #[allow(clippy::needless_pass_by_ref_mut)]
     fn decide(
         &mut self,
         chain_store: &ChainStoreAdapter,
