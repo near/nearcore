@@ -21,6 +21,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import local_test_node
+import mocknet
 import node_config
 import remote_node
 from node_handle import NodeHandle
@@ -1175,6 +1176,9 @@ def register_subcommands(subparsers):
 
 
 if __name__ == '__main__':
+    # Manual, human-paced use: keep the shared ssh master connections alive
+    # between invocations for longer than the scripted default.
+    mocknet.set_default_ssh_control_persist('30m')
     parser = build_parser()
     args = parser.parse_args()
     ctx = CommandContext(args)
