@@ -548,7 +548,8 @@ impl ActionReceiptResult {
 /// Lists the balance differences between
 #[derive(Debug, Default)]
 pub struct GasRefundResult {
-    /// The deficit due to increased gas prices since receipt creation.
+    /// The deficit due to increased gas prices since receipt creation, plus the value of any gas
+    /// burnt beyond what was purchased when the refund is capped.
     pub price_deficit: Balance,
     /// The surplus due to decreased gas prices since receipt creation.
     pub price_surplus: Balance,
@@ -1401,6 +1402,15 @@ impl Runtime {
                 surplus_gas,
             )?;
         };
+        if refund_capped && result.gas_burnt > prepaid_gas {
+            // The gas burnt beyond what was purchased was never paid for. Book its value as a
+            // deficit rather than as burnt tokens.
+            let unpurchased_gas = result.gas_burnt.checked_sub(prepaid_gas).unwrap();
+            let unpurchased_deficit =
+                safe_gas_to_balance(gas_burn_price.min(gas_purchase_price), unpurchased_gas)?;
+            gas_refund_result.price_deficit =
+                safe_add_balance(gas_refund_result.price_deficit, unpurchased_deficit)?;
+        }
 
         // Refund for the price difference between gas_purchase_price and gas_burn_price of the gas burned in this receipt.
         let mut burned_gas_refund =
