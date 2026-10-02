@@ -40,6 +40,8 @@ pub(crate) enum SenderFault {
     InvalidMerkleProof,
     #[error("sender already backed another commitment")]
     ConflictingCommitment,
+    #[error("sender is not a producer of the item")]
+    NotAProducer,
 }
 
 /// Outcome of accepting parts for an item.
@@ -80,11 +82,11 @@ impl Policies {
 /// Fans out per-block queries over every policy; dispatches per-id calls to the policy
 /// of `id`'s data type.
 impl DataPolicy for Policies {
-    fn needed_ids(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        self.receipt_proofs.needed_ids(block)
+    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<(DataId, Vec<AccountId>)>, Error> {
+        self.receipt_proofs.needed_items(block)
     }
 
-    fn is_done(&self, id: &DataId) -> Result<bool, Error> {
+    fn is_done(&self, id: &DataId) -> bool {
         self.for_id(id).is_done(id)
     }
 }
@@ -93,9 +95,9 @@ impl DataPolicy for Policies {
 /// far and who sent them, and when an item stops being relevant.
 // TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
 // on the old actor path (#16275).
-pub(crate) struct SpiceDataManager {
+pub(crate) struct SpiceDataManager<P: DataPolicy = Policies> {
     encoders: ReedSolomonEncoderCache,
-    policies: Policies,
+    policies: P,
     /// All tracked items, in any state.
     items: HashMap<DataId, FetchItem>,
     /// Ids of tracked items, indexed by their block's height as captured when first tracked
@@ -104,8 +106,8 @@ pub(crate) struct SpiceDataManager {
     final_execution_head: Option<BlockHeight>,
 }
 
-impl SpiceDataManager {
-    pub(crate) fn new(data_parts_ratio: f64, policies: Policies) -> Self {
+impl<P: DataPolicy> SpiceDataManager<P> {
+    pub(crate) fn new(data_parts_ratio: f64, policies: P) -> Self {
         Self {
             encoders: ReedSolomonEncoderCache::new(data_parts_ratio),
             policies,
@@ -121,28 +123,30 @@ impl SpiceDataManager {
         self.items.contains_key(id)
     }
 
-    /// Starts tracking every item this node needs from `block` and doesn't already have or track. Idempotent.
+    /// Starts tracking every item this node needs from `block` and doesn't already have or
+    /// track. Idempotent.
     pub(crate) fn track_block(&mut self, block: &BlockHeader) -> Result<(), Error> {
         let height = block.height();
         // The chain is past the block, so its data can never be applied.
         if self.final_execution_head.is_some_and(|head| height <= head) {
             return Ok(());
         }
-        for id in self.policies.needed_ids(block)? {
-            if self.items.contains_key(&id) || self.policies.is_done(&id)? {
+        for (id, producers) in self.policies.needed_items(block)? {
+            if self.items.contains_key(&id) || self.policies.is_done(&id) {
                 continue;
             }
             self.items_by_height.entry(height).or_default().push(id.clone());
-            self.items.insert(id, FetchItem::new(height));
+            self.items.insert(id, FetchItem::new(height, producers));
         }
         Ok(())
     }
 
     /// Handles incoming parts: verifies every part's proof against the commitment before
     /// inserting any; a part failing its proof rejects the whole message and leaves the item
-    /// untouched, as does an empty message, one with more than `total_parts` parts, or one
-    /// repeating an ordinal. A decoding insert checks the decoded data against the committed
-    /// hash and the id, settles the commitment either way, and returns matching data.
+    /// untouched, as does an empty message, one with more than `total_parts` parts, one
+    /// repeating an ordinal, or one from a sender that is not a producer of the item. A
+    /// decoding insert checks the decoded data against the committed hash and the id, settles
+    /// the commitment either way, and returns matching data.
     pub(crate) fn on_parts_received(
         &mut self,
         sender: &AccountId,
@@ -160,6 +164,10 @@ impl SpiceDataManager {
         let Some(item) = self.items.get_mut(id) else {
             return Ok(PartsOutcome::NotWanted);
         };
+        let Some(producer_index) = item.producers.iter().position(|(account, _)| account == sender)
+        else {
+            return Err(SenderFault::NotAProducer);
+        };
         let mut ordinals = HashSet::with_capacity(parts.len());
         let mut verified = Vec::with_capacity(parts.len());
         for SpiceDataPart { part_ord, part, merkle_proof } in parts {
@@ -173,7 +181,7 @@ impl SpiceDataManager {
         }
         let encoder = self.encoders.entry(total_parts);
         for part in verified {
-            match item.insert_part(&encoder, id, sender, part) {
+            match item.insert_part(&encoder, id, producer_index, part) {
                 PartInsertResult::Decoded(data) => {
                     return Ok(PartsOutcome::Decoded(data));
                 }

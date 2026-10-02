@@ -28,13 +28,19 @@ impl ReedSolomonEncoderDeserialize for SpiceData {}
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
+    /// The item's producers, in the parts' encoding order, each with its state.
+    pub(super) producers: Vec<(AccountId, ProducerState)>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-    /// Maps each sender's `AccountId` to the commitment it contributed to.
-    pub(super) commitment_by_contributor: HashMap<AccountId, SpiceDataCommitment>,
 }
 
-/// What the engine holds for one claimed commitment of an item.
+/// One producer's part in fetching this item.
+#[derive(Debug, Default)]
+pub(super) struct ProducerState {
+    /// The commitment this producer backed, once one of its parts verified.
+    pub(super) commitment: Option<SpiceDataCommitment>,
+}
+
 #[derive(Debug)]
 pub(super) enum CommitmentState {
     /// Collecting parts toward a decode.
@@ -44,34 +50,37 @@ pub(super) enum CommitmentState {
 }
 
 impl FetchItem {
-    pub(crate) fn new(height: BlockHeight) -> Self {
-        Self { height, commitments: HashMap::new(), commitment_by_contributor: HashMap::new() }
+    pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
+        let producers =
+            producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
+        Self { height, producers, commitments: HashMap::new() }
     }
 
     /// Senders contributed to `commitment`.
     pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
-        self.commitment_by_contributor
+        self.producers
             .iter()
-            .filter(|(_, bound)| *bound == commitment)
-            .map(|(contributor, _)| contributor)
+            .filter(|(_, state)| state.commitment.as_ref() == Some(commitment))
+            .map(|(producer, _)| producer)
             .collect()
     }
 
-    /// Inserts a verified part under its commitment. Any claim binds the sender to the
-    /// commitment; a claim of the wrong width or part length settles the commitment as
-    /// garbage. A decoding insert settles it in the same call.
+    /// Inserts a verified part sent by the producer at `producer_index`, under its commitment.
+    /// Any claim binds the producer to the commitment; a claim of the wrong width or part length
+    /// settles the commitment as garbage. A decoding insert settles it in the same call.
     pub(crate) fn insert_part(
         &mut self,
         encoder: &Arc<ReedSolomonEncoder>,
         id: &DataId,
-        sender: &AccountId,
+        producer_index: usize,
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        if self.commitment_by_contributor.get(sender).is_some_and(|bound| bound != &commitment) {
+        let state = &mut self.producers[producer_index].1;
+        if state.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        self.commitment_by_contributor.insert(sender.clone(), commitment.clone());
+        state.commitment = Some(commitment.clone());
 
         if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
             return PartInsertResult::AlreadySettled;
